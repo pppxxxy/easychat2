@@ -432,6 +432,7 @@ export const workspace = {
   'workspace.chat.voice.none.body': 'Add a transcription config under Settings → Speech-to-text and retry.',
   'workspace.chat.send.a11y': 'Send instruction',
   'workspace.chat.stop.a11y': 'Stop generating',
+  'workspace.chat.steer.a11y': 'Send as a steering instruction (does not interrupt this turn)',
   'workspace.panel.catalog.entry': 'Environments',
   'workspace.panel.catalog.title': 'Environment & config downloads',
   'workspace.panel.catalog.hint': 'Write common config files into the current workspace character’s sandbox; the character can then commit them to repos with GitHub tools.',

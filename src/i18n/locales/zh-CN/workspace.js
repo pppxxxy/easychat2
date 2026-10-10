@@ -432,6 +432,7 @@ export const workspace = {
   'workspace.chat.voice.none.body': '可在「设置 → 语音转文字」新增转写配置后重试。',
   'workspace.chat.send.a11y': '发送指令',
   'workspace.chat.stop.a11y': '停止生成',
+  'workspace.chat.steer.a11y': '作为补充指令发送（不打断本轮）',
   'workspace.panel.catalog.entry': '环境配置',
   'workspace.panel.catalog.title': '环境与配置下载',
   'workspace.panel.catalog.hint': '一键把常用配置写进当前工作区角色的沙盒；角色随后可用 GitHub 工具把它们提交到仓库。',

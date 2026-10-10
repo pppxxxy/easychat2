@@ -27,6 +27,8 @@ import { getEditResendPlan } from './messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn, workspaceRoundBudget } from '../agent/loop.js';
+// I1：Steering 队列（运行中补充指令）——纯函数工厂，队列本身只在「本轮会跑工具循环」时建。
+import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
@@ -199,6 +201,12 @@ export default function useChatSend({
   // P0-7 降级链提示：本次发送中途换过模型时，如实告诉用户「已切换到 X」。
   // 静默换模型会让用户把另一个模型的回复当成主模型的产出。null = 本次没换过。
   const [modelFallbackNotice, setModelFallbackNotice] = useState(null);
+  // I1：Steering——本轮工具循环运行中，用户补充的指令入队，loop 在下一轮请求前注入。
+  // 只有**真的会跑工具循环**时才有队列（单次请求没有「下一轮」可注入，收了等于吞掉
+  // 用户打的字，判定见 chat/steeringSend.js）。
+  const steeringRef = useRef(null);
+  const [steeringAvailable, setSteeringAvailable] = useState(false);
+  const [steeringNote, setSteeringNote] = useState('');
   // 分支变更计数：撤回归档 / 切换 / 删除分支后自增，驱动 UI 重新读取分支索引。
   const [branchesRefreshToken, setBranchesRefreshToken] = useState(0);
   const bumpBranchesRefresh = useCallback(() => {
@@ -522,6 +530,13 @@ export default function useChatSend({
           workspaceMode,
           { allowChatTools: chatToolsEnabled }
         );
+        // I1：Steering 队列只在本轮真的会跑工具循环时建（runAgentTurn 才会在轮与轮之间
+        // drain）；单次请求没有「下一轮」，收了就是吞掉用户的字。宿主据此决定运行中
+        // 发送是「入队」还是「保留输入并说明」。
+        const steeringQueue = agentTools.length > 0 ? createSteeringQueue() : null;
+        steeringRef.current = steeringQueue;
+        setSteeringAvailable(!!steeringQueue);
+        setSteeringNote('');
         // token 口径（E1 起）：端点返回 usage 时用**真实值**（含缓存命中数），
         // 不返回时回退估算器（口径与上下文占用一致，服务商之间可比）。
         let resolvedProvider = null;
@@ -559,6 +574,8 @@ export default function useChatSend({
           ? runAgentTurn(onlineMessages, {
               mode: workspaceMode,
               tools: agentTools,
+              // I1：Steering 队列（运行中补充指令，每轮请求前注入）。
+              ...(steeringQueue ? { steering: steeringQueue } : {}),
               // 轮次预算（A1）：与工作区同款分档（write 16 / read 10；其余默认 12）。
               maxRounds: workspaceRoundBudget(workspaceMode),
               signal: controller.signal,
@@ -777,6 +794,10 @@ export default function useChatSend({
       setModelLoadProgress(null);
       // 降级提示随本次发送一起收场：它描述的是「这次请求中途换过模型」。
       setModelFallbackNotice(null);
+      // I1：Steering 队列与提示同样只属于本轮（队列不跨轮复用，下一轮重新建）。
+      steeringRef.current = null;
+      setSteeringAvailable(false);
+      setSteeringNote('');
     }
   }, [autoScrollToBottom, character, characters, chatOptions.stream, isSessionGuardCurrent, maybeAutoSummarize, ready, scrollToBottom]);
 
@@ -1747,6 +1768,17 @@ if (!isCurrent() || controller.signal.aborted) return false;
     messageActionsRef.current.editUserMessage?.(targetId);
   }, []);
 
+  // I1：运行中的补充指令入队。判定（能不能入队）在 chat/steeringSend.js 的纯函数里，
+  // 这里只负责「入队 + 给用户一句如实提示」；没有队列/空文本一律 false，不假装成功。
+  const pushSteering = useCallback(rawText => {
+    const queue = steeringRef.current;
+    const text = String(rawText === undefined || rawText === null ? '' : rawText).trim();
+    if (!queue || !text) return false;
+    if (!queue.push(text)) return false;
+    setSteeringNote(tRef.current('chat.send.steering.note'));
+    return true;
+  }, []);
+
   return {
     requestReply,
     requestGroupReply,
@@ -1759,6 +1791,11 @@ if (!isCurrent() || controller.signal.aborted) return false;
     onEditUserMessage,
     modelLoadProgress,
     modelFallbackNotice,
+    // I1：运行中补充指令（队列可用性 + 入队 + 提示文案）。
+    steeringAvailable,
+    pushSteering,
+    steeringNote,
+    setSteeringNote,
     branchesRefreshToken,
   };
 }

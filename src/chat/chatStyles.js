@@ -1110,6 +1110,19 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),
   },
+  // I1 补充指令提示条：与降级提示同位置同量级（只是说明「已入队 / 本轮注入不了」）。
+  steeringNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.spacing.xs,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: 4,
+  },
+  steeringNoteText: {
+    flex: 1,
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(11),
+  },
   // 引擎状态条（v5 设计稿）：输入栏上方的圆角提示卡（浅品牌底 + 描边），
   // 不再是贴边横幅；失败回退/出错时切警示配色。
   engineBar: {

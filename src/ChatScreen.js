@@ -186,6 +186,8 @@ import FullScreenInputModal from './chat/FullScreenInputModal.js';
 import ChatSearchBar from './chat/ChatSearchBar.js';
 import ChatTopBar from './chat/ChatTopBar.js';
 import ChatComposer from './chat/ChatComposer.js';
+// I1：运行中发送的判定（纯函数，行为测试在 tests/steeringSend.test.mjs）。
+import { resolveSteeringSend } from './chat/steeringSend.js';
 import EngineStatusBar from './localModel/EngineStatusBar.js';
 import { useLocalEngineStatus } from './localModel/useLocalEngineStatus.js';
 import LocalModelPanel from './LocalModelPanel.js';
@@ -1129,6 +1131,10 @@ export default function ChatScreen() {
     onEditUserMessage,
     modelLoadProgress,
     modelFallbackNotice,
+    steeringAvailable,
+    pushSteering,
+    steeringNote,
+    setSteeringNote,
     branchesRefreshToken,
   } = useChatSend({
     beginSendOperation,
@@ -2274,7 +2280,33 @@ export default function ChatScreen() {
 
   const onSend = useCallback(async () => {
     const text = input.trim();
-     if (messageSelectionOpen || (!text && attachments.length === 0) || isSending || isSwitching || sessionTransitionPending || !ready || abortRef.current) return;
+    if (messageSelectionOpen || isSwitching || sessionTransitionPending || !ready) return;
+    // I1：本轮还在跑时，有文字就走「补充指令」判定（不新开一轮、不打断工具链）。
+    // 判定是纯函数（chat/steeringSend.js）：能入队才清空输入，不能入队一律保留原文并
+    // 说明原因——绝不静默丢弃用户打的字。
+    const steeringDecision = resolveSteeringSend({
+      inFlight: isSending || !!sendLockRef.current || !!abortRef.current,
+      text,
+      hasAttachments: attachments.length > 0,
+      steeringAvailable,
+    });
+    if (steeringDecision.action === 'queued') {
+      if (pushSteering(steeringDecision.text)) {
+        setInput('');
+        persistDraftNow(activeSessionId, '');
+      }
+      return;
+    }
+    if (steeringDecision.action === 'blocked') {
+      if (steeringDecision.reason === 'attachments') {
+        Alert.alert(t('chat.send.steering.title'), t('chat.send.steering.attachments'));
+      } else if (steeringDecision.reason === 'noLoop') {
+        // 本轮不是工具循环：没有「下一轮」可注入，文字留在输入框里等本轮结束再发。
+        setSteeringNote(t('chat.send.steering.noLoop'));
+      }
+      return;
+    }
+    if (!text && attachments.length === 0) return;
     // 压缩指令（compact / /compact，可带关注点）：不发送文本，直接总结当前会话入记忆。
     const compactMatch = COMPACT_COMMAND_PATTERN.exec(text);
     if (compactMatch && attachments.length === 0) {
@@ -2287,7 +2319,7 @@ export default function ChatScreen() {
       return;
     }
      await sendText(input);
-   }, [activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, ready, runCompactCommand, sendText, sessionTransitionPending]);
+   }, [abortRef, activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, persistDraftNow, pushSteering, ready, runCompactCommand, sendLockRef, sendText, sessionTransitionPending, setSteeringNote, steeringAvailable, t]);
 
   // 语音录制入口：仅在单聊、非群聊、就绪时可用。
   const voiceEnabled = !isGroup && !sessionOwnerMissing && ready;
@@ -2639,6 +2671,15 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
+      {/* I1：补充指令提示——「已入队，将在下一步纳入」或「本轮不是工具循环，等结束再发」。
+          随本轮结束自动消失（队列与提示都只属于本轮）。 */}
+      {steeringNote ? (
+        <View style={styles.steeringNoteRow} accessibilityLabel={steeringNote}>
+          <Ionicons name="chatbubble-ellipses-outline" size={13} color={theme.colors.primary} />
+          <Text style={styles.steeringNoteText} numberOfLines={2}>{steeringNote}</Text>
+        </View>
+      ) : null}
+
       <EngineStatusBar
         enabled={localEngine.enabled}
         activeModelId={localEngine.activeModelId}
@@ -2691,6 +2732,7 @@ export default function ChatScreen() {
         isSending={isSending}
         isGroup={isGroup}
         inputDisabled={inputDisabled}
+        steeringEnabled={steeringAvailable}
         onPickAttachment={pickAttachmentMenu}
         onOpenMention={() => setMentionPickerOpen(true)}
         input={input}

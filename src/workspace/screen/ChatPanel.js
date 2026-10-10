@@ -1371,7 +1371,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 placeholder={t('workspace.chat.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 multiline
-                editable={!sending}
+                // I1：运行中不再锁输入框——此时打的字会作为「补充指令」入队（handleSend
+                // 的 sending 分支）。原先这里写 `!sending`，等于把 Steering 入口锁死：
+                // 队列与提示都在，但用户根本没法输入（本轮修正）。
+                editable={!sending || !!steeringRef.current}
               />
               <TouchableOpacity
                 style={styles.iconButton}
@@ -1381,9 +1384,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                 <Ionicons name="options-outline" size={22} color={theme.colors.primarySoft} />
               </TouchableOpacity>
               {sending ? (
-                <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} accessibilityLabel={t('workspace.chat.stop.a11y')}>
-                  <Ionicons name="stop" size={18} color={theme.colors.text} />
-                </TouchableOpacity>
+                <>
+                  {/* I1：运行中打的字不丢——非空时给「补充指令」键（与停止键并存，
+                      发送只入队、不打断本轮）。 */}
+                  {input.trim() ? (
+                    <TouchableOpacity
+                      style={styles.sendButton}
+                      onPress={handleSend}
+                      accessibilityLabel={t('workspace.chat.steer.a11y')}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text} />
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} accessibilityLabel={t('workspace.chat.stop.a11y')}>
+                    <Ionicons name="stop" size={18} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </>
               ) : (
                 <TouchableOpacity
                   style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
