@@ -51,7 +51,7 @@ Claude Code 有而我们没有：
 | UI 插件/自定义面板 | 无 | ✓ | 部分 | 无 |
 | 审批/权限 UI | ✓ | ✓ | ✓ | ✓（三选项弹框） |
 | 计划进度 | TodoWrite | ✓ | ✓ | ✓（进度条） |
-| 报告预览 | 无 | ✓(HTML) | ✓ | 无 |
+| 报告预览 | 无 | ✓(HTML) | ✓ | ✓（md/HTML 渲染，可切原文） |
 | 移动端 | 无 | 无 | bot | ✓ |
 
 ## 4. 规划（按性价比）
@@ -67,7 +67,7 @@ Claude Code 有而我们没有：
 
 **P2（结构）**
 6. **可编程插件**（hooks 之外的 plugin 包）——把声明式扩展升级为可加载插件。
-7. **HTML 报告预览**（dsh 式）：agent 产出 HTML → App 内 WebView 预览。
+7. ~~**HTML 报告预览**（dsh 式）~~ **已做**（2026-10-11）：工作区文件预览按扩展名渲染——`.md`/`.html` 复用聊天页 `AssistantMessageBody`（Markdown / 富 HTML WebView），可一键切「查看原文」；分类纯逻辑在 `src/workspace/filePreview.js`。
 
 **P3（原生/大工程）**
 8. ③ 原生 `POST /v1/agent` endpoint（程序化驱动）。

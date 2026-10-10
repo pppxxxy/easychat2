@@ -43,6 +43,8 @@ import { normalizeLocalModelParams } from '../../localModel/modelParams.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from '../docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from '../native.js';
 import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.js';
+import { isRichPreview } from '../filePreview.js';
+import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
@@ -91,6 +93,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
+  // 预览面板：Markdown/HTML 默认渲染，可切「查看原文」（源码、调试时用）。
+  const [previewRaw, setPreviewRaw] = useState(false);
   // J1 二期：文件历史面板的开关与目标路径（路径为空 = 看总览）。
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyPath, setHistoryPath] = useState('');
@@ -311,7 +315,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     if (!store) return;
     try {
       const result = await store.readWorkspaceFile({ characterId, path: name });
-      if (mountedRef.current) setPreview(result);
+      if (mountedRef.current) {
+        setPreviewRaw(false);
+        setPreview(result);
+      }
     } catch (caught) {
       Alert.alert(t('workspace.panel.err.open'), t('workspace.panel.err.open'));
     }
@@ -1271,9 +1278,21 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
-              {/* selectable：文件正文要能长按选中局部文字（整段复制另有按钮，选段靠它）。 */}
-              <Text style={styles.previewText} selectable>{preview ? preview.content : ''}</Text>
+              {/* Markdown/HTML 默认按聊天同款渲染；「查看原文」切回纯文本。 */}
+              {preview && isRichPreview(preview.path) && !previewRaw ? (
+                <AssistantMessageBody text={preview.content} fullWidth />
+              ) : (
+                /* selectable：文件正文要能长按选中局部文字（整段复制另有按钮，选段靠它）。 */
+                <Text style={styles.previewText} selectable>{preview ? preview.content : ''}</Text>
+              )}
               <View style={styles.formActions}>
+                {preview && isRichPreview(preview.path) ? (
+                  <GhostButton
+                    title={t(previewRaw ? 'workspace.panel.preview.rendered' : 'workspace.panel.preview.raw')}
+                    small
+                    onPress={() => setPreviewRaw(value => !value)}
+                  />
+                ) : null}
                 <GhostButton
                   title={t('common.copy')}
                   small

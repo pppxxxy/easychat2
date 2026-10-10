@@ -429,6 +429,8 @@ export const workspace = {
   'workspace.panel.breadcrumb.root': '工作区',
   'workspace.panel.preview.truncated': '内容较长，仅显示前 1MB。',
   'workspace.panel.preview.hint': '文本预览（只读）',
+  'workspace.panel.preview.raw': '查看原文',
+  'workspace.panel.preview.rendered': '查看渲染',
   'workspace.panel.err.fileSystem': '当前环境无法访问工作区文件系统。',
   'workspace.panel.err.read': '读取工作区失败，请稍后重试。',
   'workspace.panel.err.share': '无法分享该文件，请稍后重试。',

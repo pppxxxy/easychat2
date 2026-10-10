@@ -429,6 +429,8 @@ export const workspace = {
   'workspace.panel.breadcrumb.root': 'Workspace',
   'workspace.panel.preview.truncated': 'Long content; showing the first 1MB only.',
   'workspace.panel.preview.hint': 'Text preview (read-only)',
+  'workspace.panel.preview.raw': 'View source',
+  'workspace.panel.preview.rendered': 'View rendered',
   'workspace.panel.err.fileSystem': 'The workspace file system is unavailable in this environment.',
   'workspace.panel.err.read': 'Failed to read the workspace, please retry.',
   'workspace.panel.err.share': 'Could not share this file, please retry.',
