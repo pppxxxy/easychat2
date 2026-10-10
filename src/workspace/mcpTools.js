@@ -87,6 +87,15 @@ function releaseServerSession(id) {
   mcpSessions.delete(key);
 }
 
+function clipMcpText(text) {
+  const value = String(text == null ? '' : text);
+  if (value.length <= MCP_RESULT_CHAR_LIMIT) return value;
+  // 头 12K + 尾 4K（A2）：尾部常带状态/错误字段，只保头会切掉它们。
+  const tailSize = Math.floor(MCP_RESULT_CHAR_LIMIT / 4);
+  const headSize = MCP_RESULT_CHAR_LIMIT - tailSize;
+  return `${value.slice(0, headSize)}\n…（中间省略 ${value.length - MCP_RESULT_CHAR_LIMIT} 字符；原长 ${value.length} 字符，需要更多请缩小查询范围）…\n${value.slice(-tailSize)}`;
+}
+
 function textFromMcpResult(result) {
   const parts = Array.isArray(result && result.content) ? result.content : [];
   const text = parts
@@ -94,13 +103,50 @@ function textFromMcpResult(result) {
     .filter(Boolean)
     .join('\n')
     || '（工具无文本输出）';
-  if (text.length > MCP_RESULT_CHAR_LIMIT) {
-    // 头 12K + 尾 4K（A2）：MCP 输出尾部常带状态/错误字段，只保头会切掉它们。
-    const tailSize = Math.floor(MCP_RESULT_CHAR_LIMIT / 4);
-    const headSize = MCP_RESULT_CHAR_LIMIT - tailSize;
-    return `${text.slice(0, headSize)}\n…（中间省略 ${text.length - MCP_RESULT_CHAR_LIMIT} 字符；原长 ${text.length} 字符，需要更多请缩小查询范围）…\n${text.slice(-tailSize)}`;
+  return clipMcpText(text);
+}
+
+// MCP 资源读取（readOnly）：resources/read → 文本内容（二进制资源标注 uri）。
+export async function callMcpResource(server, uri, hooks = {}) {
+  const source = server && typeof server === 'object' ? server : null;
+  const label = (source && (source.name || source.id)) || 'MCP';
+  try {
+    const session = await acquireServerSession(source, hooks);
+    if (!session) return { content: `${label} 未连接或缺少凭据，请在设置里重新连接。`, isError: true };
+    const result = await session.readResource(uri);
+    const parts = Array.isArray(result && result.contents) ? result.contents : [];
+    const text = parts
+      .map(part => (part && typeof part.text === 'string' ? part.text : (part && part.uri ? `（二进制资源：${part.uri}）` : '')))
+      .filter(Boolean)
+      .join('\n');
+    return { content: clipMcpText(text || '（资源无文本内容）') };
+  } catch (error) {
+    return { content: `${label} 读取资源失败：${mcpErrorText(error)}`, isError: true };
   }
-  return text;
+}
+
+// MCP 提示词获取（readOnly）：prompts/get → 渲染成文本，供模型当指令/上下文用。
+export async function callMcpPrompt(server, name, args, hooks = {}) {
+  const source = server && typeof server === 'object' ? server : null;
+  const label = (source && (source.name || source.id)) || 'MCP';
+  try {
+    const session = await acquireServerSession(source, hooks);
+    if (!session) return { content: `${label} 未连接或缺少凭据，请在设置里重新连接。`, isError: true };
+    const result = await session.getPrompt(name, args);
+    const messages = Array.isArray(result && result.messages) ? result.messages : [];
+    const text = messages
+      .map(message => {
+        const content = message && message.content;
+        if (typeof content === 'string') return content;
+        if (content && typeof content.text === 'string') return content.text;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n\n');
+    return { content: clipMcpText(text || '（提示词无文本内容）') };
+  } catch (error) {
+    return { content: `${label} 获取提示词失败：${mcpErrorText(error)}`, isError: true };
+  }
 }
 
 // 单次工具调用（执行层门 + 会话 + 结果整形）。
@@ -162,6 +208,48 @@ export function registerMcpServerTools(server, hooks = {}) {
       }),
     });
     registered.push(toolName);
+  }
+  // MCP 完整性：resources / prompts 目录非空时注册只读工具（实时查询；不支持则优雅报错）。
+  const resourceCatalog = Array.isArray(source.resourceCatalog) ? source.resourceCatalog : [];
+  if (resourceCatalog.length > 0) {
+    registerTool({
+      name: `${prefix}read_resource`,
+      description: `${label}（MCP）· 读取一个资源。可用资源：${resourceCatalog.slice(0, 20).map(item => item.uri).join('、')}。[远程只读]`,
+      parameters: {
+        type: 'object',
+        properties: { uri: { type: 'string', description: '资源 URI（见工具描述）。' } },
+        required: ['uri'],
+      },
+      readOnly: true,
+      timeoutMs: MCP_TOOL_TIMEOUT_MS,
+      execute: (args, ctx) => callMcpResource(source, args && args.uri, {
+        fetchImpl: ctx && ctx.fetchImpl,
+        sessionFactory: hooks && hooks.sessionFactory,
+      }),
+    });
+    registered.push(`${prefix}read_resource`);
+  }
+  const promptCatalog = Array.isArray(source.promptCatalog) ? source.promptCatalog : [];
+  if (promptCatalog.length > 0) {
+    registerTool({
+      name: `${prefix}get_prompt`,
+      description: `${label}（MCP）· 获取提示词模板。可用：${promptCatalog.slice(0, 20).map(item => item.name).join('、')}。[远程只读]`,
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '提示词名（见工具描述）。' },
+          arguments: { type: 'object', description: '可选：提示词参数。' },
+        },
+        required: ['name'],
+      },
+      readOnly: true,
+      timeoutMs: MCP_TOOL_TIMEOUT_MS,
+      execute: (args, ctx) => callMcpPrompt(source, args && args.name, args && args.arguments, {
+        fetchImpl: ctx && ctx.fetchImpl,
+        sessionFactory: hooks && hooks.sessionFactory,
+      }),
+    });
+    registered.push(`${prefix}get_prompt`);
   }
   return registered;
 }

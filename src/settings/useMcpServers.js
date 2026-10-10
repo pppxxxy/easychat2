@@ -65,7 +65,10 @@ export default function useMcpServers({ onChanged } = {}) {
     });
     try {
       const tools = await session.listTools();
-      const updated = applyConnectResult(draft, tools);
+      // MCP 完整性：连接时一并拉 resources / prompts（不支持时静默空，不影响连接成功）。
+      const resources = await session.listResources().catch(() => []);
+      const prompts = await session.listPrompts().catch(() => []);
+      const updated = applyConnectResult(draft, tools, { resources, prompts });
       if (!updated) throw new Error('invalid server record');
       const next = upsertMcpServer(await getMcpServers(), updated);
       await saveMcpServers(next);

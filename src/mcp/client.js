@@ -243,6 +243,26 @@ export function createMcpSession({
       });
       return result || { content: [], isError: false };
     },
+    // MCP 完整性：resources / prompts（此前只有 tools）。
+    async listResources() {
+      const result = await dispatch('resources/list', {});
+      return result && Array.isArray(result.resources) ? result.resources : [];
+    },
+    async readResource(uri) {
+      const result = await dispatch('resources/read', { uri: String(uri || '') });
+      return result || { contents: [] };
+    },
+    async listPrompts() {
+      const result = await dispatch('prompts/list', {});
+      return result && Array.isArray(result.prompts) ? result.prompts : [];
+    },
+    async getPrompt(name, args) {
+      const result = await dispatch('prompts/get', {
+        name: String(name || ''),
+        ...(args && typeof args === 'object' ? { arguments: args } : {}),
+      });
+      return result || { messages: [] };
+    },
     async ping() {
       await ensureInitialized();
       return true;

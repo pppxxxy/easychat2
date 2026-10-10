@@ -15,7 +15,9 @@ import {
   callGithubMcpTool,
   mcpGateReason,
   registerGithubMcpTools,
+  registerMcpServerTools,
   unregisterGithubMcpTools,
+  unregisterMcpServerTools,
 } from '../src/workspace/mcpTools.js';
 import { clearTools, getTool, listRegisteredTools, runTool } from '../src/agent/tools/registry.js';
 import { describeToolApproval } from '../src/chat/toolApproval.js';
@@ -195,4 +197,41 @@ test('接线源码断言：useChatSend 挂载 ensureMcpToolsRegistered；硬禁�
   assert.ok(tools.includes('if (tier === MCP_TOOL_TIERS.DENIED)'), '执行层双保险必须存在');
   assert.ok(tools.includes('classifyMcpTool(mcpName, {'), '执行层分级必须按服务器参数重查');
   assert.ok(tools.includes('安全策略禁止此操作'), '硬禁提示必须明确不可解锁');
+});
+
+test('MCP 完整性：resources/prompts 目录非空时注册只读工具并可执行', async () => {
+  clearTools();
+  const calls = [];
+  const server = {
+    id: 'demo',
+    name: 'Demo',
+    endpoint: 'https://demo/mcp',
+    enabled: true,
+    toolCatalog: [{ name: 'get_thing', description: 'r' }],
+    resourceCatalog: [{ uri: 'file:///a.txt', name: 'a' }],
+    promptCatalog: [{ name: 'greet' }],
+  };
+  const registered = registerMcpServerTools(server, {
+    sessionFactory: () => ({
+      readResource: async uri => { calls.push(['read', uri]); return { contents: [{ uri, text: 'hello' }] }; },
+      getPrompt: async (name, args) => {
+        calls.push(['prompt', name, args]);
+        return { messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }] };
+      },
+      close() {},
+    }),
+  });
+  assert.ok(registered.includes('demo__read_resource'), '资源读取工具已注册');
+  assert.ok(registered.includes('demo__get_prompt'), '提示词工具已注册');
+  assert.equal(getTool('demo__read_resource').readOnly, true);
+  assert.equal(getTool('demo__get_prompt').readOnly, true);
+
+  const read = await runTool({ name: 'demo__read_resource', arguments: { uri: 'file:///a.txt' } }, { mode: 'read' });
+  assert.equal(read.content, 'hello');
+  const prompt = await runTool({ name: 'demo__get_prompt', arguments: { name: 'greet' } }, { mode: 'read' });
+  assert.equal(prompt.content, 'hi');
+  assert.deepEqual(calls, [['read', 'file:///a.txt'], ['prompt', 'greet', undefined]]);
+
+  unregisterMcpServerTools(server);
+  assert.equal(listRegisteredTools().length, 0, '摘除必须清干净');
 });
