@@ -21,6 +21,9 @@ export default function ChatComposer({
   onRemoveAttachment,
   isSending,
   inputDisabled,
+  // I1：本轮可以接收「补充指令」（agent 工具循环运行中）。true 时发送中仍可继续打字，
+  // 文字非空则出现「补充指令」键（与停止键并存，发送不打断本轮）。
+  steeringEnabled = false,
   onPickAttachment,
   input,
   onChangeInput,
@@ -42,6 +45,9 @@ export default function ChatComposer({
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // 只有「正在发送」且本轮能注入补充指令时才解锁输入框；其余禁用原因（未就绪/切换中/
+  // 选消息/附件加载…）照旧锁住——steering 不该把这些一并放开。
+  const steeringNow = isSending === true && steeringEnabled === true;
 
   return (
     <>
@@ -141,7 +147,7 @@ export default function ChatComposer({
           placeholder={t('chat.composer.placeholder')}
            placeholderTextColor={theme.colors.textFaint}
            multiline
-           editable={!inputDisabled}
+           editable={!inputDisabled || steeringNow}
          />
          <TouchableOpacity
            style={styles.stickerButton}
@@ -154,14 +160,28 @@ export default function ChatComposer({
            <Ionicons name="happy-outline" size={21} color={theme.colors.primarySoft} />
          </TouchableOpacity>
         {isSending ? (
-          <TouchableOpacity
-            style={[styles.sendButton, styles.stopButton]}
-            onPress={onStop}
-            accessibilityLabel={t('chat.composer.a11y.stop')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="stop" size={18} color={theme.colors.text} />
-          </TouchableOpacity>
+          <>
+            {/* I1：补充指令——运行中打的字不丢：非空时给出发送键，入队后由 agent 循环
+                在下一轮请求前注入（不新开一轮、不打断工具链）。 */}
+            {steeringNow && input.trim() ? (
+              <TouchableOpacity
+                style={styles.sendButton}
+                onPress={onSend}
+                accessibilityLabel={t('chat.composer.a11y.steer')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text} />
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.sendButton, styles.stopButton]}
+              onPress={onStop}
+              accessibilityLabel={t('chat.composer.a11y.stop')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="stop" size={18} color={theme.colors.text} />
+            </TouchableOpacity>
+          </>
         ) : (
           <TouchableOpacity
             style={[

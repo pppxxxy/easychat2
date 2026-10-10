@@ -27,12 +27,22 @@ import { getEditResendPlan } from './messageSelection.js';
 import { canUseLocalModel, sendWithModelProvider } from '../network/modelProvider.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
 import { runAgentTurn, workspaceRoundBudget } from '../agent/loop.js';
+// I1：Steering 队列（运行中补充指令）——纯函数工厂，队列本身只在「本轮会跑工具循环」时建。
+import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 import { TOOL_BUBBLE_KIND } from './chatConstants.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
+// O1 超限结果落盘（M 系）+ 工作区钩子事件面（D 系：注入/预置禁令，取代旧的 shellHookDenyRules）。
 import { persistToolResult } from '../workspace/taskOutputs.js';
-import { readWorkspaceHooks, shellHookDenyRules } from '../workspace/hooks.js';
+import {
+  buildHookContextText,
+  collectPromptHooks,
+  collectSessionStartNotices,
+  collectTurnEndNotices,
+  hookPermissionRules,
+  readWorkspaceHooks,
+} from '../workspace/hooks.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import {
@@ -69,6 +79,11 @@ import { REACTIVE_FAILED_MESSAGE, isContextOverflowError, runReactiveCompact } f
 import { attachToolTrace, extractToolTrace } from './toolTrace.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
+import {
+  buildContextBreakdown,
+  estimateHistoryTokens,
+  estimateTextTokens,
+} from './contextUsage.js';
 import {
   buildAutoSummaryInput,
   buildReplyErrorMessage,
@@ -220,6 +235,21 @@ export default function useChatSend({
   // 本地模型首次加载进度（0-100）：本地路径首条消息会在推理前 mmap 数 GB 权重，
   // 期间「正在思考」看不出是在加载。null = 未在加载（在线路径或无本地模型）。
   const [modelLoadProgress, setModelLoadProgress] = useState(null);
+  // P0-7 降级链提示：本次发送中途换过模型时，如实告诉用户「已切换到 X」。
+  // 静默换模型会让用户把另一个模型的回复当成主模型的产出。null = 本次没换过。
+  const [modelFallbackNotice, setModelFallbackNotice] = useState(null);
+  // I1：Steering——本轮工具循环运行中，用户补充的指令入队，loop 在下一轮请求前注入。
+  // 只有**真的会跑工具循环**时才有队列（单次请求没有「下一轮」可注入，收了等于吞掉
+  // 用户打的字，判定见 chat/steeringSend.js）。
+  const steeringRef = useRef(null);
+  const [steeringAvailable, setSteeringAvailable] = useState(false);
+  const [steeringNote, setSteeringNote] = useState('');
+  // P0-8：hooks.json 的注入类事件——session_start 每个会话只注入一次（内存记账），
+  // after_turn 的提醒排队给下一轮。两者都只在本次运行内有效（重启即丢，不写盘）。
+  const hookSessionInjectedRef = useRef(new Set());
+  const pendingHookNoticesRef = useRef([]);
+  // P2-7：上下文占用明细（按本次真实发出的请求分段测量；null = 还没发过请求）。
+  const [contextBreakdown, setContextBreakdown] = useState(null);
   // 分支变更计数：撤回归档 / 切换 / 删除分支后自增，驱动 UI 重新读取分支索引。
   const [branchesRefreshToken, setBranchesRefreshToken] = useState(0);
   const bumpBranchesRefresh = useCallback(() => {
@@ -283,6 +313,14 @@ export default function useChatSend({
          }];
        });
      };
+     // P0-7：降级链中途换了模型 → 记下「从谁换到谁」，由 ChatScreen 在输入栏上方
+     // 如实提示（不弹框、不打断生成）。只记当前会话：切走后旧会话的提示不该跟过来。
+     const noteModelFallback = info => {
+       if (!isCurrentSession()) return;
+       const to = String((info && info.to) || '');
+       if (!to) return;
+       setModelFallbackNotice({ from: String((info && info.from) || ''), to });
+     };
      // 工作区模式（ask/read/write）：决定在线路径是否走 agent 工具循环。
      // 读取失败按默认 ask 处理（零行为变化，绝不因设置读失败而改变发送行为）。
      let workspaceMode = 'ask';
@@ -293,6 +331,32 @@ export default function useChatSend({
      } catch (error) {
        workspaceMode = 'ask';
      }
+     // P0-8：提交前钩子（before_prompt）与上下文注入（session_start / 上一轮的 after_turn）。
+     // 放在**建消息之前**：拦下时不留下任何 pending 气泡（一次脏状态都不产生）。
+     // 钩子读失败一律当没有钩子——声明式扩展绝不能成为发送链路的故障源。
+     let hookContextText = '';
+     try {
+       const hookStore = createWorkspaceStore(workspaceSettings);
+       const hooks = await readWorkspaceHooks(hookStore, character.id);
+       const promptHooks = collectPromptHooks(hooks, userText);
+       if (promptHooks.blocks.length > 0) {
+         Alert.alert(tRef.current('chat.hooks.blocked.title'), promptHooks.blocks.join('\n'));
+         return false;
+       }
+       const sessionId = String(sendSessionId || '');
+       const sessionNotices = sessionId && !hookSessionInjectedRef.current.has(sessionId)
+         ? collectSessionStartNotices(hooks)
+         : [];
+       if (sessionNotices.length > 0 && sessionId) hookSessionInjectedRef.current.add(sessionId);
+       hookContextText = buildHookContextText([
+         ...pendingHookNoticesRef.current,
+         ...sessionNotices,
+         ...promptHooks.notices,
+       ]);
+       // 本轮结束后要提醒的（after_turn）排队给下一次请求：本轮读到的快照即依据，
+       // 队列只在内存里（重启即丢——不写盘、不假装持久）。
+       pendingHookNoticesRef.current = collectTurnEndNotices(hooks);
+     } catch (error) {}
      const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
@@ -457,6 +521,8 @@ export default function useChatSend({
          scheduleText,
          // 真实位置开启且存在最近位置时附上位置行。
          locationText: locationLine,
+         // P0-8：hooks.json 的注入类事件（session_start / after_turn / before_prompt）。
+         extraSystemPrompt: hookContextText || undefined,
          // 语音兜底（需求 6.2）：转写失败且来源支持音频时按 input_audio 直发。
          voiceAudio,
        });
@@ -540,6 +606,33 @@ export default function useChatSend({
           workspaceMode,
           { allowChatTools: chatToolsEnabled }
         );
+        // P2-7：上下文占用明细——按**本次真实发出的请求**分段测量（系统提示 / 历史 /
+        // 本轮输入 / 工具定义），让用户看到「谁在吃窗口」。系统提示里折了角色设定、
+        // 预设、世界书、记忆与钩子注入，这里不假装能拆开（要拆得改请求构造层）。
+        try {
+          const systemText = requestMessages
+            .filter(item => item && item.role === 'system')
+            .map(item => (typeof item.content === 'string' ? item.content : ''))
+            .join('\n');
+          const nonSystem = requestMessages.filter(item => item && item.role !== 'system');
+          const inputMessages = nonSystem.slice(-1);
+          const historyMessages = nonSystem.slice(0, -1);
+          setContextBreakdown(buildContextBreakdown([
+            { key: 'system', tokens: estimateTextTokens(systemText) },
+            { key: 'history', tokens: estimateHistoryTokens(historyMessages) },
+            { key: 'input', tokens: estimateHistoryTokens(inputMessages) },
+            ...(agentTools.length > 0
+              ? [{ key: 'tools', tokens: estimateTextTokens(JSON.stringify(agentTools)) }]
+              : []),
+          ], 0));
+        } catch (error) {}
+        // I1：Steering 队列只在本轮真的会跑工具循环时建（runAgentTurn 才会在轮与轮之间
+        // drain）；单次请求没有「下一轮」，收了就是吞掉用户的字。宿主据此决定运行中
+        // 发送是「入队」还是「保留输入并说明」。
+        const steeringQueue = agentTools.length > 0 ? createSteeringQueue() : null;
+        steeringRef.current = steeringQueue;
+        setSteeringAvailable(!!steeringQueue);
+        setSteeringNote('');
         // token 口径（E1 起）：端点返回 usage 时用**真实值**（含缓存命中数），
         // 不返回时回退估算器（口径与上下文占用一致，服务商之间可比）。
         let resolvedProvider = null;
@@ -549,7 +642,9 @@ export default function useChatSend({
         // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
         // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
         // 本地模型/不返回 usage 的端点：count 恒为 0，走估算回退（零行为变化）。
-        const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
+        // P0-7/P2-10：`lastModel` 记**真正产出内容**的模型（降级链可能换过模型）——
+        // 记账按主模型记会让「这条回复是谁产的」变成假话。
+        const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, lastModel: '' };
         recordStats = (completionText, extra = {}) => {
           try {
             const timing = meter.finish();
@@ -559,7 +654,9 @@ export default function useChatSend({
               configLabel: isLocal
                 ? tRef.current('chat.stats.localProvider')
                 : (onlineConfigLabel || expectedConfigId || ''),
-              model: isLocal ? String(resolvedProvider.modelName || '') : onlineModelName,
+              model: isLocal
+                ? String(resolvedProvider.modelName || '')
+                : (usageAcc.lastModel || onlineModelName),
               promptTokens: estimatePromptTokens(requestMessages),
               completionTokens: estimateReplyTokens(completionText || ''),
               // 有真实 usage 就覆盖估算；extra 在其后仍可最终覆盖（失败记账等场景）。
@@ -579,6 +676,8 @@ export default function useChatSend({
           ? runAgentTurn(onlineMessages, {
               mode: workspaceMode,
               tools: agentTools,
+              // I1：Steering 队列（运行中补充指令，每轮请求前注入）。
+              ...(steeringQueue ? { steering: steeringQueue } : {}),
               // 轮次预算（A1）：与工作区同款分档（write 16 / read 10；其余默认 12）。
               maxRounds: workspaceRoundBudget(workspaceMode),
               signal: controller.signal,
@@ -588,11 +687,15 @@ export default function useChatSend({
                 usageAcc.promptTokens += Number(entry && entry.promptTokens) || 0;
                 usageAcc.completionTokens += Number(entry && entry.completionTokens) || 0;
                 usageAcc.cachedTokens += Number(entry && entry.cachedTokens) || 0;
+                // 记「最后一轮真正产出内容」的模型（降级后就是降级模型）。
+                if (entry && entry.model) usageAcc.lastModel = String(entry.model);
               },
               requestOptions: {
                 expectedConfigId,
                 expectedConfigFingerprint,
                 stream: chatOptions.stream,
+                // P0-7：换模型重试要能提示到用户（经 runAgentTurn 透传给 api.js）。
+                onModelFallback: noteModelFallback,
               },
               onToken: fullText => {
                 meter.markFirstToken();
@@ -629,7 +732,7 @@ export default function useChatSend({
                 if (hookStore) {
                   try {
                     const hooks = await readWorkspaceHooks(hookStore, character.id);
-                    extraRules = shellHookDenyRules(hooks);
+                    extraRules = hookPermissionRules(hooks);
                   } catch (error) {}
                 }
                 return approveToolCall({
@@ -661,6 +764,7 @@ export default function useChatSend({
               expectedConfigFingerprint,
               signal: controller.signal,
            stream: chatOptions.stream,
+           onModelFallback: noteModelFallback,
            onChunk: fullText => {
              meter.markFirstToken();
              if (!isCurrentSession() || controller.signal.aborted) return;
@@ -877,6 +981,12 @@ export default function useChatSend({
         }
       }
       setModelLoadProgress(null);
+      // 降级提示随本次发送一起收场：它描述的是「这次请求中途换过模型」。
+      setModelFallbackNotice(null);
+      // I1：Steering 队列与提示同样只属于本轮（队列不跨轮复用，下一轮重新建）。
+      steeringRef.current = null;
+      setSteeringAvailable(false);
+      setSteeringNote('');
     }
   }, [autoScrollToBottom, character, characters, chatOptions.stream, isSessionGuardCurrent, maybeAutoSummarize, ready, scrollToBottom]);
 
@@ -900,6 +1010,13 @@ export default function useChatSend({
      const controller = sendLockRef.current?.controller || new AbortController();
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
+     // P0-7：群聊（含群像/发言调度）换模型同样要如实提示——与单聊同一口径。
+     const noteGroupModelFallback = info => {
+       if (!isCurrent()) return;
+       const to = String((info && info.to) || '');
+       if (!to) return;
+       setModelFallbackNotice({ from: String((info && info.from) || ''), to });
+     };
      // 群聊同样计入本会话统计：配置名/模型名在这里读一次，供每组请求记账。
      let groupConfigLabel = '';
      let groupModelName = '';
@@ -1051,6 +1168,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              expectedConfigFingerprint,
              signal: controller.signal,
               stream: chatOptions.stream,
+              onModelFallback: noteGroupModelFallback,
             });
             recordGroupStats(speakerMeter, reply);
              if (!isCurrent()) return false;
@@ -1133,6 +1251,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              expectedConfigFingerprint,
              signal: controller.signal,
             stream: chatOptions.stream,
+            onModelFallback: noteGroupModelFallback,
             onChunk: fullText => {
               ensembleMeter.markFirstToken();
               if (!isCurrent() || controller.signal.aborted) return;
@@ -1217,6 +1336,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
           autoScrollToBottom();
         }
       }
+      // 降级提示随本次发送一起收场（与单聊同款）。
+      setModelFallbackNotice(null);
     }
   }, [autoScrollToBottom, chatOptions.stream, isSessionGuardCurrent, ready, scrollToBottom]);
 
@@ -1836,6 +1957,17 @@ if (!isCurrent() || controller.signal.aborted) return false;
     messageActionsRef.current.editUserMessage?.(targetId);
   }, []);
 
+  // I1：运行中的补充指令入队。判定（能不能入队）在 chat/steeringSend.js 的纯函数里，
+  // 这里只负责「入队 + 给用户一句如实提示」；没有队列/空文本一律 false，不假装成功。
+  const pushSteering = useCallback(rawText => {
+    const queue = steeringRef.current;
+    const text = String(rawText === undefined || rawText === null ? '' : rawText).trim();
+    if (!queue || !text) return false;
+    if (!queue.push(text)) return false;
+    setSteeringNote(tRef.current('chat.send.steering.note'));
+    return true;
+  }, []);
+
   return {
     requestReply,
     requestGroupReply,
@@ -1847,6 +1979,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
     onRegenerateMessage,
     onEditUserMessage,
     modelLoadProgress,
+    modelFallbackNotice,
+    // P2-7：上下文占用明细（null = 还没发过请求）。
+    contextBreakdown,
+    // I1：运行中补充指令（队列可用性 + 入队 + 提示文案）。
+    steeringAvailable,
+    pushSteering,
+    steeringNote,
+    setSteeringNote,
     branchesRefreshToken,
   };
 }

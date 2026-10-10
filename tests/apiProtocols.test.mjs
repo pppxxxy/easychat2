@@ -147,9 +147,17 @@ test('buildRequestBody：openai 原样、anthropic 用 max_tokens/system、respo
     protocol: 'anthropic', model: 'claude', messages, stream: true,
     samplingParams: { max_tokens: 100 },
   });
-  assert.equal(anthropic.system, 'S');
+  // P1-1 起默认打断点：system 转成块数组才能挂 cache_control（文本原样保留）。
+  assert.deepEqual(anthropic.system, [{ type: 'text', text: 'S', cache_control: { type: 'ephemeral' } }]);
   assert.equal(anthropic.max_tokens, 100);
   assert.equal(anthropic.messages[0].role, 'user');
+
+  // 关掉缓存（`promptCacheTtl: 'off'`）时保持字符串形态——与加这个特性之前逐字一致。
+  const anthropicOff = buildRequestBody({
+    protocol: 'anthropic', model: 'claude', messages, stream: true,
+    samplingParams: { max_tokens: 100 }, config: { promptCacheTtl: 'off' },
+  });
+  assert.equal(anthropicOff.system, 'S');
 
   const responses = buildRequestBody({
     protocol: 'openai-responses', model: 'gpt', messages, stream: true,

@@ -16,6 +16,7 @@ import {
 } from '../storage/settings/workspacePermissions.js';
 import {
   APPROVAL_ALWAYS,
+  APPROVAL_ONCE,
   APPROVAL_SESSION,
   requestToolApproval,
 } from './toolApproval.js';
@@ -29,6 +30,7 @@ function defaultApprovalHandler(request) {
     t: request.t,
     signal: request.signal,
     showAlert: request.showAlert,
+    askOnly: request.askOnly,
   });
 }
 
@@ -68,13 +70,19 @@ export async function approveToolCall({
   if (verdict === 'deny') return false;
   if (verdict === 'allow') return true;
 
+  // ask 档：显式「必须先问」。只给「拒绝 / 允许这一次」——**批准不记规则**，
+  // 否则一次点击就把「必须先问」永久解除，这个档就白加了。
+  const askOnly = verdict === 'ask';
+  // 走 broker（Z 系 #3）：生命周期与「谁来答」解耦；ask 档随请求带下去。
   const decision = await broker.requestPermission(
-    { requestId: nextApprovalRequestId(), toolName: name, args, t, signal, showAlert },
+    { requestId: nextApprovalRequestId(), toolName: name, args, t, signal, showAlert, askOnly },
     { signal, handler: handler || defaultApprovalHandler }
   );
   const value = typeof decision === 'string'
     ? decision
     : String((decision && decision.decision) || '');
+  if (value === APPROVAL_ONCE) return true;
+  if (askOnly) return false; // ask 档下其余返回值（含异常/未知选项）一律按拒绝
   if (value === APPROVAL_SESSION) {
     try {
       addSessionPermissionRule(makePermissionRule({ tool: name, args, scope: 'session' }));

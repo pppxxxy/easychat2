@@ -20,6 +20,8 @@ import {
 } from '../apiProtocols.js';
 import { tActive } from '../i18n/index.js';
 import { trimMessagesToContext } from '../localModel/localContext.js';
+// P0-7 下半：降级链的判定层（纯函数，见同目录 fallbackModels.js）。
+import { planFallbackChain, shouldFallback } from './fallbackModels.js';
 
 // F4：在线路径上下文硬裁剪（纯函数，可测）。仅当模型声明了 contextWindow > 0 且未
 // 显式关闭时生效；直接复用本地模型同款裁剪（系统提示恒保留）。未声明窗口 = 原样返回，
@@ -238,6 +240,13 @@ async function resolveChatConfig(options = {}) {
 // 结构化流式请求：返回完整文本、思考文本与 tool_calls 累积结果，供 agent 循环使用。
 // 注意：这里返回**原始空文本**，不做 EMPTY_REPLY_TEXT 兜底——工具轮里
 // 「text 为空 + tool_calls」是正常形态，占位文本会污染 assistant 历史。
+//
+// P0-7 降级链（下半）：这里是**所有在线请求的唯一收口**（聊天走 agent/loop.js，
+// 群聊/记忆总结/压缩/日记/动态/制卡各自直连），所以接线只能放在这一层——逐处加壳
+// 必漏。配置了「降级模型」时按 `planFallbackChain` 依次尝试：只有**可判定失败**
+// （429 / 5xx / 超时 / 网络不可达）且**本轮还没有任何产出**才换下一个模型；
+// 401/403（密钥）、404（模型名）、400/422（参数）与用户中断一律不换——换模型只是
+// 把同一个错误再犯一遍，还会白花额度。
 export async function streamChatCompletion(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
   const onReasoning = options && typeof options.onReasoning === 'function' ? options.onReasoning : null;
@@ -287,8 +296,103 @@ export async function streamChatCompletion(messages, options = {}) {
     throw new Error(tActive('error.api.invalidUrl'));
   }
   const thinkingSettings = await getThinkingSettings().catch(() => null);
-  const thinkingParams = buildThinkingParams(config, thinkingSettings);
   const samplingSettings = await getSamplingSettings().catch(() => null);
+
+  // 尝试顺序：主模型在前 + 去重后的降级项。没配降级项时链长为 1，走的就是原来的
+  // 单次请求路径（零行为变化）。配置解析、设置读取只在循环外做一次：换模型重试
+  // 不该重读存储，否则重试期间设置变化会让同一轮请求前后口径不一致。
+  const chain = planFallbackChain({ model, fallbackModels: config.fallbackModels });
+  const attempts = chain.length ? chain : [model];
+  let lastError = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const candidate = attempts[index];
+    // 「是否已产出」必须如实跟踪：流式已经吐出半句话再换模型重来，用户会看到两段
+    // 拼接的回复，比直接报错更糟。只有真的回调过（非空增量才会回调）才算产出。
+    let emitted = false;
+    const trackEmitted = callback => (typeof callback === 'function'
+      ? text => {
+        emitted = true;
+        callback(text);
+      }
+      : null);
+    try {
+      return await requestOnce(messages, options, {
+        config,
+        model: candidate,
+        protocol,
+        url,
+        thinkingSettings,
+        samplingSettings,
+        stream,
+        tools,
+        toolChoice,
+        signal,
+        onChunk: trackEmitted(onChunk),
+        onReasoning: trackEmitted(onReasoning),
+      });
+    } catch (error) {
+      lastError = error;
+      if (!shouldFallback({
+        error,
+        emitted,
+        attempted: index,
+        chainLength: attempts.length,
+      })) {
+        throw error;
+      }
+      // 换模型不能静默：宿主（聊天页）要把「已切换到 X」如实告诉用户，否则用户会
+      // 把另一个模型的回复当成主模型的。信息性回调抛错不得打断重试。
+      notifyModelFallback(options, {
+        from: candidate,
+        to: attempts[index + 1],
+        attempt: index + 1,
+        reason: describeFallbackReason(error),
+      });
+    }
+  }
+  // 理论不可达（最后一次失败已在循环内抛出）；保留兜底，避免「静默成功」。
+  throw lastError;
+}
+
+// 失败原因的可判定摘要：只用于日志与宿主提示，不做文案匹配（文案会随语言漂移）。
+function describeFallbackReason(error) {
+  const status = Number(error && error.httpStatus);
+  if (Number.isFinite(status) && status > 0) return `HTTP ${status}`;
+  if (error && error.timeout === true) return 'timeout';
+  if (error && error.network === true) return 'network';
+  return 'unknown';
+}
+
+function notifyModelFallback(options, info) {
+  const callback = options && options.onModelFallback;
+  if (typeof callback !== 'function') return;
+  try {
+    callback(info);
+  } catch (error) {
+    // 信息性 UI 回调抛错不得打断请求（与 agent/loop.js 的 safeCallback 同款口径）。
+  }
+}
+
+// 单次请求：一次 XHR 往返（含流式解析）。降级链的每一环都调它。
+// 除 `model` 外的解析结果由 streamChatCompletion 传入——换模型重试不重做配置解析、
+// 不重读设置；但**按模型解析**的三项（能力、输出预算、上下文窗口）必须在每次尝试里
+// 重算，否则降级后仍在用主模型的窗口与 max_tokens。
+async function requestOnce(messages, options, attempt) {
+  const config = attempt.config;
+  const model = attempt.model;
+  const protocol = attempt.protocol;
+  const url = attempt.url;
+  const onChunk = attempt.onChunk;
+  const onReasoning = attempt.onReasoning;
+  const signal = attempt.signal;
+  const stream = attempt.stream;
+  const tools = attempt.tools;
+  const toolChoice = attempt.toolChoice;
+  const thinkingSettings = attempt.thinkingSettings;
+  const samplingSettings = attempt.samplingSettings;
+
+  const thinkingParams = buildThinkingParams(config, thinkingSettings);
   // 本次请求的采样覆盖（制卡等需要低温 + 大输出预算的 JSON 生成）：
   // 只覆盖本次组装出的 samplingParams，不写回设置，不影响全局聊天。
   const samplingParams = mergeSamplingOverrides(
@@ -370,6 +474,9 @@ export async function streamChatCompletion(messages, options = {}) {
       finishReason,
       // E1：可能为 null（端点不返回 usage）——调用方必须容忍缺失。
       usage: latestUsage,
+      // P0-7/P2-10：**这一次真正产出内容的是哪个模型**（降级链可能换过模型）。
+      // 记账若仍按主模型记，用户看到的「这条回复是谁产的/花了谁的钱」就是假的。
+      model: String(model || ''),
     });
 
     const settle = (fn, value) => {
@@ -449,9 +556,14 @@ export async function streamChatCompletion(messages, options = {}) {
       if (idleTimer) clearTimeout(idleTimer);
       const waitingFirstByte = !sawFirstByte;
       idleTimer = setTimeout(() => {
-        fail(new Error(waitingFirstByte
+        const timeoutError = new Error(waitingFirstByte
           ? '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）'
-          : '请求超时，请检查网络后重试'));
+          : '请求超时，请检查网络后重试');
+        // 结构化标记（2026-10-10，P0-7）：降级链要判断「这次失败值不值得换模型重试」，
+        // 靠文案匹配会被翻译/措辞改动带偏，所以在这里挂上可判定的字段。
+        timeoutError.timeout = true;
+        timeoutError.firstByte = waitingFirstByte;
+        fail(timeoutError);
         xhr.abort();
       }, waitingFirstByte ? FIRST_BYTE_TIMEOUT_MS : IDLE_TIMEOUT_MS);
     };
@@ -587,7 +699,10 @@ export async function streamChatCompletion(messages, options = {}) {
     xhr.onload = () => {
       if (settled) return;
       if (xhr.status < 200 || xhr.status >= 300) {
-        fail(new Error(formatApiError(xhr.responseText, xhr.status)));
+        const httpError = new Error(formatApiError(xhr.responseText, xhr.status));
+        // 结构化状态码（P0-7）：429 与 5xx 可降级重试，4xx 其余是确定性失败（换模型也一样）。
+        httpError.httpStatus = xhr.status;
+        fail(httpError);
         return;
       }
       try {
@@ -646,7 +761,12 @@ export async function streamChatCompletion(messages, options = {}) {
       }
     };
 
-    xhr.onerror = () => fail(new Error('网络请求失败，请检查网络或 API 地址。'));
+    xhr.onerror = () => {
+      const networkError = new Error('网络请求失败，请检查网络或 API 地址。');
+      // 结构化标记（P0-7）：网络不可达是可降级失败（换模型/换线路都可能成功）。
+      networkError.network = true;
+      fail(networkError);
+    };
     xhr.onabort = () => fail(canceled ? createAbortError() : new Error('请求已中断。'));
 
     if (settled) return;

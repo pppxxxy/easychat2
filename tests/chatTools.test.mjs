@@ -52,6 +52,7 @@ const bubble = loadModule('src/chat/toolBubbleView.js', {});
 
 test('toolLabelKey：已登记工具给 i18n key，未登记工具给空串（由兜底文案接管）', () => {
   assert.equal(bubble.toolLabelKey('web_search'), 'chat.toolBubble.name.search');
+  assert.equal(bubble.toolLabelKey('web_fetch'), 'chat.toolBubble.name.fetch');
   assert.equal(bubble.toolLabelKey('some_future_tool'), '');
   assert.equal(bubble.toolLabelKey(''), '');
   assert.equal(bubble.toolLabelKey(null), '');
@@ -80,12 +81,17 @@ test('toolBubbleState：未知阶段或空工具名返回 null，不产出空气
 test('toolBubbleView：已登记工具走具名文案，未登记工具原样显示工具名（不吞信息）', () => {
   const known = bubble.toolBubbleView({ name: 'web_search', status: 'running' });
   assert.equal(known.nameKey, 'chat.toolBubble.name.search');
-  assert.equal(known.statusKey, 'chat.toolBubble.status.running');
+  assert.equal(known.statusKey, 'chat.toolBubble.status.search.running', '搜索有专属状态文案');
+
+  // 抓取与搜索是两件事：状态文案必须分开（否则抓取会显示「正在搜索…」）。
+  const fetch = bubble.toolBubbleView({ name: 'web_fetch', status: 'done' });
+  assert.equal(fetch.nameKey, 'chat.toolBubble.name.fetch');
+  assert.equal(fetch.statusKey, 'chat.toolBubble.status.fetch.done');
 
   const unknown = bubble.toolBubbleView({ name: 'future_tool', status: 'done' });
   assert.equal(unknown.nameKey, 'chat.toolBubble.name.generic');
   assert.equal(unknown.nameParams.raw, 'future_tool', '未登记的工具必须暴露原始名');
-  assert.equal(unknown.statusKey, 'chat.toolBubble.status.done');
+  assert.equal(unknown.statusKey, 'chat.toolBubble.status.done', '未登记工具走通用状态文案');
 });
 
 test('reduceToolEvents：同一轮同一工具的 start 被 end 覆盖，不堆两条', () => {
@@ -237,11 +243,16 @@ test('聊天内工具词条中英齐备', () => {
   const enSettings = read('src/i18n/locales/en/settings.js');
   const keys = [
     'chat.toolBubble.name.search',
+    'chat.toolBubble.name.fetch',
     'chat.toolBubble.name.generic',
     'chat.toolBubble.status.running',
     'chat.toolBubble.status.done',
     'chat.toolBubble.status.error',
+    'chat.toolBubble.status.search.running',
+    'chat.toolBubble.status.fetch.running',
     'chat.toolBubble.search.notConfigured',
+    'chat.toolBubble.fetch.noUrl',
+    'chat.toolBubble.fetch.empty',
   ];
   keys.forEach(key => {
     assert.ok(zh.includes(`'${key}'`), `zh-CN 缺 ${key}`);

@@ -78,27 +78,17 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
   assert.equal(normalizeWorkspaceMode('write'), 'write');
   assert.equal(normalizeWorkspaceMode('bogus'), 'ask');
   assert.equal(normalizeWorkspaceMode(undefined), 'ask');
-  assert.deepEqual(normalizeWorkspaceSettings({ mode: 'write' }), {
-    mode: 'write',
+  // P1-11 起的默认字段（保留口径 = 历史常量；边界与夹取在 workspaceRetention.test.mjs）。
+  const restDefaults = {
     location: { kind: 'app', uri: '', name: '' },
     allowCommandExecution: false,
     allowPythonExecution: false,
     assistantCharacterId: '',
-  });
-  assert.deepEqual(normalizeWorkspaceSettings(null), {
-    mode: 'ask',
-    location: { kind: 'app', uri: '', name: '' },
-    allowCommandExecution: false,
-    allowPythonExecution: false,
-    assistantCharacterId: '',
-  });
-  assert.deepEqual(normalizeWorkspaceSettings('nope'), {
-    mode: 'ask',
-    location: { kind: 'app', uri: '', name: '' },
-    allowCommandExecution: false,
-    allowPythonExecution: false,
-    assistantCharacterId: '',
-  });
+    retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
+  };
+  assert.deepEqual(normalizeWorkspaceSettings({ mode: 'write' }), { mode: 'write', ...restDefaults });
+  assert.deepEqual(normalizeWorkspaceSettings(null), { mode: 'ask', ...restDefaults });
+  assert.deepEqual(normalizeWorkspaceSettings('nope'), { mode: 'ask', ...restDefaults });
   // 工作区角色：去首尾空白；非字符串噪声归一为空串。
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: '  abc  ' }).assistantCharacterId, 'abc');
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: 42 }).assistantCharacterId, '42');
@@ -169,7 +159,15 @@ test('工作区根：非法 location 一律回落应用内默认', () => {
 test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
   store.clear();
   const { getWorkspaceSettings, saveWorkspaceSettings, WORKSPACE_KEY } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, allowPythonExecution: false, assistantCharacterId: '' };
+  // P1-11 起设置里多了 retention（保留口径），默认值即历史常量（见 workspaceRetention.test.mjs）。
+  const defaultSettings = {
+    mode: 'ask',
+    location: { kind: 'app', uri: '', name: '' },
+    allowCommandExecution: false,
+    allowPythonExecution: false,
+    assistantCharacterId: '',
+    retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
+  };
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   const saved = await saveWorkspaceSettings({ mode: 'write' });
   assert.deepEqual(saved, { ...defaultSettings, mode: 'write' });
@@ -179,11 +177,22 @@ test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
 
 test('损坏或非法值回落默认模式', async () => {
   const { getWorkspaceSettings } = loadWorkspaceStorage();
-  const defaultSettings = { mode: 'ask', location: { kind: 'app', uri: '', name: '' }, allowCommandExecution: false, allowPythonExecution: false, assistantCharacterId: '' };
+  const defaultSettings = {
+    mode: 'ask',
+    location: { kind: 'app', uri: '', name: '' },
+    allowCommandExecution: false,
+    allowPythonExecution: false,
+    assistantCharacterId: '',
+    retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
+  };
   store.set('@easychat2_workspace', '{not json');
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   store.set('@easychat2_workspace', JSON.stringify({ mode: 'rm -rf' }));
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
+  // 保留口径写坏（0 / 负数 / 非数字）同样回落默认，不允许把上限配成 0。
+  store.set('@easychat2_workspace', JSON.stringify({ retention: { historyKeep: 0, rollbackKeep: -3, sessionEventsMaxKb: 'x' } }));
+  const fallback = await getWorkspaceSettings();
+  assert.deepEqual(fallback.retention, { historyKeep: 10, rollbackKeep: 1, sessionEventsMaxKb: 512 });
 });
 
 test('patchWorkspaceSettings 局部更新：改模式不清掉文件夹与命令开关', async () => {

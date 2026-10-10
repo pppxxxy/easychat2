@@ -16,6 +16,7 @@ import { createHistoryRecordingStore } from './history.js';
 import { createLegacyWorkspaceStore } from './store.js';
 import { registerWorkspaceTools } from './tools.js';
 import { normalizeWorkspaceMode } from './settings.js';
+import { normalizeRetention } from './retention.js';
 import { AGENT_MODES } from '../agent/tools/registry.js';
 
 let fileSystemModule;
@@ -55,7 +56,11 @@ export function createWorkspaceStore(settings) {
     });
   // 改动历史记录装饰器：面板与聊天工具共用这条后端路径，记录点唯一。
   // 记录失败被装饰器吞掉，绝不影响文件操作本身。
-  return createHistoryRecordingStore(base);
+  const store = createHistoryRecordingStore(base);
+  // P1-11：保留口径随 store 带下去（fileHistory / rollbackBaseline / sessionEvents 三处
+  // 旁路各自读 `store.retention`，缺失即默认）。放在这里是因为这三个模块的调用点分散
+  // （写系工具、推送面板、聊天面板），store 是它们唯一的公共输入。
+  return { ...store, retention: normalizeRetention(settings && settings.retention) };
 }
 
 // 面板/工具共用的根描述：外部根返回文件夹名，应用私有根返回空串。

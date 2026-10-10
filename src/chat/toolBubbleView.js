@@ -11,11 +11,29 @@
 // 这样将来新增工具不会因为忘记登记而整块不显示。
 const TOOL_LABEL_KEYS = {
   web_search: 'search',
+  web_fetch: 'fetch',
 };
+
+// 有专属状态文案的工具。状态比工具名更要说人话：「正在抓取网页…」和「正在搜索…」
+// 对用户是两件事；没登记的工具走通用文案（措辞工具中立，别写「正在搜索」）。
+const TOOL_STATUS_SUFFIXES = new Set(['search', 'fetch']);
 
 export function toolLabelKey(name) {
   const key = TOOL_LABEL_KEYS[String(name || '').trim()];
   return key ? `chat.toolBubble.name.${key}` : '';
+}
+
+// 状态文案 key：有专属文案的工具用它自己的，其余走通用。
+// 注意这里查的是**后缀**（TOOL_LABEL_KEYS 的值），不是 toolLabelKey 的返回值——
+// 后者已经是完整 key（2026-10-10 踩过：拿完整 key 去 Set 里查，永远查不到，
+// 于是所有工具都退回通用文案）。
+export function toolStatusKey(name, status) {
+  const suffix = TOOL_LABEL_KEYS[String(name || '').trim()];
+  const state = String(status || '');
+  if (!state) return '';
+  return suffix && TOOL_STATUS_SUFFIXES.has(suffix)
+    ? `chat.toolBubble.status.${suffix}.${state}`
+    : `chat.toolBubble.status.${state}`;
 }
 
 // 一次工具调用在界面上的两个阶段：运行中（running）/ 已结束（done / error）。
@@ -47,7 +65,7 @@ export function toolBubbleView(state) {
     // 未登记的工具直接显示原始名，不吞掉信息
     nameKey: suffix || 'chat.toolBubble.name.generic',
     nameParams,
-    statusKey: `chat.toolBubble.status.${state.status}`,
+    statusKey: toolStatusKey(state.name, state.status),
     error: state.error || '',
   };
 }

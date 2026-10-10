@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  COMPACTION_FOCUS_MAX,
   COMPACTION_KEEP_RECENT,
   COMPACTION_MARKER,
   COMPACTION_PER_MESSAGE_MAX,
@@ -12,27 +13,30 @@ import {
   COMPACTION_TRANSCRIPT_MAX,
   applyCompaction,
   buildCompactionSummaryRequest,
+  buildCompactionSystemPrompt,
   compactionStatus,
   estimateMessagesBytes,
   formatBytes,
+  normalizeCompactionFocus,
   parseCompactionSummary,
-  shouldCompact,
 } from '../src/chat/compaction.js';
 
 const msg = (role, text) => ({ id: `${role}-${text.length}`, role, text, at: 0 });
 
-test('estimateMessagesBytes / shouldCompact：序列化体积口径 + 阈值', () => {
+test('estimateMessagesBytes / compactionStatus：序列化体积口径 + 阈值', () => {
   assert.equal(estimateMessagesBytes([]), 2, "'[]' 长度");
   const small = [msg('user', 'hi')];
   assert.ok(estimateMessagesBytes(small) > 2);
-  assert.equal(shouldCompact(small), false, '小会话不触发');
+  assert.equal(compactionStatus(small).due, false, '小会话不触发');
   assert.equal(
-    shouldCompact([msg('user', 'x'.repeat(COMPACTION_THRESHOLD_BYTES))]),
+    compactionStatus([msg('user', 'x'.repeat(COMPACTION_THRESHOLD_BYTES))]).due,
     true,
     '超阈值触发'
   );
   assert.equal(estimateMessagesBytes(null), 2, '坏输入安全');
-  assert.equal(shouldCompact(small, 10), true, '自定义阈值');
+  assert.equal(compactionStatus(small, 10).due, true, '自定义阈值');
+  // 体积线只有一个事实源：compactionStatus.due 与传入阈值同口径。
+  assert.equal(compactionStatus(small, 10).threshold, 10);
 });
 
 test('formatBytes：B / KB / MB', () => {
@@ -136,6 +140,7 @@ test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% �
     '同一消息条数只尝试一次（失败不重试、防死循环）'
   );
   // 70% 非阻塞提示条（手动入口 + 可忽略）
+  assert.ok(screen.includes('contextUsageRatio >= SESSION_COMPACT_HINT_RATIO'), '70% 提示条走具名常量');
   assert.ok(screen.includes("t('chat.compact.hint'"), '提示条文案（带占用百分比）');
   assert.ok(screen.includes("t('chat.compact.action')"), '一键压缩按钮');
   assert.ok(screen.includes('setCompactHintDismissed(true)'), '可忽略提示');
@@ -145,4 +150,40 @@ test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% �
   assert.ok(section.includes("updateChatOption('autoCompact', value)"), '体验区开关接线');
   const options = fs.readFileSync(path.resolve('src/storage/settings/chatOptions.js'), 'utf8');
   assert.ok(options.includes('autoCompact: source.autoCompact !== false'), '缺省开启（只有显式 false 才关）');
+});
+
+// ---- 关注点（focus）：/compact 后面那句「这次要特别保留什么」----
+
+test('normalizeCompactionFocus：空白折叠、超长截断、空值归一为空串', () => {
+  assert.equal(normalizeCompactionFocus(undefined), '');
+  assert.equal(normalizeCompactionFocus(null), '');
+  assert.equal(normalizeCompactionFocus('   '), '');
+  assert.equal(normalizeCompactionFocus('重点\n保留   API 变更'), '重点 保留 API 变更');
+  assert.equal(normalizeCompactionFocus('x'.repeat(500)).length, COMPACTION_FOCUS_MAX);
+});
+
+test('buildCompactionSystemPrompt：无关注点时与基础提示词逐字节一致', () => {
+  const base = buildCompactionSystemPrompt();
+  assert.equal(buildCompactionSystemPrompt(''), base, '空串 = 基础提示词');
+  assert.equal(buildCompactionSystemPrompt('   '), base, '纯空白 = 基础提示词');
+  assert.ok(base.includes('三段中文摘要'));
+  assert.ok(!base.includes('额外要求'), '没有关注点就不该出现额外要求');
+});
+
+test('buildCompactionSystemPrompt：有关注点时追加额外要求，且不改输出格式', () => {
+  const withFocus = buildCompactionSystemPrompt('重点保留 API 变更与未决问题');
+  assert.ok(withFocus.includes('额外要求'));
+  assert.ok(withFocus.includes('重点保留 API 变更与未决问题'));
+  assert.ok(withFocus.includes('三段中文摘要'), '基础结构说明仍在（不是替换）');
+  assert.ok(withFocus.includes('输出格式不变'), '明确不改变输出格式，防模型改写成别的形态');
+});
+
+test('buildCompactionSummaryRequest：focus 只影响 system，转写内容不受影响', () => {
+  const messages = [msg('user', '甲'), msg('assistant', '乙')];
+  const plain = buildCompactionSummaryRequest(messages);
+  const focused = buildCompactionSummaryRequest(messages, { focus: '保留报错原文' });
+  assert.deepEqual(focused[1], plain[1], 'user 转写逐字节一致');
+  assert.notEqual(focused[0].content, plain[0].content);
+  assert.ok(focused[0].content.includes('保留报错原文'));
+  assert.deepEqual(buildCompactionSummaryRequest(messages)[0], plain[0], '不传 options 走基础提示词');
 });

@@ -7,7 +7,9 @@ import {
   readJsonStatusWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
-import { normalizeProtocol } from '../apiProtocols.js';
+import { normalizeProtocol, normalizePromptCacheTtl } from '../apiProtocols.js';
+// P0-7：降级模型的归一化是纯函数，放判定层同处（存储层只做「落盘即归一」）。
+import { normalizeFallbackModels } from '../network/fallbackModels.js';
 import { tActive } from '../i18n/index.js';
 
 const API_CONFIG_KEY = '@easychat2_api_config';
@@ -162,6 +164,9 @@ function normalizeApiConfig(raw, index = 0) {
     apiKey: String(source.apiKey || ''),
     vendorId: String(source.vendorId || ''),
     protocol: normalizeProtocol(source.protocol),
+    // P1-1：Anthropic 显式缓存断点的 TTL（'off' / '5m' / '1h'）。只对 anthropic 协议生效，
+    // 但**所有协议都存这个字段**——切协议来回切时不该丢用户的选择。
+    promptCacheTtl: normalizePromptCacheTtl(source.promptCacheTtl),
     authHeader: String(source.authHeader || 'Authorization'),
     authScheme: source.authScheme === undefined || source.authScheme === null
       ? 'Bearer '
@@ -169,6 +174,10 @@ function normalizeApiConfig(raw, index = 0) {
     apiKeyUrl: String(source.apiKeyUrl || ''),
     models,
     activeModel,
+    // P0-7 降级链：主模型 429/5xx/超时/断网时按序换用的模型名（最多 3 个，去重保序）。
+    // 归一化放在存储层：读盘与保存两个入口共用一份口径，api.js 拿到的必然是数组，
+    // 不用在请求路径上再防一次「用户手改成了字符串」。
+    fallbackModels: normalizeFallbackModels(source.fallbackModels),
     supportsThinking: source.supportsThinking === true,
     supportsVision: source.supportsVision === true,
     supportsVideo: source.supportsVideo === true,
