@@ -30,7 +30,10 @@
 - [x] 占位文案：`[此前工具结果已存至 <路径>，可用 read_workspace_file 按 offset 取回]`。
 - [x] 配对纪律：只改 tool 消息 content；测试断言清除前后无孤儿。
 - [x] 测试：`tests/resultClearing.test.mjs`（消费判定 / 窗口 / 门槛 / 驱逐顺序 / 落盘成功·失败·抛错·缺席 / 钩子 / 配对）。
-- [ ] 宿主接线（N2 的 L1 档调用）+ `compactionStatus` 按「清除后」口径：归 N2。
+- [x] **宿主接线**：K1 改由 **agent loop 每轮请求前**调用（P1，见「对齐优质 harness」段），
+      直接作用于含 tool 消息的 agent 历史——比原计划「N2 管线 L1 档」更早、更贴合 harness。
+      （管线 L1 档保留：对顶层 `role:'tool'` 消息仍有效，未来若有内联场景可复用。）
+- [ ] `compactionStatus` 按「清除后」口径：工作区面板未渲染该口径，暂缓（低优先）。
 
 ## N2 工作区会话压缩 + recap（**核心完成**；宿主自动/手动触发接线待做）
 
