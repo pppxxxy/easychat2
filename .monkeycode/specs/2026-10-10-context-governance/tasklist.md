@@ -134,3 +134,27 @@ P0 独立立项（E2 已覆盖）/ 时间阈值触发 / 压缩后自动重读文
 - **未并入**：D 系（dsh，`d1010d1`）的 `/compact 关注点`、阈值具名、retention 配置——正交能力，
   按需另开分支吸收。
 - 门禁：lint 无输出、guard（含棘轮/循环）通过、2373/2373、行覆盖 80.86%。
+
+## 与 D 系（dsh）合并（2026-10-10，分支 `m1010m7`）
+
+把 `origin/d1010d1` 并入 `m1010m6`。冲突裁决（8 文件）：
+
+- `chat/compaction.js`：D 系 focus 与 M 系 toolTranscript 合并到同一
+  `buildCompactionSummaryRequest({ toolTranscript, focus })`。
+- `chat/contextUsage.js`：保留 D 系 `estimateTextTokens`/`buildContextBreakdown` + `SESSION_*` 常量。
+- `chat/toolApprovalFlow.js`：Z 系 `permissionBroker` + D 系 ask 档合并（`askOnly` 经 broker 透传；
+  `APPROVAL_ONCE` → 允许这一次；askOnly 下其余一律拒绝）。
+- `agent/loop.js`：`TOOL_RESULT_LIMIT` 改由 `messages.js` 单源导入 + 保留 M 系 `serializeToolResultAsync`；
+  usage 回调加 `model` 字段。
+- `chat/useChatSend.js`：hooks 导入取 D 系（`hookPermissionRules` 等，`shellHookDenyRules` 已并入）。
+- `ChatScreen.js`：自动压缩取 Z 系 `useAutoCompact`，保留 D 系 `SESSION_COMPACT_HINT_RATIO` 提示条。
+- `AGENTS.md`：取 D 系（工作区/api 文档更全）+ 补 M 系 context-governance 条目。
+- `tests/chatCompaction.test.mjs`：断言改指 `useAutoCompact`。
+
+**棘轮**：D 系早于棘轮，合并后 7 文件超基线 + 2 文件超 800 上限 → 全部重新基线
+（`api.js`/`WorkspaceSettingsSheet.js` 新增条目）。**这是本轮最大的一处让步**，提取留待后续。
+
+**注意**：D 系自己也发现「工具结果从不进持久化上下文」（其 spec 末条），与 M 系 P5 结论一致——
+两条独立线都撞到同一架构问题。
+
+门禁：lint 无输出、guard（棘轮/循环）通过、2447/2447、行覆盖 80.12%。
