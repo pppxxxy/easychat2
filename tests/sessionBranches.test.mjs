@@ -159,6 +159,69 @@ test('deleteBranch：先移索引后删条目，分叉点最后一条删完后�
   assert.equal(store.has(`@easychat2_branch_item::${IDX}::${one.id}`), false);
 });
 
+// ---- 提交点方向（回归 2026-10-11 逐行审查 P2）----
+// 两条删除路径（单条删除 / 清理过期分支）此前各写一份提交顺序，容易写反。现在共用
+// commitBranchRemoval，方向钉死为「索引 → 条目」。方向为什么必须这样，用行为钉住：
+//   索引写失败 → 这次删除**没发生**（条目还在、索引还指着它，不会出现悬空引用）；
+//   条目删不掉 → 索引照样更新（索引是事实源，残留条目由前缀扫描兜底）。
+
+test('deleteBranch：索引写失败时不得删条目（否则索引会指向一条已删条目）', async () => {
+  const branches = loadBranches();
+  const descriptor = await branches.archiveBranch(IDX, 'a', [message('b1', 'assistant', 'x')]);
+  const itemKey = `@easychat2_branch_item::${IDX}::${descriptor.id}`;
+  const original = AsyncStorage.setItem;
+  AsyncStorage.setItem = async (key, value) => {
+    if (String(key).startsWith('@easychat2_branch_index::')) throw new Error('index write failed');
+    return original(key, value);
+  };
+  try {
+    await assert.rejects(() => branches.deleteBranch(IDX, descriptor.id), /index write failed/);
+    assert.equal(store.has(itemKey), true, '索引没改成 → 条目必须原样留着');
+    assert.equal((await branches.getBranchIndex(IDX)).length, 1, '索引保持原样（这次删除没发生）');
+  } finally {
+    AsyncStorage.setItem = original;
+  }
+});
+
+test('deleteBranch：条目删不掉时索引照样更新，残留条目由前缀扫描兜底', async () => {
+  const branches = loadBranches();
+  const descriptor = await branches.archiveBranch(IDX, 'a', [message('b1', 'assistant', 'x')]);
+  const itemKey = `@easychat2_branch_item::${IDX}::${descriptor.id}`;
+  const original = AsyncStorage.multiRemove;
+  AsyncStorage.multiRemove = async () => { throw new Error('item removal failed'); };
+  try {
+    await branches.deleteBranch(IDX, descriptor.id);
+    assert.equal((await branches.getBranchIndex(IDX)).length, 0, '索引是事实源：删除必须生效');
+    assert.equal(store.has(itemKey), true, '条目成了残留（模拟删不掉）');
+  } finally {
+    AsyncStorage.multiRemove = original;
+  }
+  // 兜底：会话删除按前缀扫描，把无主条目一并清掉
+  await branches.deleteAllBranchesInternal(IDX);
+  assert.equal(store.has(itemKey), false, '前缀扫描兜底清掉残留条目');
+});
+
+test('pruneStaleBranches：与单条删除同一提交点（索引先写、条目删不掉不回滚）', async () => {
+  const branches = loadBranches();
+  await branches.archiveBranch(IDX, 'keep', [message('b1', 'assistant', 'x')]);
+  const gone = await branches.archiveBranch(IDX, 'gone', [message('b2', 'assistant', 'y')]);
+  const itemKey = `@easychat2_branch_item::${IDX}::${gone.id}`;
+  const original = AsyncStorage.multiRemove;
+  AsyncStorage.multiRemove = async () => { throw new Error('item removal failed'); };
+  try {
+    const { removed } = await branches.pruneStaleBranches(IDX, new Set(['keep']));
+    assert.deepEqual(removed, [gone.id]);
+    assert.equal(
+      (await branches.getBranchIndex(IDX)).some(branch => branch.id === gone.id),
+      false,
+      '索引已更新（与单条删除同一方向）'
+    );
+    assert.equal(store.has(itemKey), true, '条目残留，由前缀扫描兜底');
+  } finally {
+    AsyncStorage.multiRemove = original;
+  }
+});
+
 test('pruneStaleBranches：清理分叉点已不在活动时间线上的分支，保留根分支', async () => {
   const branches = loadBranches();
   const rooted = await branches.archiveBranch(IDX, 'keep', [message('b1', 'assistant', 'x')]);
