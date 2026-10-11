@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  assertValueBudget,
   backupCorruptValue,
   createMutationQueue,
   readJsonStatus,
@@ -180,7 +181,12 @@ async function saveVectorIndexInternal(characterId, index) {
   const key = vectorIndexKey(characterId);
   const list = normalizeVectorIndex(index);
   if (!key) return list; // 空 id：不写盘（上层 getVectorOwnerId 已守卫，这里是纵深防御）
-  await AsyncStorage.setItem(key, JSON.stringify(list));
+  const json = JSON.stringify(list);
+  // 整条索引（含每条记忆的 embedding 向量）塞在**单键**里，是最容易越过单值预算的写入点：
+  // 越过之后 Android 的 getItem 会直接抛错，只能靠 SQLite 分块兜底读回。
+  // 这里只留痕不改行为（见 io.js assertValueBudget）。
+  assertValueBudget(key, json);
+  await AsyncStorage.setItem(key, json);
   return list;
 }
 

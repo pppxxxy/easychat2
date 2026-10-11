@@ -11,8 +11,31 @@ import { tActive } from '../i18n/index.js';
 export const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
 
 // 序列化后的 UTF-8 字节数。角色卡与制卡草稿都按「超过阈值则落文件」处理，共用此纯函数。
-// 实现已抽到 utils/byteLength.js（此前在四处各写一份）；这里 re-export 保持既有引用面不变。
-export { utf8ByteLength } from '../utils/byteLength.js';
+// 实现已抽到 utils/byteLength.js（此前在四处各写一份）；这里 import + re-export 保持既有引用面不变。
+import { utf8ByteLength } from '../utils/byteLength.js';
+
+export { utf8ByteLength };
+
+// 单值体积预算。Android 的 CursorWindow 单值读取上限约 2MB：超过之后 AsyncStorage.getItem
+// 直接抛错，只能靠 readLargeAsyncStorageValue 的 SQLite 分块兜底——那条兜底是「聊天记录
+// 永久读不出」的最后防线，不该被当成常规路径。所以任何一次**写入**越过预算都要留痕。
+//
+// 为什么只报警不抛：历史数据、一次性导入、用户自己写的大角色卡都可能本来就大；
+// 在这里抛出去会把「能存进去」变成「存不进去」，比超标本身更糟。
+// 这是**系统性防线**：它不修数据、不改行为，只保证「什么时候越过了预算」有据可查。
+export const VALUE_BUDGET_BYTES = Math.round(1.5 * 1024 * 1024);
+
+// 返回实际字节数（供调用方复用）；超预算时记一条诊断。
+export function assertValueBudget(key, json) {
+  const bytes = utf8ByteLength(json);
+  if (bytes <= VALUE_BUDGET_BYTES) return bytes;
+  recordDiagnostic(
+    'storage',
+    new Error(tActive('error.storage.valueBudgetExceeded')),
+    `${key}：${bytes} 字节 > 预算 ${VALUE_BUDGET_BYTES}`
+  );
+  return bytes;
+}
 
 export async function readJson(key, fallback) {
   try {
@@ -27,7 +50,9 @@ export async function readJson(key, fallback) {
 // 读盘后把引用回填为明文。命名空间用存储键，保证同一字段位置稳定。
 export async function setJsonWithSecrets(key, payload) {
   const protectedPayload = await protectSecrets(key, payload);
-  await AsyncStorage.setItem(key, JSON.stringify(protectedPayload));
+  const json = JSON.stringify(protectedPayload);
+  assertValueBudget(key, json);
+  await AsyncStorage.setItem(key, json);
 }
 
 export async function readJsonWithSecrets(key, fallback) {
@@ -63,7 +88,7 @@ export function getSqliteModule() {
 export async function readLargeAsyncStorageValue(key) {
   const SQLite = getSqliteModule();
   if (!SQLite || typeof SQLite.openDatabase !== 'function') {
-    recordDiagnostic('storage', new Error('expo-sqlite 不可用，大值兜底读取无法进行'), key);
+    recordDiagnostic('storage', new Error(tActive('error.storage.largeValueFallbackUnavailable')), key);
     return null;
   }
   const source = `${FileSystem.documentDirectory || ''}../databases/RKStorage`;
@@ -96,7 +121,7 @@ export async function readLargeAsyncStorageValue(key) {
       if (chunk == null) {
         // length 说有数据、substr 却拿不到：读**截断**了。静默返回 null 会让这条会话
         // 看起来「数据没了」，而其实只是这一次读坏了——必须留痕。
-        recordDiagnostic('storage', new Error('大值兜底读取中途截断（substr 返回空）'), `${key} @${offset}/${total}`);
+        recordDiagnostic('storage', new Error(tActive('error.storage.largeValueReadTruncated')), `${key} @${offset}/${total}`);
         return null;
       }
       value += String(chunk);

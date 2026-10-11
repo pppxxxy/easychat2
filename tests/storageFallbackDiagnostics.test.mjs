@@ -139,7 +139,8 @@ test('expo-sqlite 不可用时留痕（而不是静默 return null）', async ()
   assert.equal(result, null);
   assert.equal(entries.length, 1, `应恰好记一条诊断，实际 ${entries.length}`);
   assert.equal(entries[0].kind, 'storage');
-  assert.match(entries[0].message, /expo-sqlite 不可用/);
+  // 诊断的 message 走 i18n（用户可见），测试里 tActive 被桩成「返回键名」。
+  assert.match(entries[0].message, /error\.storage\.largeValueFallbackUnavailable/);
   assert.match(entries[0].context, /@easychat2_messages::s1/, '诊断要带上是哪个键');
 });
 
@@ -165,7 +166,7 @@ test('分块读截断时留痕（length 说有数据、substr 拿不到）', asy
   const { result, entries } = await runCase({ total: 1000, truncateAt: 0 });
   assert.equal(result, null);
   assert.equal(entries.length, 1);
-  assert.match(entries[0].message, /截断/);
+  assert.match(entries[0].message, /error\.storage\.largeValueReadTruncated/);
   assert.match(entries[0].context, /@easychat2_messages::s1/);
 });
 
