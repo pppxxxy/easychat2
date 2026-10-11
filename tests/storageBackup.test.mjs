@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [] }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], secretValues = {} }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -68,13 +68,61 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
   };
   const dataBackup = {
     BACKUP_MAX_BYTES: 64 * 1024 * 1024,
+    BACKUP_MODE_QUICK: 'quick',
+    BACKUP_MEDIA_DIRECTORIES: ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge', 'music', 'books'],
+    QUICK_MEDIA_DIRECTORIES: ['avatars', 'characters', 'chat-images', 'voice', 'stickers'],
+    // 快速导出键判定：与真实实现同口径（角色/会话/消息/分支/记忆摘要）。
+    isQuickExportKey: key => {
+      const value = String(key || '');
+      return value === '@easychat2_character_index'
+        || value === '@easychat2_active_character'
+        || value === '@easychat2_affinity'
+        || value === '@easychat2_sessions'
+        || value === '@easychat2_active_session'
+        || value.startsWith('@easychat2_character_item::')
+        || value.startsWith('@easychat2_messages::')
+        || value.startsWith('@easychat2_session_summaries::')
+        || value.startsWith('@easychat2_branch_index::');
+    },
+    scanSecretRefs: storage => {
+      const keys = [];
+      const ids = new Set();
+      const visit = (value, found) => {
+        if (typeof value === 'string') {
+          if (value.startsWith('secure:v1:')) found.add(value.slice('secure:v1:'.length));
+          return;
+        }
+        if (Array.isArray(value)) { value.forEach(item => visit(item, found)); return; }
+        if (value && typeof value === 'object') Object.values(value).forEach(item => visit(item, found));
+      };
+      (Array.isArray(storage) ? storage : []).forEach(item => {
+        if (!item || item.value === undefined) return;
+        const found = new Set();
+        visit(item.value, found);
+        if (found.size > 0) {
+          if (typeof item.key === 'string') keys.push(item.key);
+          found.forEach(id => ids.add(id));
+        }
+      });
+      return { keys, ids: [...ids] };
+    },
+    collectLockSecretIds: value => {
+      const locks = value && typeof value === 'object' ? value.characterLocks : null;
+      if (!locks || typeof locks !== 'object') return [];
+      return Object.keys(locks).flatMap(id => [`character_lock_${id}`, `character_lock_hint_${id}`]);
+    },
     buildBackupPayload: input => input,
     planBackupImport: (payload, mode) => ({
       valid: true,
       mode: mode === 'replace' ? 'replace' : 'merge',
       storage: payload.storage || [],
       media: payload.media || [],
+      secrets: payload.secrets || [],
     }),
+  };
+  const secretStore = {
+    async readSecureValue(id) { return secretValues[id] || ''; },
+    async writeSecureValue(id, value) { secretValues[id] = value; },
   };
   const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
     babelrc: false,
@@ -128,6 +176,7 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
     if (request === 'expo-file-system/legacy') return fileSystem;
     if (request === 'expo-file-system') return newFileSystem;
     if (request.endsWith('/dataBackup.js')) return dataBackup;
+    if (request.endsWith('/secretStore.js')) return secretStore;
     if (request.endsWith('/io.js')) return io;
     if (request.endsWith('/diagnostics.js')) return diagnostics;
     return originalLoad.call(this, request, parent, isMain);
@@ -370,4 +419,89 @@ test('importBackup：不含 opaqueRaw 的旧备份照常导入', async () => {
   ]), 'merge');
   assert.equal(storage.get('@easychat2_old'), JSON.stringify({ legacy: true }));
   assert.equal(result.opaqueCount, 0);
+});
+
+test('exportBackup：快速导出仅含角色/会话键与角色聊天媒体', async () => {
+  const storage = new Map([
+    ['@easychat2_character_index', JSON.stringify(['c1'])],
+    ['@easychat2_messages::s1', JSON.stringify([{ id: 'm1' }])],
+    ['@easychat2_chat_options', JSON.stringify({ theme: 'dark' })],
+    ['@easychat2_api_configs', JSON.stringify({ configs: [] })],
+  ]);
+  const files = new Map([['file:///doc/avatars/a.jpg', 'A'], ['file:///doc/music/m.mp3', 'M']]);
+  const directories = {
+    'file:///doc/avatars/': ['a.jpg'],
+    'file:///doc/characters/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/stickers/': [],
+  };
+  const backup = loadBackup({ storage, files, directories });
+  const result = await backup.exportBackup({ appVersion: 'test', mode: 'quick' });
+  const keys = result.payload.storage.map(i => i.key).sort();
+  assert.deepEqual(keys, ['@easychat2_character_index', '@easychat2_messages::s1']);
+  assert.equal(result.mode, 'quick');
+  assert.equal(result.payload.media.some(m => m.path.startsWith('avatars/')), true);
+  assert.equal(result.payload.media.some(m => m.path.startsWith('music/')), false);
+});
+
+test('exportBackup：完整导出包含设置与音乐/书籍媒体', async () => {
+  const storage = new Map([
+    ['@easychat2_character_index', JSON.stringify(['c1'])],
+    ['@easychat2_chat_options', JSON.stringify({ theme: 'dark' })],
+  ]);
+  const files = new Map([['file:///doc/music/m.mp3', 'M']]);
+  const directories = {
+    'file:///doc/music/': ['m.mp3'],
+    'file:///doc/avatars/': [],
+    'file:///doc/stickers/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/characters/': [],
+    'file:///doc/card-forge/': [],
+    'file:///doc/books/': [],
+  };
+  const backup = loadBackup({ storage, files, directories });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  assert.equal(result.payload.storage.some(i => i.key === '@easychat2_chat_options'), true);
+  assert.equal(result.payload.media.some(m => m.path === 'music/m.mp3'), true);
+  assert.equal(result.mode, 'full');
+});
+
+test('exportBackup：includeSecrets 收集安全存储密钥并导出引用它的键', async () => {
+  const storage = new Map([
+    ['@easychat2_character_index', JSON.stringify(['c1'])],
+    ['@easychat2_api_configs', JSON.stringify({ configs: [{ id: 'a', apiKey: 'secure:v1:apiConfigs_a_apiKey' }] })],
+    ['@easychat2_security', JSON.stringify({ characterLocks: { c1: true } })],
+  ]);
+  const files = new Map();
+  const directories = {};
+  const secretValues = { apiConfigs_a_apiKey: 'sk-real', character_lock_c1: '1234', character_lock_hint_c1: '生日' };
+  const backup = loadBackup({ storage, files, directories, secretValues });
+  const result = await backup.exportBackup({ appVersion: 'test', mode: 'quick', includeSecrets: true });
+  // 快速模式本不含 api_configs/security，但含密钥时须把引用它的键一并导出，避免密钥成孤儿
+  const keys = result.payload.storage.map(i => i.key);
+  assert.ok(keys.includes('@easychat2_api_configs'));
+  assert.ok(keys.includes('@easychat2_security'));
+  assert.equal(result.secretsCount, 3);
+  assert.deepEqual(
+    result.payload.secrets.map(s => s.id).sort(),
+    ['apiConfigs_a_apiKey', 'character_lock_c1', 'character_lock_hint_c1']
+  );
+});
+
+test('importBackup：回填密钥到安全存储并汇报数量', async () => {
+  const storage = new Map();
+  const files = new Map();
+  const secretValues = {};
+  const backup = loadBackup({ storage, files, secretValues });
+  const result = await backup.importBackup({
+    schemaVersion: 1,
+    storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1' }] } }],
+    media: [],
+    secrets: [{ id: 'id1', value: 'sk-real' }],
+  }, 'merge');
+  assert.equal(result.secretsCount, 1);
+  assert.equal(secretValues.id1, 'sk-real');
+  assert.equal(storage.get('@easychat2_api_configs'), JSON.stringify({ configs: [{ apiKey: 'secure:v1:id1' }] }));
 });
