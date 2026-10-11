@@ -258,6 +258,26 @@ test('聊天选项 bubbleStyle：白名单归一，非法回退圆润', async ()
   store.delete('@easychat2_chat_options');
 });
 
+test('记忆总结设置：总结接口与长记忆保留上限的归一化', async () => {
+  store.delete('@easychat2_memory_summary');
+  const def = await settings.getMemorySummarySettings();
+  assert.equal(def.configId, '', '总结接口缺省为空（用当前默认接口）');
+  assert.equal(def.maxEntries, 100, '长记忆保留上限缺省 100');
+
+  const saved = await settings.saveMemorySummarySettings({ enabled: true, threshold: 50, configId: 'cfg-2', maxEntries: 30 });
+  assert.equal(saved.configId, 'cfg-2');
+  assert.equal(saved.maxEntries, 30);
+  assert.equal(saved.threshold, 50);
+
+  const bad = await settings.saveMemorySummarySettings({ enabled: true, threshold: 50, configId: 42, maxEntries: -5 });
+  assert.equal(bad.configId, '42', 'configId 一律转字符串');
+  assert.equal(bad.maxEntries, 100, '非法上限回落默认 100');
+
+  store.set('@easychat2_memory_summary', '{ not json');
+  assert.equal((await settings.getMemorySummarySettings()).maxEntries, 100, '损坏回退默认');
+  store.delete('@easychat2_memory_summary');
+});
+
 test('自动配图设置：智能增强默认关、润色接口默认空，读写往返与非法值归一', async () => {
   store.delete('@easychat2_inline_image');
   const def = await settings.getInlineImageSettings();

@@ -32,5 +32,9 @@ export const preset = {
   'preset.editor.promptPlaceholder': 'Content appended to the system prompt when enabled',
   'preset.memory.desc': 'A standalone global memory-summary setting, not a text preset; it runs automatically once the summarizable message threshold is reached.',
   'preset.memory.thresholdLabel': 'Auto-summary threshold (summarizable messages)',
+  'preset.memory.config': 'Summary API',
+  'preset.memory.configLabel': 'API used for memory summary',
+  'preset.memory.configDefault': 'Default (current API)',
+  'preset.memory.maxEntriesLabel': 'Max long-term memories to keep',
   'preset.memory.title': 'Memory summary',
 };

@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { tActive } from '../../i18n/index.js';
+import { capMemoryEntries } from '../../memory/memoryConstants.js';
 import {
   bumpSessionSummaryRevision,
   enqueueSessionMutation,
@@ -123,7 +124,8 @@ export function invalidateSessionSummaries(sessionId, keepSummaries = [], nextBo
   });
 }
 
-export function appendSessionSummary(sessionId, entry, expectedRevision = null) {
+// maxEntries：保留上限（条），超出淘汰最旧的；undefined/非法 = 不淘汰。
+export function appendSessionSummary(sessionId, entry, expectedRevision = null, maxEntries = undefined) {
   const task = enqueueSessionMutation(async () => {
     if (expectedRevision !== null && !isSessionSummaryRevisionCurrent(sessionId, expectedRevision)) {
       throw new Error(tActive('error.storage.summaryReset'));
@@ -131,7 +133,7 @@ export function appendSessionSummary(sessionId, entry, expectedRevision = null) 
     const { status, summaries } = await getSessionSummariesStatus(sessionId);
     if (status === 'corrupt') throw new Error(tActive('error.storage.summaryReadFailed'));
     const normalizedEntry = normalizeSessionSummary(entry);
-    const next = [...summaries, normalizedEntry];
+    const next = capMemoryEntries([...summaries, normalizedEntry], maxEntries);
     await saveSessionSummariesInternal(sessionId, next);
     try {
       await setSessionSummarizedUpToInternal(sessionId, normalizedEntry.boundary);

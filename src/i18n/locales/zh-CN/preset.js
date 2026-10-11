@@ -32,5 +32,9 @@ export const preset = {
   'preset.editor.promptPlaceholder': '开启后追加到系统提示词的内容',
   'preset.memory.desc': '独立的全局记忆总结设置，不属于文本预设；达到可总结消息阈值后自动执行。',
   'preset.memory.thresholdLabel': '自动总结阈值（可总结消息条数）',
+  'preset.memory.config': '总结接口',
+  'preset.memory.configLabel': '用于记忆总结的接口',
+  'preset.memory.configDefault': '默认（当前接口）',
+  'preset.memory.maxEntriesLabel': '长记忆保留上限（条）',
   'preset.memory.title': '记忆总结',
 };

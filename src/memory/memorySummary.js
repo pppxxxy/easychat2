@@ -1,4 +1,5 @@
-import { sendChatMessage } from '../network/api.js';
+import { getConfigFingerprint, sendChatMessage } from '../network/api.js';
+import { getApiConfigs } from '../storage/apiConfigs.js';
 import { createWorldEntry } from '../character/cardParser.js';
 import {
   appendSessionSummary,
@@ -9,19 +10,25 @@ import {
   setSessionSummarizedUpTo,
 } from '../storage/sessions.js';
 
-import { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
+import { capMemoryEntries, DEFAULT_MEMORY_MAX_ENTRIES, MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
 import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';
 import { normalizeCompactionFocus } from '../chat/compaction.js';
 
 export { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX };
 // 内置助手判定与「世界书记忆退休」共用同一份纯逻辑（见 memory/memoryRetire.js）。
+import { isWorldMemoryEntry } from './memoryRetire.js';
 export { isBuiltinCharacter as isBuiltinAssistant } from './memoryRetire.js';
 export const KEEP_RECENT = 6;
 export const DEFAULT_THRESHOLD = 40;
 export const FALLBACK_KEYWORDS = ['前情提要'];
 
-const SUMMARY_INSTRUCTION = [
-  '从本段对话中提取值得在后续对话中记住的新信息。这里是「剧情记忆」：只记录中间发生了什么事情，以及很重要的对话。',
+// 两套总结提示词：一套用于「进世界书」（角色卡长期记忆），一套用于「进当前对话上下文」
+// （会话级剧情记忆）。共用同一输出格式（`- ` 记忆行 + 「关键词：」行），故解析器不变。
+// 措辞可改；改动会直接影响模型输出的记忆内容与粒度。
+
+// 进世界书：跨会话长期生效，只记稳定、可复用的事实与关系。
+const SUMMARY_INSTRUCTION_WORLD = [
+  '从本段对话中提取值得在后续对话中记住的新信息。这里是「角色记忆」：会写进角色卡长期生效，跨会话复用，因此只记稳定的事实，不记一时一地的细节。',
   '',
   '已知记忆：',
   '<memories>',
@@ -30,10 +37,34 @@ const SUMMARY_INSTRUCTION = [
   '',
   '要求：',
   '- 只记录对话中明确出现的信息，不猜测，不提取思考过程，不把假设或计划写成已发生的事实。',
-  '- 重点是事件与剧情推进：发生了什么、谁做了什么、产生了什么后果、达成了什么约定、留下了什么未完成事项。',
+  '- 侧重人物的重要事实与偏好、关系变化、长期约定，以及会持续影响往后相处的关键事件。',
+  '- 不要记录只对当下这一幕成立的内容（临时情绪、无关紧要的寒暄），也不要逐句复述对白。',
+  '- 不要重复「已知记忆」里已经写过的内容；明确的纠正或状态变化应作为新记忆记录，并说明变化。',
+  '- 每条记忆应能独立理解，写清涉及的人物，保留必要的时间、地点与因果。',
+  '- 只输出新增记忆，每行一条，以“- ”开头。无新增信息时不要输出记忆行，可在最后保留关键词行。',
+  '',
+  '关键词：',
+  '- 在最后单独输出一行，以“关键词：”开头，后接顿号分隔的关键词。',
+  '- 关键词要尽量多、尽量覆盖本段的重要信息与主要事件，包括出现的人物名、称呼、地点、物品、事件、约定、情绪与关系等。',
+  '- 关键词用于日后检索这段记忆，请优先选择对话中真实出现、容易被再次提及的词或短语，每条 2 到 6 个字，覆盖尽可能全面。',
+  '- 示例：关键词：小明、咖啡店、生日约定、表白、加班、猫、淋雨。',
+].join('\n');
+
+// 进当前对话上下文：只在这条对话线里续接，侧重剧情推进与未完成事项。
+const SUMMARY_INSTRUCTION_SESSION = [
+  '从本段对话中提取值得在后续对话中记住的新信息。这里是「本会话的剧情记忆」：只在当前这条对话线里作为上下文续接，因此侧重事情本身如何推进。',
+  '',
+  '已知记忆：',
+  '<memories>',
+  '{{memories}}',
+  '</memories>',
+  '',
+  '要求：',
+  '- 只记录对话中明确出现的信息，不猜测，不提取思考过程，不把假设或计划写成已发生的事实。',
+  '- 侧重剧情推进：发生了什么、谁做了什么、产生了什么后果、达成了什么约定、留下了什么未完成事项。',
   '- 重要对话可记录其要点（谁对谁说了什么关键的话、表态或承诺），但不要逐句复述。',
-  '- 不要记录角色的习惯、口头禅、语气风格、日常行为模式这类稳定的性格特征；这些属于角色设定，不是剧情记忆。',
-  '- 不要重复「已知记忆」里已经写过的内容；只有明确的纠正或状态变化才作为新记忆记录，并说明变化。',
+  '- 不要记录角色的习惯、口头禅、语气风格这类稳定的性格特征；这些属于角色设定，不是剧情记忆。',
+  '- 不要重复「已知记忆」里已经写过的内容；明确的纠正或状态变化应作为新记忆记录，并说明变化。',
   '- 每条记忆应能独立理解，写清涉及的人物与因果，保留必要的时间、地点。',
   '- 只输出新增记忆，每行一条，以“- ”开头。无新增信息时不要输出记忆行，可在最后保留关键词行。',
   '',
@@ -112,7 +143,8 @@ export function shouldSummarize({ session, messages, settings, force = false, co
   return candidates.length > 0;
 }
 
-export function buildSummaryPrompt(messages, userName, memories = '', focus = '') {
+// variant：'world'（进世界书，角色卡长期记忆）/ 'session'（进当前对话上下文）。
+export function buildSummaryPrompt(messages, userName, memories = '', focus = '', variant = 'world') {
   const speakerForUser = String(userName || '').trim() || '用户';
   const lines = (Array.isArray(messages) ? messages : []).map(item => {
     const speaker = item.role === 'user' ? speakerForUser : '角色';
@@ -121,7 +153,8 @@ export function buildSummaryPrompt(messages, userName, memories = '', focus = ''
   const memoryText = String(memories || '').trim() || '（暂无已记录的记忆）';
   // focus：用户在 /compact 后写的「这次要特别记住什么」。空 = 系统提示逐字节不变。
   const focusText = normalizeCompactionFocus(focus);
-  const instruction = SUMMARY_INSTRUCTION.replace('{{memories}}', memoryText)
+  const template = variant === 'session' ? SUMMARY_INSTRUCTION_SESSION : SUMMARY_INSTRUCTION_WORLD;
+  const instruction = template.replace('{{memories}}', memoryText)
     + (focusText ? `\n\n额外要求：这次总结请特别关注并优先保留以下内容——${focusText}` : '');
   return [
     { role: 'system', content: instruction },
@@ -171,10 +204,11 @@ export async function generateSummary({
   userName,
   memories,
   focus = '',
+  variant = 'world',
   expectedConfigId = '',
   expectedConfigFingerprint = '',
 }) {
-  const prompt = buildSummaryPrompt(messages, userName, memories, focus);
+  const prompt = buildSummaryPrompt(messages, userName, memories, focus, variant);
   const text = await sendChatMessage(prompt, {
     expectedConfigId,
     expectedConfigFingerprint,
@@ -422,6 +456,24 @@ function worldSummaryEntries(character) {
   return entries.map(entry => String(entry.content).trim());
 }
 
+// 只保留最近 maxEntries 条「记忆总结」条目（按注释尾部序号，末尾最新），非记忆条目原样保留；
+// 上限非法/<=0 时原样返回。用于写入侧的存储淘汰，避免长记忆无界增长。
+export function pruneWorldMemoryEntries(worldInfo, maxEntries) {
+  const list = Array.isArray(worldInfo) ? worldInfo : [];
+  const limit = Number(maxEntries);
+  if (!Number.isFinite(limit) || limit <= 0) return list;
+  const memoryEntries = list.filter(isWorldMemoryEntry);
+  if (memoryEntries.length <= limit) return list;
+  const keep = new Set(
+    memoryEntries
+      .slice()
+      .sort((a, b) => summaryIndex(a.comment) - summaryIndex(b.comment))
+      .slice(-limit)
+      .map(entry => String(entry.id || ''))
+  );
+  return list.filter(entry => !isWorldMemoryEntry(entry) || keep.has(String(entry.id || '')));
+}
+
 function sessionSummaryEntries(sessionSummaries) {
   return (Array.isArray(sessionSummaries) ? sessionSummaries : [])
     .map(item => String((item && item.summary) || '').trim())
@@ -445,11 +497,29 @@ function memorySummarySections(character, sessionSummaries, scoped = false) {
   ];
 }
 
-export function buildMemorySummaryText(character, sessionSummaries, scoped = false, maxChars = undefined) {
+// maxEntries：注入的条数上限（叠加字符预算），默认 100 条——避免长期使用后长记忆无界膨胀。
+export function buildMemorySummaryText(character, sessionSummaries, scoped = false, maxChars = undefined, maxEntries = DEFAULT_MEMORY_MAX_ENTRIES) {
   return joinWithinBudget(
-    memorySummarySections(character, sessionSummaries, scoped),
+    capMemoryEntries(memorySummarySections(character, sessionSummaries, scoped), maxEntries),
     maxChars
   );
+}
+
+// 解析「记忆总结」请求要用的接口：优先设置里 configId 指定的配置，否则当前默认接口。
+// 返回 { id, fingerprint }；读不到任何配置时都为空串（sendChatMessage 按默认行为处理）。
+export async function resolveSummaryRequestConfig(configId) {
+  try {
+    const { configs, activeId } = await getApiConfigs();
+    const target = configs.find(item => item.id === String(configId || ''))
+      || configs.find(item => item.id === activeId)
+      || configs[0];
+    return {
+      id: String((target && target.id) || ''),
+      fingerprint: target ? getConfigFingerprint(target) : '',
+    };
+  } catch (error) {
+    return { id: '', fingerprint: '' };
+  }
 }
 
 export async function applySummary({
@@ -460,6 +530,7 @@ export async function applySummary({
    userName,
    scoped = false,
    focus = '',
+   maxEntries = DEFAULT_MEMORY_MAX_ENTRIES,
    expectedConfigId = '',
    expectedConfigFingerprint = '',
    getCurrentCharacter = null,
@@ -483,6 +554,7 @@ export async function applySummary({
      userName,
      memories,
      focus,
+     variant: scoped ? 'session' : 'world',
      expectedConfigId,
      expectedConfigFingerprint,
   });
@@ -508,7 +580,7 @@ export async function applySummary({
       keywords,
       boundary,
       createdAt: Date.now(),
-    }, summaryRevision);
+    }, summaryRevision, maxEntries);
     return { entry: null, boundary, summary, keywords, scoped: true, skipped: false };
   }
 
@@ -527,34 +599,33 @@ export async function applySummary({
   const worldInfo = Array.isArray(currentCharacter && currentCharacter.worldInfo)
     ? currentCharacter.worldInfo
     : [];
-  const count = worldInfo.filter(entry =>
-    String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
-  ).length;
+  // 序号用「现有最大序号 + 1」而非条数：淘汰旧条目后条数不再单调，靠条数会写出重复序号。
+  const maxIndex = worldInfo
+    .filter(isWorldMemoryEntry)
+    .reduce((max, item) => Math.max(max, summaryIndex(item.comment)), 0);
   const entry = createWorldEntry({
     id: `memory-summary-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    comment: `${MEMORY_SUMMARY_PREFIX} ${count + 1}`,
+    comment: `${MEMORY_SUMMARY_PREFIX} ${maxIndex + 1}`,
     keys: keywords,
     content: summary,
     constant: false,
     enabled: true,
     position: 0,
     order: 10,
-  }, count);
+  }, maxIndex);
   entry.boundary = boundary;
   if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
     throw new Error('会话摘要已重置');
   }
   const appendSummary = current => {
     const latestWorldInfo = Array.isArray(current && current.worldInfo) ? current.worldInfo : [];
-    const latestCount = latestWorldInfo.filter(item =>
-      String((item && item.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX)
-    ).length;
+    const latestMax = latestWorldInfo
+      .filter(isWorldMemoryEntry)
+      .reduce((max, item) => Math.max(max, summaryIndex(item.comment)), 0);
+    const nextEntry = { ...entry, comment: `${MEMORY_SUMMARY_PREFIX} ${latestMax + 1}` };
     return {
       id: current.id,
-      worldInfo: [
-        ...latestWorldInfo,
-        { ...entry, comment: `${MEMORY_SUMMARY_PREFIX} ${latestCount + 1}` },
-      ],
+      worldInfo: pruneWorldMemoryEntries([...latestWorldInfo, nextEntry], maxEntries),
     };
   };
   appendSummary.id = character.id;
