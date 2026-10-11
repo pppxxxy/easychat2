@@ -4,9 +4,10 @@
 // 注意：这是「角色/群聊」切换器，不是会话切换器——角色行没有会话预览可显示。
 
 import React, { useMemo } from 'react';
-import { Modal, ScrollView, Text, TouchableOpacity } from 'react-native';
+import { ScrollView, Text } from 'react-native';
 
 import SessionRow, { SessionAvatar, formatSessionTime } from '../memory/SessionRow.js';
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
@@ -37,61 +38,54 @@ export default function SwitcherModal({
   }, [characters]);
 
   return (
-    <Modal
+    <Sheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      backdropStyle={styles.modalBackdrop}
+      cardStyle={[styles.modalSheet, styles.sheetWidth]}
+      cardAbsorbPress
+      header={<Text style={styles.modalTitle}>{t('chat.switcher.title')}</Text>}
     >
-      <TouchableOpacity
-        style={styles.modalBackdrop}
-        activeOpacity={1}
-        onPress={onClose}
-      >
-        <TouchableOpacity style={[styles.modalSheet, styles.sheetWidth]} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
-          <Text style={styles.modalTitle}>{t('chat.switcher.title')}</Text>
-          <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
 
-            {characters.map(item => (
-              <SessionRow
-                key={item.id}
-                mode="switch"
-                avatar={<SessionAvatar uri={item.avatarUri || ''} name={item.name || ''} size={36} />}
-                name={item.name || t('common.unnamedCharacter')}
-                active={!isGroup && item.id === activeId}
-                onPress={() => onSwitch(item.id)}
-              />
-            ))}
+        {characters.map(item => (
+          <SessionRow
+            key={item.id}
+            mode="switch"
+            avatar={<SessionAvatar uri={item.avatarUri || ''} name={item.name || ''} size={36} />}
+            name={item.name || t('common.unnamedCharacter')}
+            active={!isGroup && item.id === activeId}
+            onPress={() => onSwitch(item.id)}
+          />
+        ))}
 
-            {groupSessions.map(item => {
-              const name = groupSessionName(item);
-              const members = (item.members || []).map(id => characterMap.get(id)).filter(Boolean);
-              return (
-                <SessionRow
-                  key={`group-${item.id}`}
-                  mode="switch"
-                  avatar={(
-                    <SessionAvatar
-                      isGroup
-                      uri={item.avatarUri || ''}
-                      name={name}
-                      members={members}
-                      size={36}
-                    />
-                  )}
-
+        {groupSessions.map(item => {
+          const name = groupSessionName(item);
+          const members = (item.members || []).map(id => characterMap.get(id)).filter(Boolean);
+          return (
+            <SessionRow
+              key={`group-${item.id}`}
+              mode="switch"
+              avatar={(
+                <SessionAvatar
+                  isGroup
+                  uri={item.avatarUri || ''}
                   name={name}
-                  preview={String(item.preview || '').trim()}
-                  time={formatSessionTime(item.updatedAt)}
-                  active={item.id === activeSessionId}
-                  onPress={() => onSwitchGroup(item.id)}
+                  members={members}
+                  size={36}
                 />
+              )}
 
-              );
-            })}
-          </ScrollView>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
+              name={name}
+              preview={String(item.preview || '').trim()}
+              time={formatSessionTime(item.updatedAt)}
+              active={item.id === activeSessionId}
+              onPress={() => onSwitchGroup(item.id)}
+            />
+
+          );
+        })}
+      </ScrollView>
+    </Sheet>
   );
 }

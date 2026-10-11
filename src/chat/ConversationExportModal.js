@@ -6,7 +6,6 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -16,6 +15,7 @@ import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
@@ -127,67 +127,70 @@ export default function ConversationExportModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity style={[styles.exportSheet, styles.sheetWidth]} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
-          <View style={styles.exportHeader}>
-            <Text style={styles.modalTitle}>{t('chat.export.title')}</Text>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')}>
-              <Ionicons name="close" size={20} color={theme.colors.textFaint} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.exportSegments}>
-            {FORMATS.map(key => (
-              <TouchableOpacity
-                key={key}
-                style={[styles.exportSegment, format === key && styles.exportSegmentActive]}
-                onPress={() => setFormat(key)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.exportSegmentText, format === key && styles.exportSegmentTextActive]}>
-                  {labels[key]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {empty ? (
-            <Text style={styles.exportHint}>{t('chat.export.empty')}</Text>
-          ) : null}
-
-          {format === 'image' ? (
-            <View style={styles.exportPreviewWrap}>
-              <ScrollView
-                ref={scrollRef}
-                style={{ maxHeight: 320 }}
-                contentContainerStyle={{ alignItems: 'center' }}
-              >
-                <ShareCard entries={meta.entries} meta={meta.header} styles={styles} />
-              </ScrollView>
-            </View>
-          ) : (
-            <Text style={styles.exportHint}>
-              {format === 'markdown' ? t('chat.export.hint.markdown') : t('chat.export.hint.html')}
-            </Text>
-          )}
-
-          <TouchableOpacity
-            style={[styles.exportPrimaryButton, (busy || empty) && styles.exportPrimaryButtonDisabled]}
-            disabled={busy || empty}
-            activeOpacity={0.85}
-            onPress={() => (format === 'image' ? handleShareImage() : handleShareText(format))}
-          >
-            {busy ? (
-              <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
-            ) : (
-              <Text style={styles.exportPrimaryButtonText}>
-                {format === 'image' ? t('chat.export.shareImage') : t('chat.export.shareText')}
-              </Text>
-            )}
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      backdropStyle={styles.modalBackdrop}
+      cardStyle={[styles.exportSheet, styles.sheetWidth]}
+      cardAbsorbPress
+      header={(
+        <View style={styles.exportHeader}>
+          <Text style={styles.modalTitle}>{t('chat.export.title')}</Text>
+          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')}>
+            <Ionicons name="close" size={20} color={theme.colors.textFaint} />
           </TouchableOpacity>
-        </TouchableOpacity>
+        </View>
+      )}
+    >
+      <View style={styles.exportSegments}>
+        {FORMATS.map(key => (
+          <TouchableOpacity
+            key={key}
+            style={[styles.exportSegment, format === key && styles.exportSegmentActive]}
+            onPress={() => setFormat(key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.exportSegmentText, format === key && styles.exportSegmentTextActive]}>
+              {labels[key]}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {empty ? (
+        <Text style={styles.exportHint}>{t('chat.export.empty')}</Text>
+      ) : null}
+
+      {format === 'image' ? (
+        <View style={styles.exportPreviewWrap}>
+          <ScrollView
+            ref={scrollRef}
+            style={{ maxHeight: 320 }}
+            contentContainerStyle={{ alignItems: 'center' }}
+          >
+            <ShareCard entries={meta.entries} meta={meta.header} styles={styles} />
+          </ScrollView>
+        </View>
+      ) : (
+        <Text style={styles.exportHint}>
+          {format === 'markdown' ? t('chat.export.hint.markdown') : t('chat.export.hint.html')}
+        </Text>
+      )}
+
+      <TouchableOpacity
+        style={[styles.exportPrimaryButton, (busy || empty) && styles.exportPrimaryButtonDisabled]}
+        disabled={busy || empty}
+        activeOpacity={0.85}
+        onPress={() => (format === 'image' ? handleShareImage() : handleShareText(format))}
+      >
+        {busy ? (
+          <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+        ) : (
+          <Text style={styles.exportPrimaryButtonText}>
+            {format === 'image' ? t('chat.export.shareImage') : t('chat.export.shareText')}
+          </Text>
+        )}
       </TouchableOpacity>
-    </Modal>
+    </Sheet>
   );
 }

@@ -6,9 +6,10 @@
 //（requiresVideo，且发送侧会再按协议复检——video_url 只在 OpenAI 兼容协议下可用）。
 
 import React, { useMemo } from 'react';
-import { Modal, Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { Sheet } from '../ui/index.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createChatStyles } from './chatStyles.js';
@@ -28,56 +29,60 @@ export default function AttachmentMenuModal({ visible, onClose, onSelect, vision
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity style={[styles.modalSheet, styles.sheetWidth]} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
-          <View style={styles.attachMenuHeader}>
-            <Text style={styles.modalTitle}>{t('chat.attach.title')}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('chat.attach.close')}>
-              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-          {OPTION_KEYS.map(option => {
-            // 拍照/图片要识图；视频要「看视频」能力。不支持时置灰并给出原因，
-            // 避免走到一半才被拒。
-            const locked = (option.requiresVision && !visionEnabled)
-              || (option.requiresVideo && !videoEnabled);
-            const title = t(option.titleKey);
-            return (
-              <TouchableOpacity
-                key={option.id}
-                style={[styles.attachMenuRow, locked && styles.attachMenuRowLocked]}
-                onPress={() => {
-                  if (locked) return;
-                  onSelect(option.id);
-                }}
-                disabled={locked}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={title}
-                accessibilityState={{ disabled: locked }}
-              >
-                <Ionicons
-                  name={option.icon}
-                  size={22}
-                  color={locked ? theme.colors.textFaint : theme.colors.accentText}
-                />
-                <View style={styles.attachMenuTextWrap}>
-                  <Text style={[styles.attachMenuTitle, locked && styles.attachMenuTitleLocked]}>
-                    {title}
-                  </Text>
-                  <Text style={styles.attachMenuHint}>
-                    {locked
-                      ? t(option.requiresVideo ? 'chat.attach.videoRequired' : 'chat.attach.visionRequired')
-                      : t(option.hintKey)}
-                  </Text>
-                </View>
-                {locked ? <Ionicons name="lock-closed-outline" size={15} color={theme.colors.textFaint} /> : null}
-              </TouchableOpacity>
-            );
-          })}
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      backdropStyle={styles.modalBackdrop}
+      cardStyle={[styles.modalSheet, styles.sheetWidth]}
+      cardAbsorbPress
+      header={(
+        <View style={styles.attachMenuHeader}>
+          <Text style={styles.modalTitle}>{t('chat.attach.title')}</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('chat.attach.close')}>
+            <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
+    >
+      {OPTION_KEYS.map(option => {
+        // 拍照/图片要识图；视频要「看视频」能力。不支持时置灰并给出原因，
+        // 避免走到一半才被拒。
+        const locked = (option.requiresVision && !visionEnabled)
+          || (option.requiresVideo && !videoEnabled);
+        const title = t(option.titleKey);
+        return (
+          <TouchableOpacity
+            key={option.id}
+            style={[styles.attachMenuRow, locked && styles.attachMenuRowLocked]}
+            onPress={() => {
+              if (locked) return;
+              onSelect(option.id);
+            }}
+            disabled={locked}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={title}
+            accessibilityState={{ disabled: locked }}
+          >
+            <Ionicons
+              name={option.icon}
+              size={22}
+              color={locked ? theme.colors.textFaint : theme.colors.accentText}
+            />
+            <View style={styles.attachMenuTextWrap}>
+              <Text style={[styles.attachMenuTitle, locked && styles.attachMenuTitleLocked]}>
+                {title}
+              </Text>
+              <Text style={styles.attachMenuHint}>
+                {locked
+                  ? t(option.requiresVideo ? 'chat.attach.videoRequired' : 'chat.attach.visionRequired')
+                  : t(option.hintKey)}
+              </Text>
+            </View>
+            {locked ? <Ionicons name="lock-closed-outline" size={15} color={theme.colors.textFaint} /> : null}
+          </TouchableOpacity>
+        );
+      })}
+    </Sheet>
   );
 }
