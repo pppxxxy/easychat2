@@ -1296,7 +1296,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
               setAgentPlan(steps);
             }
           }
-          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round } : null);
+          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round, startedAt: Date.now() } : null);
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
         // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，

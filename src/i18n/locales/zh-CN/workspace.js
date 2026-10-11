@@ -564,6 +564,7 @@ export const workspace = {
   'workspace.chat.tool.history': '看提交历史',
   'workspace.chat.summary.op.delete': '删除',
   'workspace.chat.tool.running': '运行中…',
+  'workspace.chat.tool.runningElapsed': '已运行 {elapsed}',
   'workspace.chat.tool.change': '改动',
   'workspace.chat.tool.content': '写入内容（{count} 字符）',
   'workspace.chat.tool.command': '命令',

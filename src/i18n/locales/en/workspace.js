@@ -565,6 +565,7 @@ export const workspace = {
   'workspace.chat.tool.history': 'Commit history',
   'workspace.chat.summary.op.delete': 'Delete',
   'workspace.chat.tool.running': 'Running…',
+  'workspace.chat.tool.runningElapsed': 'Running {elapsed}',
   'workspace.chat.tool.change': 'Change',
   'workspace.chat.tool.content': 'Content written ({count} chars)',
   'workspace.chat.tool.command': 'Command',

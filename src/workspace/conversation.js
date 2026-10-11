@@ -206,6 +206,9 @@ export function buildConversationRows({ messages, live = null } = {}) {
         args: '',
         argsRaw: null,
         status: 'running',
+        // 登记时刻：ToolCallRow 据此每秒 tick 出「已运行 m:ss」。长任务（team/workflow
+        // 的 timeoutMs=600000）此前只有静态「运行中…」，用户分不清在跑还是卡死。
+        startedAt: Number(live.startedAt) || 0,
         resultPreview: '',
         resultText: '',
       },

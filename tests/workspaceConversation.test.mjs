@@ -166,6 +166,16 @@ test('W2：live 行是临时行（key 固定 live、状态 running、排在最�
   assert.equal(buildConversationRows({ messages, live: {} }).length, 1, '缺 name 不出行');
 });
 
+test('长任务进度：live 行带出登记时刻 startedAt（ToolCallRow 据此 tick「已运行 m:ss」）', () => {
+  const messages = [{ id: 'u1', role: 'user', content: 'hi' }];
+  const startedAt = 1_700_000_000_000;
+  const live = buildConversationRows({ messages, live: { name: 'run_workflow', startedAt } })[1];
+  assert.equal(live.tool.startedAt, startedAt);
+  // 脏数据不产生 NaN：缺字段/非数字一律 0，渲染层据此退回静态「运行中…」而不显示 NaN:NaN
+  assert.equal(buildConversationRows({ messages, live: { name: 'run_shell' } })[1].tool.startedAt, 0);
+  assert.equal(buildConversationRows({ messages, live: { name: 'run_shell', startedAt: 'abc' } })[1].tool.startedAt, 0);
+});
+
 test('W2：turnChanges 只认改文件的工具，同文件多次只算一条（留最后操作 + 次数）', async () => {
   const { turnChanges } = await import('../src/workspace/conversation.js');
   assert.deepEqual(turnChanges([]), { files: [], count: 0 }, '空会话没有改动');
