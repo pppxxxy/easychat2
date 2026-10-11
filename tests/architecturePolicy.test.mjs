@@ -1,5 +1,7 @@
-// 架构策略（Z 系采纳 #2）：行数棘轮基线的不变量 + 守卫接线。
+// 架构策略（Z 系采纳 #2）：行数棘轮基线的不变量。
 // 与 scripts/guard-structure.mjs 同口径（行数按 wc -l 语义），这里把不变量也钉进测试套件。
+// 守卫脚本自身的**行为**由 tests/guardStructure.test.mjs 负责（真跑脚本 + 违规样本），
+// 本文件不再断言脚本里的提示文案与函数名——那种断言在规则空转时照样全绿。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +10,6 @@ import path from 'node:path';
 
 const ROOT = process.cwd();
 const baseline = JSON.parse(readFileSync(path.join(ROOT, 'architecture-baseline.json'), 'utf8'));
-const guardSource = readFileSync(path.join(ROOT, 'scripts', 'guard-structure.mjs'), 'utf8');
 
 function collectJsFiles(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -65,10 +66,9 @@ test('回归 P2：行数基线不留空转余量（阈值 = 当前实际值）',
     `以下基线高于实际行数，棘轮因此失去意义——请把基线下调到实际值：\n${air.join('\n')}`);
 });
 
-test('守卫脚本已接线两项新规则', () => {
-  assert.ok(guardSource.includes('architecture-baseline.json'), '读基线');
-  assert.ok(guardSource.includes('超出各自基线行数'), '行数棘轮规则');
-  assert.ok(guardSource.includes('超过行数上限'), '新文件超限规则');
-  assert.ok(guardSource.includes('检出模块循环依赖'), '循环依赖规则');
-  assert.ok(guardSource.includes('function stripComments'), '扫描前剥离注释（防注释里的 import 误判）');
-});
+// 这里原有 5 条**纯文案断言**（守卫脚本里必须出现 '超出各自基线行数' / '超过行数上限' /
+// '检出模块循环依赖' / 'function stripComments' 等字符串）。它们钉的是提示文案与函数名，
+// 不是行为：守卫把判据写错、规则彻底空转时，这些字符串**原样还在**，测试照样全绿
+//（2026-10-11 审查里「面板禁止自套 Modal」空转就是这么活下来的）。
+// 真正能发现「规则空转」的是行为测试：见 tests/guardStructure.test.mjs——把守卫脚本复制进
+// 临时仓库根、喂一个违规样本、断言它以非零码失败。文案断言已删除，不再重复占位。
