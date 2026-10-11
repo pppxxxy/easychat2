@@ -197,6 +197,8 @@ export const error = {
   'error.presets.duplicateId': '预设 ID 重复',
   'error.workspace.fileSystemMissing': '工作区缺少 fileSystem 注入。',
   'error.workspace.targetIsDirectory': '目标是目录，不是文件：{path}',
+  'error.workspace.gitPathEscape': 'git 路径越界（不允许 .. 或绝对路径）：{path}',
+  'error.workspace.gitUnsupported': '工作区 git 不支持 {name}（无符号链接能力）。',
   'error.backup.restoreReadFailed': '无法读取待恢复数据：{key}',
   'error.backup.tooLarge': '备份文件过大，当前上限为 {mb}MB',
   'error.backup.exportUnreadable': '备份导出：以下数据键读取失败，未包含在备份中：{keys}',

@@ -14,8 +14,9 @@ export const TASK_OUTPUT_MAX = 50;
 // 故份数之外再加一道总字节护栏。size 由落盘时维护的清单（index.json）提供；清单缺失的
 // 老文件按未知处理（best-effort：跳过其对字节维度的贡献，不因此误删）。
 export const TASK_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
-// 落盘后的预览长度（头、尾各一份）。
-export const TOOL_RESULT_PREVIEW_CHARS = 2000;
+// 落盘后的预览长度不在这里定义：唯一来源是 agent/messages.js 的 TOOL_RESULT_PREVIEW_CHARS
+//（formatPersistedToolResult 拥有「头尾预览 + 指针」的契约）。此处曾另有一份同名 2000，
+// 三线整合时发现无人引用，已删除。
 
 const TASK_OUTPUT_INDEX = '.task_outputs/index.json';
 

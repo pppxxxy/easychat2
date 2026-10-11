@@ -28,6 +28,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import DiffView from './DiffView.js';
+import { getWorkspaceSettings } from '../storage/workspace.js';
+import { shouldRecordFileHistory } from './native.js';
 import {
   listFileHistory,
   listFileHistoryPaths,
@@ -51,10 +53,24 @@ export default function FileHistorySheet({
   characterId = '',
   path = '',
   onRestored,
+  // W7 退旧：本地 git 开着时快照不再新增，历史以「历史」面板为准——这里只留一个指路条，
+  // 不把老快照藏起来（它们仍然可看可恢复，只是不再增长）。
+  onOpenHistory = null,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+
+  // 本地 git 是否接管了历史（决定要不要显示指路条）。
+  const [gitTakesOver, setGitTakesOver] = useState(false);
+  useEffect(() => {
+    if (!visible) return undefined;
+    let alive = true;
+    getWorkspaceSettings()
+      .then(settings => { if (alive) setGitTakesOver(!shouldRecordFileHistory(settings)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [visible]);
 
   // 指定了 path 就直接进单文件视图；否则先看总览。
   const [activePath, setActivePath] = useState(path);
@@ -205,6 +221,16 @@ export default function FileHistorySheet({
             </TouchableOpacity>
           </View>
 
+          {gitTakesOver && onOpenHistory ? (
+            <TouchableOpacity
+              style={styles.gitHint}
+              onPress={() => { onOpenHistory(); if (onClose) onClose(); }}
+            >
+              <Ionicons name="git-branch-outline" size={16} color={theme.colors.primary} />
+              <Text style={styles.gitHintText}>{t('workspace.fileHistory.gitHint')}</Text>
+            </TouchableOpacity>
+          ) : null}
+
           {busy ? (
             <View style={styles.center}>
               <ActivityIndicator color={theme.colors.primary} />
@@ -217,7 +243,7 @@ export default function FileHistorySheet({
               </Text>
             </View>
           ) : (
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+      <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
               {activePath
                 ? entries.map(entry => {
                   const isBaseline = entry.id === (entries[entries.length - 1] || {}).id;
@@ -292,6 +318,11 @@ export default function FileHistorySheet({
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  gitHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 8,
+    padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface,
+  },
+  gitHintText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12) },
   backdrop: {
     flex: 1,
     backgroundColor: theme.colors.overlay,

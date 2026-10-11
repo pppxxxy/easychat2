@@ -27,8 +27,8 @@ export default function AssistantMessageBody({
   fullWidth = true,
   contentWidth: providedContentWidth = 0,
   onCommand,
-  // 正文取色：缺省走聊天气泡的助手文字色（浅底深字）；在深底容器（工作区文件预览、
-  // 制卡预览的气泡底色不同）里必须显式传，否则深底深字不可见。
+  // 正文取色：缺省走聊天气泡的助手文字色（浅底深字）；在深底容器（工作区聊天气泡、
+  // 文件预览、制卡预览底色不同）里必须显式传，否则深底深字不可见。
   textColor,
 }) {
   const { theme, fonts, tokens } = useTheme();

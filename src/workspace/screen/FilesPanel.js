@@ -66,7 +66,7 @@ const CHANGE_OP_META = {
   import: { icon: 'cloud-download-outline', labelKey: 'workspace.panel.history.op.import' },
 };
 
-export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '' }) {
+export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '', onOpenHistory = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const { refreshAppData } = useApp();
@@ -1298,6 +1298,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         <FileHistorySheet
           visible={historyOpen}
           onClose={() => { setHistoryOpen(false); setHistoryPath(''); }}
+          onOpenHistory={onOpenHistory}
           store={storeRef.current}
           characterId={characterId}
           path={historyPath}

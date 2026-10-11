@@ -31,6 +31,7 @@ import ChatPanel from './ChatPanel.js';
 import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
 import TerminalPanel from './TerminalPanel.js';
+import GitHistoryPanel from './GitHistoryPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
 
 // 左栏宽度。**样式与两栏宽度解算共用同一个常量**——两处各写一个数，迟早会对不上
@@ -43,6 +44,7 @@ const DOMAIN_KEYS = [
   { id: 'files', icon: 'folder-outline', labelKey: 'workspace.screen.rail.files' },
   { id: 'github', icon: 'logo-github', labelKey: 'workspace.screen.rail.github' },
   { id: 'terminal', icon: 'terminal-outline', labelKey: 'workspace.screen.rail.terminal' },
+  { id: 'history', icon: 'time-outline', labelKey: 'workspace.screen.rail.history' },
   { id: 'settings', icon: 'settings-outline', labelKey: 'workspace.screen.rail.settings' },
 ];
 
@@ -150,19 +152,32 @@ export default function WorkspaceScreen({ visible, onClose }) {
   }), []);
 
   const renderChatPanel = () => (
-    <ChatPanel visible={visible} draft={draft} onOpenPanel={openFiles} />
+    <ChatPanel
+      visible={visible}
+      draft={draft}
+      onOpenPanel={openFiles}
+      onOpenHistory={() => setPanel('history')}
+    />
   );
   // 非对话领域。**不接收 onClose**：导航是屏幕的职责（左栏切领域 + 返回键按层级退）。
   const renderDomainPanel = id => (
     <>
       {id === 'files' ? (
-        <FilesPanel visible={visible} embedded initialSection={filesSection} />
+        <FilesPanel
+          visible={visible}
+          embedded
+          initialSection={filesSection}
+          onOpenHistory={() => setPanel('history')}
+        />
       ) : null}
       {id === 'github' ? (
         <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
       ) : null}
       {id === 'terminal' ? (
         <TerminalPanel characterId={characterId} />
+      ) : null}
+      {id === 'history' ? (
+        <GitHistoryPanel characterId={characterId} />
       ) : null}
       {id === 'settings' ? (
         <WorkspaceSettingsPanel characterId={characterId} />

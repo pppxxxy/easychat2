@@ -69,6 +69,12 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     lineHeight: fonts.scaled(16),
     marginTop: 8,
   },
+  boardTopic: { marginTop: 10 },
+  boardTopicTitle: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(12),
+    fontWeight: '700',
+  },
   // 「清除全部授权」：危险动作给危险色 + 描边，但不填满（防误点视觉权重过大）。
   permissionClear: {
     flexDirection: 'row',

@@ -11,7 +11,10 @@ import { assertWritableWorkspacePath } from '../paths.js';
 // 读上限与推送同口径（宽于导入文本线 5MB），截断的内容不配当"旧版本"。
 const SNAPSHOT_READ_MAX_CHARS = 8 * 1024 * 1024;
 
-async function snapshotBeforeWrite(store, characterId, path) {
+async function snapshotBeforeWrite(store, characterId, path, enabled = true) {
+  // W7 退旧：本地 git 开着时宿主会传 enabled=false——写前快照与回合检查点/丢弃是同一件事，
+  // 两份历史并存只会让「哪份才算数」变模糊（SAF 根下 git 不可用，仍会传 true）。
+  if (!enabled) return;
   let oldContent = '';
   try {
     const previous = await store.readWorkspaceFile({
@@ -66,7 +69,7 @@ export const WRITE_TOOL_DEFINITIONS = [
       // 审计/快照文件不可改写（在快照之前拦：被拒的写入不该留下快照记录）。
       assertWritableWorkspacePath(args.path);
       // J1：落笔前快照旧内容（删除也可逆——新建记空内容）。
-      await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path);
+      await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path, options.recordFileHistory !== false);
       const result = await options.store.writeWorkspaceFile({
         characterId: ctx && ctx.characterId,
         path: args.path,
@@ -96,7 +99,7 @@ export const WRITE_TOOL_DEFINITIONS = [
       // 审计/快照文件不可改写（同 write：拦在快照之前）。
       assertWritableWorkspacePath(args.path);
       // J1：编辑同样是覆盖——先快照（find/replace 是全量读改写，旧内容只有这一次机会）。
-      await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path);
+      await snapshotBeforeWrite(options.store, ctx && ctx.characterId, args.path, options.recordFileHistory !== false);
       const result = await options.store.editWorkspaceFile({
         characterId: ctx && ctx.characterId,
         path: args.path,

@@ -54,7 +54,7 @@ export const CAPABILITY_LIMITS_TITLE_KEY = 'workspace.capability.limitsTitle';
 
 // 当前生效的工具清单（用于界面如实列出「现在到底开了哪些」）。
 // settings 为归一化后的工作区设置；shellAvailable / pythonAvailable 表示原生模块是否可用。
-export function activeWorkspaceTools(settings, { shellAvailable = false, pythonAvailable = false } = {}) {
+export function activeWorkspaceTools(settings, { shellAvailable = false, pythonAvailable = false, mcpToolNames = [] } = {}) {
   const source = settings && typeof settings === 'object' ? settings : {};
   const mode = source.mode;
   if (mode !== 'write' && mode !== 'read') return [];
@@ -72,6 +72,18 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   if (mode === 'write' && appRoot && source.allowPythonExecution === true && pythonAvailable) {
     tools.push('run_python');
   }
+  // W7：本地版本控制（只读三件套）。条件必须与 native.js 的 gitGateReason **逐条一致**
+  //（开关 + 应用内根），否则卡片会说「开着」而注册表里没有它——这张卡片最该避免的误导。
+  // 不与模式耦合：read 模式下正好用来回看自己改过什么。
+  if (appRoot && source.allowLocalGit === true) {
+    tools.push('git_status', 'git_diff', 'git_log');
+  }
+  // MCP（含内置 GitHub）：连上就有，read 模式给只读类、write 模式给全部——清单由调用方
+  // 按同一套 riskGate 过滤后传进来（这里不重复判定，只如实列）。
+  for (const name of (Array.isArray(mcpToolNames) ? mcpToolNames : [])) {
+    const value = String(name || '').trim();
+    if (value && !tools.includes(value)) tools.push(value);
+  }
   return tools;
 }
 
@@ -81,7 +93,7 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
 // enabled 两个标志必须与 activeWorkspaceTools 的**判断条件完全一致**（含原生可用性）：
 // 说明里写「开着」而工具清单里没有它，就是这张卡片最该避免的那种误导。
 // 早先 shellEnabled 漏了 shellAvailable 这一项，原生模块缺失时会说「开着」而工具不存在。
-export function capabilityViewModel(settings, { shellAvailable = false, pythonAvailable = false } = {}) {
+export function capabilityViewModel(settings, { shellAvailable = false, pythonAvailable = false, mcpToolNames = [] } = {}) {
   const source = settings && typeof settings === 'object' ? settings : {};
   const appRoot = !source.location || source.location.kind !== 'saf';
   const writeMode = source.mode === 'write';
@@ -91,7 +103,7 @@ export function capabilityViewModel(settings, { shellAvailable = false, pythonAv
     steps: CAPABILITY_STEPS.map(step => ({ id: step.id, labelKey: step.labelKey })),
     limitsTitleKey: CAPABILITY_LIMITS_TITLE_KEY,
     limits: CAPABILITY_LIMITS.map(limit => ({ id: limit.id, labelKey: limit.labelKey })),
-    tools: activeWorkspaceTools(source, { shellAvailable, pythonAvailable }),
+    tools: activeWorkspaceTools(source, { shellAvailable, pythonAvailable, mcpToolNames }),
     shellEnabled: writeMode && appRoot && source.allowCommandExecution === true && shellAvailable === true,
     pythonEnabled: writeMode && appRoot && source.allowPythonExecution === true && pythonAvailable === true,
   };
