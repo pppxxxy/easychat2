@@ -71,3 +71,55 @@ test('ApiSettings 与持久化：新字段带 openai 缺省，旧数据兼容', 
   assert.ok(core.includes('prefs.getString(KEY_PROTOCOL, "openai")'), '读取时缺省按 openai，升级兼容');
   assert.ok(module_.includes('protocol = config.getString("protocol") ?: "openai"'), '桥接读取新字段并给缺省');
 });
+
+// —— 随机时段 + 风格权重（2026-10-11）——
+// 同样只能源码断言：沙箱编译不了 Kotlin，真机后台触发由 CI/真机验证。
+// 钉住的是「算错也不报错、只会静默发错」的几处：过期判据的基准、固定时刻路径不变、
+// 占位符必须被替换掉、0 权重不参与抽取。
+
+const scheduling = fs.readFileSync(
+  path.resolve('plugins/proactiveMessage/android/ProactiveScheduling.kt'), 'utf8');
+
+test('随机时段：nextTarget 在窗口内随机，isExpired 按「窗口结束 + 宽限」判定', () => {
+  assert.ok(core.includes('const val MAX_WINDOW_MINUTES = 720'), '时段上限与 JS 侧一致（12 小时）');
+  assert.ok(core.includes('val windowMinutes: Int = 0'), 'RoleSchedule 带 windowMinutes（0 = 旧行为）');
+  assert.ok(/private fun pickInWindow\(/.test(core), '窗口内取随机时刻');
+  assert.ok(/fun nextTarget\(config: RoleSchedule, random: Random = Random.Default\)/.test(core),
+    'nextTarget 接受可注入的随机源（默认走系统随机）');
+  // 今天窗口若已开始，只能在剩余区间里抽——否则会抽到过去，白白浪费今天的窗口
+  assert.ok(core.includes('val lower = maxOf(dayStart, notBefore)'), '今天从 max(窗口起点, 现在) 起抽');
+  // 过期判据必须落在「窗口结束 + 宽限」：拿抽中的随机时刻当基准，同一分钟内两次判定会不同
+  assert.ok(/val deadline = start \+ windowSpan\(config\) \* 60_000L/.test(core), '过期基准 = 窗口起点 + 时段长度');
+  assert.ok(core.includes('diff > MAX_LATENESS_MS'), '宽限沿用 30 分钟');
+  // 固定时刻（span=0）路径逐字不变
+  assert.ok(core.includes('if (span <= 0) return dayStart'), '固定时刻仍返回准点');
+  assert.ok(core.includes('val start = todayTarget(config)'), '过期基准仍以准点为起点');
+});
+
+test('多风格：占位符常量与 JS 侧逐字一致，抽取只认正权重', () => {
+  assert.ok(core.includes('const val PROACTIVE_TASK_TOKEN = "{{proactive_task}}"'), '占位符常量');
+  assert.ok(core.includes('data class ProactiveVariant'), '抽取表条目类型');
+  assert.ok(/fun pickVariant\(random: Random = Random.Default\)/.test(core), '按权重抽取');
+  assert.ok(core.includes('variants.filter { it.weight > 0.0 }'), '0 权重不参与抽取');
+  assert.ok(core.includes('val total = usable.sumOf { it.weight }'), '权重和由 JS 归一，这里只做累积比较');
+  // 发送前必须把占位符替换掉（哪怕没抽到风格）——否则 {{…}} 会原样发给模型
+  assert.ok(core.includes('schedule.requestJson.replace(PROACTIVE_TASK_TOKEN'), '替换占位符');
+  assert.ok(core.includes('picked?.task ?: ""'), '没抽到风格也要把占位符换成空串');
+  assert.ok(core.includes('effective.messageType'), '兜底文案用抽中的风格类型');
+  assert.ok(core.includes('generateProactiveMessage(it, effective)'), '生成用的是替换后的请求体');
+});
+
+test('多风格：桥接解析 variantsJson 并夹住 windowMinutes；WORK 模式每天重抽', () => {
+  assert.ok(module_.includes('private fun parseVariants'), 'JSON 字符串解析（数组跨 Interop 编组不可靠）');
+  assert.ok(module_.includes('config.getString("variantsJson")'), '读 variantsJson');
+  assert.ok(module_.includes('.coerceIn(0, MAX_WINDOW_MINUTES)'), 'windowMinutes 夹到合法区间');
+  assert.ok(module_.includes('variants = parseVariants('), '抽取表接进 RoleSchedule');
+  // 周期性任务会把首次随机偏移固定住，第二天起就不随机了——发完重排一次
+  assert.ok(scheduling.includes('it.windowMinutes > 0'), '仅随机时段重排（固定时刻行为不变）');
+  assert.ok(scheduling.includes('it.mode == ScheduleMode.WORK'), '只对 WorkManager 方案重排（精确闹钟本来就会重排）');
+  // 落盘/读回要带上新字段，否则重启后窗口与风格表丢失
+  assert.ok(core.includes('.put("windowMinutes", windowMinutes)'), 'toJson 写 windowMinutes');
+  assert.ok(core.includes('.put("variants", JSONArray().apply'), 'toJson 写 variants');
+  assert.ok(core.includes('json.optInt("windowMinutes", 0)'), 'fromJson 读 windowMinutes（缺省 = 旧行为）');
+  assert.ok(core.includes('json.optJSONArray("variants")'), 'fromJson 读 variants');
+});

@@ -38,6 +38,13 @@ class DailyMessageWorker(context: Context, params: WorkerParameters) :
             ?: return Result.failure().also { Log.w("DailyWorker", "缺少 slotId") }
         val revision = inputData.getString(KEY_REVISION) ?: ""
         ProactiveMessageSender.send(applicationContext, slotId, revision)
+        // 随机时段要「每天重新抽一次」：周期性任务会把首次的随机偏移固定下来（周期恒为 24h），
+        // 第二天起就不随机了。发完重排一次，让下一次的偏移重新抽。
+        // 只在 windowMinutes > 0 时做——固定时刻的槽位行为逐字不变，也省一次调度写入。
+        // 重复发送由 Sender 的「今天已发」去重兜住，重排本身不会造成第二条消息。
+        MessageStore(applicationContext).findScheduleBySlot(slotId)
+            ?.takeIf { it.enabled && it.mode == ScheduleMode.WORK && it.windowMinutes > 0 }
+            ?.let { DailyWorkScheduler.schedule(applicationContext, it) }
         // 发送逻辑内部已做降级与去重，重试只会骚扰用户，统一返回 success
         return Result.success()
     }
