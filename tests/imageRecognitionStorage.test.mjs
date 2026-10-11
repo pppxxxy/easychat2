@@ -216,3 +216,29 @@ test('缓存损坏：按「没有缓存」处理且不备份（派生数据不�
   assert.equal(await mod.writeImageRecognitionCache(key, '新描述'), true);
   assert.equal(await mod.readImageRecognitionCache(key), '新描述');
 });
+
+// 引擎测试里缓存是内存桩（真实模块经 storage/io.js 拉进 expo-file-system/legacy，
+// 那条链在 Node 下由 ESM 加载器接管、Module._load 拦不住）。所以「引擎 + 真实缓存
+// 存储」的接缝在这里补一条集成断言：缓存键由真实函数算出、写入真实模块、能读回。
+test('集成接缝：真实缓存存储的键与读写在引擎使用方式下闭环', async () => {
+  store.clear();
+  const cacheKey = mod.imageRecognitionCacheKey({
+    contentHash: 'hash-from-engine',
+    configId: 'cfg-ocr',
+    model: 'ocr-model',
+    promptHash: 'prompt-hash',
+  });
+  assert.ok(cacheKey, '四元组齐全时必须给键');
+  assert.equal(await mod.readImageRecognitionCache(cacheKey), '', '未写入时为空');
+  await mod.writeImageRecognitionCache(cacheKey, '画面里有一张表格');
+  assert.equal(await mod.readImageRecognitionCache(cacheKey), '画面里有一张表格');
+  // 换个模型（引擎侧就是换 model 进四元组）：必须读不到旧结果
+  const otherKey = mod.imageRecognitionCacheKey({
+    contentHash: 'hash-from-engine',
+    configId: 'cfg-ocr',
+    model: 'other-model',
+    promptHash: 'prompt-hash',
+  });
+  assert.notEqual(otherKey, cacheKey);
+  assert.equal(await mod.readImageRecognitionCache(otherKey), '', '换模型不得复用旧结果');
+});
