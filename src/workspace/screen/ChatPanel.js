@@ -64,16 +64,16 @@ import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
-// P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
-import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
 import { searchChatMessages } from '../../chat/messageSearch.js';
 import { createMarkdownStyles } from '../../chat/assistantRender.js';
 import { clampMarkdownText } from '../../chat/markdownGuard.js';
 import { promptUserChoice } from '../../chat/askUserPrompt.js';
-import ToolCardList from './ToolCardList.js';
+// W1/W2：会话行投影（工具调用按行内联，纯函数在 workspace/conversation.js）+ 侧栏面板装配。
+import ToolCallRow from './ToolCallRow.js';
+import SessionSidePanels from './SessionSidePanels.js';
+import { buildConversationRows } from '../conversation.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
-import PlanProgressBar from './PlanProgressBar.js';
 import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
@@ -104,7 +104,8 @@ import {
   sessionEventsPath,
 } from '../sessionEvents.js';
 import { normalizePlanSteps, shouldOfferPlanApproval } from '../toolDefs/planTool.js';
-import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../native.js';
+import { createWorkspaceStore, registerDefaultWorkspaceTools, resolveGitRunner } from '../native.js';
+import { runTurnCheckpoint } from '../gitCheckpoint.js';
 import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
 import { materializeRepoFile, parseRepoFilePath } from '../repoMaterialize.js';
@@ -170,7 +171,7 @@ const AssistantBody = React.memo(function AssistantBody({ content, markdownStyle
   return <Markdown style={markdownStyles}>{clampMarkdownText(content || '').text}</Markdown>;
 });
 
-export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
+export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHistory = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -185,7 +186,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
-  const [toolCards, setToolCards] = useState([]);
+  // W2：本轮正在跑的那次工具调用（并进聊天流里显示，不再单独占一条状态行）。
+  const [liveTool, setLiveTool] = useState(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('');
@@ -218,7 +220,6 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // A3 二期：计划进度条——从 update_plan 的工具事件读清单（纯展示，不落盘）；
   // 会话边界（新对话/切对话）清空，与已读登记同款。
   const [agentPlan, setAgentPlan] = useState([]);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
   // I1：Steering——agent 运行中输入框保持可用，发送即入队（下一轮请求前注入）；
   // 队列每次发送时新建、turn 结束丢弃（跨轮次的补充没有意义）。
   const steeringRef = useRef(null);
@@ -388,7 +389,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages([]);
     setInput('');
     setAttachments([]);
-    setToolCards([]);
+    setLiveTool(null);
     setSending(false);
     setSettingsOpen(false);
     setSettingsSection('');
@@ -644,7 +645,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages([]);
     setInput('');
     setAttachments([]);
-    setToolCards([]);
+    setLiveTool(null);
     setSending(false);
     setSettingsSection('');
     // A5：新对话 = 新会话 → 已读登记清零（它记的是「这次对话读过了什么」）。
@@ -670,7 +671,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     setMessages(target.messages);
     setInput(readDraft(characterId, id, target.draft));
     setAttachments([]);
-    setToolCards([]);
+    setLiveTool(null);
     setSending(false);
     setHistoryOpen(false);
     // A5：切对话 = 换会话 → 已读登记清零（不把上一条会话的阅读史带过去）。
@@ -1198,7 +1199,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       setAttachments([]);
     }
     setSending(true);
-    setToolCards([]);
+    setLiveTool(null);
     persistMessages(ownerId, chatId, [userMessage]);
     // E4：会话事件流（旁路审计）——user 事件。不 await、写失败静默（事件流绝不挡消息链路）。
     appendSessionEvent(storeRef.current, ownerId, chatId, 'user', {
@@ -1295,15 +1296,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               round: event.round,
             });
             // A3 二期：update_plan 的清单推进度条（状态展示；传空清单 = 清空）。
+            // 新计划自动展开由 AgentPlanPanel 自己处理（侧栏面板）。
             if (event.name === 'update_plan') {
               const steps = normalizePlanSteps(event.args && event.args.plan);
               setAgentPlan(steps);
-              if (steps.length > 0) setPlanCollapsed(false);
             }
           }
-          // P0：逐次调用各一张卡（同一轮同名工具调两次就是两张）——用户能看到
-          // 「哪一步读了什么、改了什么、失败在哪」，而不是等终稿。
-          setToolCards(prev => applyToolEvent(prev, event));
+          // W2：正在跑的那次调用并进聊天流（不再单独占一条状态行）；结束/失败即清。
+          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round } : null);
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
         // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
@@ -1406,6 +1406,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       if (turnTrace) assistantFinal = { ...assistantFinal, toolTrace: turnTrace };
       // 助手终稿一次性落盘（含被中止 / 报错的情况），流式期间不写。
       persistMessages(ownerId, chatId, [{ ...assistantFinal, at: Date.now() }]);
+      // W7：回合检查点——把本轮改动落成本地提交（「本地版本控制」开着才有 runner；
+      // 旁路增强，任何失败都吞掉、不影响回合）。于是 git_log / 「撤销本轮」有了明确目标。
+      if (mode !== 'ask') {
+        try {
+          const gitRunner = resolveGitRunner(wsSettingsRef.current || wsSettings);
+          if (gitRunner) {
+            runTurnCheckpoint({ git: gitRunner, request: outgoingText, characterId: ownerId }).catch(() => {});
+          }
+        } catch (error) {}
+      }
       // E4：事件流（旁路）——助手终稿（中止/报错形态如实带 isError）。
       appendSessionEvent(storeRef.current, ownerId, chatId, 'assistant', {
         text: String(assistantFinal.content || '').slice(0, 1000),
@@ -1413,7 +1423,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       });
       if (mountedRef.current) {
         setSending(false);
-        setToolCards([]);
+        setLiveTool(null);
         setSteeringNote(''); // I1：本轮结束，补充指令的提示与队列一并清掉
       }
       controllerRef.current = null;
@@ -1452,7 +1462,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       }
     }, 40);
     return () => clearTimeout(timer);
-  }, [messages, toolCards]);
+  }, [messages, liveTool]);
 
   // P2-1：检索结果 → 命中下标集合 → 就地过滤。判定全在纯函数里（chat/messageSearch.js），
   // 这里只把结果套到列表上。
@@ -1466,6 +1476,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const visibleMessages = searching
     ? messages.filter((item, index) => msgMatchIndexes.has(index))
     : messages;
+  // W1/W2：会话事实 → 行（工具调用内联为 ToolCallRow，压缩说明单独成行；正在跑的那次
+  // 作为临时 live 行进流）。投影是纯函数，渲染层只按 row.kind 分派。
+  const rows = useMemo(
+    () => buildConversationRows({ messages: visibleMessages, live: liveTool }),
+    [visibleMessages, liveTool]
+  );
 
   // 对话面板（工作区单屏内的「对话」领域）：不再自套 Modal、不再自带顶栏与左栏——
   // 那是单屏的职责。顶部一条紧凑动作行保留「新建对话 / 查找历史」。
@@ -1591,57 +1607,47 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               {searching && visibleMessages.length === 0 ? (
                 <Text style={styles.intro}>{t('workspace.chat.search.empty')}</Text>
               ) : null}
-              {visibleMessages.map(item => {
-                // P0-3：助手消息带已落盘的工具轨迹时，气泡下方给一个可折叠的只读回看
-                //（「上一轮读了什么、改了什么」）。纯展示，不进模型请求。
-                const traceCards = item.role === 'assistant' ? traceCardsForMessage(item) : null;
+              {rows.map(row => {
+                if (row.kind === 'tool') {
+                  return <ToolCallRow key={row.key} tool={row.tool} onOpenHistory={onOpenHistory} />;
+                }
+                const item = row.message;
                 return (
-                  <React.Fragment key={item.id}>
-                    <View
-                      style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
-                    >
-                      <View style={[
-                        styles.bubble,
-                        item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
-                        item.isError ? styles.bubbleError : null,
-                      ]}>
-                        {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
-                            选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
-                        {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
-                          <ActivityIndicator size="small" color={theme.colors.primary} />
-                        ) : item.role === 'assistant' ? (
-                          // 助手正文走 Markdown（用户消息保持纯文本，与全应用约定一致）。
-                          <AssistantBody content={item.content} markdownStyles={markdownStyles} />
-                        ) : (
-                          <Text style={styles.bubbleText} selectable>{item.content}</Text>
-                        )}
-                      </View>
+                  <View
+                    key={row.key}
+                    style={[styles.bubbleRow, item.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAssistant]}
+                  >
+                    <View style={[
+                      styles.bubble,
+                      item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
+                      item.isError ? styles.bubbleError : null,
+                      row.kind === 'compaction' ? styles.bubbleCompaction : null,
+                    ]}>
+                      {/* selectable：RN 的 Text 在 Android 上默认不可选，不写它就长按不出
+                          选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
+                      {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                      ) : (item.role === 'assistant' && row.kind === 'assistant' ? (
+                        // 助手正文走 Markdown（用户消息与压缩说明保持纯文本，与全应用约定一致）。
+                        <AssistantBody content={item.content} markdownStyles={markdownStyles} />
+                      ) : (
+                        <Text style={styles.bubbleText} selectable>{item.content}</Text>
+                      ))}
                     </View>
-                    {traceCards ? (
-                      <View style={styles.traceRow}>
-                        <ToolCardList cards={traceCards} theme={theme} fonts={fonts} tokens={tokens} t={t} />
-                      </View>
-                    ) : null}
-                  </React.Fragment>
+                  </View>
                 );
               })}
             </ScrollView>
 
-            {/* A3 二期：计划进度条（update_plan 的清单，只读展示）——已抽成组件，
-                ChatPanel 卡在架构棘轮基线上，部件先出去、主文件才腾得出余量。 */}
-            <PlanProgressBar
+            {/* W2：会话侧栏面板（回合小结「本次改了什么 + 撤销」 + 计划进度；装配见 SessionSidePanels）。 */}
+            <SessionSidePanels
+              characterId={characterId}
+              messages={messages}
               plan={agentPlan}
-              collapsed={planCollapsed}
-              onToggle={() => setPlanCollapsed(value => !value)}
               canApprove={canApprovePlan}
               sending={sending}
               onApprove={approvePlan}
-              theme={theme}
-              fonts={fonts}
-              t={t}
             />
-
-            <ToolCardList cards={toolCards} theme={theme} fonts={fonts} tokens={tokens} t={t} />
 
             {/* I1：Steering 提示——「补充指令已入队」，本轮结束自动消失。 */}
             {steeringNote ? (

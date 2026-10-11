@@ -112,6 +112,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleUser: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   bubbleAssistant: { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceBorder },
   bubbleError: { borderColor: theme.colors.danger || theme.colors.surfaceBorder },
+  // W1：历史压缩说明是「系统的动作」，不是模型说的话——虚线边框与普通气泡区分开。
+  bubbleCompaction: { borderColor: theme.colors.divider, borderStyle: 'dashed' },
   bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
   statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
   statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
