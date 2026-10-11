@@ -156,8 +156,10 @@ test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% �
     autoCompact.includes('attemptRef.current === messages.length'),
     '同一消息条数只尝试一次（失败不重试、防死循环）'
   );
-  // 70% 非阻塞提示条（手动入口 + 可忽略）
-  assert.ok(screen.includes('contextUsageRatio >= SESSION_COMPACT_HINT_RATIO'), '70% 提示条走具名常量');
+  // 「建议压缩」非阻塞提示条（手动入口 + 可忽略）：提示点从自动压缩阈值派生（0.85×阈值），
+  // 保证总是先于自动压缩出现（固定 70% 在 128k 下永远晚于自动压缩 = 死 UI）。
+  assert.ok(screen.includes('resolveCompactHintTokens(resolveAutoCompactPolicy('), '提示点从阈值派生');
+  assert.ok(screen.includes('contextUsage.tokens >= compactHintTokens'), '按 token 比（与自动压缩同尺度）');
   assert.ok(screen.includes("t('chat.compact.hint'"), '提示条文案（带占用百分比）');
   assert.ok(screen.includes("t('chat.compact.action')"), '一键压缩按钮');
   assert.ok(screen.includes('setCompactHintDismissed(true)'), '可忽略提示');

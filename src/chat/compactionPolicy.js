@@ -82,6 +82,20 @@ export function shouldAutoCompactByBudget(tokens, policy) {
   return Number(tokens) >= threshold;
 }
 
+// 「建议压缩」提示条触发点（E2）：**从自动压缩阈值派生**，而不是各写一个窗口比例。
+// 自动阈值 min(W×比例, W−输出预留−余量) 随窗口变化——固定比例（如 0.7）在 128k 下
+// （自动阈值≈24%）永远晚于自动压缩出现 = 死 UI。派生式保证提示条**总是先于**自动压缩，
+// 且与阈值同源、随窗口自适应。与自动压缩共用同一个 policy（单一事实源）。
+export const COMPACT_HINT_FRACTION = 0.85;
+export function resolveCompactHintTokens(policy, { hintFraction = COMPACT_HINT_FRACTION } = {}) {
+  const threshold = Number(policy && policy.thresholdTokens);
+  if (!Number.isFinite(threshold) || threshold <= 0) return 0;
+  const fraction = Number(hintFraction) > 0 && Number(hintFraction) <= 1
+    ? Number(hintFraction)
+    : COMPACT_HINT_FRACTION;
+  return Math.max(1, Math.floor(threshold * fraction));
+}
+
 // 两条规则取更严者：字节阈值（AsyncStorage 落盘上限）与 token 预算（上下文窗口）。
 export function shouldCompactAnyRule({ bytes = 0, tokens = 0, byteThreshold = 0, policy = null } = {}) {
   const limit = Number(byteThreshold);

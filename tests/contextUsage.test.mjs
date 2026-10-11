@@ -7,6 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import {
+  resolveAutoCompactPolicy,
+  resolveCompactHintTokens,
+  COMPACT_HINT_FRACTION,
+} from '../src/chat/compactionPolicy.js';
 
 import {
   AUTO_COMPACT_RATIO,
@@ -260,4 +265,17 @@ test('P2-7 buildContextBreakdown：归一、按 token 降序、占比、空段�
   assert.equal(noWindow.total, 10, 'token 仍然如实给出');
   assert.equal(buildContextBreakdown(null).segments.length, 0);
   assert.equal(buildContextBreakdown([]).total, 0);
+});
+
+test('resolveCompactHintTokens：提示点从自动压缩阈值派生，恒早于自动压缩', () => {
+  const policy = resolveAutoCompactPolicy({ contextWindow: 128000, maxOutputTokens: 0 });
+  const hint = resolveCompactHintTokens(policy);
+  assert.ok(hint > 0 && hint < policy.thresholdTokens, '提示点 >0 且 < 阈值（先于自动压缩）');
+  assert.equal(hint, Math.floor(policy.thresholdTokens * COMPACT_HINT_FRACTION));
+  // 大窗口同样成立（派生式随窗口自适应，固定比例做不到）
+  const big = resolveAutoCompactPolicy({ contextWindow: 1000000, maxOutputTokens: 0 });
+  assert.ok(resolveCompactHintTokens(big) < big.thresholdTokens);
+  // 无窗口 → 0（不提示）
+  assert.equal(resolveCompactHintTokens({ thresholdTokens: 0 }), 0);
+  assert.equal(resolveCompactHintTokens(null), 0);
 });

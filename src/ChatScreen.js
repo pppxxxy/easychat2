@@ -115,8 +115,9 @@ import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
-// D 系具名比例用于 70% 提示条；自动压缩阈值统一走 compactionPolicy（不再用 shouldAutoCompact）。
-import { SESSION_COMPACT_HINT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+// 自动压缩阈值与「建议压缩」提示条统一走 compactionPolicy（提示点从阈值派生，不再各写比例）。
+import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import { resolveAutoCompactPolicy, resolveCompactHintTokens } from './chat/compactionPolicy.js';
 import useAutoCompact from './chat/useAutoCompact.js';
 import {
   COMPACTION_MIN_MESSAGES,
@@ -330,6 +331,15 @@ export default function ChatScreen() {
   // E2：上下文占用——70% 提示条；自动压缩按 token 预算（见 chat/compactionPolicy.js）触发。
   const [contextUsage, setContextUsage] = useState({ tokens: 0, window: 0, ratio: 0, maxOutput: 0 });
   const contextUsageRatio = contextUsage.ratio;
+  // 「建议压缩」提示点：**从自动压缩阈值派生**（默认 0.85×阈值）——保证提示条总是先于自动压缩
+  // 出现，且随窗口自适应。固定 70% 在 128k 下（自动阈值≈24%）永远晚于自动压缩 = 死 UI。
+  const compactHintTokens = useMemo(
+    () => resolveCompactHintTokens(resolveAutoCompactPolicy({
+      contextWindow: contextUsage.window,
+      maxOutputTokens: contextUsage.maxOutput,
+    })),
+    [contextUsage.window, contextUsage.maxOutput]
+  );
   // 「建议压缩」提示条被用户手动关掉后本次进入会话不再出现（换会话/重载恢复）。
   const [compactHintDismissed, setCompactHintDismissed] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
@@ -2735,9 +2745,10 @@ export default function ChatScreen() {
         onOpenHub={() => setModelPanelOpen(true)}
       />
 
-      {/* E2：上下文占用 ≥70% 的「建议压缩」提示条——一键压缩或关掉（本次进入会话
-          内不再出现）；85% 时后台会静默自动压缩（可在系统设置关闭）。 */}
-      {contextUsageRatio >= SESSION_COMPACT_HINT_RATIO && !compactHintDismissed ? (
+      {/* E2：「建议压缩」提示条——上下文占用达到「自动压缩阈值的 85%」时出现（从阈值派生、
+          随窗口自适应），一键压缩或关掉（本次进入会话内不再出现）；到阈值时后台静默自动压缩
+          （可在系统设置关闭）。 */}
+      {compactHintTokens > 0 && contextUsage.tokens >= compactHintTokens && !compactHintDismissed ? (
         <View style={styles.compactHintBar}>
           <Ionicons
             name="information-circle-outline"
