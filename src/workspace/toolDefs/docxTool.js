@@ -6,7 +6,7 @@
 // 拿不到模块时如实报「不可用」（Metro/RN 里正常可用；纯 Node 未装 fflate 时才走这条）。
 
 import { tActive } from '../../i18n/index.js';
-import { fileExtension } from '../paths.js';
+import { assertWritableWorkspacePath, fileExtension } from '../paths.js';
 
 let docxCache;
 // 注入点：默认走惰性 require；纯 ESM 测试环境（没有 require）可注入模块实例。
@@ -41,6 +41,9 @@ export const DOCX_TOOL_DEFINITION = {
     required: ['path', 'content'],
   },
   execute: (options, args, ctx) => {
+    // 审计/快照文件不可改写（2026-10-11 P1）：导出同样是「往工作区写一个文件」，
+    // 此前漏了这道守卫。拦在扩展名校验之前——路径本身非法就没有讨论余量。
+    assertWritableWorkspacePath(args.path);
     if (fileExtension(args.path) !== 'docx') {
       throw new Error(tActive('error.workspace.docxPathSuffix'));
     }

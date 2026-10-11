@@ -236,17 +236,27 @@ test('A4 内置验证提醒：默认生效；同键（含空数组）可覆盖�
   assert.deepEqual(withDefaultHooks(null).before_shell, undefined, '默认里没有 before_shell');
 });
 
-test('接线契约：两页审批注入 extraRules；工具层追加通知；设置面板说明行；i18n 中英齐', () => {
+test('接线契约：两页把钩子规则接进 runTool；工具层追加通知；设置面板说明行；i18n 中英齐', () => {
   const flow = fs.readFileSync(path.resolve('src/chat/toolApprovalFlow.js'), 'utf8');
   assert.ok(flow.includes('extraRules'), 'approveToolCall 支持注入规则');
   assert.ok(flow.includes('evaluatePermissionRules(injected'), '存储读失败时注入的钩子规则仍参与求值');
 
+  // P1（2026-10-11）：钩子规则的求值入口从「审批钩子」改成 runTool 的 permissionRules。
+  // 原因：审批只在需要确认的工具上被调用，写工具按设计不逐条确认——只接审批等于
+  // 挂在写工具上的 deny 永不生效。两页都必须走 readHookPermissionRules。
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('readWorkspaceHooks(storeRef.current, characterId)'), '工作区页每次审批直读钩子');
-  assert.ok(panel.includes('extraRules,'), 'extraRules 传进审批');
+  assert.ok(panel.includes('permissionRules: () => readHookPermissionRules(storeRef.current, characterId)'),
+    '工作区页把钩子规则接进 runTool（每次调用直读）');
 
   const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
-  assert.ok(chat.includes('readWorkspaceHooks(hookStore, character.id)'), '聊天页审批同样注入钩子禁令');
+  assert.ok(chat.includes('permissionRules: () => readHookPermissionRules(hookStore, character.id)'),
+    '聊天页同样把钩子规则接进 runTool');
+
+  const hooks = fs.readFileSync(path.resolve('src/workspace/hooks.js'), 'utf8');
+  assert.ok(hooks.includes('export async function readHookPermissionRules'), '共享的「读+翻译」入口');
+  // 匹配串取自 pattern（归一化后的字段名）——行为由上面的 before_shell / before_tool
+  // 用例钉住（读错字段会让所有规则退化成工具级全拦，那两条会红）。
+  assert.ok(hooks.includes('match: item && item.pattern'), 'hookPermissionRules 读 pattern 字段');
 
   // 写工具定义已按域拆到 toolDefs/writeTools.js（质量建议 ①），断言跟着去新文件。
   const tools = fs.readFileSync(path.resolve('src/workspace/toolDefs/writeTools.js'), 'utf8');

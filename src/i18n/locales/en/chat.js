@@ -43,10 +43,22 @@ export const chat = {
   'chat.composer.a11y.record': 'Record a voice message',
   'chat.composer.a11y.stopRecord': 'Finish recording and transcribe',
   'chat.composer.a11y.cancelRecord': 'Cancel recording',
+  'chat.composer.a11y.removeAttachment': 'Remove attachment {name}',
   'chat.composer.recording': 'Recording… release to finish, swipe up to cancel',
   'chat.composer.recording.cancel': 'Cancel',
   'chat.composer.quote.fallbackName': 'Original',
   'chat.thinking.placeholder': 'Thinking...',
+  // Previously hardcoded as module-level constants in src/chat/chatConstants.js
+  // (read directly by the render layer, so they never followed the locale).
+  'chat.aiDisclaimer': 'AI-generated content may be inaccurate — for reference only',
+  'chat.noBody': '(no reply body)',
+  'chat.thinking.level.low': 'Low',
+  'chat.thinking.level.medium': 'Medium',
+  'chat.thinking.level.high': 'High',
+  'chat.thinking.display.open': 'Open',
+  'chat.thinking.display.fold': 'Collapsed',
+  'chat.thinking.display.off': 'Off',
+  'chat.sticker.saving': 'Saving…',
   'chat.tool.status.reading': 'Using tool ({name})…',
   // ---- In-chat tool call process bubble ----
   'chat.toolBubble.name.search': 'Web search',
@@ -345,7 +357,9 @@ export const chat = {
   'chat.list.hintApiKey': 'Fill in your API Key in "Settings" first, then type a message.',
   'chat.list.loadEarlierA11y': 'Load earlier messages',
   'chat.list.loadEarlier': 'Load earlier messages ({count} more)',
-  'chat.list.longPressSelectA11y': 'Long-press to select messages',
+  // Each message is a button only in selection mode; otherwise accessible={false} so
+  // the screen reader reads the content instead of announcing a button per message.
+  'chat.list.selectMessageA11y': 'Select or deselect this message',
   // ---- Conversation branches (chat/BranchForkRow.js) ----
   'chat.branch.forkEntry': '↩ {count} other branch(es) here',
   'chat.branch.forkEntryRoot': '↩ {count} branch(es) at the start',
@@ -415,6 +429,7 @@ export const chat = {
   'chat.compact.hint': 'Context {percent}% used — compact to save tokens and cost',
   'chat.compact.action': 'Compact',
   'chat.compact.dismiss': 'Dismiss hint',
+  'chat.compact.stopped': 'Auto-compaction failed {count} times in a row and stopped — compact manually, or the next request may exceed the context window',
   'chat.compact.focus.title': 'Compact conversation',
   'chat.compact.focus.hint': 'Optionally say what to keep this time (e.g. “keep the raw error text and open questions”). It is added to the summary prompt as an extra requirement; leaving it empty is a plain compaction.',
   'chat.compact.focus.placeholder': 'Focus (optional)',

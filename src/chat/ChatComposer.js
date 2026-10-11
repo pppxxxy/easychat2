@@ -8,6 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTranslation } from '../i18n/I18nContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { IconButton } from '../ui/index.js';
 import ContextBar from './ContextBar.js';
 import { createChatStyles } from './chatStyles.js';
 
@@ -73,18 +74,20 @@ export default function ChatComposer({
                 {item.kind === 'image' && item.uri ? (
                   <Image source={{ uri: item.uri }} style={styles.attachmentThumb} />
                 ) : item.kind === 'video' ? (
-                  <Ionicons name="videocam-outline" size={14} color={theme.colors.primarySoft} />
+                  <Ionicons name="videocam-outline" size={14} color={theme.colors.accentText} />
                 ) : (
-                  <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
+                  <Ionicons name="document-text-outline" size={14} color={theme.colors.accentText} />
                 )}
                 <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
-                 <TouchableOpacity
+                 <IconButton
+                   name="close"
+                   size="sm"
+                   color={theme.colors.textFaint}
                    onPress={() => onRemoveAttachment(item.id)}
                    disabled={attachLocked}
-                   hitSlop={6}
-                 >
-                   <Ionicons name="close" size={14} color={theme.colors.textFaint} />
-                 </TouchableOpacity>
+                   hitSlop={15}
+                   accessibilityLabel={t('chat.composer.a11y.removeAttachment', { name: item.name || t('chat.composer.quote.fallbackName') })}
+                 />
               </View>
             ))}
           </ScrollView>
@@ -110,7 +113,7 @@ export default function ChatComposer({
           accessibilityRole="button"
           accessibilityLabel={t('chat.composer.a11y.attach')}
         >
-          <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
+          <Ionicons name="add-circle-outline" size={22} color={theme.colors.accentText} />
         </TouchableOpacity>
         {voiceEnabled && !isSending ? (
           recording ? (
@@ -132,7 +135,7 @@ export default function ChatComposer({
               accessibilityRole="button"
               accessibilityLabel={t('chat.composer.a11y.record')}
             >
-              <Ionicons name="mic-outline" size={22} color={theme.colors.primarySoft} />
+              <Ionicons name="mic-outline" size={22} color={theme.colors.accentText} />
             </TouchableOpacity>
           )
         ) : null}
@@ -157,7 +160,7 @@ export default function ChatComposer({
            accessibilityRole="button"
            accessibilityLabel={t('chat.composer.a11y.sticker')}
          >
-           <Ionicons name="happy-outline" size={21} color={theme.colors.primarySoft} />
+           <Ionicons name="happy-outline" size={21} color={theme.colors.accentText} />
          </TouchableOpacity>
         {isSending ? (
           <>
@@ -167,6 +170,7 @@ export default function ChatComposer({
               <TouchableOpacity
                 style={styles.sendButton}
                 onPress={onSend}
+                accessibilityRole="button"
                 accessibilityLabel={t('chat.composer.a11y.steer')}
                 activeOpacity={0.8}
               >
@@ -176,6 +180,7 @@ export default function ChatComposer({
             <TouchableOpacity
               style={[styles.sendButton, styles.stopButton]}
               onPress={onStop}
+              accessibilityRole="button"
               accessibilityLabel={t('chat.composer.a11y.stop')}
               activeOpacity={0.8}
             >
@@ -190,7 +195,9 @@ export default function ChatComposer({
             ]}
             onPress={onSend}
             disabled={inputDisabled || (!input.trim() && attachments.length === 0)}
+            accessibilityRole="button"
             accessibilityLabel={t('chat.composer.a11y.send')}
+            accessibilityState={{ disabled: inputDisabled || (!input.trim() && attachments.length === 0) }}
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-up" size={20} color={theme.colors.text} />

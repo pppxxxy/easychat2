@@ -29,7 +29,7 @@ test('isRetryableFailure：429 / 5xx / 超时 / 网络可降级；确定性失�
   assert.equal(isRetryableFailure(http(401)), false, '密钥错：换模型也一样');
   assert.equal(isRetryableFailure(http(403)), false);
   assert.equal(isRetryableFailure(http(404)), false, '模型名/路径错：确定性失败');
-  assert.equal(isRetryableFailure(http(400)), false);
+  assert.equal(isRetryableFailure(http(400)), false, '只给状态码的 400 不降级（看不出是参数问题）');
   assert.equal(isRetryableFailure(Object.assign(new Error('请求超时'), { timeout: true })), true);
   assert.equal(isRetryableFailure(Object.assign(new Error('网络请求失败'), { network: true })), true);
 
@@ -39,6 +39,25 @@ test('isRetryableFailure：429 / 5xx / 超时 / 网络可降级；确定性失�
   assert.equal(isRetryableFailure(Object.assign(new Error('x'), { canceled: true })), false);
   assert.equal(isRetryableFailure(null), false);
   assert.equal(isRetryableFailure(new Error('随便什么错')), false, '认不出来就不降级（宁可不试）');
+});
+
+// P1（2026-10-11，**有意变更既有承诺**）：参数被拒的 400/422 现在可降级。
+//
+// 依据：max_tokens / reasoning / thinking 是按**每个模型的能力位**注入的，主模型不认
+// 的参数降级模型很可能认。此前把 400/422 与 401 一起归成「确定性失败，不换」，
+// 等于主动放弃这条最有价值的降级路径。判定靠 api.js 挂的结构化字段 paramRejected。
+test('isRetryableFailure：paramRejected 的 400/422 可降级；401/403/404 仍不降级', () => {
+  const rejected = message => Object.assign(new Error(message), { httpStatus: 400, paramRejected: true });
+  assert.equal(isRetryableFailure(rejected('unknown_parameter: max_tokens')), true);
+  assert.equal(isRetryableFailure(Object.assign(new Error('thinking 不支持'), { httpStatus: 422, paramRejected: true })), true);
+  // paramRejected 只在 api.js 判定为真时才有该字段；401 之类不会被标上
+  assert.equal(isRetryableFailure(Object.assign(new Error('无效的密钥'), { httpStatus: 401 })), false);
+  assert.equal(isRetryableFailure(Object.assign(new Error('模型不存在'), { httpStatus: 404 })), false);
+  // 用户中断即便带了 paramRejected 也不降级（中断优先）
+  assert.equal(
+    isRetryableFailure(Object.assign(new Error('已中断'), { name: 'AbortError', paramRejected: true })),
+    false
+  );
 });
 
 test('isRetryableFailure：结构化字段缺失时才退回文案匹配', () => {

@@ -31,7 +31,7 @@ export default function MentionPickerModal({
         activeOpacity={1}
         onPress={onClose}
       >
-        <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
+        <TouchableOpacity style={[styles.modalSheet, styles.sheetWidth]} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.mention.title')}</Text>
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
             <TouchableOpacity
@@ -43,7 +43,7 @@ export default function MentionPickerModal({
               activeOpacity={0.7}
             >
               <View style={styles.modalRowAvatarFallback}>
-                <Ionicons name="people" size={14} color={theme.colors.primarySoft} />
+                <Ionicons name="people" size={14} color={theme.colors.accentText} />
               </View>
               <Text style={styles.modalRowText}>@{EVERYONE_MENTION}</Text>
             </TouchableOpacity>

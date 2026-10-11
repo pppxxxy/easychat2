@@ -39,7 +39,7 @@ export default function ModelPanelModal({
         style={styles.modelBackdrop}
         onPress={onClose}
       >
-        <Pressable style={styles.modelSheet} onPress={() => {}}>
+        <Pressable style={[styles.modelSheet, styles.sheetWidth]} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modelTitle}>{t('chat.modelPanel.title')}</Text>
           <Text style={styles.modelLabel}>{t('chat.modelPanel.source')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -135,7 +135,7 @@ export default function ModelPanelModal({
             accessibilityRole="button"
             accessibilityLabel={t('chat.modelPanel.manageA11y')}
           >
-            <Ionicons name="settings-outline" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="settings-outline" size={16} color={theme.colors.accentText} />
             <Text style={styles.localLogLink}>{t('chat.modelPanel.manage')}</Text>
           </TouchableOpacity>
 

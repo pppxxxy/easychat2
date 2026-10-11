@@ -12,7 +12,7 @@
 // 顺序照搬原实现（worldBefore 在最前、格式约束在最后）——不改行为，只做结构化 + 标注。
 
 // 各 section 的稳定性：跨轮内容不变 = stable，随轮次/时间/历史变化 = dynamic。
-// 只有**从第一段起连续 stable** 的那一段才是可缓存前缀（缓存只认前缀）。
+// 只有 stable 段值得进缓存前缀（缓存按**块**打到断点处，见 planSystemCache）。
 export const SECTION_CACHE = Object.freeze({
   worldBefore: 'dynamic',
   location: 'dynamic',
@@ -94,23 +94,74 @@ export function composeSystemText(sections) {
     .join('\n\n');
 }
 
-// 最长稳定前缀的缓存断点：从第 0 段起连续 stable 的段数。
-// breakIndex = 0 表示首段就是动态内容 → 没有可缓存前缀（不打缓存标记，零副作用）。
+// 缓存断点：**最长 stable 连续段**的末尾（2026-10-11 P1）。
+//
+// 事故形态：此前只认「从第 0 段起连续 stable」，于是 worldBefore（世界书注入，dynamic）
+// 排在系统提示最前时 breakIndex === 0 —— **一个断点都不打**，base / persona / 预设 /
+// format 这些跨轮稳定的段永远进不了缓存前缀。而「有世界书」恰恰是长会话的常态，
+// 等于 Anthropic 的提示缓存在最需要它的场景下完全失效。
+//
+// 为什么不重排 SECTION_ORDER：那会改变系统提示的**文本顺序**，破坏「逐字节一致」的
+// 既有承诺（也影响模型行为）。改为把「稳定段连成的块」标上 cache_control：
+// Anthropic 按**块**打标，断点落在稳定块末尾时，它之前的全部内容（含动态的
+// worldBefore）都进缓存前缀——正是我们想要的（那段也逐轮不变，只是不该被当成
+// 「稳定前缀的起点」而已）。
+//
+// 同长度取**最早**的那一段：缓存前缀越长收益越大，且与旧行为（取开头那段）在
+// 「首段即 stable」时完全一致。
+//
+// 返回 { breakIndex, endIndex, stableChars, totalChars, cacheable }：
+//  · breakIndex —— 最长 stable 连续段的**段数**（同长度取最早的那段）；
+//  · endIndex   —— 该段最后一段之后的下标（0 = 没有 stable 段）；
+//  · cacheable  —— endIndex > 0。注意它不再等价于「从 0 起连续 stable」。
 export function planSystemCache(sections) {
   const list = Array.isArray(sections) ? sections : [];
-  let breakIndex = 0;
+  let endIndex = 0;
   let stableChars = 0;
-  for (const section of list) {
-    if (!section || section.cacheHint !== 'stable') break;
-    breakIndex += 1;
-    stableChars += Number(section.chars) || 0;
+  let start = -1;
+  for (let index = 0; index <= list.length; index += 1) {
+    const stable = index < list.length && list[index] && list[index].cacheHint === 'stable';
+    if (stable) {
+      if (start < 0) start = index;
+      continue;
+    }
+    if (start >= 0) {
+      const chars = list.slice(start, index).reduce((sum, item) => sum + (Number(item && item.chars) || 0), 0);
+      // 严格大于：同长度保留**先出现的**那段（更长的前缀 + 与旧行为一致）。
+      if (chars > stableChars) {
+        stableChars = chars;
+        endIndex = index;
+      }
+      start = -1;
+    }
   }
   return {
-    breakIndex,
+    breakIndex: endIndex,
+    endIndex,
     stableChars,
     totalChars: list.reduce((sum, section) => sum + (Number(section && section.chars) || 0), 0),
-    cacheable: breakIndex > 0,
+    cacheable: endIndex > 0,
   };
+}
+
+// 把 section 切成「连续同稳定性的块」：stable 段并成一块、dynamic 段各自成块。
+// 拼起来与原 composeSystemText 的文本**逐字节一致**（块间仍是空一行），
+// 所以给 Anthropic 换成块数组不会改变发给模型的内容。
+export function buildSystemChunks(sections) {
+  const list = Array.isArray(sections) ? sections : [];
+  const chunks = [];
+  for (const section of list) {
+    if (!section) continue;
+    const stable = section.cacheHint === 'stable';
+    const last = chunks[chunks.length - 1];
+    if (last && last.stable === stable) {
+      last.text = `${last.text}\n\n${section.content}`;
+      last.chars += Number(section.chars) || 0;
+    } else {
+      chunks.push({ stable, text: String(section.content), chars: Number(section.chars) || 0 });
+    }
+  }
+  return chunks;
 }
 
 // 按缓存断点把系统提示切成「可缓存前缀 + 其余」。断点为 0 时前缀为空串（调用方据此不打标记）。

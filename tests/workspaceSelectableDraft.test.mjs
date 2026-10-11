@@ -31,9 +31,13 @@ test('selectable：消息气泡与文件正文可选中；列表行/状态行保
     '历史改动的「替换」原文要能复制');
 
   // 不能加的（Android 上 selectable 会吃掉长按、干扰行点击）
-  assert.ok(filesSrc.includes('<Text style={styles.fileName} numberOfLines={1}>'),
-    '文件列表行的文件名保持不可选（加了会吃掉整行的长按/点击）');
-  assert.ok(!filesSrc.includes('styles.fileName} selectable'), '文件名不可加 selectable');
+  // 注意：这里只约束「文件名这行没有 selectable」，不约束它还有没有别的属性
+  //（2026-10-11 给它补了 ellipsizeMode="middle"，长路径不再被尾截断）。
+  const fileNameTags = filesSrc.match(/<Text style=\{styles\.fileName\}[^>]*>/g) || [];
+  assert.ok(fileNameTags.length > 0, '文件列表行的文件名仍在渲染');
+  for (const tag of fileNameTags) {
+    assert.ok(!tag.includes('selectable'), `文件名不可加 selectable：${tag}`);
+  }
   assert.ok(!chatSrc.includes('styles.statusText} numberOfLines={1} selectable'),
     '工具状态行是 UI 文本，不参与选择');
 });

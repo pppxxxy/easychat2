@@ -1,5 +1,4 @@
-// ChatScreen 的样式工厂。从 src/ChatScreen.js 原样外提（无行为变化）。
-// 被 ChatScreen、MessageBubble、ThinkingIndicator、ErrorBubble 共用。
+// ChatScreen 的样式工厂（从 src/ChatScreen.js 原样外提）：ChatScreen/MessageBubble/ThinkingIndicator/ErrorBubble 共用。
 
 import { StyleSheet } from 'react-native';
 
@@ -32,8 +31,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     opacity: 0.7,
     textAlign: 'center',
   },
-  // E2：上下文占用提示条（≥70% 时出现，点击「压缩」一键执行）——贴着输入区，
-  // 不遮挡消息流。
+  // E2：上下文占用提示条（≥70% 时出现，点击「压缩」一键执行）——贴着输入区，不遮挡消息流。
   compactHintBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -47,6 +45,8 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   compactHintIcon: {
     marginRight: 6,
   },
+  sheetWidth: { maxWidth: 520, alignSelf: 'center', width: '100%' }, // 弹窗卡片上限：宽屏/横屏不拉满
+  compactHintStopped: { backgroundColor: theme.colors.dangerAlpha(0.12) }, // 自动压缩已停：危险色区别于「建议压缩」
   compactHintText: {
     flex: 1,
     color: theme.colors.text,
@@ -85,7 +85,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderColor: theme.colors.primaryMutedAlpha(0.3),
   },
   selectionActionText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 4,
@@ -135,7 +135,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     paddingVertical: 5,
     paddingHorizontal: tokens.spacing.sm + 2,
   },
-  noticeButtonText: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', marginLeft: tokens.spacing.xs },
+  noticeButtonText: { color: theme.colors.accentText, fontSize: 12, fontWeight: '700', marginLeft: tokens.spacing.xs },
   actionDisabled: { opacity: 0.5 },
   modelBackdrop: {
     flex: 1,
@@ -165,7 +165,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   },
   modelSourceChipActive: { backgroundColor: theme.colors.primaryAlpha(0.2), borderColor: theme.colors.primary },
   modelSourceText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
-  modelSourceTextActive: { color: theme.colors.primarySoft },
+  modelSourceTextActive: { color: theme.colors.accentText },
   modelListScroll: { maxHeight: 240, marginTop: 2 },
   modelOption: {
     flexDirection: 'row',
@@ -184,9 +184,9 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     paddingVertical: 10,
     alignItems: 'center',
   },
-  modelCloseText: { color: theme.colors.primarySoft, fontSize: 14, fontWeight: '700' },
+  modelCloseText: { color: theme.colors.accentText, fontSize: 14, fontWeight: '700' },
   localHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  localLogLink: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700' },
+  localLogLink: { color: theme.colors.accentText, fontSize: 12, fontWeight: '700' },
   localRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -206,7 +206,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderColor: theme.colors.primaryMutedAlpha(0.5),
   },
   localActionActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.18) },
-  localActionText: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700' },
+  localActionText: { color: theme.colors.accentText, fontSize: 12, fontWeight: '700' },
   thinkingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -230,7 +230,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderColor: theme.colors.primary,
   },
   thinkingLevelText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
-  thinkingLevelTextActive: { color: theme.colors.primarySoft },
+  thinkingLevelTextActive: { color: theme.colors.accentText },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -437,7 +437,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   },
   loadEarlierText: {
     fontSize: 13,
-    opacity: 0.75,
+    color: theme.colors.textMuted, // 原为 opacity:0.75 且无 color（RN 默认黑字）：深色主题下几乎不可见。
   },
   branchForkWrap: {
     marginTop: 4,
@@ -457,7 +457,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   },
   branchForkEntryText: {
     fontSize: 12,
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     marginRight: 4,
   },
   branchList: {
@@ -660,7 +660,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     shadowRadius: 5,
   },
   emptyGreetingButtonText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -967,7 +967,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     borderColor: theme.colors.surfaceBorder,
   },
   messageActionText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1286,7 +1286,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     backgroundColor: theme.colors.primaryAlpha(0.1),
   },
   stickerAddText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 12,
     fontWeight: '700',
     marginTop: 3,
@@ -1319,7 +1319,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     alignItems: 'center',
   },
   stickerEditText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -1416,7 +1416,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   voiceHoldButtonActive: { backgroundColor: theme.colors.primaryAlpha(0.16), borderRadius: tokens.radius.md },
   voiceRecordingText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 8 },
   voiceCancelText: { color: theme.colors.danger, fontSize: fonts.scaled(13), fontWeight: '700', paddingHorizontal: 6 },
-  fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
+  fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48, maxWidth: 520, alignSelf: 'center', width: '100%' },
   fullScreenHeader: {
     flexDirection: 'row',
     alignItems: 'center',

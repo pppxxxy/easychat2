@@ -29,7 +29,7 @@ export default function FullScreenInputModal({
     >
       <KeyboardAvoidingView
         style={styles.fullScreenContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined} accessibilityViewIsModal importantForAccessibility="yes"
       >
         <View style={styles.fullScreenHeader}>
           <Text style={styles.fullScreenTitle}>{t('chat.fullscreen.title')}</Text>

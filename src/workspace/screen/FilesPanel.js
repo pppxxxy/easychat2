@@ -643,7 +643,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
           size={16}
           color={theme.colors.primaryMuted}
         />
-        <Text style={styles.fileName} numberOfLines={1}>{entry.name}</Text>
+        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{entry.name}</Text>
       </TouchableOpacity>
       {entry.isDirectory ? (
         // F2：空目录可删（非空点击给提示，图标略淡提示不可用）——空目录正是
@@ -696,7 +696,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         color={theme.colors.primaryMuted}
       />
       <View style={styles.projectMain}>
-        <Text style={styles.projectName} numberOfLines={1}>{group.label}</Text>
+        <Text style={styles.projectName} numberOfLines={1} ellipsizeMode="middle">{group.label}</Text>
         <Text style={styles.projectMeta} numberOfLines={1}>
           {group.prefix}
           {' · '}
@@ -740,9 +740,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                 color={theme.colors.primaryMuted}
               />
               <View style={styles.searchTextBlock}>
-                <Text style={styles.fileName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{item.name}</Text>
                 {item.dir ? (
-                  <Text style={styles.searchDir} numberOfLines={1}>{item.dir}</Text>
+                  <Text style={styles.searchDir} numberOfLines={1} ellipsizeMode="middle">{item.dir}</Text>
                 ) : null}
               </View>
             </View>
@@ -1126,7 +1126,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                 <View key={item.id} style={styles.fileRow}>
                   <TouchableOpacity style={styles.fileMain} onPress={() => selectWorkspaceCharacter(item)} activeOpacity={0.8}>
                     <Ionicons name="person-circle-outline" size={18} color={theme.colors.primaryMuted} />
-                    <Text style={styles.fileName} numberOfLines={1}>{item.name || item.id}</Text>
+                    <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{item.name || item.id}</Text>
                   </TouchableOpacity>
                   {item.id === characterId ? (
                     <Ionicons name="checkmark" size={18} color={theme.colors.primary} />

@@ -159,7 +159,7 @@ export default function ScrollScrubber({
             disabled={count === 0}
             activeOpacity={0.8}
           >
-            <Ionicons name="arrow-up" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="arrow-up" size={16} color={theme.colors.accentText} />
             <Text style={styles.jumpText}>{t('chat.scrubber.toStart')}</Text>
           </TouchableOpacity>
 
@@ -195,7 +195,7 @@ export default function ScrollScrubber({
             disabled={count === 0}
             activeOpacity={0.8}
           >
-            <Ionicons name="arrow-down" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="arrow-down" size={16} color={theme.colors.accentText} />
             <Text style={styles.jumpText}>{t('chat.scrubber.toEnd')}</Text>
           </TouchableOpacity>
         </View>
@@ -244,7 +244,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 4,
   },
-  jumpText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(10), fontWeight: '700', marginTop: 2 },
+  jumpText: { color: theme.colors.accentText, fontSize: fonts.scaled(10), fontWeight: '700', marginTop: 2 },
    track: {
      zIndex: 30,
      elevation: 30,

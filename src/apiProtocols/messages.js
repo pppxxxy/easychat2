@@ -58,7 +58,25 @@ export function toAnthropicRequest(messages, { cacheTtl = DEFAULT_PROMPT_CACHE_T
     if (role === 'system') {
       const text = toTextParts(message.content).map(part => part.text).join('\n');
       if (!text) return;
-      // 供应商 prompt 缓存：稳定前缀打 ephemeral 断点（缓存到此处为止），其余不缓存。
+      // 供应商 prompt 缓存：把**最长 stable 连续段**所在的块打上 ephemeral 断点。
+      // 用块数组而不是 prefix/rest 两段（2026-10-11 P1）：断点落在稳定块末尾时，
+      // 它之前的全部内容（含排在系统提示最前的动态世界书）都进缓存前缀——
+      // 而「两段切分」只能表达「从第 0 段起连续 stable」，有世界书时一个断点都打不了。
+      // 块间用空行拼接，逐字节等于原来的 systemContent（见 buildSystemChunks）。
+      if (message.systemCache && Array.isArray(message.systemCache.chunks) && message.systemCache.chunks.length) {
+        const markIndex = Number.isInteger(message.systemCache.markIndex) ? message.systemCache.markIndex : -1;
+        message.systemCache.chunks.forEach((chunk, index) => {
+          const text = String(chunk && chunk.text ? chunk.text : '');
+          if (!text) return;
+          systemBlocks.push({
+            type: 'text',
+            text,
+            ...(index === markIndex && cacheControl ? { cache_control: cacheControl } : {}),
+          });
+        });
+        return;
+      }
+      // 旧形状（只有 prefixText/restText）兜底：单块打标。
       if (message.systemCache && message.systemCache.prefixText) {
         systemBlocks.push({
           type: 'text',

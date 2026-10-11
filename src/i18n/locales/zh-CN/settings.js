@@ -178,7 +178,7 @@ export const settings = {
   'settings.api.detectModels': '检测模型',
   'settings.api.fallbackModels': '降级模型',
   'settings.api.fallbackModelsPlaceholder': '例如 deepseek-chat, gpt-4o-mini',
-  'settings.api.fallbackModelsHint': '主模型遇到限流（429）、服务端错误（5xx）、超时或断网时，按这里的顺序换用下一个模型重试；最多 3 个，用逗号分隔。密钥、模型名或参数错误不换——换了还是同一个错，只是白花额度。',
+  'settings.api.fallbackModelsHint': '主模型遇到限流（429）、服务端错误（5xx）、超时、断网，或「不支持某个参数」（400/422——参数按每个模型的能力位注入）时，按这里的顺序换用下一个模型重试；最多 3 个，用逗号分隔。密钥、权限或模型名错误不换——换了还是同一个错，只是白花额度。',
   'settings.api.getKeyA11y': '点击获取密钥',
   'settings.api.getKey': '点击获取密钥 →',
   'settings.api.keyHint': 'API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。',

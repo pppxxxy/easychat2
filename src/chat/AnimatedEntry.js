@@ -8,6 +8,10 @@ import { Animated, Easing, View } from 'react-native';
 export default function AnimatedEntry({ children, delay = 0, enabled = true, style, onLayout }) {
   const translateY = useRef(new Animated.Value(14)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  // delay 只在**挂载时**取一次：它由「距列表底部距离」算出，而每来一条新消息这个距离
+  // 都会变。若把 delay 放进 effect 依赖，旧消息会跟着一起重启入场动画（整屏闪一下）；
+  // 新消息自己的 delay 在它挂载那一刻就已经算好了，不需要后续跟随。
+  const initialDelay = useRef(delay).current;
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -15,21 +19,21 @@ export default function AnimatedEntry({ children, delay = 0, enabled = true, sty
       Animated.timing(translateY, {
         toValue: 0,
         duration: 320,
-        delay,
+        delay: initialDelay,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
         toValue: 1,
         duration: 240,
-        delay,
+        delay: initialDelay,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]);
     animation.start();
     return () => animation.stop();
-  }, [enabled, delay, translateY, opacity]);
+  }, [enabled, initialDelay, translateY, opacity]);
 
   if (!enabled) {
     return (

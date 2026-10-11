@@ -49,7 +49,7 @@ export default function ChatSearchBar({
         <Ionicons
           name="chevron-up"
           size={18}
-          color={matchCount ? theme.colors.primarySoft : theme.colors.textFaint}
+          color={matchCount ? theme.colors.accentText : theme.colors.textFaint}
         />
       </TouchableOpacity>
       <TouchableOpacity
@@ -61,11 +61,11 @@ export default function ChatSearchBar({
         <Ionicons
           name="chevron-down"
           size={18}
-          color={matchCount ? theme.colors.primarySoft : theme.colors.textFaint}
+          color={matchCount ? theme.colors.accentText : theme.colors.textFaint}
         />
       </TouchableOpacity>
       <TouchableOpacity onPress={onClose} hitSlop={6} style={styles.searchNav}>
-        <Ionicons name="close" size={18} color={theme.colors.primarySoft} />
+        <Ionicons name="close" size={18} color={theme.colors.accentText} />
       </TouchableOpacity>
     </View>
   );

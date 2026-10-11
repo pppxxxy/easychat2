@@ -47,10 +47,15 @@ export const WRITE_TOOL_DEFINITIONS = [
       },
       required: ['path'],
     },
-    execute: (options, args, ctx) => options.store.createWorkspaceDirectory({
-      characterId: ctx && ctx.characterId,
-      path: args.path,
-    }).then(result => `已创建目录 ${result.path}`),
+    execute: (options, args, ctx) => {
+      // 审计/快照文件不可改写（2026-10-11 P1）：create_workspace_dir 此前漏了这道守卫——
+      // 它同样能造出 `.easychat/sessions/` 这类目录，而守卫只在「写文件」上等于漏了一半。
+      assertWritableWorkspacePath(args.path);
+      return options.store.createWorkspaceDirectory({
+        characterId: ctx && ctx.characterId,
+        path: args.path,
+      }).then(result => `已创建目录 ${result.path}`);
+    },
   },
   {
     name: 'write_workspace_file',

@@ -30,7 +30,7 @@ export default function StickerNamePromptModal({
         style={styles.modalBackdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.modalSheet}>
+        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.bubble.saveAsSticker')}</Text>
           <TextInput
             style={styles.stickerNameInput}
@@ -57,7 +57,7 @@ export default function StickerNamePromptModal({
               disabled={stickerSaving}
               activeOpacity={0.8}
             >
-              <Text style={styles.selectButtonText}>{stickerSaving ? '保存中' : '保存'}</Text>
+              <Text style={styles.selectButtonText}>{stickerSaving ? t('chat.sticker.saving') : t('common.save')}</Text>
             </TouchableOpacity>
           </View>
         </View>

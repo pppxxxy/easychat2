@@ -402,7 +402,7 @@ const fullWidthAssistant = !isUser && fullWidth;
                 accessibilityRole="button"
                 accessibilityLabel={t('chat.bubble.videoA11y', { name: message.image.name || t('chat.bubble.unnamed') })}
               >
-                <Ionicons name="videocam" size={26} color={theme.colors.primarySoft} />
+                <Ionicons name="videocam" size={26} color={theme.colors.accentText} />
                 <Text style={styles.videoCardName} numberOfLines={1}>
                   {message.image.name || t('chat.bubble.videoFallback')}
                 </Text>
@@ -507,15 +507,18 @@ const fullWidthAssistant = !isUser && fullWidth;
               style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
               onPress={() => setActionsOpen(true)}
               activeOpacity={0.8}
+              hitSlop={{ top: 11, bottom: 11, left: 6, right: 6 }}
               accessibilityRole="button"
               accessibilityLabel={t('chat.bubble.moreA11y')}
             >
-              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.accentText} />
             </TouchableOpacity>
             {!isUser && !isMediaMessage && onBroadcast ? (
               <TouchableOpacity
                 style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onBroadcast(rawText != null ? rawText : message.text)}
+                hitSlop={{ top: 11, bottom: 11, left: 6, right: 6 }}
+                accessibilityRole="button"
                 activeOpacity={0.8}
               >
                 <Text style={styles.messageActionText}>{t('chat.bubble.broadcast')}</Text>

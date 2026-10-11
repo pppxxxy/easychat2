@@ -1,12 +1,20 @@
 // P0-7：模型降级链（fallback models）——纯判定层。
 //
-// 目标：主模型「429 / 5xx / 超时 / 网络不可达」时，按用户配的顺序自动换下一个模型重试；
-// 其余失败（401 密钥错、404 模型名错、参数错）**不换**——那是确定性失败，换模型只是
-// 把同一个错误再犯一遍，还会白花额度。
+// 目标：主模型「429 / 5xx / 超时 / 网络不可达 / **参数被拒（400/422）**」时，按用户配的
+// 顺序自动换下一个模型重试；其余失败（401 密钥错、403 权限、404 模型名错）**不换**——
+// 那是确定性失败，换模型只是把同一个错误再犯一遍，还会白花额度。
+//
+// **参数被拒为什么算可降级（2026-10-11 有意变更）**：`max_tokens` / `reasoning` /
+// `thinking` 这些字段是按**每个模型的能力位**注入的（api.js 的 modelCaps.customParams、
+// apiProtocols/body.js 的 thinking 字段），所以「主模型不认这个参数」完全不代表降级模型
+// 也不认——这恰恰是降级链最有价值的一条路径。此前把 400/422 与 401 一起归成确定性失败，
+// 等于主动放弃它。判定靠 api.js 挂的结构化字段 `paramRejected`（依据错误文本是否命中
+// 参数名 / unknown_parameter / unsupported），不是文案匹配；只给状态码、看不出参数问题的
+// 400 仍不降级（那可能是请求体真写坏了）。
 //
 // 为什么判定层单独一个模块：它必须能在 Node 里直测（不需要网络、不需要 RN）。
-// 判定依赖**结构化字段**（api.js 在失败时挂的 httpStatus / timeout / network），
-// 而不是错误文案——文案会随语言与措辞改动漂移，拿它当判据早晚出错；
+// 判定依赖**结构化字段**（api.js 在失败时挂的 httpStatus / timeout / network /
+// paramRejected），而不是错误文案——文案会随语言与措辞改动漂移，拿它当判据早晚出错；
 // 文案匹配只作为兜底（老版本错误对象、第三方抛出的错误）。
 //
 // 与「自动压缩」「记忆总结」的关系：无。降级链只影响**这一次请求用哪个模型**，
@@ -30,12 +38,14 @@ export function normalizeFallbackModels(raw) {
   return out;
 }
 
-// 可降级失败：429（限流）、5xx（服务端）、超时、网络不可达。
-// 明确**不**降级：401/403（密钥/权限）、404（模型名或路径错）、400/422（参数错）、
+// 可降级失败：429（限流）、5xx（服务端）、超时、网络不可达、**参数被拒（400/422）**。
+// 明确**不**降级：401/403（密钥/权限）、404（模型名或路径错）、
 // 用户中断（AbortError——那是用户的意图，不是失败）。
 export function isRetryableFailure(error) {
   if (!error) return false;
   if (error.name === 'AbortError' || error.canceled === true) return false;
+  // 参数被拒优先判定：它是 400/422，下面的状态码分支会把它当确定性失败。
+  if (error.paramRejected === true) return true;
   const status = Number(error.httpStatus);
   if (Number.isFinite(status) && status > 0) return status === 429 || status >= 500;
   if (error.timeout === true) return true;

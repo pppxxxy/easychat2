@@ -91,7 +91,7 @@ function BranchForkRow({
                   activeOpacity={0.8}
                 >
                   {busyId === branch.id ? (
-                    <ActivityIndicator size="small" color={theme.colors.primarySoft} />
+                    <ActivityIndicator size="small" color={theme.colors.accentText} />
                   ) : (
                     <Text style={styles.branchActionText}>{t('chat.branch.checkout')}</Text>
                   )}
@@ -101,6 +101,8 @@ function BranchForkRow({
                   onPress={() => handleDelete(branch)}
                   disabled={busyId === branch.id}
                   activeOpacity={0.8}
+                  hitSlop={8}
+                  accessibilityRole="button"
                   accessibilityLabel={t('chat.branch.delete')}
                 >
                   <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />

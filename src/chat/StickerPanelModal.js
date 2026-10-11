@@ -144,7 +144,7 @@ export default function StickerPanelModal({
       onRequestClose={onClose}
     >
       <View style={styles.stickerBackdrop}>
-        <View style={styles.stickerSheet}>
+        <View style={[styles.stickerSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <View style={styles.stickerHeader}>
             <Text style={styles.stickerTitle}>{t('chat.sticker.title')}</Text>
             <View style={styles.stickerHeaderActions}>
@@ -182,7 +182,7 @@ export default function StickerPanelModal({
                 accessibilityRole="button"
                 accessibilityLabel={t('chat.sticker.addA11y')}
               >
-                <Ionicons name="add" size={25} color={theme.colors.primarySoft} />
+                <Ionicons name="add" size={25} color={theme.colors.accentText} />
                 <Text style={styles.stickerAddText}>{t('chat.sticker.add')}</Text>
               </TouchableOpacity>
             ) : null}

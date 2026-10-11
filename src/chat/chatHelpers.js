@@ -3,9 +3,9 @@
 import {
   ASSISTANT_ID,
   INLINE_IMAGE_PROMPT_MAX,
-  NO_BODY_TEXT,
+  NO_BODY_TEXT_KEY,
   QUOTE_TEXT_MAX,
-  THINKING_PLACEHOLDER,
+  isThinkingPlaceholder,
 } from './chatConstants.js';
 import { STICKER_MESSAGE_KIND } from './chatMedia.js';
 
@@ -85,7 +85,9 @@ export function formatScrubberTime(timestamp) {
 // 把一条 pending 占位消息“结算”：有内容（正文或思考）就保留并落盘，
 // 只有占位符则整条移除。单聊、群聊-逐角色、群聊-合议三条路径的停止/失败
 // 处理统一走这里，避免出现“生成的部分整条消失”或“永远停在正在思考”的僵尸气泡。
-export function settlePendingMessage(list, id) {
+// t：占位符与「未生成正文」都是用户可见文案，随语言变——比较与取值都必须用同一个 t
+// （拿写死的中文去比，英文界面下永远不相等，会把「Thinking...」当正文落盘）。
+export function settlePendingMessage(list, id, t) {
   const source = Array.isArray(list) ? list : [];
   return source.reduce((acc, item) => {
     if (!item || item.id !== id) {
@@ -94,13 +96,13 @@ export function settlePendingMessage(list, id) {
     }
     const text = typeof item.text === 'string' ? item.text : '';
     const reasoning = typeof item.reasoning === 'string' ? item.reasoning : '';
-    const hasBody = text.trim().length > 0 && text !== THINKING_PLACEHOLDER;
+    const hasBody = text.trim().length > 0 && !isThinkingPlaceholder(text, t);
     if (!hasBody && reasoning.trim().length === 0) return acc;
     acc.push({
       ...item,
       pending: false,
       waitingForResponse: false,
-      text: hasBody ? text : NO_BODY_TEXT,
+      text: hasBody ? text : t(NO_BODY_TEXT_KEY),
     });
     return acc;
   }, []);

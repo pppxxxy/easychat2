@@ -3,7 +3,7 @@
 // 定位：O1 管「进上下文前落盘」，K1 管「已在上下文里的逐步退役」，N2 管「整段历史重建」。
 // 纯逻辑（只依赖纯 token 估算器，无原生依赖；Node 可直测）；落盘与钩子由宿主注入。
 
-import { estimateTextTokens } from '../localModel/localContext.js';
+import { estimateTextTokens } from '../localModel/tokenEstimate.js';
 //
 // 纪律：
 // - **unseen 保护**：某工具结果之后还没有 assistant 回复（模型还没消费它）→ 永不清除。

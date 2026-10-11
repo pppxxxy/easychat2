@@ -9,10 +9,12 @@ import {
   DEFAULT_HEADROOM_TOKENS,
   DEFAULT_OUTPUT_RESERVE_TOKENS,
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+  SESSION_COMPACT_HINT_RATIO,
   resolveAutoCompactPolicy,
   shouldAutoCompactByBudget,
   shouldCompactAnyRule,
   shouldStopAutoCompact,
+  shouldWarnAutoCompactStopped,
 } from '../src/chat/compactionPolicy.js';
 
 test('大窗口：阈值取 min(窗口×比例, 窗口−预留−余量)', () => {
@@ -71,6 +73,23 @@ test('shouldStopAutoCompact：连续失败达上限即停', () => {
   assert.equal(shouldStopAutoCompact(MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES), true);
 });
 
+test('shouldWarnAutoCompactStopped：达失败上限且占用仍高才提示（回落即自动消失）', () => {
+  const cap = MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES;
+  // 没到上限：不提示（还在重试，不是「已放弃」）
+  assert.equal(shouldWarnAutoCompactStopped({ failures: cap - 1, ratio: 0.95 }), false);
+  // 到上限 + 占用仍高于提示线：必须提示
+  assert.equal(shouldWarnAutoCompactStopped({ failures: cap, ratio: 0.95 }), true);
+  // 恰好压在提示线上：提示（>= 口径与提示条一致）
+  assert.equal(shouldWarnAutoCompactStopped({ failures: cap, ratio: SESSION_COMPACT_HINT_RATIO }), true);
+  // 占用已回落到提示线以下（例如用户手动压缩成功）：提示自然消失，不用手动关
+  assert.equal(shouldWarnAutoCompactStopped({ failures: cap, ratio: SESSION_COMPACT_HINT_RATIO - 0.01 }), false);
+  // 脏数据不抛错，且按「不提示」处理
+  assert.equal(shouldWarnAutoCompactStopped({}), false);
+  assert.equal(shouldWarnAutoCompactStopped({ failures: cap, ratio: Number.NaN }), false);
+  assert.equal(shouldWarnAutoCompactStopped({ failures: cap, ratio: 0.9, hintRatio: 'abc' }), false);
+  assert.equal(shouldWarnAutoCompactStopped(), false);
+});
+
 test('接线：聊天页经 useAutoCompact 走唯一阈值来源 + 双规则', () => {
   const hook = readFileSync(path.resolve('src/chat/useAutoCompact.js'), 'utf8');
   assert.ok(hook.includes('shouldCompactAnyRule('), '双规则取严触发');
@@ -82,4 +101,8 @@ test('接线：聊天页经 useAutoCompact 走唯一阈值来源 + 双规则', (
   assert.ok(screen.includes("import useAutoCompact from './chat/useAutoCompact.js';"), '聊天页接线');
   assert.ok(screen.includes('modelOutputCap: contextUsage.maxOutput'), '传模型输出上限');
   assert.ok(screen.includes('byteThreshold: compactInfo.threshold'), '传字节阈值（第二条规则）');
+  // 「自动压缩已停」必须有可见反馈（回归：此前命中失败上限即静默 return，用户零反馈）
+  assert.ok(hook.includes('shouldWarnAutoCompactStopped('), 'hook 算出提示条可见性');
+  assert.ok(screen.includes('stoppedNotice: autoCompactStopped'), '聊天页消费该状态');
+  assert.ok(screen.includes("t('chat.compact.stopped'"), '提示条文案走 i18n');
 });

@@ -26,7 +26,7 @@ export default function MoreMenuModal({ visible, onClose, items }) {
         activeOpacity={1}
         onPress={onClose}
       >
-        <View style={styles.moreSheet}>
+        <View style={[styles.moreSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           {items.map((item, index) => {
             const showSection = item.section
               && (index === 0 || items[index - 1].section !== item.section);

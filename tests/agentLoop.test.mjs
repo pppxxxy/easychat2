@@ -564,3 +564,35 @@ test('P5：onTranscript 回抛本轮追加的 agent 消息（含 tool）', async
   assert.equal(transcript[2].role, 'assistant');
   assert.equal(transcript[2].content, 'done');
 });
+
+// P1 回归（2026-10-11）：**中止路径也要回抛 transcript**。
+//
+// 事故形态：emitTranscript 只在成功路径与轮次上限路径被调用，中止是从循环里直接抛出的
+// （signal.aborted 检查 / runTool 抛 AbortError）——被中止那一轮已经发生的工具调用
+// 轨迹全丢。宿主（useChatSend）只在成功路径 attach toolTrace，所以用户按了停止之后，
+// 这一轮做过什么就查不到了（副作用却可能已经落地）。
+test('P1 回归：中止时 onTranscript 仍回抛已发生的工具调用轨迹', async () => {
+  // 第一轮返回一个工具调用（会被真的执行），随后用户中止。
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: '不该走到这里' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  const controller = new AbortController();
+  const transcripts = [];
+  // 工具执行后立刻中止：模拟「用户点了停止，但这一轮的工具已经跑过」。
+  const pending = runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    signal: controller.signal,
+    onTranscript: msgs => { transcripts.push(msgs); },
+    onToolEvent: event => {
+      if (event && event.phase === 'end') controller.abort();
+    },
+  });
+  await assert.rejects(pending, error => error && (error.name === 'AbortError' || error.canceled === true));
+  assert.equal(transcripts.length, 1, '中止路径必须回抛一次 transcript');
+  assert.equal(transcripts[0][0].role, 'assistant', '第一条是 assistant(tool_calls)');
+  assert.equal(transcripts[0][0].tool_calls[0].id, 'c1');
+  assert.equal(transcripts[0][1].role, 'tool', '第二条是那次调用的结果');
+  assert.equal(transcripts[0][1].tool_call_id, 'c1');
+});

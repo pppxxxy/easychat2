@@ -104,6 +104,15 @@ class ScriptedXHR {
         if (this.onload) this.onload();
         return;
       }
+      if (step.kind === 'param-rejected') {
+        // 上游抱怨某个参数不被接受（能力位注入的参数：max_tokens / reasoning / thinking…）
+        this.status = step.status || 400;
+        this.responseText = JSON.stringify({
+          error: { message: step.message || 'unknown_parameter: max_tokens' },
+        });
+        if (this.onload) this.onload();
+        return;
+      }
       if (step.kind === 'emit-then-http') {
         this.status = 200;
         this.responseText = step.sse || HALF_SSE;
@@ -243,6 +252,62 @@ test('确定性失败（401）不换模型：换了还是同一个错，只是�
       );
       assert.equal(ScriptedXHR.bodies.length, 1);
       assert.equal(notices.length, 0);
+    } finally {
+      restore();
+    }
+  }
+));
+
+// P1（2026-10-11，**有意变更既有承诺**）：参数被拒（400/422）现在会换模型重试。
+//
+// 依据：max_tokens / reasoning / thinking 是按**每个模型的能力位**注入的，主模型不认的
+// 参数降级模型很可能认。此前 400/422 与 401 一起被当成「确定性失败，不换」，
+// 等于主动放弃这条最有价值的降级路径。
+test('参数被拒（400 unknown_parameter）会换模型重试，并如实告知宿主', withXhr(
+  [{ kind: 'param-rejected', status: 400 }, { kind: 'ok' }],
+  async () => {
+    const restore = setConfig({ activeModel: 'model-a', fallbackModels: ['model-b'] });
+    try {
+      const { streamChatCompletion } = loadApi();
+      const notices = [];
+      const result = await streamChatCompletion(MESSAGES, { onModelFallback: info => notices.push(info) });
+      assert.equal(result.text, '你好', '降级模型产出了内容');
+      assert.equal(ScriptedXHR.bodies.length, 2, '参数被拒后必须真的换了模型');
+      const secondBody = typeof ScriptedXHR.bodies[1] === 'string'
+        ? JSON.parse(ScriptedXHR.bodies[1])
+        : ScriptedXHR.bodies[1];
+      assert.equal(secondBody.model, 'model-b');
+      assert.equal(notices.length, 1, '换模型不能静默');
+      assert.equal(notices[0].reason, 'HTTP 400');
+    } finally {
+      restore();
+    }
+  }
+));
+
+test('参数被拒（422 不支持 thinking）同样换模型', withXhr(
+  [{ kind: 'param-rejected', status: 422, message: 'thinking: unexpected field' }, { kind: 'ok' }],
+  async () => {
+    const restore = setConfig({ activeModel: 'model-a', fallbackModels: ['model-b'] });
+    try {
+      const { streamChatCompletion } = loadApi();
+      const result = await streamChatCompletion(MESSAGES);
+      assert.equal(result.text, '你好');
+      assert.equal(ScriptedXHR.bodies.length, 2);
+    } finally {
+      restore();
+    }
+  }
+));
+
+test('与参数无关的 400 仍不降级（保守：可能是请求体真写坏了）', withXhr(
+  [{ kind: 'param-rejected', status: 400, message: 'Invalid request body' }],
+  async () => {
+    const restore = setConfig({ activeModel: 'model-a', fallbackModels: ['model-b'] });
+    try {
+      const { streamChatCompletion } = loadApi();
+      await assert.rejects(streamChatCompletion(MESSAGES), /Invalid request body/);
+      assert.equal(ScriptedXHR.bodies.length, 1, '看不出参数问题的 400 不换模型');
     } finally {
       restore();
     }

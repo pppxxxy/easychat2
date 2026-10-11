@@ -17,19 +17,25 @@ import {
 import {
   ASSISTANT_ID,
   INLINE_IMAGE_PROMPT_MAX,
-  NO_BODY_TEXT,
+  NO_BODY_TEXT_KEY,
   QUOTE_TEXT_MAX,
-  THINKING_PLACEHOLDER,
+  THINKING_PLACEHOLDER_KEY,
   USER_ID,
 } from '../src/chat/chatConstants.js';
+import { translate } from '../src/i18n/index.js';
+
+// 真实翻译器（真语言包，非替身）：中文界面下取词，等价于渲染层拿到的 t。
+const t = (key, params) => translate('zh-CN', key, params);
+const en = (key, params) => translate('en', key, params);
 
 test('常量与既有值一致', () => {
   assert.equal(USER_ID, 'user');
   assert.equal(ASSISTANT_ID, 'assistant');
-  assert.equal(THINKING_PLACEHOLDER, '正在思考...');
+  // 用户可见文案不再硬编码在常量里：常量是 i18n key，取值经真实语言包
+  assert.equal(t(THINKING_PLACEHOLDER_KEY), '正在思考...');
+  assert.equal(t(NO_BODY_TEXT_KEY), '（未生成正文）');
   assert.equal(INLINE_IMAGE_PROMPT_MAX, 400);
   assert.equal(QUOTE_TEXT_MAX, 200);
-  assert.equal(NO_BODY_TEXT, '（未生成正文）');
 });
 
 test('buildInlineImagePrompt：拼接风格前缀、压缩空白、按上限截断', () => {
@@ -112,27 +118,53 @@ test('formatScrubberTime：合法时间格式化，非法输入空串', () => {
 test('settlePendingMessage：有正文保留、纯占位移除、有思考保留并补正文', () => {
   const list = [
     { id: 'a', text: '正常' },
-    { id: 'target', text: THINKING_PLACEHOLDER, pending: true, waitingForResponse: true },
+    { id: 'target', text: t(THINKING_PLACEHOLDER_KEY), pending: true, waitingForResponse: true },
   ];
   // 纯占位（无思考）整条移除
-  assert.deepEqual(settlePendingMessage(list, 'target').map(m => m.id), ['a']);
+  assert.deepEqual(settlePendingMessage(list, 'target', t).map(m => m.id), ['a']);
   // 有正文：结算并清除 pending
   const settled = settlePendingMessage(
     [{ id: 'target', text: '回复', pending: true }],
-    'target'
+    'target',
+    t
   );
   assert.equal(settled[0].pending, false);
   assert.equal(settled[0].waitingForResponse, false);
   assert.equal(settled[0].text, '回复');
   // 只有思考内容：保留并补“未生成正文”
   const reasoningOnly = settlePendingMessage(
-    [{ id: 'target', text: THINKING_PLACEHOLDER, reasoning: '推理中', pending: true }],
-    'target'
+    [{ id: 'target', text: t(THINKING_PLACEHOLDER_KEY), reasoning: '推理中', pending: true }],
+    'target',
+    t
   );
-  assert.equal(reasoningOnly[0].text, NO_BODY_TEXT);
+  assert.equal(reasoningOnly[0].text, t(NO_BODY_TEXT_KEY));
   assert.equal(reasoningOnly[0].pending, false);
   // 非数组安全
-  assert.deepEqual(settlePendingMessage(null, 'x'), []);
+  assert.deepEqual(settlePendingMessage(null, 'x', t), []);
+});
+
+test('settlePendingMessage：占位符判定随语言走（英文界面不把 Thinking... 当正文落盘）', () => {
+  // 回归：占位符以前是写死的中文常量，英文界面下 text !== '正在思考...' 恒成立，
+  // 于是「只有占位符」的 pending 消息会被当成有正文，把 'Thinking...' 落盘成最终回复。
+  const enPlaceholder = en(THINKING_PLACEHOLDER_KEY);
+  assert.equal(enPlaceholder, 'Thinking...');
+  // 只有占位符、没有思考 → 整条移除（说明确实认出了占位符）
+  assert.deepEqual(
+    settlePendingMessage([{ id: 'x', text: enPlaceholder, pending: true }], 'x', en),
+    []
+  );
+  // 有思考 → 保留，正文补英文的「未生成正文」
+  const settled = settlePendingMessage(
+    [{ id: 'x', text: enPlaceholder, reasoning: 'r', pending: true }],
+    'x',
+    en
+  );
+  assert.equal(settled[0].text, en(NO_BODY_TEXT_KEY));
+  // 真实正文不受影响
+  assert.equal(
+    settlePendingMessage([{ id: 'x', text: 'hello', pending: true }], 'x', en)[0].text,
+    'hello'
+  );
 });
 
 test('messageTimestamp：显式字段优先，退化为 id 前缀，否则 0', () => {

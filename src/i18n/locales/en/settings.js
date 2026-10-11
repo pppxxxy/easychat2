@@ -178,7 +178,7 @@ export const settings = {
   'settings.api.detectModels': 'Detect Models',
   'settings.api.fallbackModels': 'Fallback models',
   'settings.api.fallbackModelsPlaceholder': 'e.g. deepseek-chat, gpt-4o-mini',
-  'settings.api.fallbackModelsHint': 'When the main model hits rate limits (429), server errors (5xx), timeouts or a dead network, the next model listed here is tried in order. Up to 3, comma separated. Key, model-name or parameter errors are not retried — another model would fail the same way for nothing.',
+  'settings.api.fallbackModelsHint': 'When the main model hits rate limits (429), server errors (5xx), timeouts, a dead network, or rejects a parameter (400/422 — parameters are injected per model capability), the next model listed here is tried in order. Up to 3, comma separated. Key, permission or model-name errors are not retried — another model would fail the same way for nothing.',
   'settings.api.getKeyA11y': 'Tap to get an API key',
   'settings.api.getKey': 'Get API Key →',
   'settings.api.keyHint': 'Your API key and chat content are sent directly to the address you entered and stored on this device. Make sure you trust this provider.',

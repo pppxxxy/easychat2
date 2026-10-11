@@ -19,6 +19,7 @@ import { Buffer } from 'buffer';
 
 import { createGitFs } from './gitFs.js';
 import { buildLineDiff } from './lineDiff.js';
+import { isProtectedWorkspacePath } from './paths.js';
 
 // 仓库根固定为 '/'：路径映射由 gitFs 独占（见其注释），调用方不要再拼沙盒前缀。
 const REPO_DIR = '/';
@@ -118,8 +119,18 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
       return statusRows();
     },
     // 只看变更——回合小结、压缩扫描、UI 徽标都用这个口径。
+    //
+    // **审计/快照文件永不入内**（2026-10-11 P1）：`.easychat/sessions|file-history|rollback/`
+    // 是只写不改的审计线索与后悔药（paths.js 明文声明写工具不得改写）。但它们在 git
+    // 眼里就是普通文件——没有提交时全是 untracked，于是 `discard({all:true})` 会把
+    // untracked 直接 `unlink` 掉：一次「丢弃全部改动」清空事件流、写前快照与推送基线，
+    // 而 commitAll 又会把它们提交进历史（审计流混进项目历史）。
+    // 单点收口在这里：changedFiles 是所有消费方（status/discard/commitAll/UI 徽标）
+    // 的唯一入口，过滤一次，四条路径同时正确。
     async changedFiles() {
-      return (await statusRows()).filter(row => row.status !== 'unmodified');
+      return (await statusRows()).filter(row => (
+        row.status !== 'unmodified' && !isProtectedWorkspacePath(row.path)
+      ));
     },
     async log({ depth = GIT_DEFAULT_DEPTH } = {}) {
       if (!(await hasAnyCommit())) return [];

@@ -99,9 +99,16 @@ test('最小原型模式：空清单不产出 pip 块，且 Gradle 结构仍然�
 test('truncatePythonOutput / formatPythonResult：截断标明、错误码即失败', () => {
   const small = truncatePythonOutput('ok');
   assert.deepEqual(small, { text: 'ok', truncated: false });
-  const big = truncatePythonOutput('x'.repeat(PYTHON_OUTPUT_LIMIT + 10));
+  // P1 回归（2026-10-11）：截断必须**头尾都保**——Python 的报错与 traceback 在尾部，
+  // 只保头等于把诊断信息切掉（此前就是只保头）。
+  const head = 'HEAD'.repeat(100);
+  const tail = 'Traceback (most recent call last): ZeroDivisionError';
+  const big = truncatePythonOutput(`${head}${'x'.repeat(PYTHON_OUTPUT_LIMIT)}${tail}`);
   assert.equal(big.truncated, true);
-  assert.ok(big.text.includes('已截断'));
+  assert.ok(big.text.includes('中间省略'), '要标明截断（不是假装这就是全部）');
+  assert.ok(big.text.includes('Traceback'), '尾部（traceback）必须保住');
+  assert.ok(big.text.startsWith('HEAD'), '头部也要保住');
+  assert.ok(big.text.length <= PYTHON_OUTPUT_LIMIT + 200, '截断后总长受控');
 
   const ok = formatPythonResult({ stdout: 'hi\n', stderr: '', exitCode: 0 });
   assert.deepEqual(ok, { stdout: 'hi\n', stderr: '', exitCode: 0, truncated: false, isError: false });
@@ -301,12 +308,13 @@ test('createPythonRunner：固定看门狗、结果转成模型可读文本、�
 });
 
 test('formatPythonToolResult：截断后仍如实标注，退出码非 0 即错误', () => {
-  const huge = 'x'.repeat(PYTHON_OUTPUT_LIMIT + 100);
+  const huge = `${'x'.repeat(PYTHON_OUTPUT_LIMIT + 100)}尾部的报错`;
   const formatted = formatPythonResult({ stdout: huge, stderr: '', exitCode: 0 });
   assert.equal(formatted.truncated, true);
-  assert.ok(formatted.stdout.includes('输出已截断'));
+  assert.ok(formatted.stdout.includes('中间省略'), '截断要标明');
+  assert.ok(formatted.stdout.includes('尾部的报错'), '尾部要保住（traceback 在尾部）');
   const tool = formatPythonToolResult(formatted);
-  assert.ok(tool.content.includes('输出已截断'), '给模型的文本也要带上截断说明');
+  assert.ok(tool.content.includes('中间省略'), '给模型的文本也要带上截断说明');
   assert.equal(formatPythonToolResult({ stdout: '', stderr: 'e', exitCode: 2 }).isError, true);
 });
 

@@ -12,6 +12,7 @@
 // 顶层不 import react-native（惰性 require），纯 Node 测试可直接加载纯函数。
 
 import { sanitizeSandboxId } from './paths.js';
+import { truncateShellOutput } from './shell.js';
 import { readShellSession } from './shellSession.js';
 import { tActive } from '../i18n/index.js';
 
@@ -188,11 +189,16 @@ export async function probeInstalledPackages({
   }
 }
 
-// 输出截断：与 shell 同一口径，标明截断而不是假装这就是全部。
+// 输出截断：**直接复用 shell 的头尾版**（不另写一份）。
+//
+// 事故形态（2026-08-11 记录，2026-10-11 P1 修）：这里此前只保头部（value.slice(0, limit)），
+// 而 Python 的报错与 traceback **在尾部**——输出越长越必然被切掉，模型看到的是一段
+// 没有异常信息的 stdout。shell.js 的 truncateShellOutput 早已是头尾都保（3:1），
+// 两处同一需求写两份实现，于是只修了一处。
+//
+// 注意：limit 语义与 shell 版一致（保下来的总长度上限）。返回 { text, truncated } 同形。
 export function truncatePythonOutput(text, limit = PYTHON_OUTPUT_LIMIT) {
-  const value = String(text === undefined || text === null ? '' : text);
-  if (value.length <= limit) return { text: value, truncated: false };
-  return { text: `${value.slice(0, limit)}\n…（输出已截断，仅保留前 ${limit} 字符）`, truncated: true };
+  return truncateShellOutput(text, limit, '需要看中段请分段打印或写入文件后读回');
 }
 
 // 原生结果 → 面板可渲染的结构（exitCode 非 0 算「跑完了但报错」，不是崩溃）。

@@ -98,6 +98,17 @@ test('spike：越界路径被适配器挡下（不降级防护）', () => {
   assert.throws(() => normalizeGitPath('a/../../b'), /越界/);
 });
 
+// P0 回归（2026-10-11）：编码形态的越界段。原生侧会百分号解码，编码段必须一律拒绝。
+// 判据与主沙盒**共享**（paths.js 的 assertSafeWorkspaceSegment）——这条同时钉住「只有一份实现」。
+test('P0 回归：git 路径的编码越界段同样被拒（与主沙盒共用判据）', () => {
+  for (const path of ['a/%2e%2e/%2e%2e/x', '%2e%2e', '..%2f', '%2F', '%252e%252e']) {
+    assert.throws(() => normalizeGitPath(path), /越界/, `${path} 必须被拒绝`);
+  }
+  // 合法 git 内部路径照旧放行（无扩展名的对象与引用）
+  assert.equal(normalizeGitPath('objects/ab/cdef0123'), 'objects/ab/cdef0123');
+  assert.equal(normalizeGitPath('./HEAD'), 'HEAD');
+});
+
 test('spike：性能粗测（300 文件 add+commit / statusMatrix 耗时，给「按需触发」定上限）', async () => {
   const { fs } = setup();
   await git.init({ fs, dir: '/' });

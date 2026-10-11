@@ -33,7 +33,7 @@ export default function SessionStatsModal({ visible, onClose, summary, messageCo
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <View style={styles.modalSheet}>
+        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.stats.title')}</Text>
           <ScrollView>
             {row('messages', t('chat.stats.messages'), String(messageCount || 0))}

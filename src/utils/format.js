@@ -14,3 +14,16 @@ export function formatBytes(value) {
   }
   return `${size >= 10 || index === 0 ? Math.round(size) : size.toFixed(1)}${units[index]}`;
 }
+
+// 「已运行多久」——长任务（team/workflow 的 timeoutMs=600000）的进度提示用。
+// 毫秒 → m:ss（0:07 / 1:23 / 12:05）；满一小时进位成 h:mm:ss。
+// 非法值/负数一律按 0 处理：宁可显示 0:00，也不要 NaN 或负号。
+export function formatElapsed(value) {
+  const ms = Number(value);
+  const total = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
+  const pad = n => String(n).padStart(2, '0');
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}

@@ -3,9 +3,15 @@
 // 能力边界（必须如实说明，不要指望它像电脑上的终端）：
 // - Android 上 RN 没有 exec 能力，本项目也没有，所以这里配了一个新的原生模块
 //   （plugins/shellExecutor，ProcessBuilder("/system/bin/sh","-c",cmd)）；
-// - 无 root 时 shell 只能访问应用自己的沙盒与 /system/bin 等公开路径，
-//   **碰不到 SAF 的 content:// 路径**，也改不了别的应用的数据。
-//   因此外部根下这个工具根本不注册（见 native.js 的门控）。
+// - **进程以应用自己的 uid 运行**——这就是全部约束，不要把它当沙盒：cwd 只是
+//   命令的默认工作目录，`cd ..` / 绝对路径 / 重定向都能走出去，应用私有目录里的
+//   任何文件（含工作区、含 .easychat/ 审计与快照）都读得到、也写得动；
+// - 无 root 时它**碰不到**的是：别的应用的数据目录、以及 SAF 的 content:// 路径
+//   （那需要 ContentResolver，不是文件路径）。因此外部根下这个工具根本不注册
+//   （见 native.js 的门控）。
+// - 结论：这里的隔离来自「用户逐条确认」与「开关/根类型门控」，**不是**来自
+//   cwd 或 uid。审计文件在 run_shell 通道上仍可被改——那是用户看得见命令原文的
+//   通道，属已知平台边界（同 paths.js 的说明）。
 //
 // 三层门控，任一层不过都执行不了：
 // 1) 不注册 —— 开关关 / 外部根 / 原生模块缺失；
@@ -77,14 +83,14 @@ export function sandboxPathFromUri(uri) {
 // 以为这就是全部内容而去改错文件。
 // **头尾都保**（能力升级任务书 A2）：报错、失败原因几乎总在尾部——只保头等于把
 // 诊断信息切掉，输出越长的命令越是如此。默认按 3:1 分配（头 48K / 尾 16K）。
-export function truncateShellOutput(text, limit = SHELL_OUTPUT_LIMIT) {
+export function truncateShellOutput(text, limit = SHELL_OUTPUT_LIMIT, hint = '需要看中段请用 grep/sed 收窄后重跑') {
   const value = String(text === undefined || text === null ? '' : text);
   if (value.length <= limit) return { text: value, truncated: false };
   const tailSize = Math.floor(limit / 4);
   const headSize = limit - tailSize;
   const omitted = value.length - limit;
   return {
-    text: `${value.slice(0, headSize)}\n…（中间省略 ${omitted} 字符；需要看中段请用 grep/sed 收窄后重跑）…\n${value.slice(-tailSize)}`,
+    text: `${value.slice(0, headSize)}\n…（中间省略 ${omitted} 字符；${hint}）…\n${value.slice(-tailSize)}`,
     truncated: true,
   };
 }

@@ -69,19 +69,22 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
 
 // 审批钩子漏接 = 需要确认的工具全部跑不了（registry 的无 confirm 即拒绝）。
 // 漏接时的表现是「模型一直说命令被拒绝」，界面不报错，很难查——所以把接线钉死。
-test('runAgentTurn 接了 onToolApproval，并把中止信号一并传下去', () => {
+test('runAgentTurn 接了 onToolApproval + permissionRules，并把中止信号一并传下去', () => {
   const idx = source.indexOf('runAgentTurn(onlineMessages');
   const block = source.slice(idx, idx + 4400);
   const hookAt = block.indexOf('onToolApproval:');
   const hookBlock = block.slice(hookAt, hookAt + 1400);
   // T3 起审批走 approveToolCall：先查已记住的规则（本次会话 / 永远允许），
   // 未命中才弹三选项框——直接调 requestToolApproval 会绕过规则，等于授权不生效。
-  // T6 起外面包了一层 async：注入工作区钩子的 before_shell 禁用规则（extraRules）。
-  assert.ok(/onToolApproval:\s*async call =>/.test(hookBlock), '审批钩子是能先读钩子的 async 块');
-  assert.ok(/return approveToolCall\(/.test(hookBlock), '必须接上完整流转（规则 → 弹框）');
-  assert.ok(/extraRules/.test(hookBlock), '工作区钩子禁令要注入审批');
+  assert.ok(/onToolApproval:\s*call =>/.test(hookBlock), '审批钩子接上 approveToolCall');
+  assert.ok(/approveToolCall\(/.test(hookBlock), '必须接上完整流转（规则 → 弹框）');
   assert.ok(/signal:\s*controller\.signal/.test(hookBlock),
     '审批要拿到中止信号：用户点停止时不留悬挂弹框');
+  // P1（2026-10-11）：钩子规则（before_shell / before_tool）**不走审批**——审批只在
+  // 需要确认的工具上被调用，写工具按设计不逐条确认，只接审批等于规则永不生效。
+  // 它们改由 permissionRules 一路喂给 registry.runTool（对任意工具求值）。
+  assert.ok(/permissionRules:\s*\(\)\s*=>\s*readHookPermissionRules\(/.test(block),
+    '钩子规则要单独接进 runTool（否则写工具上的 deny 永不生效）');
   assert.ok(/t:\s*tRef\.current/.test(block), '审批文案走 tRef（跟当前语言，不用闭包旧 t）');
 });
 

@@ -1,7 +1,7 @@
 import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
 import { getMessagePromptText } from '../chat/chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
-import { buildSystemSections, composeSystemText, planSystemCache, splitSystemForCache } from './systemSections.js';
+import { buildSystemChunks, buildSystemSections, composeSystemText, planSystemCache } from './systemSections.js';
 import { expandHistoryWithTraces } from '../chat/toolTrace.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
@@ -247,9 +247,19 @@ export function buildRequestMessages({ character, historyMessages, userText, use
 
   const systemMessage = { role: 'system', content: systemContent };
   if (cachePlan.cacheable) {
-    const split = splitSystemForCache(systemSections, cachePlan.breakIndex);
-    // 断点为 0（首段即动态）时无可缓存前缀，不打标记——对不支持缓存的协议零副作用。
-    if (split.prefixText) systemMessage.systemCache = split;
+    // 断点落在**最长 stable 连续段的末尾**（不再是「从第 0 段起连续 stable」——
+    // 那样有世界书时一个断点都不打）。
+    // chunks：连续同稳定性的块（stable 段并成一块）；markIndex 取**最后一个 stable 块**
+    // ——它就是「最长 stable 连续段」所在的那块。Anthropic 把 cache_control 打在这块上，
+    // 断点之前的全部内容（含排在系统提示最前的动态世界书）一并进缓存前缀。
+    // prefixText / restText 按 markIndex 从块拼出（**不是**按段下标切）：块间与段间都是
+    // 空一行，但按段切会让「前缀 + 空行 + 其余」与原文差一个分隔符（切点两侧都是段时
+    // 空行被算两次）。按块切才保证两段拼回逐字节等于 systemContent。
+    const chunks = buildSystemChunks(systemSections);
+    const markIndex = chunks.reduce((found, chunk, index) => (chunk.stable ? index : found), -1);
+    const prefixText = chunks.slice(0, markIndex + 1).map(chunk => chunk.text).join('\n\n');
+    const restText = chunks.slice(markIndex + 1).map(chunk => chunk.text).join('\n\n');
+    if (prefixText) systemMessage.systemCache = { prefixText, restText, chunks, markIndex };
   }
   const assembled = [
     systemMessage,

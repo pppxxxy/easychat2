@@ -37,7 +37,7 @@ export default function CompactFocusModal({
         style={styles.modalBackdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.modalSheet}>
+        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.compact.focus.title')}</Text>
           <Text style={styles.compactFocusHint}>{t('chat.compact.focus.hint')}</Text>
           <TextInput

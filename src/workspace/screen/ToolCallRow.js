@@ -15,12 +15,13 @@
 // 两条纪律：**状态为 error 时不画「改动」**（失败的操作没有改动可言，画了就是撒谎）；
 // 长内容一律折叠，默认只露摘要——聊天流不是日志面板。
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
+import { formatElapsed } from '../../utils/format.js';
 import { argText } from '../conversation.js';
 
 // 按工具族给图标（认得出「这一类在干什么」即可）。
@@ -54,11 +55,31 @@ function iconForTool(name) {
   return 'construct-outline';
 }
 
+// 「已运行 m:ss」：running 时每秒 tick 一次；startedAt 为 0（非运行中/历史行）不挂定时器。
+// 定时器在 startedAt 变化或卸载时清掉——工具行会随流被卸载重建，漏清会一直空转。
+function useElapsedText(startedAt) {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const started = Number(startedAt) || 0;
+    if (!started) {
+      setText('');
+      return undefined;
+    }
+    const tick = () => setText(formatElapsed(Date.now() - started));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+  return text;
+}
+
 export default function ToolCallRow({ tool, onOpenHistory = null }) {
   const { theme, fonts } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
   const [expanded, setExpanded] = useState(false);
+  // 必须放在下面的提前 return 之前：hook 顺序不能依赖 tool 是否存在。
+  const elapsed = useElapsedText(tool && tool.status === 'running' ? tool.startedAt : 0);
   if (!tool) return null;
 
   const status = STATUS_ICONS[tool.status] ? tool.status : 'unknown';
@@ -74,7 +95,13 @@ export default function ToolCallRow({ tool, onOpenHistory = null }) {
       <Ionicons name={iconForTool(tool.name)} size={14} color={theme.colors.primaryMuted} />
       <Text style={styles.name} numberOfLines={1}>{tool.name}</Text>
       {tool.args ? <Text style={styles.args} numberOfLines={1}>{tool.args}</Text> : null}
-      {status === 'running' ? <Text style={styles.running}>{t('workspace.chat.tool.running')}</Text> : null}
+      {status === 'running' ? (
+        <Text style={styles.running}>
+          {elapsed
+            ? t('workspace.chat.tool.runningElapsed', { elapsed })
+            : t('workspace.chat.tool.running')}
+        </Text>
+      ) : null}
       <Ionicons name={STATUS_ICONS[status]} size={13} color={statusColor} />
     </View>
   );
@@ -86,13 +113,27 @@ export default function ToolCallRow({ tool, onOpenHistory = null }) {
   return (
     <View style={styles.card}>
       {body ? (
-        <TouchableOpacity onPress={() => setExpanded(value => !value)} activeOpacity={0.8}>
+        <TouchableOpacity
+          onPress={() => setExpanded(value => !value)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          // label 用可见文字（工具名 + 参数摘要）；状态/图标由 accessibilityState 与
+          // 可见的「运行中 m:ss」表达，不在这里重复。
+          accessibilityLabel={tool.args ? `${tool.name} ${tool.args}` : String(tool.name)}
+          accessibilityState={{ expanded }}
+        >
           {header}
         </TouchableOpacity>
       ) : header}
       {body ? (expanded ? body : null) : null}
       {showHistoryLink ? (
-        <TouchableOpacity style={styles.historyLink} onPress={onOpenHistory} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.historyLink}
+          onPress={onOpenHistory}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={t('workspace.chat.tool.history')}
+        >
           <Ionicons name="time-outline" size={12} color={theme.colors.primaryMuted} />
           <Text style={styles.historyLinkText}>{t('workspace.chat.tool.history')}</Text>
         </TouchableOpacity>

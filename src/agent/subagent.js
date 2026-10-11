@@ -158,6 +158,10 @@ export async function runSubagent({
   let round = 0;
   let capped = false;
   let lastError = '';
+  // P1（2026-10-11）：本轮子代理里**失败的工具调用**计数。子代理「跑完了」不等于
+  // 「做成了」——写工具被拒（用户没批 / 问不到用户）时它照样会产出一段结论文字，
+  // 调用方若只看 content 就会把「没写的」当成「写成了」。计数上抛给编排层判定。
+  let toolErrors = 0;
   while (round < maxRounds) {
     round += 1;
     if (signal && signal.aborted) throw makeAbortError();
@@ -238,6 +242,7 @@ export async function runSubagent({
         outcome = { content: lastError, isError: true };
       }
       const ok = !(outcome && outcome.isError === true);
+      if (!ok) toolErrors += 1;
       emit({ phase: 'end', name: call.name, round, ok });
       history.push({
         role: 'tool',
@@ -261,25 +266,61 @@ export async function runSubagent({
   if (content.length > SUBAGENT_RESULT_LIMIT) {
     content = `${content.slice(0, SUBAGENT_RESULT_LIMIT)}…（子代理结论过长已截断）`;
   }
-  return { content, isError: false };
+  // 结论照给（部分信息比空手好），但**有工具失败时如实标记**：调用方（工作流编排、
+  // 写子代理）据此把这一步判为未完成，而不是只看有没有文字就报成功。
+  // 只读子代理的调用方（run_subagent）不受影响——它按 content 消费，不看这个字段。
+  return { content, isError: false, toolErrors };
 }
 
 // E3：并发映射（有界并发、结果保持输入顺序）——并行子代理的执行器。
-// 手机端同时开两条独立模型流是上限（网络与限流考虑）；worker 抛错原样上抛
-//（调用方决定降级），这里不吞错。
+//
+// 失败语义（2026-10-11 P1 修）：**首个 worker 抛错后不再派新活**（兄弟 worker 把手上
+// 这一件跑完就停，已开工的不强行打断——JS 侧停不掉已发出的 promise），等所有 worker
+// 结算后把首个错误抛出。抛出的错误上挂 `partialResults` / `completedIndices` /
+// `failedIndex`，调用方可以据此展示「已完成的部分」而不是全丢。
+//
+// 为什么不是「让兄弟继续跑完」：那是纯浪费——失败往往是共同的（模型/网络/授权），
+// 后面每一件都会以同样的方式失败，白花额度与时间；而结果又因为 Promise.all 的
+// reject 语义全部丢弃，等于既付了代价又拿不到东西。
+//
+// 注意：worker **自己吞掉错误**（如 subagentTool 的并行批次）时本函数感知不到失败，
+// 兄弟照常跑完——那是调用方的选择（单路失败不拖垮整批），语义不变。
 export async function mapWithConcurrency(items, limit, worker) {
   const list = Array.isArray(items) ? items : [];
   const size = Math.max(1, Math.floor(Number(limit)) || 1);
   const results = new Array(list.length);
+  const completedIndices = [];
   let cursor = 0;
+  let firstError = null;
+  let failedIndex = -1;
   const runners = Array.from({ length: Math.min(size, list.length) }, async () => {
     for (;;) {
+      if (firstError) return; // 已经失败：不再派新活（在飞的那一件仍会跑完）
       const index = cursor;
       cursor += 1;
       if (index >= list.length) return;
-      results[index] = await worker(list[index], index);
+      try {
+        results[index] = await worker(list[index], index);
+        completedIndices.push(index);
+      } catch (error) {
+        if (!firstError) {
+          firstError = error;
+          failedIndex = index;
+        }
+        return;
+      }
     }
   });
-  await Promise.all(runners);
+  // allSettled：等所有 worker 结算（在飞的那一件跑完），避免「后台还有活而调用方已
+  // 拿到错误」的悬空状态——那个 promise 的 rejection 会成为未捕获拒绝。
+  await Promise.allSettled(runners);
+  if (firstError) {
+    if (firstError && typeof firstError === 'object') {
+      firstError.partialResults = results;
+      firstError.completedIndices = completedIndices.slice().sort((a, b) => a - b);
+      firstError.failedIndex = failedIndex;
+    }
+    throw firstError;
+  }
   return results;
 }

@@ -1214,7 +1214,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           <>
             <TouchableOpacity style={styles.layerHeader} onPress={() => { setLayer(''); setPreview(null); }} activeOpacity={0.8}>
               <Ionicons name="chevron-back" size={18} color={theme.colors.text} />
-              <Text style={styles.layerTitle} numberOfLines={1}>{preview.path}</Text>
+              <Text style={styles.layerTitle} numberOfLines={1} ellipsizeMode="middle">{preview.path}</Text>
             </TouchableOpacity>
             <FieldHint>{preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
             <Text style={styles.previewText}>{preview.content}</Text>
@@ -1240,7 +1240,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                   activeOpacity={0.85}
                 >
                   <View style={styles.repoMain}>
-                    <Text style={styles.repoName} numberOfLines={1}>{repo.fullName}</Text>
+                    <Text style={styles.repoName} numberOfLines={1} ellipsizeMode="middle">{repo.fullName}</Text>
                     <Text style={styles.repoMeta} numberOfLines={1}>
                       {[repo.defaultBranch, repo.isPrivate ? t('workspace.panel.repo.visibility.private') : t('workspace.panel.repo.visibility.public'), repo.pushedAt].filter(Boolean).join(' · ')}
                       {localCount(repo) > 0 ? ` · ${t('workspace.github.repoList.localCount', { count: localCount(repo) })}` : ''}
@@ -1275,7 +1275,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     searchResults.map(path => (
                       <TouchableOpacity key={path} style={styles.fileRow} onPress={() => openFile(path)} activeOpacity={0.8}>
                         <Ionicons name="search-outline" size={15} color={theme.colors.primaryMuted} />
-                        <Text style={styles.fileName} numberOfLines={1}>{path}</Text>
+                        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{path}</Text>
                       </TouchableOpacity>
                     ))
                   )
@@ -1286,7 +1286,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                         <View key={crumb.path || 'root'} style={styles.crumbItem}>
                           {index > 0 ? <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} /> : null}
                           <TouchableOpacity onPress={() => setSubdir(crumb.path)} activeOpacity={0.7}>
-                            <Text style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]} numberOfLines={1}>
+                            <Text style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]} numberOfLines={1} ellipsizeMode="middle">
                               {crumb.name}
                             </Text>
                           </TouchableOpacity>
@@ -1306,7 +1306,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                             size={16}
                             color={theme.colors.primaryMuted}
                           />
-                          <Text style={styles.fileName} numberOfLines={1}>{child.name}</Text>
+                          <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{child.name}</Text>
                           {/* C1：只在清单里（未物化）的条目带云朵角标——点开时按需下载。 */}
                           {virtualPaths.has(child.path) ? (
                             <Ionicons
@@ -1746,7 +1746,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!token || busy}
           accessibilityLabel={t('workspace.github.toolbar.repos')}
         >
-          <Ionicons name="list-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="list-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !canAct && styles.toolDisabled]}
@@ -1754,7 +1754,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct || actionBusy === 'import'}
           accessibilityLabel={t('workspace.github.toolbar.importLocal')}
         >
-          <Ionicons name="cloud-upload-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="cloud-upload-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !canAct && styles.toolDisabled]}
@@ -1762,7 +1762,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct}
           accessibilityLabel={t('workspace.github.toolbar.newEntry')}
         >
-          <Ionicons name="add-outline" size={21} color={theme.colors.primarySoft} />
+          <Ionicons name="add-outline" size={21} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.toolButton}
@@ -1770,7 +1770,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={actionBusy === 'refresh'}
           accessibilityLabel={t('workspace.github.toolbar.refresh')}
         >
-          <Ionicons name="refresh-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="refresh-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !token && styles.toolDisabled]}
@@ -1778,7 +1778,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!token}
           accessibilityLabel={t('workspace.github.toolbar.createRepo')}
         >
-          <Ionicons name="add-circle-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="add-circle-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !canAct && styles.toolDisabled]}
@@ -1786,7 +1786,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct}
           accessibilityLabel={t('workspace.github.toolbar.manage')}
         >
-          <Ionicons name="options-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="options-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         {/* H1：云构建（触发 → 看状态 → 读日志——「写→检查→修」闭环的远端重活）。 */}
         <TouchableOpacity
@@ -1800,7 +1800,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct}
           accessibilityLabel={t('workspace.github.toolbar.build')}
         >
-          <Ionicons name="cafe-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="cafe-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
       </View>
     </View>

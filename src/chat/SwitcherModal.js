@@ -48,7 +48,7 @@ export default function SwitcherModal({
         activeOpacity={1}
         onPress={onClose}
       >
-        <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
+        <TouchableOpacity style={[styles.modalSheet, styles.sheetWidth]} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.switcher.title')}</Text>
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
 

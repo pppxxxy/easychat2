@@ -119,8 +119,8 @@ import {
   collectSessionStartNotices,
   collectToolResultNotices,
   collectTurnEndNotices,
-  hookPermissionRules,
   installSampleHooks,
+  readHookPermissionRules,
   readWorkspaceHooks,
 } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
@@ -1296,25 +1296,21 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
               setAgentPlan(steps);
             }
           }
-          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round } : null);
+          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round, startedAt: Date.now() } : null);
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
-        // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
-        // 本轮内 agent 改了钩子文件也立即生效）；钩子只收紧、不放松。
-        onToolApproval: async call => {
-          let extraRules = [];
-          try {
-            const hooks = await readWorkspaceHooks(storeRef.current, characterId);
-            extraRules = hookPermissionRules(hooks);
-          } catch (error) {}
-          return approveToolCall({
-            name: call && call.name,
-            args: call && call.args,
-            t,
-            signal: controller.signal,
-            extraRules,
-          });
-        },
+        // 钩子规则（hooks.json 的 before_shell / before_tool）**不走这里**：它们改由
+        // permissionRules 单独喂给 runTool（见下），因为审批钩子只在「需要确认的工具」
+        // 上被调用，而钩子要拦下**任意**工具——写工具按设计不逐条确认（2026-10-11 P1）。
+        onToolApproval: call => approveToolCall({
+          name: call && call.name,
+          args: call && call.args,
+          t,
+          signal: controller.signal,
+        }),
+        // P1：钩子 deny / ask 规则的求值入口，每次调用时直读（本轮内改了 hooks.json
+        // 也立即生效）。deny 在 runTool 里直接拒绝，ask 并进审批链。
+        permissionRules: () => readHookPermissionRules(storeRef.current, characterId),
         // ask_user：任务中途向用户提选择题（跨平台 Alert）。
         onAskUser: payload => promptUserChoice({
           ...payload,
@@ -1458,11 +1454,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       >
         <View style={styles.embeddedBar}>
             <TouchableOpacity style={styles.embeddedAction} onPress={handleNewChat} activeOpacity={0.8}>
-              <Ionicons name="add-circle-outline" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="add-circle-outline" size={16} color={theme.colors.accentText} />
               <Text style={styles.embeddedActionText}>{t('workspace.rail.newChat')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.embeddedAction} onPress={() => setHistoryOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="time-outline" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="time-outline" size={16} color={theme.colors.accentText} />
               <Text style={styles.embeddedActionText}>{t('workspace.rail.history')}</Text>
             </TouchableOpacity>
             {/* P2-1：消息检索开关。消息一多就只能一路滚，这里给一个入口。 */}
@@ -1478,7 +1474,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
               <Ionicons
                 name={msgSearchOpen ? 'close-outline' : 'search-outline'}
                 size={16}
-                color={theme.colors.primarySoft}
+                color={theme.colors.accentText}
               />
               <Text style={styles.embeddedActionText}>
                 {msgSearchOpen ? t('workspace.chat.search.clear') : t('workspace.chat.search.placeholder')}
@@ -1513,7 +1509,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 onPress={() => onOpenPanel('viewer')}
                 activeOpacity={0.8}
               >
-                <Ionicons name="folder-open-outline" size={14} color={theme.colors.primarySoft} />
+                <Ionicons name="folder-open-outline" size={14} color={theme.colors.accentText} />
                 <Text style={styles.filesLinkText} numberOfLines={1}>
                   {t('workspace.home.filesLink')}
                 </Text>
@@ -1628,9 +1624,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                     <Ionicons
                       name={item.kind === 'image' ? 'image-outline' : 'document-text-outline'}
                       size={14}
-                      color={theme.colors.primarySoft}
+                      color={theme.colors.accentText}
                     />
-                    <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.attachmentName} numberOfLines={1} ellipsizeMode="middle">{item.name}</Text>
                     <TouchableOpacity onPress={() => removeAttachment(item.id)} hitSlop={6}>
                       <Ionicons name="close" size={14} color={theme.colors.textFaint} />
                     </TouchableOpacity>
@@ -1683,7 +1679,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 disabled={sending}
                 accessibilityLabel={t('workspace.chat.attach.a11y')}
               >
-                <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
+                <Ionicons name="add-circle-outline" size={22} color={theme.colors.accentText} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.iconButton}
@@ -1699,7 +1695,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 <Ionicons
                   name={recorder.recording ? 'mic' : 'mic-outline'}
                   size={22}
-                  color={recorder.recording ? theme.colors.danger : theme.colors.primarySoft}
+                  color={recorder.recording ? theme.colors.danger : theme.colors.accentText}
                 />
               </TouchableOpacity>
               <TextInput
@@ -1719,7 +1715,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 onPress={() => setSettingsOpen(true)}
                 accessibilityLabel={t('workspace.settings.title')}
               >
-                <Ionicons name="options-outline" size={22} color={theme.colors.primarySoft} />
+                <Ionicons name="options-outline" size={22} color={theme.colors.accentText} />
               </TouchableOpacity>
               {sending ? (
                 <>
@@ -1729,12 +1725,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                     <TouchableOpacity
                       style={styles.sendButton}
                       onPress={handleSend}
-                      accessibilityLabel={t('workspace.chat.steer.a11y')}
+                      hitSlop={8} accessibilityRole="button" accessibilityLabel={t('workspace.chat.steer.a11y')}
                     >
                       <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text} />
                     </TouchableOpacity>
                   ) : null}
-                  <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} accessibilityLabel={t('workspace.chat.stop.a11y')}>
+                  <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('workspace.chat.stop.a11y')}>
                     <Ionicons name="stop" size={18} color={theme.colors.text} />
                   </TouchableOpacity>
                 </>
@@ -1743,7 +1739,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                   style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
                   onPress={handleSend}
                   disabled={!canSend}
-                  accessibilityLabel={t('workspace.chat.send.a11y')}
+                  hitSlop={8} accessibilityRole="button" accessibilityLabel={t('workspace.chat.send.a11y')}
                 >
                   <Ionicons name="arrow-up" size={20} color={theme.colors.text} />
                 </TouchableOpacity>

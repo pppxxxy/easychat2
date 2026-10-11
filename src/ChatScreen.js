@@ -142,7 +142,7 @@ import {
 } from './imageGen/inlineImagePrompt.js';
 
 import {
-  AI_DISCLAIMER_TEXT,
+  AI_DISCLAIMER_TEXT_KEY,
   ASSISTANT_ID,
   NEAR_BOTTOM_THRESHOLD,
   USER_ID,
@@ -875,11 +875,8 @@ export default function ChatScreen() {
     onScrubberToStart,
     onScrubberToEnd,
   } = useScrollScrubber({
-    messages,
-    characterName: character.name,
-    scrollRef,
-    messageOffsetsRef,
-    scrollToMessage,
+    messages, characterName: character.name, t,
+    scrollRef, messageOffsetsRef, scrollToMessage,
   });
 
   // focus：/compact 后跟的关注点（「这次总结要特别保留什么」）；自动路径不传。
@@ -1641,8 +1638,8 @@ export default function ChatScreen() {
   }, [messages.length]);
 
   // E2：自动压缩——阈值走唯一来源 compactionPolicy（Z/M/D 整合）；微压缩由 loop 的 K1 承担。
-  useAutoCompact({
-    enabled: chatOptions.autoCompact, contextUsage, isSending, messages, compactBusyRef, onCompact: handleCompactSession,
+  const { failures: autoCompactFailures, stoppedNotice: autoCompactStopped } = useAutoCompact({
+    enabled: chatOptions.autoCompact, contextUsage, isSending, messages, compactBusyRef, onCompact: handleCompactSession, hintRatio: SESSION_COMPACT_HINT_RATIO,
     modelOutputCap: contextUsage.maxOutput, byteSize: compactInfo.bytes, byteThreshold: compactInfo.threshold,
   });
 
@@ -2628,7 +2625,7 @@ export default function ChatScreen() {
         onOpenMore={() => setMoreOpen(true)}
       />
       <View style={styles.aiNoticeBar} pointerEvents="none">
-        <Text style={styles.aiNoticeText}>{AI_DISCLAIMER_TEXT}</Text>
+        <Text style={styles.aiNoticeText}>{t(AI_DISCLAIMER_TEXT_KEY)}</Text>
       </View>
       <ChatSearchBar
         visible={searchOpen}
@@ -2735,34 +2732,34 @@ export default function ChatScreen() {
         onOpenHub={() => setModelPanelOpen(true)}
       />
 
-      {/* E2：上下文占用 ≥70% 的「建议压缩」提示条——一键压缩或关掉（本次进入会话
-          内不再出现）；85% 时后台会静默自动压缩（可在系统设置关闭）。 */}
-      {contextUsageRatio >= SESSION_COMPACT_HINT_RATIO && !compactHintDismissed ? (
-        <View style={styles.compactHintBar}>
+      {/* E2：上下文占用 ≥70% 的「建议压缩」提示条；自动压缩连续失败达上限后同一位置改挂「已停」提示（不可忽略）。 */}
+      {autoCompactStopped || (contextUsageRatio >= SESSION_COMPACT_HINT_RATIO && !compactHintDismissed) ? (
+        <View style={[styles.compactHintBar, autoCompactStopped ? styles.compactHintStopped : null]}>
           <Ionicons
-            name="information-circle-outline"
+            name={autoCompactStopped ? 'warning-outline' : 'information-circle-outline'}
             size={15}
-            color={theme.colors.primary}
+            color={autoCompactStopped ? theme.colors.danger : theme.colors.primary}
             style={styles.compactHintIcon}
           />
           <Text style={styles.compactHintText} numberOfLines={1}>
-            {t('chat.compact.hint', { percent: Math.round(contextUsageRatio * 100) })}
+            {autoCompactStopped
+              ? t('chat.compact.stopped', { count: autoCompactFailures })
+              : t('chat.compact.hint', { percent: Math.round(contextUsageRatio * 100) })}
           </Text>
-          <TouchableOpacity
-            onPress={() => { if (!compactBusy) openCompactFocus(); }}
-            accessibilityRole="button"
-          >
+          <TouchableOpacity onPress={() => { if (!compactBusy) openCompactFocus(); }} accessibilityRole="button">
             <Text style={styles.compactHintAction}>
               {compactBusy ? t('chat.settings.compactBusy') : t('chat.compact.action')}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.compactHintClose}
-            onPress={() => setCompactHintDismissed(true)}
-            accessibilityLabel={t('chat.compact.dismiss')}
-          >
-            <Ionicons name="close" size={14} color={theme.colors.textFaint} />
-          </TouchableOpacity>
+          {autoCompactStopped ? null : (
+            <TouchableOpacity
+              style={styles.compactHintClose}
+              onPress={() => setCompactHintDismissed(true)}
+              accessibilityLabel={t('chat.compact.dismiss')}
+            >
+              <Ionicons name="close" size={14} color={theme.colors.textFaint} />
+            </TouchableOpacity>
+          )}
         </View>
       ) : null}
 

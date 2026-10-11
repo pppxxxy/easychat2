@@ -40,7 +40,7 @@ export default function ChatTopBar({
             accessibilityRole="button"
             accessibilityLabel={t('chat.topBar.a11y.cancelSelection')}
           >
-            <Ionicons name="close" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="close" size={16} color={theme.colors.accentText} />
             <Text style={styles.selectionActionText}>{t('chat.topBar.selection.cancel')}</Text>
           </TouchableOpacity>
           <Text style={styles.selectionCount}>{t('chat.topBar.selection.count', { count: selectedCount })}</Text>
@@ -56,7 +56,7 @@ export default function ChatTopBar({
               <Ionicons
                 name={allSelected ? 'checkmark-done' : 'checkmark-done-outline'}
                 size={16}
-                color={theme.colors.primarySoft}
+                color={theme.colors.accentText}
               />
               <Text style={styles.selectionActionText}>{allSelected ? t('chat.topBar.selection.unselectAll') : t('chat.topBar.selection.selectAll')}</Text>
             </TouchableOpacity>
@@ -69,7 +69,7 @@ export default function ChatTopBar({
                 accessibilityRole="button"
                 accessibilityLabel={t('chat.topBar.a11y.forgeCard')}
               >
-                <Ionicons name="id-card-outline" size={16} color={theme.colors.primarySoft} />
+                <Ionicons name="id-card-outline" size={16} color={theme.colors.accentText} />
                 <Text style={styles.selectionActionText} numberOfLines={1}>
                   {t('chat.topBar.selection.forgeCard')}
                 </Text>
@@ -104,14 +104,14 @@ export default function ChatTopBar({
                 <Image source={{ uri: groupAvatarUri }} style={styles.characterAvatar} />
               ) : (
                 <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-                  <Ionicons name="people" size={13} color={theme.colors.primarySoft} />
+                  <Ionicons name="people" size={13} color={theme.colors.accentText} />
                 </View>
               )
             ) : characterAvatarUri ? (
               <Image source={{ uri: characterAvatarUri }} style={styles.characterAvatar} />
             ) : (
               <View style={[styles.characterAvatar, styles.characterAvatarFallback]}>
-                <Ionicons name="person" size={13} color={theme.colors.primarySoft} />
+                <Ionicons name="person" size={13} color={theme.colors.accentText} />
               </View>
             )}
             <Text style={styles.characterName} numberOfLines={1}>
@@ -126,7 +126,7 @@ export default function ChatTopBar({
             accessibilityRole="button"
             accessibilityLabel={t('chat.topBar.a11y.more')}
           >
-            <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
+            <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.accentText} />
           </TouchableOpacity>
         </>
       )}

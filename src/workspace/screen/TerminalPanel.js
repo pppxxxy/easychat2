@@ -189,8 +189,8 @@ export default function TerminalPanel({ characterId }) {
     <View style={styles.container}>
       {/* 顶栏：cwd 面包屑 + 清屏 + 字号 */}
       <View style={styles.bar}>
-        <Ionicons name="terminal-outline" size={15} color={theme.colors.primarySoft} />
-        <Text style={styles.cwd} numberOfLines={1}>
+        <Ionicons name="terminal-outline" size={15} color={theme.colors.accentText} />
+        <Text style={styles.cwd} numberOfLines={1} ellipsizeMode="middle">
           {t('workspace.terminal.cwd', { path: cwd === '.' ? '/' : `/${cwd}` })}
         </Text>
         <TouchableOpacity
@@ -260,10 +260,10 @@ export default function TerminalPanel({ characterId }) {
       {/* 虚拟键一排：↑ ↓ CTRL+C（真强杀） */}
       <View style={styles.keyRow}>
         <TouchableOpacity style={styles.key} onPress={() => recallHistory(-1)} disabled={!history.length}>
-          <Ionicons name="chevron-up" size={16} color={theme.colors.primarySoft} />
+          <Ionicons name="chevron-up" size={16} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.key} onPress={() => recallHistory(1)} disabled={!history.length}>
-          <Ionicons name="chevron-down" size={16} color={theme.colors.primarySoft} />
+          <Ionicons name="chevron-down" size={16} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.key, styles.keyWide, !busy && styles.keyDisabled]}
@@ -292,6 +292,8 @@ export default function TerminalPanel({ characterId }) {
           style={[styles.sendButton, !canRun && styles.sendButtonDisabled]}
           onPress={run}
           disabled={!canRun}
+          hitSlop={8}
+          accessibilityRole="button"
           accessibilityLabel={t('workspace.terminal.run')}
         >
           <Ionicons name="arrow-up" size={18} color={theme.colors.text} />

@@ -204,7 +204,7 @@ export default function ConversationCardModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
+      <View style={styles.container} accessibilityViewIsModal importantForAccessibility="yes">
         <View style={styles.header}>
           <Text style={styles.title}>{t('chat.cardFromChat.title')}</Text>
           <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
@@ -308,7 +308,7 @@ export default function ConversationCardModal({
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, maxWidth: 520, alignSelf: 'center', width: '100%' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
