@@ -73,8 +73,20 @@ function newResultTable() {
   return Object.create(null);
 }
 
-// 执行：按层跑，层内并发受限；runStep(step) 由调用方注入（返回结论字符串）。
-// 有依赖的步骤，其 task 会拼上前置结论。返回 { ok, results: { id: text }, order, errors }。
+// 执行：按层跑，层内并发受限；runStep(step) 由调用方注入。
+// 有依赖的步骤，其 task 会拼上前置结论。
+//
+// runStep 的返回契约（2026-10-11 P1）：
+//   · 字符串                  —— 旧形状，按「成功、结论就是这段文字」处理（向后兼容）；
+//   · { text, isError, error } —— 新形状。isError === true 时本步判为失败：
+//     结论仍收进 results（部分信息比空手好），但整个工作流 **ok:false** 并在
+//     errors 里点名是哪些步骤失败了。
+//
+// 为什么必须区分（而不是「有文字就算成功」）：步骤失败时子代理照样会返回一段
+// 文字（「写子代理不可用：……（未执行）」），把它当结论合并，就会把「没写的」
+// 报成「工作流成功」——授权/执行失败被伪装成完成。失败必须是可判定的。
+//
+// 返回 { ok, results: { id: text }, order, errors, failed: [id] }。
 export async function runWorkflow({
   steps,
   runStep,
@@ -84,11 +96,15 @@ export async function runWorkflow({
 } = {}) {
   const list = normalizeWorkflowSteps(steps);
   const plan = planWorkflow(list);
-  if (!plan.ok) return { ok: false, results: newResultTable(), order: [], errors: plan.errors };
-  if (typeof runStep !== 'function') return { ok: false, results: newResultTable(), order: [], errors: ['缺少步骤执行器'] };
+  if (!plan.ok) return { ok: false, results: newResultTable(), order: [], errors: plan.errors, failed: [] };
+  if (typeof runStep !== 'function') {
+    return { ok: false, results: newResultTable(), order: [], errors: ['缺少步骤执行器'], failed: [] };
+  }
 
   const byId = new Map(list.map(step => [step.id, step]));
   const results = newResultTable();
+  const failed = [];
+  const errors = [];
   for (const wave of plan.waves) {
     if (signal && signal.aborted) break;
     const waveResults = await mapWithConcurrency(wave, concurrency, async id => {
@@ -100,13 +116,31 @@ export async function runWorkflow({
       if (typeof onStep === 'function') {
         try { onStep({ phase: 'start', id }); } catch (error) {}
       }
-      const text = await runStep({ ...step, task });
+      const raw = await runStep({ ...step, task });
       if (typeof onStep === 'function') {
-        try { onStep({ phase: 'end', id }); } catch (error) {}
+        try { onStep({ phase: 'end', id, ok: !(raw && typeof raw === 'object' && raw.isError === true) }); } catch (error) {}
       }
-      return String(text == null ? '' : text);
+      // 新形状：{ text, isError, error }；旧形状：字符串。
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        return {
+          text: String(raw.text == null ? '' : raw.text),
+          isError: raw.isError === true,
+          error: String(raw.error == null ? '' : raw.error),
+        };
+      }
+      return { text: String(raw == null ? '' : raw), isError: false, error: '' };
     });
-    wave.forEach((id, index) => { results[id] = waveResults[index]; });
+    wave.forEach((id, index) => {
+      const entry = waveResults[index] || { text: '', isError: false, error: '' };
+      results[id] = entry.text;
+      if (entry.isError) {
+        failed.push(id);
+        errors.push(`步骤 ${id} 执行失败：${entry.error || '（无错误说明）'}`);
+      }
+    });
   }
-  return { ok: true, results, order: plan.order, errors: [] };
+  if (failed.length > 0) {
+    return { ok: false, results, order: plan.order, errors, failed };
+  }
+  return { ok: true, results, order: plan.order, errors: [], failed: [] };
 }
