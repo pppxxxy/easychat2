@@ -188,6 +188,33 @@ export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
   return messages.length <= keep + 1;
 }
 
+// deps 的**键名白名单**：拼错键名在 JS 里不报错，只会静默取到 undefined、再被默认参数
+// 悄悄兜住——P0-4 的 `retainMinMessages` 就是这么活了很久（宿主的键一直叫 minMessages，
+// 管线读另一个名字，保留下限永远是默认值 6）。这类缺陷的共同形状是「配置看着生效、其实没生效」，
+// 所以这里把未知键直接抛出去：错误出现在**调用点**，而不是等用户发现行为不对。
+export const COMPACTION_DEP_KEYS = Object.freeze([
+  'estimateRatio', // (messages) -> number，档间短路判据
+  'persist', // (content, meta) -> Promise<{path}|null>，L0 修剪前的落盘
+  'clear', // (messages) -> Promise<{messages, changed}>，L1
+  'summarize', // (requestMessages) -> Promise<string>，L2
+  'writeTranscript', // (jsonl) -> Promise<{path}|null>，L3
+  'retainTokens', // L2 尾部保留的 token 预算
+  'estimateTokens', // (msg) -> number，配合 retainTokens
+  'minMessages', // L2 尾部保留的**下限条数**（注意不是 retainMinMessages）
+]);
+
+export function assertCompactionDeps(deps) {
+  const source = deps && typeof deps === 'object' ? deps : {};
+  const unknown = Object.keys(source).filter(key => !COMPACTION_DEP_KEYS.includes(key));
+  if (unknown.length > 0) {
+    throw new Error(
+      `runCompactionPipeline 收到未知的 deps 键：${unknown.join('、')}`
+      + `（可用键：${COMPACTION_DEP_KEYS.join('、')}）——拼错的键名会被静默忽略，故直接拒绝。`
+    );
+  }
+  return source;
+}
+
 // 四档编排（异步，依赖注入）。任一档解除压力（ratioOf < autoRatio）即短路。
 // focus：本次压缩要特别保留什么（D 系 /compact <关注点>）；只影响 L2 的 system 提示词，
 // 不传时逐字同旧版。宿主若已自行判定「该压了」，传 autoRatio=0 让四档全跑（档间不再自判）。
@@ -202,7 +229,7 @@ export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
 //        宿主 buildSessionCompactionDeps 写的就是这三个名字（P0-4 之前这里读错过一个键，
 //        见下面 L2 处的说明）。P2 的 assertCompactionDeps 会在收到未知键时直接抛。
 export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus = '', deps = {} } = {}) {
-  const d = deps || {};
+  const d = assertCompactionDeps(deps);
   const ratioOf = typeof d.estimateRatio === 'function' ? d.estimateRatio : () => 0;
   let current = Array.isArray(messages) ? messages : [];
   const applied = [];

@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { COMPACTION_MARKER, COMPACTION_KEEP_RECENT } from '../src/chat/compaction.js';
 import { findOrphanToolMessages } from '../src/agent/resultClearing.js';
 import {
+  COMPACTION_DEP_KEYS,
   applyCompactionWithAuthority,
+  assertCompactionDeps,
   buildRecapSection,
   buildToolTranscript,
   buildTranscriptJsonl,
@@ -15,6 +17,7 @@ import {
   sliceRecentIntact,
   trimLargeToolResults,
 } from '../src/chat/compactionPipeline.js';
+import { buildSessionCompactionDeps } from '../src/chat/sessionCompaction.js';
 
 function toolCall(id, name, args) {
   return { role: 'assistant', content: '', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] };
@@ -320,9 +323,39 @@ test('回归 P0-4：管线真的用了 deps.minMessages——传 0 就一条都�
   const two = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, minMessages: 2 } });
   assert.equal(two.messages.length, 3, 'minMessages: 2 → 摘要 + 2 条原文');
 
-  // 键名写错（旧 bug 的形状：管线读的键和宿主写的键不是同一个）→ 下限退回默认 6 条，
-  // 于是「一条都装不下」的预算反而全保留。这条钉住「键名必须与宿主一致」：
-  // 写错的后果不是报错，而是**静默变成默认值**，所以测试必须盯真实键名。
-  const typo = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, retainMinMessages: 0 } });
-  assert.equal(typo.messages.length, 5, '键名写错 → 下限退回默认 6，4 条原文全部保留（= 旧 bug 的现象）');
+  // 键名写错（旧 bug 的形状：管线读的键和宿主写的键不是同一个）——现在**直接拒绝**，
+  // 而不是静默退回默认值。见下面 P2 的 assertCompactionDeps 回归。
+  // 注意管线是 async：拒绝以 rejected promise 的形式出现，所以用 assert.rejects。
+  await assert.rejects(
+    runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, retainMinMessages: 0 } }),
+    /未知的 deps 键：retainMinMessages/,
+    '拼错的键名必须当场拒绝，而不是静默变成默认值',
+  );
+});
+
+// 回归 P2：deps 键名白名单。P0-4 的根因就是「键名拼错 → 静默取到 undefined → 被默认参数兜住」，
+// 表现为「配置看着生效、其实没生效」。未知键直接抛，把错误挪到调用点。
+test('回归 P2：assertCompactionDeps 拒绝未知键，放行全部合法键', async () => {
+  // 白名单本身与文档同步：宿主（buildSessionCompactionDeps）产出的键必须全部在内。
+  const hostKeys = Object.keys(buildSessionCompactionDeps({ windowSize: 1000, store: null }));
+  for (const key of hostKeys) {
+    assert.ok(COMPACTION_DEP_KEYS.includes(key), `宿主产出的 ${key} 必须在白名单里`);
+  }
+  // 合法键（含全部可选键）逐个放行
+  const legal = {};
+  for (const key of COMPACTION_DEP_KEYS) legal[key] = () => 0;
+  assert.equal(assertCompactionDeps(legal), legal, '合法 deps 原样返回');
+  // 空 / 坏输入安全
+  assert.deepEqual(assertCompactionDeps(undefined), {});
+  assert.deepEqual(assertCompactionDeps(null), {});
+  assert.deepEqual(assertCompactionDeps({}), {});
+  // 未知键 → 抛，且报出是哪个键（否则调用方还得自己猜）
+  assert.throws(() => assertCompactionDeps({ retainMinMessages: 0 }), /未知的 deps 键：retainMinMessages/);
+  assert.throws(() => assertCompactionDeps({ minmessages: 0 }), /minmessages/, '大小写写错也算未知键');
+  assert.throws(() => assertCompactionDeps({ estimateRatio: () => 0, nope: 1 }), /nope/);
+  // 真实调用点同样拦得住（不是只在直接调 assert 时才生效）——管线是 async，故用 rejects。
+  await assert.rejects(
+    runCompactionPipeline([{ role: 'user', content: 'hi' }], { deps: { typoKey: 1 } }),
+    /未知的 deps 键：typoKey/,
+  );
 });
