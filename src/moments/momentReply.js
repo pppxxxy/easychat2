@@ -83,14 +83,80 @@ export function buildMomentThread(comments, { charName = '角色', userName = '�
   );
 }
 
+// 用户发的动态下，角色写评论用的提示词。
+//
+// 与 buildMomentReplyPrompt 的区别：那条是「角色自己的动态 + 有人评论了，去回复」，
+// 这条是「用户发了动态，角色来评论」。用户明确要求评论重点是回应用户本人，别人的
+// 评论只作参考；只有真想专门接某条评论时才用「回复<名字>：」前缀挂靠（见
+// commentThread.js 的解析）。
+export function buildMomentCommentPrompt({
+  moment,
+  comments = [],
+  memoryText = '',
+  charName = '角色',
+  userName = '用户',
+  focusCommentId = '',
+} = {}) {
+  const speaker = clean(charName) || '角色';
+  const poster = clean(userName) || '用户';
+  const lines = [
+    `你是${speaker}，你正在刷社交动态。`,
+    `${poster}发了一条动态：`,
+    `「${clean(moment && moment.text)}」`,
+  ];
+
+  const memory = clean(memoryText);
+  if (memory) {
+    lines.push('', '你和发动态的人之前聊过这些（供参考）：', memory);
+  }
+
+  const thread = buildMomentThread(comments, { charName: speaker, userName: poster });
+  if (thread) {
+    lines.push('', '这条动态下已有的评论：', thread);
+  }
+
+  const focusId = String(focusCommentId || '');
+  const focus = focusId
+    ? (Array.isArray(comments) ? comments : []).find(item => item && String(item.id) === focusId)
+    : null;
+
+  if (focus) {
+    const focusSpeaker = focus.by === 'user'
+      ? poster
+      : (clean(focus.name) || speaker);
+    lines.push(
+      '',
+      `${focusSpeaker}刚刚说：「${clean(focus.text)}」`,
+      `请以${speaker}的身份，回应${focusSpeaker}说的这句话。要求：`
+    );
+  } else {
+    lines.push(
+      '',
+      `请以${speaker}的身份，在这条动态下写一条评论。要求：`,
+      `- 重点是回应用户${poster}发的这条动态：说你自己想说的话（关心、调侃、附和、吐槽都可以）。`,
+      '- 上面已有的评论只作参考，可以顺着聊，但不要只复述别人的话。',
+      '- 只想评论动态本身就直说；如果你想专门接某一条评论，就在开头写「回复<对方名字>：」，再写内容。'
+    );
+  }
+
+  lines.push(
+    '- 只写一条，40 字以内，口语化，就像在动态下面评论。',
+    '- 不要写动作描写、旁白、括号补充或思考过程，也不要加引号或署名。',
+    '- 不要提到“记忆”“摘要”“系统”这类词。'
+  );
+  return lines.join('\n');
+}
+
 export function buildMomentReplyPrompt({
   moment,
   comments = [],
   memoryText = '',
   charName = '角色',
   userName = '用户',
+  focusCommentId = '',
 } = {}) {
   const speaker = clean(charName) || clean(moment && moment.characterName) || '角色';
+  const nameForUser = clean(userName) || '用户';
   const lines = [
     '你刚刚在自己的社交动态里发了一条动态：',
     `「${clean(moment && moment.text)}」`,
@@ -106,9 +172,23 @@ export function buildMomentReplyPrompt({
     lines.push('', '动态下的评论：', thread);
   }
 
+  // 指定了要回复的评论（用户对着某条评论回应）时，明确点名；否则退回「回复最新那条」。
+  const focusId = String(focusCommentId || '');
+  const focus = focusId
+    ? (Array.isArray(comments) ? comments : []).find(item => item && String(item.id) === focusId)
+    : null;
+  if (focus) {
+    const focusSpeaker = focus.by === 'user' ? nameForUser : (clean(focus.name) || speaker);
+    lines.push(
+      '',
+      `${focusSpeaker}刚刚评论说：「${clean(focus.text)}」`,
+      `请以${speaker}的身份，回复${focusSpeaker}的这条评论。要求：`
+    );
+  } else {
+    lines.push('', `请以${speaker}的身份，回复最新那条评论。要求：`);
+  }
+
   lines.push(
-    '',
-    `请以${speaker}的身份，回复最新那条评论。要求：`,
     '- 只回一条，40 字以内，口语化，就像在动态下面回评论。',
     '- 不要写动作描写、旁白、括号补充或思考过程，也不要加引号或署名。',
     '- 语气符合你与对方的关系；记忆里相关的事可以自然带出来，但不要整段复述。',

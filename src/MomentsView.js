@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Image,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -26,6 +25,14 @@ import {
 } from './moments/momentReply.js';
 import { buildMemorySummaryText, isBuiltinAssistant, isSessionScopedMemory } from './memory/memorySummary.js';
 import { runUserMomentComments } from './moments/runUserMomentComments.js';
+import { flattenCommentThread } from './moments/commentThread.js';
+import {
+  getCommentingIds,
+  startCommentTask,
+  stopCommentTask,
+  subscribeCommentRunner,
+} from './moments/commentRunner.js';
+import { createMomentsStyles } from './moments/momentsStyles.js';
 import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
@@ -53,13 +60,17 @@ export default function MomentsView({ active = true }) {
   const { theme, fonts, tokens } = useTheme();
   const { characters, sessions } = useApp();
   const { t } = useTranslation();
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const styles = useMemo(() => createMomentsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [postDraft, setPostDraft] = useState('');
   const [posting, setPosting] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState({});
+  // 用户对着哪条评论回应：{ [momentId]: { id, name } }。提交后清空。
+  const [replyTargets, setReplyTargets] = useState({});
   const [replying, setReplying] = useState([]);
+  // 后台评论任务（用户动态的角色评论）由模块级 runner 持有：退出界面也继续跑。
+  const [commentingIds, setCommentingIds] = useState(() => getCommentingIds());
   const [topic, setTopic] = useState(null);
   // 评论折叠：默认只显示「查看 N 条评论」，点击展开评论列表与输入框。
   const [expandedComments, setExpandedComments] = useState(() => new Set());
@@ -85,6 +96,16 @@ export default function MomentsView({ active = true }) {
   // 每条动态的回复都挂一个 AbortController，支持用户中途停止，也会在组件卸载时统一中止。
   const replyControllersRef = useRef(new Map());
 
+  // 从存储重读动态列表（后台任务每写一条评论都会回调一次，让评论逐步出现）。
+  const refreshFromStorage = useCallback(() => {
+    if (!mountedRef.current) return;
+    getMoments()
+      .then(list => {
+        if (mountedRef.current) setMoments(list);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     const controllers = replyControllersRef.current;
@@ -107,6 +128,18 @@ export default function MomentsView({ active = true }) {
     replyingRef.current.clear();
     if (mountedRef.current) setReplying([]);
   }, [active]);
+
+  // 订阅后台评论任务：任务增删时更新「正在评论」状态，并把结果从存储读回来。
+  // 后台任务不随本组件卸载中止（见 moments/commentRunner.js），所以离开再回来时
+  // 结果早已落库；这里保证停留在页面上时也能看到新评论逐步出现。
+  useEffect(() => {
+    const unsubscribe = subscribeCommentRunner(() => {
+      if (!mountedRef.current) return;
+      setCommentingIds(getCommentingIds());
+      refreshFromStorage();
+    });
+    return unsubscribe;
+  }, [refreshFromStorage]);
 
   useFocusEffect(useCallback(() => {
     if (!active) return undefined;
@@ -161,13 +194,15 @@ export default function MomentsView({ active = true }) {
     }));
   }, [mutateMoments, t]);
 
-  // 停止某条动态正在进行的角色回复：中止请求，后续回包会被 isCanceledError 丢弃。
+  // 停止某条动态正在进行的工作：中止组件内的单条回复请求，并停掉后台评论任务。
   const cancelReply = useCallback(momentId => {
     const id = String(momentId || '');
     // 用户显式停止：连待补发的那次也取消，不能停止后又被自动补发一次。
     pendingReplyRef.current.delete(id);
     const controller = replyControllersRef.current.get(id);
     if (controller) controller.abort();
+    // 后台评论任务不挂在组件上（见 moments/commentRunner.js），必须单独停。
+    stopCommentTask(id);
   }, []);
 
   const removeMoment = useCallback(moment => {
@@ -194,7 +229,7 @@ export default function MomentsView({ active = true }) {
 
   // 动态下的评论相当于一次“不写进记忆的对话”：角色依据这条动态来源的那段记忆来回复。
   // 回复只写回动态评论，不写入会话消息，也不进入记忆摘要。
-  const requestReply = useCallback(async moment => {
+  const requestReply = useCallback(async (moment, focusCommentId = '') => {
     const momentId = String((moment && moment.id) || '');
     if (!momentId || !mountedRef.current) return;
     // 已经在回复这条动态：记下来，等这次回复结束再补一次，别把新评论静默丢掉。
@@ -224,6 +259,19 @@ export default function MomentsView({ active = true }) {
       const charName = String(moment.characterName || character.name || '').trim() || t('moments.default.characterName');
       const userName = String((profile && profile.userName) || '').trim() || t('app.default.userName');
       const latest = momentsRef.current.find(item => item.id === momentId) || moment;
+      // 提示词里必须能看到用户刚发的那条评论（focusCommentId），但 momentsRef 可能还没
+      // 追上这次更新（setState 尚未重渲染）。按 id 合并两份评论列表：既不缺刚发的，
+      // 也不丢等待期间新到的；Map 保序，重复 id 取先出现的那份。
+      const commentsById = new Map();
+      [
+        ...(Array.isArray(moment.comments) ? moment.comments : []),
+        ...(Array.isArray(latest.comments) ? latest.comments : []),
+      ].forEach(entry => {
+        if (entry && entry.id && !commentsById.has(String(entry.id))) {
+          commentsById.set(String(entry.id), entry);
+        }
+      });
+      const threadComments = [...commentsById.values()];
       // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
       // 内置助手按会话级；来源会话计入判定，避免把角色卡旧记忆带进来。
       const scoped = isBuiltinAssistant(character)
@@ -232,10 +280,11 @@ export default function MomentsView({ active = true }) {
         || buildMomentMemoryText({ summaries, messages, charName, userName });
       const prompt = buildMomentReplyPrompt({
         moment: latest,
-        comments: Array.isArray(latest.comments) ? latest.comments : [],
+        comments: threadComments,
         memoryText,
         charName,
         userName,
+        focusCommentId: String(focusCommentId || ''),
       });
       const requestMessages = buildRequestMessages({
         character,
@@ -271,6 +320,8 @@ export default function MomentsView({ active = true }) {
         text,
         createdAt: Date.now(),
         likedByCharacter: false,
+        // 回复的是用户某条评论时挂到它下面（渲染成小标）；否则是对动态本身的顶层评论。
+        ...(focusCommentId ? { replyToId: String(focusCommentId) } : {}),
       });
     } catch (error) {
       if (!isCanceledError(error) && mountedRef.current) {
@@ -303,6 +354,8 @@ export default function MomentsView({ active = true }) {
   const submitComment = useCallback(async moment => {
     const text = String(commentDrafts[moment.id] || '').trim();
     if (!text) return;
+    // 用户可能先点了某条评论的「回复」：这条评论就挂到它下面（渲染成小标）。
+    const target = replyTargets[moment.id] || null;
     const comment = {
       id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       by: 'user',
@@ -310,6 +363,7 @@ export default function MomentsView({ active = true }) {
       text,
       createdAt: Date.now(),
       likedByCharacter: false,
+      ...(target && target.id ? { replyToId: String(target.id) } : {}),
     };
     try {
       const next = await mutateMoments(list => list.map(item => {
@@ -332,12 +386,30 @@ export default function MomentsView({ active = true }) {
         if (String(current[moment.id] || '').trim() !== text) return current;
         return { ...current, [moment.id]: '' };
       });
+      setReplyTargets(current => (current[moment.id] ? { ...current, [moment.id]: null } : current));
       const latest = next.find(item => item.id === moment.id);
-      if (latest) requestReply(latest);
+      if (!latest) return;
+      if (latest.authorType === 'user') {
+        // 用户自己的动态：只有「对着某条角色评论回应」时才让那个角色接话（挂在那条评论下）。
+        // 顶层评论不触发新一轮群评——发布时已经评过一轮，再跑只会刷屏。
+        if (target && target.characterId) {
+          startCommentTask(latest.id, ({ signal }) => runUserMomentComments({
+            momentId: latest.id,
+            signal,
+            mode: 'reply',
+            focusCommentId: comment.id,
+            responderIds: [target.characterId],
+            onComment: refreshFromStorage,
+          }));
+        }
+      } else {
+        // 角色自己的动态：让发帖角色回复用户这条评论。
+        requestReply(latest, comment.id);
+      }
     } catch (error) {
       Alert.alert(t('moments.alert.commentSaveFailed.title'), t('moments.alert.commentSaveFailed.body'));
     }
-  }, [commentDrafts, mutateMoments, requestReply, t]);
+  }, [commentDrafts, replyTargets, mutateMoments, refreshFromStorage, requestReply, t]);
 
   // 用户发布动态：写入 by=user 的动态后，后台串行触发「最活跃保底 + 随机」角色评论。
   const submitPost = useCallback(async () => {
@@ -363,33 +435,20 @@ export default function MomentsView({ active = true }) {
       const next = await mutateMoments(list => [moment, ...(Array.isArray(list) ? list : [])]);
       if (!next) throw new Error(t('moments.error.saveFailed'));
       setPostDraft('');
-      // 与 requestReply 同源登记：挂 AbortController，用户动态的评论生成也要能「停止」
-      // （否则卡片上的停止按钮是空操作），并在切走/卸载时统一中止，不再后台偷跑扣费。
-      const controller = new AbortController();
-      replyControllersRef.current.set(momentId, controller);
-      replyingRef.current.add(momentId);
-      setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
-      // 后台串行生成评论：不阻塞发布，失败静默。
-      runUserMomentComments({ momentId, signal: controller.signal })
-        .then(() => getMoments().catch(() => null))
-        .then(list => {
-          if (list && mountedRef.current && !controller.signal.aborted) setMoments(list);
-        })
-        .catch(() => {})
-        .finally(() => {
-          // 同源同判：只清理自己注册的那一次，避免旧请求晚到的 finally 误删新请求标记。
-          if (replyControllersRef.current.get(momentId) === controller) {
-            replyControllersRef.current.delete(momentId);
-            replyingRef.current.delete(momentId);
-            if (mountedRef.current) setReplying(current => current.filter(id => id !== momentId));
-          }
-        });
+      // 后台串行生成评论：交给模块级 runner 持有，退出动态页也不会被组件卸载中止
+      // （用户 2026-10-11 反馈：一退出评论就断了）。停止按钮走 stopCommentTask，
+      // 每写一条评论回调一次让界面逐步刷新；结果本身一直在写库。
+      startCommentTask(momentId, ({ signal }) => runUserMomentComments({
+        momentId,
+        signal,
+        onComment: refreshFromStorage,
+      }));
     } catch (error) {
       Alert.alert(t('moments.alert.postFailed.title'), t('moments.alert.postFailed.body'));
     } finally {
       setPosting(false);
     }
-  }, [mutateMoments, postDraft, posting, t]);
+  }, [mutateMoments, postDraft, posting, refreshFromStorage, t]);
 
   const renderItem = useCallback(({ item }) => {
     const likeCount = (item.likes || []).length;
@@ -446,20 +505,51 @@ export default function MomentsView({ active = true }) {
         {(item.comments || []).length > 0 ? (
           commentsExpanded ? (
             <View style={styles.commentList}>
-              {item.comments.map(comment => (
-                <View key={comment.id} style={styles.commentRow}>
-                  <Text style={styles.commentName}>{comment.name || t('moments.default.userName')}</Text>
-                  <Text style={styles.commentText}>{comment.text}</Text>
-                  {comment.likedByCharacter ? (
-                    <Ionicons
-                      name="heart"
-                      size={11}
-                      color={theme.colors.danger}
-                      style={styles.commentLike}
-                    />
-                  ) : null}
-                </View>
-              ))}
+              {flattenCommentThread(item.comments).map(({ comment, depth, parentName }) => {
+                const commentName = String(comment.name || '').trim() || t('moments.default.userName');
+                return (
+                  <View
+                    key={comment.id}
+                    style={[styles.commentRow, depth > 0 && styles.commentRowNested]}
+                  >
+                    <View style={styles.commentHead}>
+                      <Text style={styles.commentName}>{commentName}</Text>
+                      {depth > 0 && parentName ? (
+                        <Text style={styles.commentReplyTag} numberOfLines={1}>
+                          {t('moments.comment.replyTo', { name: parentName })}
+                        </Text>
+                      ) : null}
+                      <View style={styles.commentSpacer} />
+                      <TouchableOpacity
+                        onPress={() => setReplyTargets(current => ({
+                          ...current,
+                          [item.id]: {
+                            id: comment.id,
+                            name: commentName,
+                            characterId: String(comment.characterId || ''),
+                          },
+                        }))}
+                        hitSlop={6}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('moments.comment.replyA11y', { name: commentName })}
+                      >
+                        <Text style={styles.commentReplyAction}>{t('moments.comment.reply')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.commentBody}>
+                      <Text style={styles.commentText}>{comment.text}</Text>
+                      {comment.likedByCharacter ? (
+                        <Ionicons
+                          name="heart"
+                          size={11}
+                          color={theme.colors.danger}
+                          style={styles.commentLike}
+                        />
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           ) : (
             <TouchableOpacity
@@ -473,7 +563,7 @@ export default function MomentsView({ active = true }) {
           )
         ) : null}
 
-        {replying.includes(item.id) ? (
+        {replying.includes(item.id) || commentingIds.has(item.id) ? (
           <View style={styles.replyPendingRow}>
             <Text style={styles.replyPending}>
               {item.authorType === 'user' ? t('moments.replying.commenting') : t('moments.replying.character', { name: item.characterName || t('moments.default.characterName') })}
@@ -489,27 +579,44 @@ export default function MomentsView({ active = true }) {
         ) : null}
 
         {commentsExpanded || (item.comments || []).length === 0 ? (
-          <View style={styles.commentInputRow}>
-            <TextInput
-              style={styles.commentInput}
-              value={commentDrafts[item.id] || ''}
-              onChangeText={value => setCommentDrafts(current => ({ ...current, [item.id]: value }))}
-              placeholder={t('moments.comment.placeholder')}
-              placeholderTextColor={theme.colors.textFaint}
-            />
-            <TouchableOpacity
-              style={styles.commentSend}
-              onPress={() => submitComment(item)}
-              activeOpacity={0.8}
-              accessibilityLabel={t('moments.comment.sendA11y')}
-            >
-              <Ionicons name="send" size={14} color={theme.colors.primaryContrast} />
-            </TouchableOpacity>
-          </View>
+          <>
+            {replyTargets[item.id] ? (
+              <View style={styles.replyTargetRow}>
+                <Text style={styles.replyTargetText} numberOfLines={1}>
+                  {t('moments.comment.replyingTo', { name: replyTargets[item.id].name })}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setReplyTargets(current => ({ ...current, [item.id]: null }))}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('moments.comment.cancelReplyA11y')}
+                >
+                  <Ionicons name="close" size={13} color={theme.colors.primarySoft} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            <View style={styles.commentInputRow}>
+              <TextInput
+                style={styles.commentInput}
+                value={commentDrafts[item.id] || ''}
+                onChangeText={value => setCommentDrafts(current => ({ ...current, [item.id]: value }))}
+                placeholder={replyTargets[item.id] ? t('moments.comment.replyPlaceholder') : t('moments.comment.placeholder')}
+                placeholderTextColor={theme.colors.textFaint}
+              />
+              <TouchableOpacity
+                style={styles.commentSend}
+                onPress={() => submitComment(item)}
+                activeOpacity={0.8}
+                accessibilityLabel={t('moments.comment.sendA11y')}
+              >
+                <Ionicons name="send" size={14} color={theme.colors.primaryContrast} />
+              </TouchableOpacity>
+            </View>
+          </>
         ) : null}
       </Card>
     );
-  }, [cancelReply, commentDrafts, expandedComments, removeMoment, replying, styles, submitComment, t, theme.colors, toggleComments, toggleLike]);
+  }, [cancelReply, commentingIds, commentDrafts, expandedComments, removeMoment, replying, replyTargets, styles, submitComment, t, theme.colors, toggleComments, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
@@ -600,97 +707,3 @@ export default function MomentsView({ active = true }) {
     </View>
   );
 }
-
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  wrap: { flex: 1 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 30 },
-  postComposer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginHorizontal: 16,
-    marginBottom: 10,
-  },
-  postInput: {
-    flex: 1,
-    minHeight: 40,
-    maxHeight: 120,
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.md,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(14),
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginRight: 8,
-  },
-  postSend: {
-    width: 40,
-    height: 40,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  postSendDisabled: { opacity: 0.4 },
-  aigcHint: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(11),
-    marginBottom: 10,
-  },
-  cardHeader: { flexDirection: 'row', alignItems: 'center' },
-  avatarWrap: { marginRight: 10 },
-  avatar: { width: 40, height: 40, borderRadius: tokens.radius.pill, backgroundColor: theme.colors.surfaceBorder },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(16), fontWeight: '800' },
-  cardTitleWrap: { flex: 1 },
-  cardName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
-  cardTime: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
-  cardText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), lineHeight: fonts.scaled(21), marginTop: 10 },
-  cardActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  likeButton: { flexDirection: 'row', alignItems: 'center' },
-  likeText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginLeft: 4 },
-  likeTextActive: { color: theme.colors.danger },
-  replyPendingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  replyPending: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
-  replyCancel: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
-  commentList: {
-    marginTop: 10,
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.md,
-    padding: 10,
-  },
-  commentToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    paddingVertical: 4,
-  },
-  commentToggleText: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginRight: 4 },
-  commentRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 },
-  commentName: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginRight: 6 },
-  commentText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), flexShrink: 1 },
-  commentLike: { marginLeft: 6 },
-  commentInputRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  commentInput: {
-    flex: 1,
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.md,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-  },
-  commentSend: {
-    width: 34,
-    height: 34,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

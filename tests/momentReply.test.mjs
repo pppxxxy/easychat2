@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildMomentCommentPrompt,
   buildMomentMemoryText,
   buildMomentReplyPrompt,
   buildMomentThread,
@@ -87,6 +88,63 @@ test('没有记忆时不留记忆段落', () => {
   });
   assert.equal(prompt.includes('你对那段经历的记忆是'), false);
   assert.ok(prompt.includes('动态下的评论：'));
+});
+
+test('用户动态的评论提示词：重点是回应用户本人，嵌套回复走「回复<名字>：」前缀', () => {
+  const prompt = buildMomentCommentPrompt({
+    moment: { text: '人世间悲苦吃不完', authorType: 'user' },
+    comments: [
+      { id: 'c1', by: 'character', name: '宵宫', text: '怎么啦' },
+    ],
+    memoryText: '- 你们聊过烟花',
+    charName: '镜流',
+    userName: '我',
+  });
+  assert.ok(prompt.includes('你是镜流'));
+  assert.ok(prompt.includes('我发了一条动态：'));
+  assert.ok(prompt.includes('人世间悲苦吃不完'));
+  assert.ok(prompt.includes('你们聊过烟花'));
+  assert.ok(prompt.includes('宵宫：怎么啦'), '已有评论要作为参考出现');
+  assert.ok(prompt.includes('重点是回应用户我发的这条动态'));
+  assert.ok(prompt.includes('回复<对方名字>：'), '给出嵌套回复的写法');
+  // 不能再出现「回复最新那条评论」——那正是用户抱怨的「只接上一个角色的评论」
+  assert.equal(prompt.includes('回复最新那条评论'), false);
+});
+
+test('用户动态的评论提示词：指定 focus 时点名回应那句话', () => {
+  const prompt = buildMomentCommentPrompt({
+    moment: { text: '动态', authorType: 'user' },
+    comments: [{ id: 'c1', by: 'user', name: '我', text: '你上次说的那件事呢' }],
+    charName: '宵宫',
+    userName: '我',
+    focusCommentId: 'c1',
+  });
+  assert.ok(prompt.includes('我刚刚说：「你上次说的那件事呢」'));
+  assert.ok(prompt.includes('回应我说'));
+  assert.equal(prompt.includes('重点是回应用户'), false);
+});
+
+test('角色动态的回复提示词：指定 focusCommentId 时点名回复那条评论', () => {
+  const prompt = buildMomentReplyPrompt({
+    moment: { text: '今天心情特别好', characterName: '角色5' },
+    comments: [
+      { id: 'c1', by: 'character', name: '宵宫', text: '怎么啦' },
+      { id: 'c2', by: 'user', name: '我', text: '没什么吧' },
+    ],
+    charName: '角色5',
+    userName: '主人',
+    focusCommentId: 'c2',
+  });
+  assert.ok(prompt.includes('主人刚刚评论说：「没什么吧」'));
+  assert.ok(prompt.includes('回复主人的这条评论'));
+  assert.equal(prompt.includes('回复最新那条评论'), false);
+  // 没指定 focus 时保留旧的「回复最新那条」行为
+  const legacy = buildMomentReplyPrompt({
+    moment: { text: '动态' },
+    comments: [{ by: 'user', text: '在吗' }],
+    charName: '角色5',
+  });
+  assert.ok(legacy.includes('回复最新那条评论'));
 });
 
 test('回复清洗：去引号、去换行、去括号、截断', () => {

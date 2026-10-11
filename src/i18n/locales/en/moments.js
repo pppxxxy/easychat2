@@ -29,7 +29,15 @@ export const moments = {
   'moments.replying.stopA11y': 'Stop replying',
   'moments.replying.stop': 'Stop',
   'moments.comment.placeholder': 'Write a comment...',
+  'moments.comment.replyPlaceholder': 'Reply…',
   'moments.comment.sendA11y': 'Post comment',
+  // Comment threading: the nested-reply tag, the per-comment Reply button, and the
+  // "replying to" chip above the input.
+  'moments.comment.reply': 'Reply',
+  'moments.comment.replyTo': 'Reply to {name}',
+  'moments.comment.replyA11y': 'Reply to {name}',
+  'moments.comment.replyingTo': 'Replying to {name}',
+  'moments.comment.cancelReplyA11y': 'Cancel reply',
   'moments.comments.expand': 'View {count} comments',
   'moments.post.placeholder': 'Share something…',
   'moments.post.sendA11y': 'Post moment',
