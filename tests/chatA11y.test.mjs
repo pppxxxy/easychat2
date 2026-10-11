@@ -20,15 +20,21 @@ test('16 个聊天弹窗的内层容器都声明了「模态」（iOS + Android 
   const dir = path.resolve('src/chat');
   const modals = fs.readdirSync(dir).filter(name => name.endsWith('Modal.js'));
   assert.equal(modals.length, 16, `弹窗数量变了（期望 16，实际 ${modals.length}）：新增弹窗请一并补模态标记`);
+  // 模态标记有两个合法载体：共享外壳 src/ui/Sheet.js（弹窗统一到 Sheet 之后的默认路径），
+  // 或弹窗自己的内层容器（全屏弹窗这类不套 Sheet 的例外）。两个载体都必须真的带标记——
+  // 标记漏了是「界面看着完全正常、读屏却把背后聊天内容一起念」的静默失效。
+  const sheet = fs.readFileSync(path.resolve('src/ui/Sheet.js'), 'utf8');
+  assert.ok(sheet.includes('accessibilityViewIsModal'), 'Sheet.js 缺 iOS 的模态标记');
+  assert.ok(sheet.includes('importantForAccessibility="yes"'), 'Sheet.js 缺 Android 的模态标记');
   for (const name of modals) {
     const source = fs.readFileSync(path.join(dir, name), 'utf8');
+    // 只认 JSX 用法（注释里提到 Sheet 不算）
+    const usesSheet = source.includes('<Sheet');
+    const selfMarked = source.includes('accessibilityViewIsModal')
+      && source.includes('importantForAccessibility="yes"');
     assert.ok(
-      source.includes('accessibilityViewIsModal'),
-      `${name}: 内层容器缺 iOS 的 accessibilityViewIsModal（读屏会继续读背后内容）`
-    );
-    assert.ok(
-      source.includes('importantForAccessibility="yes"'),
-      `${name}: 内层容器缺 Android 的 importantForAccessibility="yes"`
+      usesSheet || selfMarked,
+      `${name}: 既没走共享 Sheet，内层容器也没声明模态（读屏会继续读背后内容）`
     );
   }
 });

@@ -6,5 +6,6 @@ export { CollectionNameModal, CollectionPickerModal } from './CollectionModals.j
 export { default as EmptyState } from './EmptyState.js';
 export { FieldLabel, FieldHint, TextField, FieldGroup } from './Field.js';
 export { default as ListRow } from './ListRow.js';
+export { default as Sheet } from './Sheet.js';
 export { default as SheetHeader } from './SheetHeader.js';
 export { default as TopicButton } from './TopicButton.js';
