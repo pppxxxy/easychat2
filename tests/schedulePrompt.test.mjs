@@ -66,16 +66,21 @@ test('接线：启用后作息规则与时间行都进系统提示，且作息�
 
 test('缓存契约：同一天内多次构建系统提示逐字节一致（概率事件不得每轮重掷）', () => {
   const s = schedule();
-  const morning = systemPromptAt(s, new Date(2026, 9, 7, 8, 0));
-  const noon = systemPromptAt(s, new Date(2026, 9, 7, 12, 30));
-  const night = systemPromptAt(s, new Date(2026, 9, 7, 23, 59));
-  // 时间行本身按分钟变化，只比较去掉时间行后的部分——那才是进缓存前缀的稳定内容。
+  // 一天内取 12 个时刻（含跨零点前的 23:59）：任何一处按轮次重掷都会露馅。
+  // 只比一次不够——随机实现下两次一致的概率是 50%，比 12 次全部一致则 <0.1%。
+  const times = Array.from({ length: 12 }, (_, i) => new Date(2026, 9, 7, i * 2, i % 2 ? 30 : 0));
   const strip = text => text.split('\n').filter(line => !line.startsWith('[当前时间]')).join('\n');
-  assert.equal(strip(morning), strip(noon));
-  assert.equal(strip(noon), strip(night));
-  // 作息段自身也必须逐字节一致（含「今天会发生什么」的解析结果）
-  const scheduleSection = text => text.split('\n').filter(line => line.includes('角色作息') || line.includes('概率事件') || line.includes('[今天]')).join('\n');
-  assert.equal(scheduleSection(morning), scheduleSection(night));
+  const scheduleSection = text => text.split('\n')
+    .filter(line => line.includes('角色作息') || line.includes('概率事件') || line.includes('[今天]'))
+    .join('\n');
+  const stripped = times.map(date => strip(systemPromptAt(s, date)));
+  const sections = times.map(date => scheduleSection(systemPromptAt(s, date)));
+  stripped.forEach((text, index) => {
+    assert.equal(text, stripped[0], `第 ${index} 次构建的系统提示（去时间行）与首次不一致`);
+    assert.equal(sections[index], sections[0], `第 ${index} 次构建的作息段与首次不一致`);
+  });
+  // 一天里三种状态都必须在文本里出现过（否则上面的一致性可能是「什么都没判定」的假绿）
+  assert.ok(sections[0].includes('今天是工作日') || sections[0].includes('今天是休息日'));
 });
 
 test('概率事件按天生效：换一天系统提示里的判定结果会变', () => {
