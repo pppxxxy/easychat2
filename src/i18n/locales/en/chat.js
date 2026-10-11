@@ -226,6 +226,7 @@ export const chat = {
   'chat.menu.section.other': 'Other',
   'chat.editGroup': 'Edit Group',
   'chat.editCharacter': 'Edit Character',
+  'chat.downloadImage.failed': 'Image download failed: {url}',
   'chat.saved.title': 'Saved',
   'chat.saved.character': 'Character settings synced. They take effect in chat immediately.',
   'chat.saved.group': 'Group chat info updated.',

@@ -272,6 +272,8 @@ export const settings = {
   'settings.inlineImage.size': '尺寸（宽*高）',
   'settings.inlineImage.maxPromptChars': '提示词长度上限（字符）',
   'settings.inlineImage.keyNote': '密钥仅保存在本机，与「扩展 → 生图」共用同一份配置。',
+  'settings.downloadImage.enable': '图片下载',
+  'settings.downloadImage.hint': '开启后，角色在回复里写 <download_image:URL> 即可让 App 下载这张网络图片并显示在聊天中。仅建议对可信来源开启——它会让 App 主动访问模型给出的任意 URL。',
   'settings.inlineImage.otherFeatures': '其它功能',
   'settings.global.title': '全局配置',
   'settings.global.presets': '全局预设 / 记忆总结',

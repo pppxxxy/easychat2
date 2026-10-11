@@ -74,7 +74,13 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
   }
 }
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, scheduleText, locationText, extraSystemPrompt, voiceAudio }) {
+// 图片下载指令说明（模型可见的提示词，刻意不进 i18n；开关开启时注入系统提示）。措辞可改。
+const DOWNLOAD_IMAGE_INSTRUCTION =
+  '当你想给用户看一张网络图片时，在回复里单独写一行：<download_image:图片URL>，'
+  + 'URL 必须以 http:// 或 https:// 开头。系统会自动下载并把它显示在聊天里，'
+  + '你不需要在正文里重复贴 URL，也不要编造 URL。只在确实需要展示图片时使用，一条回复最多 3 张。';
+
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, scheduleText, locationText, downloadImageEnabled, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   // P5：展开历史里的工具轨迹（toolTrace → tool 消息），让 agent 看到跨轮的工具结果。
   const history = buildHistory(expandHistoryWithTraces(historyMessages), scripts);
@@ -111,6 +117,8 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const timeText = String(currentTimeText || '').trim();
   // 角色作息：启用时附上作息与「按当前时间判断状态」的规则，紧跟在时间行之后。
   const scheduleLine = String(scheduleText || '').trim();
+  // 图片下载：开关开启时附上「可用 <download_image:URL> 指令」的说明（紧跟作息行之后）。
+  const downloadImageLine = downloadImageEnabled ? DOWNLOAD_IMAGE_INSTRUCTION : '';
   // 位置感知：开启且存在最近一次成功位置时附上「[当前位置] …」，置于提示最前。
   const locationLine = String(locationText || '').trim();
   const exampleDialogue = String(character?.mesExample || '').trim();
@@ -167,6 +175,7 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     worldBeforeText: beforeText ? replaceUser(beforeText) : '',
     locationText: locationLine ? replaceUser(locationLine) : '',
     scheduleText: scheduleLine ? replaceUser(scheduleLine) : '',
+    downloadImageText: downloadImageLine ? replaceUser(downloadImageLine) : '',
     timeText: timeText ? replaceUser(timeText) : '',
     baseText,
     personaText: userPersona ? replaceUser(userPersona) : '',
