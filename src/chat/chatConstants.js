@@ -34,3 +34,17 @@ export const isThinkingPlaceholder = (text, t) => (
 export const MESSAGE_WINDOW_INITIAL = 80;
 export const MESSAGE_WINDOW_STEP = 200;
 export const MESSAGE_WINDOW_STEP_SCROLL = 400;
+
+// FlatList 虚拟化参数（MessageList）。窗口化（上面的 MESSAGE_WINDOW_*）与虚拟化是两层：
+// 窗口决定「哪些消息在数据里」，虚拟化决定「数据里哪些真的挂载」。
+// - INITIAL_RENDER：首屏批次。框架把这一批**始终保留**在渲染遮罩里
+//   （VirtualizedList._createRenderMask：「The initially rendered cells are retained as
+//   part of the scroll-to-top optimization」），所以它是一笔常驻开销，不该等于窗口大小
+//   ——那会让整个窗口永远挂载、虚拟化形同虚设。取框架默认值 10：常驻 10 条，
+//   其余全靠渲染窗口。
+// - RENDER_WINDOW：以「视口高度」为单位的渲染窗口（框架默认 21 = 上下各约 10 屏）。
+//   消息气泡里可能有图片与 WebView 富文本，收到 11（上下各约 5 屏）。
+//   实测（用框架自己的 computeWindowedRenderLimits，见提交说明）：停在底部时挂载约 50 条、
+//   停在长列表中段时约 98 条，与窗口大小无关。
+export const MESSAGE_LIST_INITIAL_RENDER = 10;
+export const MESSAGE_LIST_RENDER_WINDOW = 11;

@@ -208,6 +208,9 @@ export default function ChatScreen() {
   const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const scrollRef = useRef(null);
+  // 消息列表的定位句柄（虚拟化后 index 只能在 MessageList 内部算：它持有窗口化后的数据）。
+  // scrollRef 仍指向同一个 FlatList，负责 scrollToEnd/scrollToOffset 这类容器级操作。
+  const messageListRef = useRef(null);
   const errorRawRef = useRef({});
   const {
     character,
@@ -286,7 +289,6 @@ export default function ChatScreen() {
   isGroupRef.current = isGroup;
   const summarizingRef = useRef(false);
   const autoSummaryAttemptRef = useRef({ sessionId: '', signature: '' });
-  const messageOffsetsRef = useRef({});
   const atBottomRef = useRef(true);
   const {
     isSending,
@@ -620,8 +622,8 @@ export default function ChatScreen() {
   );
   const renderedMessagesRef = useRef([]);
   renderedMessagesRef.current = renderedMessages;
-  // 列表窗口化：默认只挂载尾部消息，向上翻历史时手动/自动扩窗（见 MessageList 与
-  // scrollToMessage）。切会话时重置回默认窗口。
+  // 列表窗口化（数据层）：默认只把尾部窗口交给 MessageList，向上翻历史时手动/自动扩窗；
+  // 窗口内真正挂载多少条由 FlatList 虚拟化决定（见 MessageList）。切会话重置回默认窗口。
   const [messageWindowSize, setMessageWindowSize] = useState(MESSAGE_WINDOW_INITIAL);
   const expandMessageWindow = useCallback((step = MESSAGE_WINDOW_STEP) => {
     setMessageWindowSize(current => {
@@ -654,10 +656,11 @@ export default function ChatScreen() {
 
   useEffect(() => {
     autoSummaryAttemptRef.current = { sessionId: '', signature: '' };
+    // 切会话把窗口重置回默认：新会话是另一批消息，旧窗口大小没有意义。
+    //（旧实现还要在这里清 messageOffsetsRef——虚拟化后不再缓存逐条偏移，定位由
+    // MessageList 按当前窗口现算 index，那种「读到过期数字 offset 滚到越界 y」的
+    // 失效模式随之消失。）
     setMessageWindowSize(MESSAGE_WINDOW_INITIAL);
-    // 切会话必须清掉上一条会话的布局偏移：否则 scrollToMessage 读到过期的数字 offset，
-    // 会跳过扩窗直接滚到越界 y，搜索/引用跳转落点错误。
-    messageOffsetsRef.current = {};
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -732,21 +735,16 @@ export default function ChatScreen() {
 
   const scrollToMessage = useCallback(id => {
     const attempt = tries => {
-      const offset = messageOffsetsRef.current[id];
-      if (typeof offset === 'number') {
-        scrollRef.current?.scrollTo?.({ y: Math.max(0, offset - 80), animated: true });
-      } else if (tries > 0) {
-        // 目标可能在窗口外：扩窗后等布局回填 offsets 再重试
+      // 命中窗口内消息时返回 true（内部已发起 scrollToIndex）；false 说明目标被
+      // 窗口化切走了，扩窗后等数据回填再重试。
+      const scrolled = messageListRef.current?.scrollToMessage?.(id) === true;
+      if (!scrolled && tries > 0) {
         expandMessageWindow(MESSAGE_WINDOW_STEP_SCROLL);
         setTimeout(() => attempt(tries - 1), 120);
       }
     };
     setTimeout(() => attempt(6), 60);
   }, [expandMessageWindow]);
-
-  const onMessageLayout = useCallback((id, event) => {
-    messageOffsetsRef.current[id] = event.nativeEvent.layout.y;
-  }, []);
 
   const {
     searchOpen,
@@ -876,7 +874,7 @@ export default function ChatScreen() {
     onScrubberToEnd,
   } = useScrollScrubber({
     messages, characterName: character.name, t,
-    scrollRef, messageOffsetsRef, scrollToMessage,
+    scrollRef, scrollToMessage,
   });
 
   // focus：/compact 后跟的关注点（「这次总结要特别保留什么」）；自动路径不传。
@@ -1457,7 +1455,6 @@ export default function ChatScreen() {
             setMessages(current => removeMessagesByIds(current, ids));
             ids.forEach(id => {
               delete errorRawRef.current[id];
-              delete messageOffsetsRef.current[id];
             });
             setSelectedMessageIds([]);
             setFocusedMessageId(current => (
@@ -2638,6 +2635,7 @@ export default function ChatScreen() {
         onClose={closeSearch}
       />
       <MessageList
+        ref={ messageListRef }
         scrollRef={ scrollRef }
         styles={ styles }
         autoScrollToBottom={ autoScrollToBottom }
@@ -2682,7 +2680,6 @@ export default function ChatScreen() {
         onReselectGreeting={ onReselectGreeting }
         startMessageSelection={ startMessageSelection }
         thinkingDisplay={ thinkingDisplay }
-        onMessageLayout={ onMessageLayout }
         openImageActions={ openImageActions }
         toggleSelectedMessage={ toggleSelectedMessage }
         ready={ ready }
