@@ -22,10 +22,14 @@ function normalizeDescriptor(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const id = String(source.id || '');
   if (!id) return null;
+  const createdAt = Number(source.createdAt) || 0;
+  // 旧分支没有 versionTime：回落到 createdAt，保证排序不炸。
+  const versionTime = Number(source.versionTime);
   return {
     id,
     forkMessageId: String(source.forkMessageId || ''),
-    createdAt: Number(source.createdAt) || 0,
+    createdAt,
+    versionTime: Number.isFinite(versionTime) && versionTime > 0 ? versionTime : createdAt,
     messageCount: Number(source.messageCount) || 0,
     preview: String(source.preview || ''),
   };

@@ -12,7 +12,7 @@ import ErrorBubble from './ErrorBubble.js';
 import ToolBubble from './ToolBubble.js';
 import { TOOL_BUBBLE_KIND, SYSTEM_ERROR_ID } from './chatConstants.js';
 import MessageBubble from './MessageBubble.js';
-import BranchForkRow from './BranchForkRow.js';
+import { buildForkVersions } from './branchTree.js';
 import { containsHtml } from './plainText.js';
 import { shouldRenderRichHtml } from './richHtml.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -71,6 +71,10 @@ function MessageList({
   onCheckoutBranch,
   onDeleteBranch,
 }) {
+  // 「删除其它版本」：把该分叉点的归档分支逐条删除（存储侧串行队列保证顺序）。
+  const handleDeleteOthers = React.useCallback(branches => {
+    (Array.isArray(branches) ? branches : []).forEach(branch => onDeleteBranch?.(branch));
+  }, [onDeleteBranch]);
   // 窗口化：只渲染尾部 windowSize 条；被切走的更早消息通过「加载更早消息」放开。
   const { t } = useTranslation();
   const totalCount = renderedMessages.length;
@@ -79,7 +83,6 @@ function MessageList({
     : renderedMessages;
   const hiddenCount = totalCount - visibleMessages.length;
   const forkMap = branchesByFork instanceof Map ? branchesByFork : null;
-  const rootBranches = forkMap ? (forkMap.get('') || []) : [];
   return (
       <ScrollView
         ref={scrollRef}
@@ -146,19 +149,6 @@ function MessageList({
                 </Text>
               </TouchableOpacity>
             ) : null,
-            // 从会话最前分叉的分支：仅在完整展示到开头（未隐藏更早消息）时渲染在顶部。
-            hiddenCount === 0 && rootBranches.length > 0 ? (
-              <BranchForkRow
-                key="branch-fork-root"
-                forkMessageId=""
-                branches={rootBranches}
-                styles={styles}
-                theme={theme}
-                onCheckoutBranch={onCheckoutBranch}
-                onDeleteBranch={onDeleteBranch}
-                checkoutDisabled={isSending || !ready}
-              />
-            ) : null,
             ...visibleMessages.map((message, index) => {
             const speaker = message.speakerId ? characterMap.get(message.speakerId) : null;
             const selected = selectedMessageIdSet.has(String(message.id || ''));
@@ -175,20 +165,19 @@ function MessageList({
             // 这里每帧都会重算（列表一变距离就变），但 AnimatedEntry 只在**挂载时**取一次
             // delay：否则新消息到达会让旧消息的入场动画跟着重启（整屏闪一下）。
             const entryDelay = distanceFromBottom * 40;
-            // 该消息之后是否有分叉点分支入口（按消息 id 命中）。
-            const forkBranches = forkMap ? (forkMap.get(String(message.id || '')) || []) : [];
-            const forkRow = forkBranches.length > 0 ? (
-              <BranchForkRow
-                key={`branch-fork-${message.id}`}
-                forkMessageId={String(message.id || '')}
-                branches={forkBranches}
-                styles={styles}
-                theme={theme}
-                onCheckoutBranch={onCheckoutBranch}
-                onDeleteBranch={onDeleteBranch}
-                checkoutDisabled={isSending || !ready}
-              />
-            ) : null;
+            // 版本切换器挂在「分叉点之后的第一条消息」（= 被重新生成的那条助手回复）上：
+            // 分叉点 = 前一条消息；首条可见消息的前一条被窗口切走时无法判定，跳过不显示。
+            const prevId = index > 0
+              ? String(visibleMessages[index - 1] && visibleMessages[index - 1].id || '')
+              : (hiddenCount === 0 ? '' : null);
+            const forkBranches = prevId !== null && forkMap ? (forkMap.get(prevId) || []) : [];
+            const branchNav = forkBranches.length > 0
+              ? {
+                ...buildForkVersions(forkBranches, message.timestamp),
+                branches: forkBranches,
+                disabled: isSending || !ready,
+              }
+              : null;
             const body = (
                 <AnimatedEntry delay={entryDelay} enabled={shouldAnimate}>
                   {message.kind === TOOL_BUBBLE_KIND ? (
@@ -247,6 +236,9 @@ function MessageList({
                       overlayActions={!!bgUri}
                       selectionMode={messageSelectionOpen}
                       selected={selected}
+                      branchNav={branchNav}
+                      onBranchCheckout={branchId => onCheckoutBranch?.(forkBranches.find(item => String(item.id) === String(branchId)) || null)}
+                      onBranchDeleteOthers={handleDeleteOthers}
                     />
                   )}
                 </AnimatedEntry>
@@ -257,7 +249,6 @@ function MessageList({
                   <View onLayout={event => onMessageLayout(message.id, event)}>
                     {body}
                   </View>
-                  {forkRow}
                 </React.Fragment>
               );
             }
@@ -290,7 +281,6 @@ function MessageList({
               >
                 {body}
               </Pressable>
-              {forkRow}
               </React.Fragment>
             );
             }),

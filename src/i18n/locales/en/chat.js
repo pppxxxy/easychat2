@@ -377,6 +377,9 @@ export const chat = {
   'chat.branch.deleteFailed.title': 'Delete failed',
   'chat.branch.deleteFailed.body': 'Failed to delete this branch. Please try again.',
   'chat.branch.readFailed': 'Failed to read branches',
+  'chat.branch.prevA11y': 'Previous version',
+  'chat.branch.nextA11y': 'Next version',
+  'chat.branch.deleteOthers': 'Delete other versions',
   // ---- Conversation export (chat/ConversationExportModal.js, chat/ShareCard.js) ----
   'chat.export.title': 'Export chat',
   'chat.export.defaultTitle': 'Chat log',
