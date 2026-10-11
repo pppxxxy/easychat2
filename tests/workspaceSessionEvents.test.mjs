@@ -11,6 +11,7 @@ import {
   SESSION_EVENTS_MAX_BYTES,
   sessionEventsPath,
   serializeSessionEvent,
+  utf8ByteLength,
 } from '../src/workspace/sessionEvents.js';
 
 test('E4 createSessionEvent：补 id/ts/parentEventId，保留字段不可被 payload 覆盖', () => {
@@ -77,6 +78,16 @@ test('E4 appendSessionEvent：首写 → 追加 → 到上限停止（全不抛�
   files['.easychat/sessions/chat-1.jsonl'] = 'x'.repeat(SESSION_EVENTS_MAX_BYTES + 1);
   assert.equal(await appendSessionEvent(store, 'c1', 'chat-1', 'user', {}), null, '到上限 → null');
   assert.equal(files['.easychat/sessions/chat-1.jsonl'].length, SESSION_EVENTS_MAX_BYTES + 1, '不再写入');
+
+  // 字节口径（不是 String.length）：CJK 下 1 字符≈3 字节——字符数未到上限但字节已超，应停止
+  assert.equal(utf8ByteLength('测'), 3);
+  assert.equal(utf8ByteLength('abc'), 3);
+  assert.equal(utf8ByteLength(''), 0);
+  const cjk = '测'.repeat(Math.floor(SESSION_EVENTS_MAX_BYTES / 3) + 1);
+  assert.ok(cjk.length < SESSION_EVENTS_MAX_BYTES, '字符数未到上限');
+  assert.ok(utf8ByteLength(cjk) > SESSION_EVENTS_MAX_BYTES, '字节数已超上限');
+  files['.easychat/sessions/chat-1.jsonl'] = cjk;
+  assert.equal(await appendSessionEvent(store, 'c1', 'chat-1', 'user', {}), null, 'CJK 字节超限 → null');
 
   // 旁路机制：缺 store / 读写抛错都不得抛错
   assert.equal(await appendSessionEvent(null, 'c1', 'chat-1', 'user', {}), null);

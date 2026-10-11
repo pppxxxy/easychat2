@@ -247,11 +247,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
 
   const systemMessage = { role: 'system', content: systemContent };
   if (cachePlan.cacheable) {
-    // 断点落在**最长 stable 连续段的末尾**（不再是「从第 0 段起连续 stable」——
-    // 那样有世界书时一个断点都不打）。
-    // chunks：连续同稳定性的块（stable 段并成一块）；markIndex 取**最后一个 stable 块**
-    // ——它就是「最长 stable 连续段」所在的那块。Anthropic 把 cache_control 打在这块上，
-    // 断点之前的全部内容（含排在系统提示最前的动态世界书）一并进缓存前缀。
+    // 断点落在**最后一个 stable 块**上（cachePlan.cacheable 表示至少存在一个 stable 连续段）。
+    // chunks：连续同稳定性的块（stable 段并成一块、dynamic 段各自成块）；markIndex 取最后
+    // 一个 stable 块，Anthropic 把 cache_control 打在它上面。
+    // 如实说明实际效果：SECTION_ORDER 里 format 恒为 stable 且恒在最后
+    //（DEFAULT_OUTPUT_FORMAT_PROMPT 非空），所以「最后一个 stable 块」**就是最后一块**
+    // —— 整个系统提示都会进缓存前缀（Anthropic 的常规打法：断点打在 system 末尾）。
+    // 取舍：命中时省下的前缀最长；代价是 summary / memory / group 这些逐轮可变的段也在
+    // 前缀里，它们一变，整条缓存（含后面的历史断点）一起失效。改成「按最长 stable 段切」
+    // 会缩小前缀、把稳定的 format / 预设段挡在缓存外，是另一种取舍，不要顺手改。
     // prefixText / restText 按 markIndex 从块拼出（**不是**按段下标切）：块间与段间都是
     // 空一行，但按段切会让「前缀 + 空行 + 其余」与原文差一个分隔符（切点两侧都是段时
     // 空行被算两次）。按块切才保证两段拼回逐字节等于 systemContent。

@@ -52,6 +52,9 @@ export function buildPluginRuntime(plugins, { capabilities = {}, source = 'exten
     for (const slot of manifest.slots) {
       registry.add({ kind: slot.kind, id: `${manifest.id}:${slot.id || slot.label || slot.kind}`, source, contribution: slot });
     }
+    // 插件工具**只装配、不自动注册进 agent 工具表**（2026-10-11 决策）：沙盒是「能力受限」
+    // 而非安全沙盒（见 sandbox.js 文件头），从文件自动注册可执行代码风险高。要启用需宿主
+    // 显式把这些定义 registerTool 进去（目前无调用者）——面板据此如实标注「尚未接入 agent」。
     for (const tool of manifest.tools) {
       const toolName = `plugin_${manifest.id}_${tool.name}`.replace(/[^A-Za-z0-9_]/g, '_');
       tools.push({

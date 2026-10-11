@@ -58,9 +58,10 @@ export function toAnthropicRequest(messages, { cacheTtl = DEFAULT_PROMPT_CACHE_T
     if (role === 'system') {
       const text = toTextParts(message.content).map(part => part.text).join('\n');
       if (!text) return;
-      // 供应商 prompt 缓存：把**最长 stable 连续段**所在的块打上 ephemeral 断点。
-      // 用块数组而不是 prefix/rest 两段（2026-10-11 P1）：断点落在稳定块末尾时，
-      // 它之前的全部内容（含排在系统提示最前的动态世界书）都进缓存前缀——
+      // 供应商 prompt 缓存：把 systemCache.markIndex 指的那块（最后一个 stable 块）打上
+      // ephemeral 断点。注意 SECTION_ORDER 里 format 恒为 stable 且恒在最后，所以实践中
+      // 打的就是**最后一块** = 整个系统提示进缓存前缀（口径与取舍见 chatPipeline.js）。
+      // 用块数组而不是 prefix/rest 两段：块数组能表达「断点落在中间某块」，
       // 而「两段切分」只能表达「从第 0 段起连续 stable」，有世界书时一个断点都打不了。
       // 块间用空行拼接，逐字节等于原来的 systemContent（见 buildSystemChunks）。
       if (message.systemCache && Array.isArray(message.systemCache.chunks) && message.systemCache.chunks.length) {

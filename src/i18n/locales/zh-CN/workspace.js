@@ -409,7 +409,7 @@ export const workspace = {
   'workspace.plugins.uninstall': '卸载',
   'workspace.plugins.install': '安装',
   'workspace.plugins.installedTag': '已安装',
-  'workspace.plugins.meta': '{slots} 个界面槽位 · {tools} 个工具',
+  'workspace.plugins.meta': '{slots} 个界面槽位 · {tools} 个工具（沙盒执行，尚未接入 agent）',
   'workspace.plugins.slotDemo': '界面槽位（可注册 UI）',
   'workspace.plugins.market': '内置市场',
   'workspace.plugins.installFailTitle': '安装失败',

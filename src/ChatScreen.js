@@ -115,8 +115,9 @@ import { useTranslation } from './i18n/I18nContext.js';
 import { generateImage } from './imageGen/index.js';
 import { getLocalModelMediaCapabilities } from './localModel/modelState.js';
 import { normalizeLocalModelParams } from './localModel/modelParams.js';
-// D 系具名比例用于 70% 提示条；自动压缩阈值统一走 compactionPolicy（不再用 shouldAutoCompact）。
-import { SESSION_COMPACT_HINT_RATIO, computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+// 自动压缩阈值与「建议压缩」提示条统一走 compactionPolicy（提示点从阈值派生，不再各写比例）。
+import { computeContextUsage, resolveContextWindow } from './chat/contextUsage.js';
+import { resolveAutoCompactPolicy, resolveCompactHintTokens } from './chat/compactionPolicy.js';
 import useAutoCompact from './chat/useAutoCompact.js';
 import {
   COMPACTION_MIN_MESSAGES,
@@ -330,6 +331,22 @@ export default function ChatScreen() {
   // E2：上下文占用——70% 提示条；自动压缩按 token 预算（见 chat/compactionPolicy.js）触发。
   const [contextUsage, setContextUsage] = useState({ tokens: 0, window: 0, ratio: 0, maxOutput: 0 });
   const contextUsageRatio = contextUsage.ratio;
+  // 「建议压缩」提示点：**从自动压缩阈值派生**（默认 0.85×阈值）——保证提示条总是先于自动压缩
+  // 出现，且随窗口自适应。固定 70% 在 128k 下（自动阈值≈24%）永远晚于自动压缩 = 死 UI。
+  const compactHintTokens = useMemo(
+    () => resolveCompactHintTokens(resolveAutoCompactPolicy({
+      contextWindow: contextUsage.window,
+      maxOutputTokens: contextUsage.maxOutput,
+    })),
+    [contextUsage.window, contextUsage.maxOutput]
+  );
+  // 「自动压缩已停」提示条（D 系）的判线必须与提示条**同源**：把上面这条 token 线折成
+  // 比例再交给 useAutoCompact。若沿用写死的 0.7，大窗口下（128k 时提示线≈24%）永远够不到，
+  // 「已停」提示就成了死 UI —— 正是 M 系 P2-7 修掉的那个问题。窗口未知时传 undefined，
+  // 由 hook 的默认值兜底。
+  const compactHintRatio = compactHintTokens > 0 && contextUsage.window > 0
+    ? compactHintTokens / contextUsage.window
+    : undefined;
   // 「建议压缩」提示条被用户手动关掉后本次进入会话不再出现（换会话/重载恢复）。
   const [compactHintDismissed, setCompactHintDismissed] = useState(false);
   const [characterEditOpen, setCharacterEditOpen] = useState(false);
@@ -1639,7 +1656,7 @@ export default function ChatScreen() {
 
   // E2：自动压缩——阈值走唯一来源 compactionPolicy（Z/M/D 整合）；微压缩由 loop 的 K1 承担。
   const { failures: autoCompactFailures, stoppedNotice: autoCompactStopped } = useAutoCompact({
-    enabled: chatOptions.autoCompact, contextUsage, isSending, messages, compactBusyRef, onCompact: handleCompactSession, hintRatio: SESSION_COMPACT_HINT_RATIO,
+    enabled: chatOptions.autoCompact, contextUsage, isSending, messages, compactBusyRef, onCompact: handleCompactSession, hintRatio: compactHintRatio,
     modelOutputCap: contextUsage.maxOutput, byteSize: compactInfo.bytes, byteThreshold: compactInfo.threshold,
   });
 
@@ -2732,8 +2749,11 @@ export default function ChatScreen() {
         onOpenHub={() => setModelPanelOpen(true)}
       />
 
-      {/* E2：上下文占用 ≥70% 的「建议压缩」提示条；自动压缩连续失败达上限后同一位置改挂「已停」提示（不可忽略）。 */}
-      {autoCompactStopped || (contextUsageRatio >= SESSION_COMPACT_HINT_RATIO && !compactHintDismissed) ? (
+      {/* E2：「建议压缩」提示条——上下文占用达到「自动压缩阈值的 85%」时出现（从阈值派生、
+          随窗口自适应），一键压缩或关掉（本次进入会话内不再出现）；到阈值时后台静默自动压缩
+          （可在系统设置关闭）。自动压缩连续失败达上限后，同一位置改挂「已停」提示（不可忽略）。 */}
+      {autoCompactStopped
+        || (compactHintTokens > 0 && contextUsage.tokens >= compactHintTokens && !compactHintDismissed) ? (
         <View style={[styles.compactHintBar, autoCompactStopped ? styles.compactHintStopped : null]}>
           <Ionicons
             name={autoCompactStopped ? 'warning-outline' : 'information-circle-outline'}

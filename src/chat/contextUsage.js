@@ -26,7 +26,10 @@ export const DEFAULT_CONTEXT_WINDOW = 200000;
 //                                    绕过条数阈值，memorySummary.js；工作区占用条也用它
 //                                    决定是否转警示色，FilesPanel），不是会话压缩阈值；
 //   SESSION_AUTO_COMPACT_RATIO 0.85 —— 会话空闲静默自动压缩；
-//   SESSION_COMPACT_HINT_RATIO 0.7  ——「建议压缩」提示条。
+//   SESSION_COMPACT_HINT_RATIO 0.7  —— useAutoCompact「已停提示」判线的**兜底值**。
+//                                    M/D 两线合并后提示条本体已改为**从自动压缩阈值派生**
+//                                    （compactionPolicy.resolveCompactHintTokens；ChatScreen 用
+//                                    compactHintTokens 判线），固定比例只在窗口未知时兜底。
 // 历史上 ChatScreen 把 0.85/0.7 硬编码在渲染里、常量却是 0.8，看着像笔误（2026-10-10 核实：
 // 确为不同语义，不是笔误）。命名清楚以免下次有人「顺手统一」——统一会让记忆总结的触发点
 // 或会话压缩的触发点跑偏。这里转发，保持既有导入名不变。

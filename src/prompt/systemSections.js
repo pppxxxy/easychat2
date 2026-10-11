@@ -111,8 +111,8 @@ export function composeSystemText(sections) {
 // 「首段即 stable」时完全一致。
 //
 // 返回 { breakIndex, endIndex, stableChars, totalChars, cacheable }：
-//  · breakIndex —— 最长 stable 连续段的**段数**（同长度取最早的那段）；
-//  · endIndex   —— 该段最后一段之后的下标（0 = 没有 stable 段）；
+//  · breakIndex —— 与 endIndex 同值（旧名字，调用方按「下标」用：见 splitSystemForCache）；
+//  · endIndex   —— 该段最后一段之后的**下标**（0 = 没有 stable 段）；
 //  · cacheable  —— endIndex > 0。注意它不再等价于「从 0 起连续 stable」。
 export function planSystemCache(sections) {
   const list = Array.isArray(sections) ? sections : [];

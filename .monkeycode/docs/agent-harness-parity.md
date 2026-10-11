@@ -57,7 +57,7 @@ LSP 完整集成（Android 沙盒无 node 运行时，物理不可行）｜ 53 �
 - **② 插件化运行时**：`workspace/plugins/`——manifest schema/校验、类型化 **UI 槽位注册表**（优先级冲突裁决）、**能力受限沙盒执行**（`sandbox.js`，诚实边界：非安全沙盒）、内置**市场目录**、`.easychat/plugins.json` 加载/安装/装配；面板 `extension/WorkspacePluginsPanel.js` + 槽位渲染 `screen/PluginSlot.js`。
 - **③ 程序化接口/SDK**：`agent/rpc.js`（JSONL 事件 ↔ JSON-RPC 2.0，`agent.run`/`agent.cancel`/`agent.models`）+ `agent/sdk.js`（零依赖 JS SDK）+ `sdk/python/easychat2.py`（Python SDK）+ 本地 server `/rpc` 端点（JS 侧就绪；Kotlin 路由待补）。
 - **④ 多智能体协作**：黑板扩为「广播 + **直连消息** + **任务看板**」——`board_send`/`board_inbox`（点对点）、`board_task`（add/claim/complete/list 共享清单）；`serialize` v2 跨会话沉淀；设置面板「团队记忆」显示任务看板。
-- **⑤ 长程上下文 + 一键回滚**：`chat/longHorizon.js`（大窗口模型抬阈值/多保留的纯策略）；`workspace/gitRewind.js`（git 检查点版一键回滚：对话截断 + 恢复该轮文件；与 Z 系 `rewind.js` 的文件快照版互补）。
+- **⑤ 长程上下文 + 一键回滚**：两个纯策略模块（`chat/longHorizon.js` / `workspace/gitRewind.js`）**已下线**——2026-10-11 审查发现它们未接线（绿测试的空模块比没有更误导）。需要时按需求+设计文档接回：长程模式接设置项与压缩调用点，git 回滚接 UI/工具。
 
 仍差：真 LSP / 包管理 / 真实构建（物理受限）、可执行代码的强隔离沙盒、官方 Python/TS 包发布、ACP/JSON-RPC 原生端点、实时互通协商与并发任务 GUI 看板、1M 级长程承载、`/rewind` 的任意点回退。
 

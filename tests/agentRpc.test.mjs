@@ -46,6 +46,10 @@ test('rpc：parseRpcMessage 分派 request/notification/response/error/invalid',
   const err = parseRpcMessage(JSON.stringify(buildRpcError(3, RPC_ERROR_CODES.METHOD_NOT_FOUND, 'x')));
   assert.equal(err.kind, 'error');
   assert.equal(err.error.code, RPC_ERROR_CODES.METHOD_NOT_FOUND);
+  // JSON-RPC 2.0：`id: null` 的响应（对无法解析 id 的请求的应答）应识别为 response
+  const nullId = parseRpcMessage(JSON.stringify({ jsonrpc: '2.0', id: null, result: { ok: true } }));
+  assert.equal(nullId.kind, 'response');
+  assert.equal(nullId.id, null);
 });
 
 test('rpc：handleRpcRequest 分发 / 未知方法 / handler 抛错', async () => {

@@ -177,11 +177,16 @@ export async function runTool(call, ctx = {}) {
   // needsConfirm，与 requiresConfirmation 走同一条审批链（没有 confirm 出口 = 拒绝）。
   //
   // ctx.permissionRules 允许是**函数**（每次调用时取，宿主据此读到最新的 hooks.json）；
-  // 也接受现成数组。求值本身抛错按「没有规则」处理——规则读失败不能变成静默放行，
+  // 也接受现成数组。函数形态**必须 await**：两个宿主传的都是
+  // `() => readHookPermissionRules(...)`，而它是 async —— 不 await 拿到的是 Promise，
+  // Array.isArray 为 false，规则会被整体跳过（deny/ask 静默失效，写工具照样执行）。
+  // 求值本身抛错按「没有规则」处理——规则读失败不能变成静默放行，
   // 但也不能把工具链整体打挂（审批与 requiresConfirmation 两道闸门仍在）。
   let ruleVerdict = null;
   try {
-    const rawRules = typeof ctx.permissionRules === 'function' ? ctx.permissionRules() : ctx.permissionRules;
+    const rawRules = typeof ctx.permissionRules === 'function'
+      ? await ctx.permissionRules()
+      : ctx.permissionRules;
     if (Array.isArray(rawRules) && rawRules.length > 0) {
       ruleVerdict = evaluatePermissionRules(rawRules, { tool: tool.name, args });
     }

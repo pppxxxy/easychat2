@@ -493,6 +493,7 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
     '.easychat/file-history/index.json',
     '.easychat/file-history/entries/abc.json',
     '.easychat/rollback/1700000000000.json',
+    '.easychat/plugins.json',
   ];
   for (const path of protectedPaths) {
     const denied = await runTool(
@@ -541,6 +542,11 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
 // 只在 tool.requiresConfirmation 时才调 confirm。write_workspace_file 按设计不逐条确认
 //（见 paths.js 的说明），于是挂在它上面的 before_tool deny 永不求值——与 hooks.js
 // 「拦下任意工具」的承诺矛盾。修法：runTool 直接对 ctx.permissionRules 求值。
+//
+// 注意 provider 用 **async** 函数：两个宿主传的都是
+// `() => readHookPermissionRules(...)`，而它是 async。此前测试只注入同步函数，
+// 于是「忘了 await」这个生产级缺陷被测试放过了（拿到 Promise → Array.isArray 为 false
+// → 规则整体跳过）。这里必须与宿主同形，否则这条回归测试没有意义。
 test('P1 回归：不需确认的写工具也受 before_tool deny 规则约束（钩子规则真的拦得住）', async () => {
   registerWorkspaceTools({ root, fileSystem });
   // 用真实定义表里的规则翻译器：hooks.json 的 before_tool → 权限规则
@@ -552,7 +558,7 @@ test('P1 回归：不需确认的写工具也受 before_tool deny 规则约束�
 
   const denied = await runTool(
     { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'notes/a.md', content: 'x' }) },
-    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: () => rules },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: async () => rules },
   );
   assert.equal(denied.isError, true, 'deny 规则命中时必须拒绝（此前永不求值）');
   assert.match(denied.content, /before_tool/);
@@ -567,7 +573,7 @@ test('P1 回归：不需确认的写工具也受 before_tool deny 规则约束�
   // 规则只覆盖 md：别的扩展名照旧可写（deny 不误伤）
   const allowed = await runTool(
     { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'notes/a.txt', content: 'x' }) },
-    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: () => rules },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: async () => rules },
   );
   assert.equal(allowed.isError, false, '规则未命中时照常执行');
 });
@@ -584,6 +590,14 @@ test('P1 回归：ask 规则让「不需确认的工具」也走审批；问不�
   );
   assert.equal(noOutlet.isError, true, 'ask 规则命中但问不到用户 → 必须拒绝');
   assert.match(noOutlet.content, /需要用户确认/);
+
+  // 函数形态（宿主真实形态：async provider）也必须被求值——此前只测数组形态，
+  // 「忘了 await」的缺陷因此逃过测试。
+  const viaProvider = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'ask/c.md', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: async () => rules },
+  );
+  assert.equal(viaProvider.isError, true, 'async provider 形态同样必须求值并拒绝');
 
   // 有出口且批准 → 执行
   const approved = await runTool(

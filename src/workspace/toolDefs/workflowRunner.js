@@ -86,12 +86,14 @@ export async function runWorkflowSteps({
       // write 步骤里只要有工具调用失败，这一步就**没做成**（写被拒 / 问不到用户 /
       // 路径被守卫拦下）。子代理照样会产出一段结论文字，只看文字就会把「没写的」
       // 报成「工作流成功」——P1 事故正是这种形态。
+      // 计数口径是**全部工具调用**（含读取失败），所以措辞不能只写「写操作」：
+      // 读一个不存在的文件也会让这一步判失败（宁可误报失败，不可误报成功）。
       const toolErrors = Number(outcome && outcome.toolErrors) || 0;
       if (writeMode && toolErrors > 0) {
         return {
           text: content,
           isError: true,
-          error: `${toolErrors} 次写操作未成功（被拒绝或未获批准）`,
+          error: `${toolErrors} 次工具调用未成功（写被拒 / 未获批准 / 执行失败）`,
         };
       }
       return { text: content, isError: false };

@@ -7,6 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import {
+  resolveAutoCompactPolicy,
+  resolveCompactHintTokens,
+  COMPACT_HINT_FRACTION,
+} from '../src/chat/compactionPolicy.js';
 
 import {
   AUTO_COMPACT_RATIO,
@@ -88,7 +93,7 @@ test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / �
   // 提示条出现线）。这条断言钉住「它们不相等」，防止后人「顺手统一」把触发点改跑偏。
   assert.equal(AUTO_COMPACT_RATIO, 0.8, '记忆总结的「上下文偏高」口径');
   assert.equal(SESSION_AUTO_COMPACT_RATIO, 0.85, '会话空闲自动压缩线');
-  assert.equal(SESSION_COMPACT_HINT_RATIO, 0.7, '提示条出现线');
+  assert.equal(SESSION_COMPACT_HINT_RATIO, 0.7, '「已停提示」判线的兜底值（提示条本体已改为从阈值派生）');
   assert.ok(SESSION_COMPACT_HINT_RATIO < AUTO_COMPACT_RATIO, '提示条早于记忆总结线');
   assert.ok(AUTO_COMPACT_RATIO < SESSION_AUTO_COMPACT_RATIO, '记忆总结线早于会话压缩线');
   // 会话压缩线仍用同一套 token 判定，只是阈值不同：同一个窗口下两条线的边界必须差开。
@@ -260,4 +265,17 @@ test('P2-7 buildContextBreakdown：归一、按 token 降序、占比、空段�
   assert.equal(noWindow.total, 10, 'token 仍然如实给出');
   assert.equal(buildContextBreakdown(null).segments.length, 0);
   assert.equal(buildContextBreakdown([]).total, 0);
+});
+
+test('resolveCompactHintTokens：提示点从自动压缩阈值派生，恒早于自动压缩', () => {
+  const policy = resolveAutoCompactPolicy({ contextWindow: 128000, maxOutputTokens: 0 });
+  const hint = resolveCompactHintTokens(policy);
+  assert.ok(hint > 0 && hint < policy.thresholdTokens, '提示点 >0 且 < 阈值（先于自动压缩）');
+  assert.equal(hint, Math.floor(policy.thresholdTokens * COMPACT_HINT_FRACTION));
+  // 大窗口同样成立（派生式随窗口自适应，固定比例做不到）
+  const big = resolveAutoCompactPolicy({ contextWindow: 1000000, maxOutputTokens: 0 });
+  assert.ok(resolveCompactHintTokens(big) < big.thresholdTokens);
+  // 无窗口 → 0（不提示）
+  assert.equal(resolveCompactHintTokens({ thresholdTokens: 0 }), 0);
+  assert.equal(resolveCompactHintTokens(null), 0);
 });

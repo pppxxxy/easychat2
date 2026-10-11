@@ -129,7 +129,7 @@ test('sandboxDirectory 与 resolveWorkspaceUri', () => {
 
 // ---- 受保护的写入路径（审计与快照，2026-10-10）----
 
-test('isProtectedWorkspacePath：三个审计/快照目录全拦，相邻的 agent 资产不拦', () => {
+test('isProtectedWorkspacePath：审计/快照目录 + 会改 agent 行为的文件全拦，其余资产不拦', () => {
   // 受保护：事件流 / 写前快照 / 推送基线
   assert.equal(isProtectedWorkspacePath('.easychat/sessions/s1.jsonl'), true);
   assert.equal(isProtectedWorkspacePath('.easychat/file-history/index.json'), true);
@@ -142,11 +142,15 @@ test('isProtectedWorkspacePath：三个审计/快照目录全拦，相邻的 age
   assert.equal(isProtectedWorkspacePath('./.easychat/sessions/s.jsonl'), true);
   assert.equal(isProtectedWorkspacePath('.easychat//sessions//s.jsonl'), true);
 
-  // 不拦：agent 必须能写自己的技能/命令/分身/钩子/环境，以及普通项目文件
+  // plugins.json 是插件（代码执行）装配源，一并保护（2026-10-11）
+  assert.equal(isProtectedWorkspacePath('.easychat/plugins.json'), true);
+
+  // 不拦：agent 仍能写自己的技能/命令/分身/钩子/环境，以及普通项目文件（既有设计）
   assert.equal(isProtectedWorkspacePath('.easychat/skills/x/SKILL.md'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/commands/x.md'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/agents/x.md'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/hooks.json'), false);
+  assert.equal(isProtectedWorkspacePath('.easychat/board/board.json'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/env.json'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/pull-skipped.json'), false);
   // 前缀相似但不是同一目录：不能误伤

@@ -140,21 +140,37 @@ const PROTECTED_WRITE_PREFIXES = Object.freeze([
   '.easychat/rollback/',
 ]);
 
-// 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀。
+// 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀/精确文件。
 //
 // **大小写不敏感**（2026-10-11 P1）：SAF 后端按**显示名**查找子项
 //（safStore.js 的 findChild 用 `entry.name === name`），而 Android 的 SAF 显示名
 // 大小写由实际文件系统决定；`isProtectedWorkspacePath` 若按大小写敏感判前缀，
 // `.easychat/SESSIONS/x.jsonl` 这类变体就会绕过守卫（写入后与真实目录同名不同串）。
 // 判据侧一律折成小写：宁可多拦一个变体，不可漏放一个。
+//
+// **整串先 trim**（两线合并时补）：store 的 normalizeWorkspacePath 会 trim 整串，
+// 判据侧不 trim 就会出现错位——` .easychat/plugins.json` 在守卫看来不匹配（首段是
+// ` .easychat`），而 store 归一化后正好落到受保护文件上。一个前导/尾随空格即可绕过。
+//
+// 会改「agent 自身行为」的单文件（2026-10-11 补）：与上面三类审计数据不同——它被改写
+// 等于**代码执行**：`.easychat/plugins.json` 是插件装配源，插件 handler 会在沙盒里执行。
+// （hooks.json / skills / commands / agents / teams 的可写是**刻意设计**——agent 的自我演进
+//  通路，见 workspaceTools 测试「相邻的 agent 资产不受影响」；这里不推翻它。）
+// 用户仍可在面板/UI 里装插件；这里只挡 agent 的写工具。
+const PROTECTED_WRITE_FILES = Object.freeze([
+  '.easychat/plugins.json',
+]);
+
 export function isProtectedWorkspacePath(path) {
   const clean = String(path == null ? '' : path)
     .replace(/\\/g, '/')
+    .trim()
     .split('/')
     .filter(segment => segment && segment !== '.')
     .join('/')
     .toLowerCase();
   if (!clean) return false;
+  if (PROTECTED_WRITE_FILES.includes(clean)) return true;
   return PROTECTED_WRITE_PREFIXES.some(prefix => clean === prefix.slice(0, -1) || clean.startsWith(prefix));
 }
 
