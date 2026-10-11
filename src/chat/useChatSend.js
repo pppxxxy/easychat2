@@ -11,7 +11,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import {
   ASSISTANT_ID,
-  THINKING_PLACEHOLDER,
+  THINKING_PLACEHOLDER_KEY,
   USER_ID,
 } from './chatConstants.js';
 import {
@@ -43,7 +43,7 @@ import {
   collectPromptHooks,
   collectSessionStartNotices,
   collectTurnEndNotices,
-  hookPermissionRules,
+  readHookPermissionRules,
   readWorkspaceHooks,
 } from '../workspace/hooks.js';
 import { ensureMcpToolsRegistered } from '../workspace/mcpTools.js';
@@ -367,7 +367,7 @@ export default function useChatSend({
      const pendingAssistantMessage = {
       id: `${Date.now()}-assistant`,
       role: ASSISTANT_ID,
-      text: THINKING_PLACEHOLDER,
+      text: tRef.current(THINKING_PLACEHOLDER_KEY),
       reasoning: '',
       pending: true,
       waitingForResponse: true,
@@ -390,7 +390,7 @@ export default function useChatSend({
        ]);
        if (controller.signal.aborted) {
          setMessages(current => (
-           isCurrentSession() ? settlePendingMessage(current, pendingAssistantMessage.id) : current
+           isCurrentSession() ? settlePendingMessage(current, pendingAssistantMessage.id, tRef.current) : current
          ));
          return;
        }
@@ -726,27 +726,22 @@ export default function useChatSend({
                 }
               },
               // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，所以必须接上——
-              // 不接的话 registry 会把需要确认的工具一律拒绝。先查已记住的规则
-              //（本次会话 / 永远允许），没命中才弹三选项框。
-              // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次直读）。
-              // 用户在弹框上犹豫多久都不算超时：runTool 把审批放在超时竞速之外。
-              onToolApproval: async call => {
-                let extraRules = [];
-                if (hookStore) {
-                  try {
-                    const hooks = await readWorkspaceHooks(hookStore, character.id);
-                    extraRules = hookPermissionRules(hooks);
-                  } catch (error) {}
-                }
-                return approveToolCall({
-                  name: call && call.name,
-                  args: call && call.args,
-                  t: tRef.current,
-                  // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
-                  signal: controller.signal,
-                  extraRules,
-                });
-              },
+              // 不接的话 registry 会把需要确认的工具一律拒绝。
+              //
+              // 钩子规则（hooks.json 的 before_shell / before_tool）**不走这里**：
+              // 它们改由 permissionRules 单独喂给 runTool（见下），因为审批钩子只在
+              // 「需要确认的工具」上被调用，而钩子的语义是拦下**任意**工具——
+              // 写工具按设计不逐条确认，只接这里等于规则永不生效（2026-10-11 P1）。
+              onToolApproval: call => approveToolCall({
+                name: call && call.name,
+                args: call && call.args,
+                t: tRef.current,
+                // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
+                signal: controller.signal,
+              }),
+              // P1：工作区钩子的 deny / ask 规则，每次调用时直读（本轮内 agent 改了
+              // hooks.json 也立即生效）。deny 在 runTool 里直接拒绝，ask 并进审批链。
+              permissionRules: () => readHookPermissionRules(hookStore, character.id),
               // ask_user：任务中途向用户提选择题（跨平台 Alert）。
               onAskUser: payload => promptUserChoice({
                 ...payload,
@@ -868,7 +863,7 @@ export default function useChatSend({
          clearToolBubble();
          setMessages(current => (
            isCurrentSession()
-             ? settlePendingMessage(current, pendingAssistantMessage.id)
+             ? settlePendingMessage(current, pendingAssistantMessage.id, tRef.current)
              : current
          ));
          return;
@@ -882,7 +877,7 @@ export default function useChatSend({
        clearToolBubble();
         if (isCurrentSession()) {
           setMessages(current => {
-            const next = replacePendingWithReply(current, pendingAssistantMessage.id, replyParts);
+            const next = replacePendingWithReply(current, pendingAssistantMessage.id, replyParts, tRef.current);
             // P5：把本轮工具轨迹挂到助手终稿上（展示无感；下轮组装请求时展开回 agent 历史）。
             return turnTrace ? attachToolTrace(next, replyParts, turnTrace) : next;
           });
@@ -920,7 +915,8 @@ export default function useChatSend({
           messages: replacePendingWithReply(
             [...baseMessages, pendingAssistantMessage],
             pendingAssistantMessage.id,
-            replyParts
+            replyParts,
+            tRef.current
           ),
           ownerCharacterId,
         });
@@ -941,7 +937,7 @@ export default function useChatSend({
          recordStats('');
          setMessages(current => (
            isCurrentSession()
-             ? settlePendingMessage(current, pendingAssistantMessage.id)
+             ? settlePendingMessage(current, pendingAssistantMessage.id, tRef.current)
              : current
          ));
          return false;
@@ -954,12 +950,13 @@ export default function useChatSend({
          if (isCurrentSession()) {
            const { message: errorMessage, rawText } = buildReplyErrorMessage(
              pendingAssistantMessage.id,
-             new Error(REACTIVE_FAILED_MESSAGE)
+             new Error(REACTIVE_FAILED_MESSAGE),
+             tRef.current
            );
            errorRawRef.current[errorMessage.id] = rawText;
            setMessages(current => (
              isCurrentSession()
-               ? mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage)
+               ? mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage, tRef.current)
                : current
            ));
          }
@@ -968,13 +965,13 @@ export default function useChatSend({
        if (classifyReplyError(error, isConfigChangedError, isCanceledError) === 'failure') {
         // 失败也记一笔（只计请求数与失败数，token 记 0）——服务商的失败率同样是性价比信号。
         recordStats('', { failed: true });
-        const { message: errorMessage, rawText } = buildReplyErrorMessage(pendingAssistantMessage.id, error);
+        const { message: errorMessage, rawText } = buildReplyErrorMessage(pendingAssistantMessage.id, error, tRef.current);
         if (isCurrentSession()) {
           errorRawRef.current[errorMessage.id] = rawText;
         }
         setMessages(current => {
           if (!isCurrentSession()) return current;
-          return mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage);
+          return mergeErrorMessage(current, pendingAssistantMessage.id, errorMessage, tRef.current);
         });
         if (restoreOnFailure) return false;
       }
@@ -1137,7 +1134,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
           const pendingMessage = {
             id: `${Date.now()}-${speakerId}-assistant`,
             role: ASSISTANT_ID,
-            text: THINKING_PLACEHOLDER,
+            text: tRef.current(THINKING_PLACEHOLDER_KEY),
             pending: true,
             waitingForResponse: true,
             speakerId,
@@ -1189,7 +1186,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
           if (isCanceledError(error)) {
             // 停止：结算占位气泡，避免留下永远“正在思考”的僵尸消息
             setMessages(current => (
-              isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
+              isCurrent() ? settlePendingMessage(current, pendingMessage.id, tRef.current) : current
              ));
              return false;
            }
@@ -1239,7 +1236,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         const pendingMessage = {
           id: `${Date.now()}-ensemble-assistant`,
           role: ASSISTANT_ID,
-          text: THINKING_PLACEHOLDER,
+          text: tRef.current(THINKING_PLACEHOLDER_KEY),
           pending: true,
           waitingForResponse: true,
           speakerName: groupName,
@@ -1274,7 +1271,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
              // 停止：合议模式的流式增量只写进了 state（局部变量 working 里仍是占位符），
              // 所以必须按当前 state 结算，否则已生成的部分会被整条丢掉
              setMessages(current => (
-               isCurrent() ? settlePendingMessage(current, pendingMessage.id) : current
+               isCurrent() ? settlePendingMessage(current, pendingMessage.id, tRef.current) : current
              ));
              throw error;
            }

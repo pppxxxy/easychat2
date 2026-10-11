@@ -113,6 +113,13 @@ export async function runAgentTurn(messages, options = {}) {
   // 循环要停在这里等用户点头，所以不能塞进那个同步、不 await 的信息性回调。
   // 没接钩子时，requiresConfirmation 的工具在 runTool 里按「未确认」被拒绝。
   const onToolApproval = typeof options.onToolApproval === 'function' ? options.onToolApproval : null;
+  // P1（2026-10-11）：工作区钩子的 before_tool / before_shell 规则（deny / ask）。
+  // **必须单独一路传下去**：审批钩子只在「需要确认的工具」上被调用，而钩子规则的语义是
+  // 「拦下任意工具」——写工具按设计不逐条确认，只接 onToolApproval 等于规则永不生效。
+  // 允许传函数（每次调用时取，宿主据此读到最新的 hooks.json）。
+  const permissionRules = typeof options.permissionRules === 'function' || Array.isArray(options.permissionRules)
+    ? options.permissionRules
+    : null;
   // ask_user：宿主注入「问用户」钩子（提选择题、等回答）；不注入 = 工具不可用。
   const onAskUser = typeof options.onAskUser === 'function' ? options.onAskUser : null;
   // D4-1：结果增强钩子（宿主注入；不注入 = 不增强，行为与旧版一致）。
@@ -275,6 +282,7 @@ export async function runAgentTurn(messages, options = {}) {
           // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
           // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
           ...(onToolApproval ? { confirm: onToolApproval } : {}),
+          ...(permissionRules ? { permissionRules } : {}),
           ...(onAskUser ? { ask: onAskUser } : {}),
           ...(onToolResult ? { onToolResult } : {}),
         });

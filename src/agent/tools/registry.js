@@ -10,6 +10,7 @@
 // 门控改为独立的 allowChatTools 开关，由聊天路径按用户设置显式打开；
 // 两条门控互不影响：ask 模式下工作区工具依旧一律不放行。
 
+import { evaluatePermissionRules } from '../permissions.js';
 import { tActive } from '../../i18n/index.js';
 
 export const AGENT_MODES = Object.freeze({
@@ -164,6 +165,33 @@ export async function runTool(call, ctx = {}) {
 
   const signal = ctx.signal || null;
 
+  // 权限规则求值（P1，2026-10-11）：`deny` 必须对**任意工具**生效，不只对
+  // `requiresConfirmation` 的那些。
+  //
+  // 事故形态：此前钩子规则的唯一入口是 `onToolApproval`（宿主接的 confirm），而
+  // runTool 只在 `tool.requiresConfirmation` 时才调 confirm —— 于是写在
+  // `write_workspace_file` / `edit_workspace_file` 上的 before_tool deny **永不求值**
+  // （这些工具按设计不逐条确认，见 paths.js 的说明），与 hooks.js「拦下任意工具」矛盾。
+  //
+  // 求值时机放在审批之前：deny 是「绝不执行」，连问都不该问；ask 则并进下面的
+  // needsConfirm，与 requiresConfirmation 走同一条审批链（没有 confirm 出口 = 拒绝）。
+  //
+  // ctx.permissionRules 允许是**函数**（每次调用时取，宿主据此读到最新的 hooks.json）；
+  // 也接受现成数组。求值本身抛错按「没有规则」处理——规则读失败不能变成静默放行，
+  // 但也不能把工具链整体打挂（审批与 requiresConfirmation 两道闸门仍在）。
+  let ruleVerdict = null;
+  try {
+    const rawRules = typeof ctx.permissionRules === 'function' ? ctx.permissionRules() : ctx.permissionRules;
+    if (Array.isArray(rawRules) && rawRules.length > 0) {
+      ruleVerdict = evaluatePermissionRules(rawRules, { tool: tool.name, args });
+    }
+  } catch (error) {
+    ruleVerdict = null;
+  }
+  if (ruleVerdict === 'deny') {
+    return toErrorResult(`该操作被工作区钩子的 before_tool 规则拦下（未执行）：${name}`);
+  }
+
   // 人工审批必须在超时竞速**之外**：这里的等待时长取决于用户什么时候点按钮，
   // 几秒到几十秒都正常。若放进下面那个 15s 竞速里，用户多犹豫一下就变成
   // 「工具执行超时」，而工具其实一次都没跑。
@@ -174,9 +202,12 @@ export async function runTool(call, ctx = {}) {
   // **没有审批钩子 = 拒绝**，不是放行：需要确认的工具只可能在能问到用户的
   // 界面里执行。漏传 confirm（例如别处新起的 agent 循环）时应当是「跑不了」，
   // 绝不能变成「不用问就跑」。
-  if (tool.requiresConfirmation) {
+  //
+  // 命中 ask 规则的工具即使没声明 requiresConfirmation 也要问（ask 档的意义就是从
+  // 宽规则里挖出例外），批准只对这一次生效（askOnly，由宿主侧 approveToolCall 保证）。
+  if (tool.requiresConfirmation || ruleVerdict === 'ask') {
     if (typeof ctx.confirm !== 'function') {
-      return toErrorResult(`工具需要用户确认，但当前环境无法询问用户（未执行）：${name}`);
+      return toErrorResult(`该操作需要用户确认，但当前环境无法询问用户（未执行）：${name}`);
     }
     if (signal && signal.aborted) throw makeAbortError();
     // 审批也要能被中止竞速：用户点「停止生成」时弹框可能还开着，弹框的按钮回调

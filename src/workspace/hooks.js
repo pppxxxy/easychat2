@@ -259,11 +259,30 @@ export function matchBeforeToolHooks(hooks, toolName) {
   return list.filter(item => matchToolName(item.tool, toolName));
 }
 
+// 读 + 翻译一步到位（宿主接 runTool 的 ctx.permissionRules 用）。
+//
+// 为什么要有这个函数（2026-10-11 P1）：钩子规则的求值入口此前只有「工具审批」，
+// 而审批只在**需要确认的工具**上被调用——写工具按设计不逐条确认，于是写在
+// write_workspace_file 上的 before_tool deny 永不生效。现在宿主把本函数的结果
+// 作为 permissionRules 一路传给 registry.runTool，由它对**任意工具**求值。
+// 每次调用时直读：本轮内 agent 改了 hooks.json 也立即生效。
+// 读失败当「没有钩子规则」——规则读不到不能变成静默放行（审批链仍在），
+// 也不能把工具链整体打挂。
+export async function readHookPermissionRules(store, characterId) {
+  if (!store) return [];
+  try {
+    return hookPermissionRules(await readWorkspaceHooks(store, characterId));
+  } catch (error) {
+    return [];
+  }
+}
+
 // 翻译成 T3 权限规则（before_shell + before_tool 一起）：
 // - 缺省 deny（命中即拒绝、不弹框），声明 `effect: "ask"` 的条目翻成 ask
 //   （命中弹「只允许这一次」，且**不记规则**）；
 // - match 为空 = 该工具的全部调用（工具级规则）。
 // 交给 approveToolCall 的 extraRules，与存储规则合并求值（优先级由 evaluate 保证）。
+// 匹配串取自 **pattern**（parseWorkspaceHooks / normalizeItem 的字段名）。
 export function hookPermissionRules(hooks) {
   const source = hooks && typeof hooks === 'object' ? hooks : {};
   const shell = (Array.isArray(source.before_shell) ? source.before_shell : []).map(item => ({

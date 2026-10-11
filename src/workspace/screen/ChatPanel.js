@@ -121,6 +121,7 @@ import {
   collectTurnEndNotices,
   hookPermissionRules,
   installSampleHooks,
+  readHookPermissionRules,
   readWorkspaceHooks,
 } from '../hooks.js';
 import { installWorkspaceTemplate } from '../templates.js';
@@ -1299,22 +1300,18 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round, startedAt: Date.now() } : null);
         },
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
-        // 工作区钩子（hooks.json）的 before_shell 预置禁令在这里注入（每次调用直读，
-        // 本轮内 agent 改了钩子文件也立即生效）；钩子只收紧、不放松。
-        onToolApproval: async call => {
-          let extraRules = [];
-          try {
-            const hooks = await readWorkspaceHooks(storeRef.current, characterId);
-            extraRules = hookPermissionRules(hooks);
-          } catch (error) {}
-          return approveToolCall({
-            name: call && call.name,
-            args: call && call.args,
-            t,
-            signal: controller.signal,
-            extraRules,
-          });
-        },
+        // 钩子规则（hooks.json 的 before_shell / before_tool）**不走这里**：它们改由
+        // permissionRules 单独喂给 runTool（见下），因为审批钩子只在「需要确认的工具」
+        // 上被调用，而钩子要拦下**任意**工具——写工具按设计不逐条确认（2026-10-11 P1）。
+        onToolApproval: call => approveToolCall({
+          name: call && call.name,
+          args: call && call.args,
+          t,
+          signal: controller.signal,
+        }),
+        // P1：钩子 deny / ask 规则的求值入口，每次调用时直读（本轮内改了 hooks.json
+        // 也立即生效）。deny 在 runTool 里直接拒绝，ask 并进审批链。
+        permissionRules: () => readHookPermissionRules(storeRef.current, characterId),
         // ask_user：任务中途向用户提选择题（跨平台 Alert）。
         onAskUser: payload => promptUserChoice({
           ...payload,

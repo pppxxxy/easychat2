@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   AGENT_MODES,
@@ -27,6 +29,14 @@ import { SUBAGENT_TOOL_DEFINITION } from '../src/workspace/toolDefs/subagentTool
 import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from '../src/workspace/toolDefs/execTools.js';
 import { SHELL_TOOL_TIMEOUT_MS } from '../src/workspace/shell.js';
 import { PYTHON_TOOL_TIMEOUT_MS } from '../src/workspace/python.js';
+import { hookPermissionRules, parseWorkspaceHooks } from '../src/workspace/hooks.js';
+
+// 钩子规则走真实链路：hooks.json 文本 → parseWorkspaceHooks（归一成 pattern）→
+// hookPermissionRules（翻成权限规则）。手搓 {match:...} 对象会跳过归一化，
+// 测出来的东西就不是生产里跑的那条链（本轮多个 P0 都源于此类假输入）。
+function hookRulesFromJson(json) {
+  return hookPermissionRules(parseWorkspaceHooks(JSON.stringify(json)));
+}
 
 function createMemoryFs() {
   const entries = new Map();
@@ -525,6 +535,80 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
 // 是漏的。这类漏法靠「逐个手抄要检查的工具名」永远补不干净，所以这里**从真实定义表
 // 派生**待检查集合：凡 readOnly !== true 且参数里有 path 的工具，一律拿受保护路径打一遍。
 // 新增写工具只要声明了 path 就自动进入这条守卫，忘了加 assertWritableWorkspacePath 会红。
+// P1 回归（2026-10-11）：before_tool 钩子的 deny 必须对**不需要确认的工具**生效。
+//
+// 事故形态：钩子规则的唯一求值入口是 onToolApproval（宿主接的 confirm），而 runTool
+// 只在 tool.requiresConfirmation 时才调 confirm。write_workspace_file 按设计不逐条确认
+//（见 paths.js 的说明），于是挂在它上面的 before_tool deny 永不求值——与 hooks.js
+// 「拦下任意工具」的承诺矛盾。修法：runTool 直接对 ctx.permissionRules 求值。
+test('P1 回归：不需确认的写工具也受 before_tool deny 规则约束（钩子规则真的拦得住）', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  // 用真实定义表里的规则翻译器：hooks.json 的 before_tool → 权限规则
+  const rules = hookRulesFromJson({
+    before_tool: [{ tool: 'write_workspace_file', match: '**/*.md', message: '不许改 md', effect: 'deny' }],
+  });
+  assert.equal(rules.length, 1, '前置条件：钩子规则确实翻译出了一条');
+  assert.equal(rules[0].match, '**/*.md', '前置条件：匹配串没有在归一化里丢掉');
+
+  const denied = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'notes/a.md', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: () => rules },
+  );
+  assert.equal(denied.isError, true, 'deny 规则命中时必须拒绝（此前永不求值）');
+  assert.match(denied.content, /before_tool/);
+
+  // 行为断言：被拒的写入不得落盘
+  const listed = await runTool(
+    { name: 'list_workspace_files', arguments: '{}' },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(String(listed.content).includes('notes/a.md'), false, '被拦下的写入不得落盘');
+
+  // 规则只覆盖 md：别的扩展名照旧可写（deny 不误伤）
+  const allowed = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'notes/a.txt', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: () => rules },
+  );
+  assert.equal(allowed.isError, false, '规则未命中时照常执行');
+});
+
+test('P1 回归：ask 规则让「不需确认的工具」也走审批；问不到用户则拒绝', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  const rules = hookRulesFromJson({
+    before_tool: [{ tool: 'write_workspace_file', effect: 'ask', message: '写之前先问' }],
+  });
+  // 没有 confirm 出口 → 拒绝（与 requiresConfirmation 同款纪律：问不到 = 不执行）
+  const noOutlet = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'ask/a.md', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: rules },
+  );
+  assert.equal(noOutlet.isError, true, 'ask 规则命中但问不到用户 → 必须拒绝');
+  assert.match(noOutlet.content, /需要用户确认/);
+
+  // 有出口且批准 → 执行
+  const approved = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'ask/a.md', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: rules, confirm: async () => true },
+  );
+  assert.equal(approved.isError, false, '用户批准后照常执行');
+  // 有出口但拒绝 → 不执行
+  const rejected = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'ask/b.md', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: rules, confirm: async () => false },
+  );
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content, /拒绝/);
+});
+
+test('P1 回归：宿主把 permissionRules 接到 runAgentTurn 上（否则规则等于没接）', () => {
+  const loop = fs.readFileSync(path.resolve('src/agent/loop.js'), 'utf8');
+  assert.ok(loop.includes('permissionRules'), 'loop.js 必须把 permissionRules 透传给 runTool');
+  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  assert.ok(panel.includes('permissionRules: () => readHookPermissionRules('), '工作区宿主必须接上钩子规则');
+  const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
+  assert.ok(chat.includes('permissionRules: () => readHookPermissionRules('), '聊天宿主必须接上钩子规则');
+});
+
 test('P1 回归：所有带 path 的写类工具都守住审计/快照路径（从真实定义表派生）', async () => {
   const definitions = createWorkspaceToolDefinitions({ root, fileSystem });
   const writeTools = definitions.filter(item => (
