@@ -59,6 +59,29 @@ test('mergeStreamedText：只更新 pending 占位符并落地 waitingForRespons
   assert.deepEqual(mergeStreamedText(null, 'x', 't'), []);
 });
 
+test('mergeStreamedText：文本未变时返回**同一数组引用**（流式每 token 不重渲染整表）', () => {
+  const p = { id: 'x', role: 'assistant', text: '第一段', pending: true, waitingForResponse: false };
+  const other = { id: 'y', text: 'old', pending: true, waitingForResponse: true };
+  const list = [other, p];
+  // 同一个 fullText 再来一次：必须原引用返回，否则上层 useMemo / React.memo 全部失效
+  assert.strictEqual(mergeStreamedText(list, 'x', '第一段'), list);
+  // 文本真的变了：新数组，且只有目标项换了对象
+  const next = mergeStreamedText(list, 'x', '第一段更多');
+  assert.notStrictEqual(next, list);
+  assert.strictEqual(next[0], other, '非目标项保持原引用');
+  assert.notStrictEqual(next[1], p);
+  assert.equal(next[1].text, '第一段更多');
+  // 未命中目标（id 不匹配 / 已结算非 pending）：同样原引用返回
+  assert.strictEqual(mergeStreamedText(list, 'nope', 'x'), list);
+  const settled = [{ id: 'x', text: 'done', pending: false }];
+  assert.strictEqual(mergeStreamedText(settled, 'x', 'done'), settled);
+  // 文本没变但 waitingForResponse 还没落地：仍要更新（否则占位态永远挂着）
+  const stillWaiting = [{ id: 'x', text: 'same', pending: true, waitingForResponse: true }];
+  const cleared = mergeStreamedText(stillWaiting, 'x', 'same');
+  assert.notStrictEqual(cleared, stillWaiting);
+  assert.equal(cleared[0].waitingForResponse, false);
+});
+
 test('mergeStreamedReasoning：不检查 pending，占位符期间持续覆写', () => {
   const p = pending('x');
   const next = mergeStreamedReasoning([p], 'x', '思考中……');

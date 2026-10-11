@@ -101,6 +101,7 @@ import {
   replacePendingWithReply,
   trimHistoryByBoundary,
 } from './replyFlow.js';
+import { createTextStreamThrottle } from './streamThrottle.js';
 import {
   buildEnsemblePrompt,
   buildGroupRequest,
@@ -373,8 +374,9 @@ export default function useChatSend({
       waitingForResponse: true,
       timestamp: Date.now(),
     };
-    // 本会话统计打点：声明在 try 之外（catch 的失败/取消分支也要记账），
-    // 真正赋值在请求发出前；未赋值时是空操作。异常一律吞掉——统计绝不能影响聊天主链路。
+    // 流式节流（口径见 streamThrottle.js）：与 recordStats 同理声明在 try 之外——catch 的停止/失败分支要 flush 它。
+    const streamThrottle = createTextStreamThrottle({ isCurrentSession, setMessages, pendingId: pendingAssistantMessage.id });
+    // 本会话统计打点：声明在 try 之外（catch 的失败/取消分支也要记账）；异常一律吞掉——统计绝不能影响聊天主链路。
     let recordStats = () => {};
 
      setMessages([...baseMessages, pendingAssistantMessage]);
@@ -772,10 +774,7 @@ export default function useChatSend({
            onChunk: fullText => {
              meter.markFirstToken();
              if (!isCurrentSession() || controller.signal.aborted) return;
-             setMessages(current => {
-               if (!isCurrentSession()) return current;
-               return mergeStreamedText(current, pendingAssistantMessage.id, fullText);
-             });
+             streamThrottle.push(fullText);
            },
            onReasoning: fullReasoning => {
              if (!isCurrentSession() || controller.signal.aborted) return;
@@ -923,6 +922,7 @@ export default function useChatSend({
       }
      } catch (error) {
        clearToolBubble();
+       streamThrottle.flush(); // 节流窗口里压着的最后一份文本先发出去（下面按当前 state 结算）
        if (isConfigChangedError(error)) {
          sourceChangedRef.current = true;
          setMessages(current => (

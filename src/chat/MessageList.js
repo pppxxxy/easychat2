@@ -172,6 +172,8 @@ function MessageList({
             // 非多选状态下不包 Pressable，多选入口改由三点菜单的「选择消息」提供。
             const distanceFromBottom = totalCount - 1 - (hiddenCount + index);
             const shouldAnimate = distanceFromBottom < 15;
+            // 这里每帧都会重算（列表一变距离就变），但 AnimatedEntry 只在**挂载时**取一次
+            // delay：否则新消息到达会让旧消息的入场动画跟着重启（整屏闪一下）。
             const entryDelay = distanceFromBottom * 40;
             // 该消息之后是否有分叉点分支入口（按消息 id 命中）。
             const forkBranches = forkMap ? (forkMap.get(String(message.id || '')) || []) : [];

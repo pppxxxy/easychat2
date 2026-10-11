@@ -26,11 +26,17 @@ export function trimHistoryByBoundary(historyMessages, boundary) {
 }
 
 // 流式增量合并：文本 token 只更新仍处于 pending 的占位符（waitingForResponse 随首个 token 落地）。
+// **文本未变时返回原数组引用**：流式每个 token 都会走这里，若恒返回新数组，上层的
+// useMemo / React.memo 全部失效，MessageList 的整表 .map() 会每个 token 重跑一遍。
 export function mergeStreamedText(messages, pendingId, fullText) {
-  return (messages || []).map(item => (
-    item && item.id === pendingId && item.pending
-      ? { ...item, text: fullText, waitingForResponse: false }
-      : item
+  const list = Array.isArray(messages) ? messages : [];
+  const index = list.findIndex(item => item && item.id === pendingId && item.pending);
+  // 未命中（含非数组入参的兜底）：原样返回，不制造新数组
+  if (index === -1) return list;
+  const target = list[index];
+  if (target.text === fullText && target.waitingForResponse === false) return list;
+  return list.map((item, i) => (
+    i === index ? { ...item, text: fullText, waitingForResponse: false } : item
   ));
 }
 
