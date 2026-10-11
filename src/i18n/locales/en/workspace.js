@@ -407,7 +407,7 @@ export const workspace = {
   'workspace.plugins.uninstall': 'Uninstall',
   'workspace.plugins.install': 'Install',
   'workspace.plugins.installedTag': 'Installed',
-  'workspace.plugins.meta': '{slots} UI slots · {tools} tools',
+  'workspace.plugins.meta': '{slots} UI slots · {tools} tools (sandboxed, not yet wired to the agent)',
   'workspace.plugins.slotDemo': 'UI slots (registerable UI)',
   'workspace.plugins.market': 'Built-in market',
   'workspace.plugins.installFailTitle': 'Install failed',

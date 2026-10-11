@@ -17,6 +17,18 @@
 
 import { SESSION_EVENTS_MAX_KB_DEFAULT, retentionOf, sessionEventsMaxBytes } from './retention.js';
 
+// UTF-8 字节长度：retention 的上限是「KB」（字节），而 `String.length` 是 UTF-16 码元数——
+// CJK 下 1 字符≈3 字节，用 .length 比会把上限放大到实际的三倍。手算避免依赖 TextEncoder
+// （RN 各运行时对它的支持不一）。纯函数，无依赖。
+export function utf8ByteLength(text) {
+  let bytes = 0;
+  for (const ch of String(text == null ? '' : text)) {
+    const cp = ch.codePointAt(0);
+    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
 export const SESSIONS_DIR = '.easychat/sessions';
 export const SESSION_EVENT_TYPES = Object.freeze([
   'user', 'assistant', 'tool_call', 'tool_result',
@@ -103,7 +115,8 @@ export async function appendSessionEvent(store, characterId, sessionId, type, pa
       existing = ''; // 首次写入：文件不存在是常态
     }
     // 上限取「生效口径」（store.retention，缺失 = 默认 512KB）：配置改了立即生效。
-    if (existing.length > sessionEventsMaxBytes(retentionOf(store))) return null; // 到上限停止追加（如实失败）
+    // 用 UTF-8 字节数比（不是 String.length）——口径与 KB 常量一致。
+    if (utf8ByteLength(existing) > sessionEventsMaxBytes(retentionOf(store))) return null; // 到上限停止追加（如实失败）
     const seq = existing ? existing.split('\n').filter(Boolean).length : 0;
     const event = createSessionEvent(type, payload, { seq });
     const line = serializeSessionEvent(event);
