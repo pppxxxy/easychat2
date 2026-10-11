@@ -25,8 +25,10 @@ test('系统提示携带缓存计划：前缀 + 其余拼回原文', () => {
   const system = messages.find(m => m.role === 'system');
   assert.ok(system.systemCache, '应带 systemCache');
   const { prefixText } = system.systemCache;
-  // P1（2026-10-11）：断点落在**最长 stable 连续段**（base+persona+format）末尾，
-  // 摘要（dynamic，排在 format 之前）也一并进缓存前缀。
+  // P1（2026-10-11）：断点落在**最后一个 stable 块**上（SECTION_ORDER 里 format 恒 stable
+  // 且恒在最后），所以它之前的动态段（记忆摘要）也一并进缓存前缀——这正是本用例钉住的行为。
+  // （早期注释写作「最长 stable 连续段」是措辞不准：真实分节里 summary 夹在 base 与 format
+  //  之间，按「最长连续段」切只会缓存 base 那一小段，与本用例的期望相反。）
   assert.ok(prefixText.includes('你的名字是测试角色。'), '稳定段在缓存前缀里');
   assert.ok(prefixText.includes('[记忆摘要]'), '断点之前的动态段也进前缀（按块打标）');
   assert.equal(rejoin(system.systemCache), system.content, '拼回与原文一致');

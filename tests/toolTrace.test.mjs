@@ -1,6 +1,9 @@
 // P5：agent transcript 工具轨迹（提取 / 截断 / 展开 / 挂载）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 import {
   TOOL_TRACE_MAX_BYTES,
@@ -10,6 +13,9 @@ import {
   extractToolTrace,
   sanitizeTrace,
 } from '../src/chat/toolTrace.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const USE_CHAT_SEND = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useChatSend.js'), 'utf8');
 
 test('extractToolTrace：保留 assistant(tool_calls)+tool，丢掉纯文本终稿', () => {
   const appended = [
@@ -80,4 +86,21 @@ test('attachToolTrace：挂到首个助手正文分段；空轨迹/无分段不�
   // 空轨迹 / 无正文分段 → 原样
   assert.equal(attachToolTrace(msgs, replyParts, []), msgs);
   assert.equal(attachToolTrace(msgs, [{ id: 'a2', kind: 'sticker' }], trace), msgs);
+});
+
+// D 线 5752f6d 只补了 agent 侧（中止时也发 transcript）。若宿主中止分支不挂轨迹，
+// 「按了停止之后这一轮做过什么」照样查不到——这条守卫钉住宿主侧那一半。
+test('宿主中止路径：先结算占位气泡，再把本轮工具轨迹挂上去', () => {
+  assert.ok(
+    USE_CHAT_SEND.includes('onTranscript: msgs => { turnTrace = extractToolTrace(msgs); }'),
+    'agent 侧要把 transcript 收进 turnTrace'
+  );
+  const abortAt = USE_CHAT_SEND.indexOf("recordStats('');");
+  assert.ok(abortAt > 0, '找不到中止分支（recordStats(\'\')）');
+  const branch = USE_CHAT_SEND.slice(abortAt, abortAt + 1000);
+  const settleAt = branch.indexOf('settlePendingMessage(current, pendingAssistantMessage.id');
+  const attachAt = branch.indexOf('attachToolTrace(settled, [{ id: pendingAssistantMessage.id }], turnTrace)');
+  assert.ok(settleAt >= 0, '中止分支应先结算占位气泡');
+  assert.ok(attachAt >= 0, '中止分支必须把 turnTrace 挂到结算后的消息上');
+  assert.ok(settleAt < attachAt, '顺序不能反：先结算（拿到最终消息列表）再挂轨迹');
 });

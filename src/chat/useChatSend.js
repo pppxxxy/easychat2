@@ -860,11 +860,17 @@ export default function useChatSend({
        if (controller.signal.aborted) {
          recordStats('');
          clearToolBubble();
-         setMessages(current => (
-           isCurrentSession()
-             ? settlePendingMessage(current, pendingAssistantMessage.id, tRef.current)
-             : current
-         ));
+         setMessages(current => {
+           if (!isCurrentSession()) return current;
+           const settled = settlePendingMessage(current, pendingAssistantMessage.id, tRef.current);
+           // 中止那一轮的工具轨迹不能丢（D 线 5752f6d 的**宿主侧**那一半）：agent 侧已在中止
+           // 路径发出 transcript，这里把它挂到结算后的消息上（与成功路径同款 attachToolTrace）。
+           // 占位气泡若无正文且无推理，settlePendingMessage 会把它丢掉——那时按 id 匹配不上，
+           // 原样返回：没有可挂的消息，也不该凭空造一条。
+           return turnTrace
+             ? attachToolTrace(settled, [{ id: pendingAssistantMessage.id }], turnTrace)
+             : settled;
+         });
          return;
        }
        // 解析表情包指令：回复可能被拆成「文字消息 + 若干表情包消息」。
