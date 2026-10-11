@@ -317,18 +317,22 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 13,
+    // 文字块与右侧开关/箭头之间留出间距（原先文字被挤到贴边）。
+    columnGap: tokens.spacing.sm + 2,
+    paddingVertical: 14,
     borderBottomWidth: tokens.border.thin,
     borderBottomColor: theme.colors.divider,
   },
-  linkLeft: { flexDirection: 'row', alignItems: 'center' },
+  // flex:1 让文字块占满「图标与右侧控件之间」的可用宽度——否则文字按自然宽换行、右侧控件顶到边。
+  linkLeft: { flex: 1, flexDirection: 'row', alignItems: 'flex-start' },
+  linkIcon: { marginTop: 2 },
   chatSettingsText: { color: theme.colors.textMuted, fontSize: 15, marginLeft: tokens.spacing.sm + 2 },
   // P2-7：上下文占用明细（聊天设置弹层里的分段列表）。
   contextBlock: { marginTop: tokens.spacing.md, marginLeft: tokens.spacing.sm + 2 },
   contextTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '700', marginBottom: 6 },
   contextLine: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 2 },
   bodyHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginTop: 6 },
-  chatSettingsHint: { color: theme.colors.textFaint, fontSize: 13 },
+  chatSettingsHint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: fonts.scaled(18), marginTop: 3 },
   modalList: { maxHeight: 360 },
   modalRow: {
     flexDirection: 'row',
