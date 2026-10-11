@@ -1,20 +1,44 @@
 // 备份包纯函数：版本校验、敏感字段脱敏、pending 过滤与导入计划。
 
+import { SECRET_FIELDS, SECRET_OBJECT_FIELDS } from './secretStore.js';
+
 export const BACKUP_SCHEMA_VERSION = 1;
 // 角色卡与聊天媒体单条可达十几 MB，整包上限放宽到 2GB，避免正常备份被误判超限。
 export const BACKUP_MAX_BYTES = 2048 * 1024 * 1024;
 export const BACKUP_MEDIA_DIRECTORIES = ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge'];
 
+// 导出侧口径 = 本表 ∪ **保险箱保护的全部字段**，必须取并集：
+// 保险箱保护哪些字段，备份就必须清掉哪些字段，否则「盘上只有引用」这条保护会被备份绕过
+// ——旧明文数据尤其如此（`secure:v1:` 前缀判定救不了从没被保护过的老值：实测
+//  mcpToken / githubToken / headers 里的 Bearer token 都会被原样写进备份包）。
+// 本表额外收 `secret`/`password`/`token`/`accessToken`/`refreshToken` 这类通用名：
+// 备份里清掉它们是安全的（备份本就不该带密钥），而保险箱收通用名会把非密钥字段也搬进
+// 安全存储，所以两边**故意不同**，但必须是包含关系——包含关系由这里的展开保证，不再靠注释同步。
 // 精确匹配密钥字段名，不做子串匹配：否则 `maxTokens`（含 token）、`apiKeyUrl`（含 apiKey）
-// 这类正常字段会被整段清空，导出/恢复后用户配置静默丢失。与 secretStore.SECRET_FIELDS 对齐。
-const SECRET_FIELD_NAMES = new Set(['apiKey', 'appSecretKey', 'secretKey', 'secret', 'password', 'token', 'accessToken', 'refreshToken']);
+// 这类正常字段会被整段清空，导出/恢复后用户配置静默丢失。
+const SECRET_FIELD_NAMES = new Set([
+  ...SECRET_FIELDS,
+  'secret', 'password', 'token', 'accessToken', 'refreshToken',
+]);
 
 function isSecretFieldName(key) {
   return SECRET_FIELD_NAMES.has(String(key));
 }
 
+// 对象形态的密钥字段（MCP 自定义请求头）：键名用户自定，只能整体处理——
+// **值全部清空、键名保留**，让用户恢复后知道「这里原本配了头，要重填」。
+function isSecretObjectFieldName(key) {
+  return SECRET_OBJECT_FIELDS.has(String(key));
+}
+
+function blankSecretObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return Object.fromEntries(Object.keys(value).map(name => [name, '']));
+}
+
 export function sanitizeBackupValue(value, key = '') {
   if (isSecretFieldName(key)) return '';
+  if (isSecretObjectFieldName(key)) return blankSecretObject(value);
   if (typeof value === 'string') {
     return value.startsWith('secure:v1:') ? '' : value;
   }
@@ -47,6 +71,7 @@ export function filterPendingMessages(value) {
 // 语义与分别调用 sanitizeBackupValue / filterPendingMessages 等价。
 export function sanitizeAndFilterBackupValue(value, key = '') {
   if (isSecretFieldName(key)) return '';
+  if (isSecretObjectFieldName(key)) return blankSecretObject(value);
   if (typeof value === 'string') {
     return value.startsWith('secure:v1:') ? '' : value;
   }

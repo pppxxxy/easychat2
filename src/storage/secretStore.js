@@ -19,7 +19,9 @@
 import { registerSecretValues } from './secrets.js';
 import { recordDiagnostic } from './diagnostics.js';
 
-const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'githubToken', 'githubAccessToken', 'githubRefreshToken', 'mcpToken']);
+// 导出给 dataBackup.js：备份脱敏的字段集必须**包含**保险箱保护的字段集，否则备份会成为
+// 绕过保险箱的旁路（见那里的 SECRET_FIELD_NAMES）。
+export const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'githubToken', 'githubAccessToken', 'githubRefreshToken', 'mcpToken']);
 // 需要按「对象」保护的字段：**键名由用户自定、值才是密钥**的映射（当前只有 MCP 自定义请求头）。
 // 为什么不能只加进 SECRET_FIELDS：那里的判据是「值是字符串」，而 headers 是 `{名: 值}` 对象，
 // 逐个值保护才是对的——整对象 JSON 化会撞 expo-secure-store 的 **2048 字节单值上限**
@@ -28,7 +30,7 @@ const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'githubTok
 // 为什么按**域键前缀**限定而不是全局按键名匹配：`headers` 太通用，将来别的域出现同名对象时
 // 不该被无声搬进安全存储（那边有大小上限，语义上又未必是密钥）。与 SECRET_FIELDS 的
 //「精确匹配键名、不做子串匹配」是同一条纪律。
-const SECRET_OBJECT_FIELDS = new Map([['headers', ['@easychat2_mcp_servers']]]);
+export const SECRET_OBJECT_FIELDS = new Map([['headers', ['@easychat2_mcp_servers']]]);
 const REF_PREFIX = 'secure:v1:';
 const SECURE_STORE_PREFIX = 'easychat2_secret_';
 

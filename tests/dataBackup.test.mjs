@@ -181,3 +181,39 @@ test('planBackupImport：opaqueRaw 条目透传，不做结构化清理', () => 
   assert.equal(plan.valid, true);
   assert.deepEqual(plan.storage[0], { key: '@easychat2_broken', opaqueRaw: '{ bad' });
 });
+
+// 回归 2026-10-11 逐行审查（顺带核对发现的第二条泄漏路径）：
+// dataBackup 自带的 SECRET_FIELD_NAMES 注释写着「与 secretStore.SECRET_FIELDS 对齐」，
+// 实际是另一份手写列表——漏了 githubToken / githubAccessToken / githubRefreshToken /
+// mcpToken，也完全不认识 headers 这种对象形态的密钥字段。
+// 于是「盘上只有引用」的保护被备份绕过：**旧明文数据**（从没被保险箱保护过）会被原样
+// 写进备份包（实测 mcpToken / githubToken / headers 里的 Bearer token 都在）。
+test('回归：备份脱敏口径必须覆盖保险箱保护的全部字段（不能只靠 secure:v1: 前缀兜底）', () => {
+  const out = sanitizeBackupValue([{
+    id: 'notes',
+    mcpToken: 'zQ7mcptokenplain9x',
+    githubToken: 'zQ7githubtokenplain9x',
+    githubAccessToken: 'zQ7githubaccesstoken9x',
+    githubRefreshToken: 'zQ7githubrefreshtoken9x',
+    headers: { Authorization: 'Bearer zQ7headerplainsecretvalue9x' },
+  }]);
+  assert.equal(out[0].mcpToken, '');
+  assert.equal(out[0].githubToken, '');
+  assert.equal(out[0].githubAccessToken, '');
+  assert.equal(out[0].githubRefreshToken, '');
+  // 对象形态的密钥字段：值全部清空、键名保留（用户恢复后知道要重填）
+  assert.deepEqual(out[0].headers, { Authorization: '' });
+  assert.equal(JSON.stringify(out).includes('zQ7'), false, '备份包里不得出现任何明文密钥');
+});
+
+test('回归：合并遍历（导出路径）同样清空对象形态的密钥字段', () => {
+  const payload = buildBackupPayload({
+    storage: [{
+      key: '@easychat2_mcp_servers',
+      value: [{ id: 'notes', headers: { Authorization: 'Bearer zQ7headerplainsecretvalue9x' } }],
+    }],
+    media: [],
+  });
+  assert.deepEqual(payload.storage[0].value[0].headers, { Authorization: '' });
+  assert.equal(JSON.stringify(payload).includes('zQ7header'), false);
+});
