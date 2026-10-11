@@ -55,3 +55,18 @@ export function extractStickerDirectives(text, names) {
 function normalizeDirectiveWhitespace(text) {
   return String(text || '').replace(/\n{3,}/g, '\n\n');
 }
+
+// 表情包教学提示（模型可见的提示词，刻意不进 i18n；开关开启且有表情包时注入系统提示）。
+// 措辞可改。清单为空时返回空串——调用方据此不注入（无表情包就不该发指令）。
+const STICKER_INSTRUCTION_TEMPLATE = [
+  '你可以在情绪合适时用表情包回应。想发表情包时，在回复里单独写一行：[[表情包:名称]]，',
+  '名称必须严格从下列清单中选择：{names}。',
+  '不要自造、改写或翻译名称；也不要在每条回复里都发表情包，只在情绪真正贴合时偶尔使用。',
+].join('\n');
+
+export function buildStickerInstruction(names) {
+  const list = (Array.isArray(names) ? names : []).map(cleanName).filter(Boolean);
+  if (list.length === 0) return '';
+  // 用替换函数而非替换字符串：表情包名可含 `$&`/`$1` 等模式，作为替换字符串会被解释成注入。
+  return STICKER_INSTRUCTION_TEMPLATE.replace('{names}', () => list.join('、'));
+}

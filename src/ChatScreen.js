@@ -1103,15 +1103,15 @@ export default function ChatScreen() {
     await runSummarize(session, messagesRef.current, true, normalizeCompactionFocus(focus));
   }, [runSummarize, t]);
 
-  const downloadImageEnabledRef = useRef(false);
   const runImageDownloadsRef = useRef(null);
-  // 解析助手回复：拆成文字 + 表情包消息，并剥离 <download_image:URL> 指令。
-  // 图片下载在回复落屏后异步执行（不阻塞）；sessionId 用于「切走后不再补图」的守卫。
+  // 解析助手回复：拆成文字 + 表情包消息，剥离 <download_image:URL> 指令；下载在落屏后异步执行。
   const buildAssistantReply = useCallback((replyText, sessionId) => {
+    const opts = chatOptionsRef.current;
     const result = buildAssistantReplyParts({
       replyText,
       stickers: stickersRef.current,
-      downloadEnabled: downloadImageEnabledRef.current === true,
+      downloadEnabled: opts.downloadImage === true,
+      sticker: { enabled: opts.stickerEnabled === true, chance: opts.stickerChance, position: opts.stickerPosition },
     });
     if (result.imageDownloads.length) {
       runImageDownloadsRef.current?.(result.imageDownloads, sessionId);
@@ -1752,9 +1752,8 @@ export default function ChatScreen() {
     });
   }, [t]);
   useEffect(() => {
-    downloadImageEnabledRef.current = chatOptions.downloadImage === true;
     runImageDownloadsRef.current = runImageDownloadsForSession;
-  }, [chatOptions.downloadImage, runImageDownloadsForSession]);
+  }, [runImageDownloadsForSession]);
   useEffect(() => {
     sendTextRef.current = sendText;
   }, [sendText]);

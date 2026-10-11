@@ -17,6 +17,19 @@ const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'end', labelKey: 'settings.inlineImage.position.end', metaKey: 'settings.inlineImage.position.endMeta' },
 ];
 
+// 表情包概率档位（0~1）与相对文字的位置。
+const STICKER_CHANCE_OPTIONS = [
+  { value: '0', labelKey: 'settings.sticker.chance.never' },
+  { value: '0.25', labelKey: 'settings.sticker.chance.low' },
+  { value: '0.5', labelKey: 'settings.sticker.chance.half' },
+  { value: '0.75', labelKey: 'settings.sticker.chance.high' },
+  { value: '1', labelKey: 'settings.sticker.chance.always' },
+];
+const STICKER_POSITION_OPTIONS = [
+  { value: 'below', labelKey: 'settings.sticker.position.below' },
+  { value: 'above', labelKey: 'settings.sticker.position.above' },
+];
+
 export default function ExtensionsSection(props) {
   const {
     styles,
@@ -173,6 +186,39 @@ export default function ExtensionsSection(props) {
             />
           </View>
           <FieldHint style={styles.hint}>{t('settings.downloadImage.hint')}</FieldHint>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="happy-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('settings.sticker.enable')}</Text>
+            </View>
+            <Switch
+              value={!!(chatOptions && chatOptions.stickerEnabled === true)}
+              onValueChange={value => updateChatOption('stickerEnabled', value)}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.sticker.hint')}</FieldHint>
+          {chatOptions && chatOptions.stickerEnabled === true ? (
+            <>
+              <FieldLabel style={styles.label}>{t('settings.sticker.chance')}</FieldLabel>
+              <CollapsibleSelect
+                label={t('settings.sticker.chanceLabel')}
+                value={String(chatOptions.stickerChance)}
+                options={STICKER_CHANCE_OPTIONS.map(option => ({ ...option, label: t(option.labelKey) }))}
+                onSelect={value => updateChatOption('stickerChance', Number(value))}
+                placeholder={t('settings.sticker.chance.half')}
+              />
+              <FieldLabel style={styles.label}>{t('settings.sticker.position')}</FieldLabel>
+              <CollapsibleSelect
+                label={t('settings.sticker.positionLabel')}
+                value={chatOptions.stickerPosition}
+                options={STICKER_POSITION_OPTIONS.map(option => ({ ...option, label: t(option.labelKey) }))}
+                onSelect={value => updateChatOption('stickerPosition', value)}
+                placeholder={t('settings.sticker.position.below')}
+              />
+            </>
+          ) : null}
           <FieldLabel style={styles.label}>{t('settings.inlineImage.otherFeatures')}</FieldLabel>
           <TouchableOpacity
             style={styles.linkRow}
