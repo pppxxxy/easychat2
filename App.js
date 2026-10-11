@@ -59,6 +59,8 @@ import {
   isLocalApiServerAvailable,
   stopLocalApiServer,
 } from './src/localModel/localApiServer.js';
+import { isMcpServerAvailable, stopMcpServer } from './src/mcp/serverBridge.js';
+import { attachRuntimeMcpServer, syncMcpServer } from './src/mcp/serverRuntime.js';
 import { runHeadlessAgent } from './src/workspace/headlessAgent.js';
 import { tryAcquireResource } from './src/resourceMutex.js';
 import SecurityGate from './src/security/SecurityGate.js';
@@ -581,6 +583,23 @@ function LocalApiServerBridge() {
   return null;
 }
 
+// 内置 MCP Server 桥：接原生事件（有请求就交给协议层应答）+ 按设置启停。
+// 与上面那个本地 API 服务桥的**关键差别**：这里**不监听 AppState**。本地 API 服务是给
+// 本机自己用的（退后台就该停，省端口省电）；MCP 是给另一台设备上的 agent 用的，
+// 一退后台就断会让人以为坏了。进程被 Android 杀掉才会断，那时原生 invalidate() 会收尾。
+function McpServerBridge() {
+  useEffect(() => {
+    if (!isMcpServerAvailable()) return undefined;
+    const detach = attachRuntimeMcpServer();
+    syncMcpServer().catch(() => {});
+    return () => {
+      detach();
+      stopMcpServer().catch(() => {});
+    };
+  }, []);
+  return null;
+}
+
 function TabBarIcon({ routeName, color, focused, palette }) {
   const [outline, filled] = TAB_ICONS[routeName] || ['ellipse-outline', 'ellipse'];
   const scale = useTabIconScale(focused);
@@ -663,6 +682,7 @@ function AppShell() {
       <StatusBar style={palette.id === 'light' ? 'dark' : 'light'} />
       <ProactiveMessageBridge navigationReady={navigationReady} />
       <LocalApiServerBridge />
+      <McpServerBridge />
       <Header />
       <Tab.Navigator
         screenListeners={{ tabPress: handleTabPress }}

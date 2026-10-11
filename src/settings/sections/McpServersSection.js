@@ -1,12 +1,17 @@
 // 设置页「MCP 服务器」卡（spec: agent-extensibility T1-d）：管理第三方 MCP 服务器。
 // 内置 GitHub 仍有专用卡（GithubSection）——本卡只列第三方服务器。
 // 状态与保存逻辑在 settings/useMcpServers.js，本卡只做展示与回调转发。
+//
+// 卡内还挂了「内置 MCP Server」子卡（McpServerCard，反方向：让外部 agent 连进来）。
+// 放同一张卡的理由：两个方向本来就是一件事（外连/被连），且 SettingsScreen 的
+// 区块渲染顺序契约（SECTION_RENDER_ORDER 注释说要同步五处）不必为它改动。
 
 import React from 'react';
 import { Switch, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, GhostButton, SecondaryButton, TextField } from '../../ui/index.js';
+import McpServerCard from '../McpServerCard.js';
 import SecretTextField from '../SecretTextField.js';
 
 export default function McpServersSection(props) {
@@ -35,6 +40,7 @@ export default function McpServersSection(props) {
 
   return (
     <>
+      <McpServerCard styles={styles} theme={theme} t={t} />
       <FieldHint style={styles.hint}>{t('settings.mcp.subtitle')}</FieldHint>
       {list.length === 0 ? (
         <FieldHint style={styles.hint}>{t('settings.mcp.empty')}</FieldHint>

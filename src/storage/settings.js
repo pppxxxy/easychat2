@@ -2,11 +2,15 @@
 // 实现已拆到 src/storage/settings/ 子目录：thinking（思考）、sampling（采样）、
 // imageProvider（生图 provider id 归一化叶子）、imageGen（生图配置）、
 // chatOptions（聊天选项/外观/UI 分区/内联配图/音乐片段）、tts（语音播报/转写）、
-// memorySummary（记忆总结）、plugins（插件）、onboarding（免责声明/引导）、
-// index（聚合导出）。依赖单向，无循环。
+// memorySummary（记忆总结）、plugins（插件）、mcpServer（内置 MCP 服务器）、
+// onboarding（免责声明/引导）、index（聚合导出）。依赖单向，无循环。
 
 export {
   DISCLAIMER_VERSION,
+  MCP_SERVER_PORT_DEFAULT,
+  MCP_SERVER_PORT_MAX,
+  MCP_SERVER_PORT_MIN,
+  MCP_SERVER_SCOPES,
   SAMPLING_FIELDS,
   THINKING_DISPLAYS,
   THINKING_LEVELS,
@@ -24,6 +28,7 @@ export {
   getEnabledPlugins,
   getImageGenSettings,
   getInlineImageSettings,
+  getMcpServerSettings,
   getMemorySummarySettings,
   getMusicClipSettings,
   getPlugins,
@@ -34,13 +39,16 @@ export {
   getUiSections,
   isDisclaimerAcknowledged,
   isOnboardingDone,
+  normalizeMcpServerSettings,
   normalizeTranscriptionSettings,
   patchAppearanceSettings,
+  patchMcpServerSettings,
   patchMemorySummarySettings,
   saveAppearanceSettings,
   saveChatOptions,
   saveImageGenSettings,
   saveInlineImageSettings,
+  saveMcpServerSettings,
   saveMemorySummarySettings,
   saveMusicClipSettings,
   savePlugins,

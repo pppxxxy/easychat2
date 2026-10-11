@@ -22,6 +22,8 @@ ios/
 !plugins/screenOverlay/android/**
 !plugins/chaquopy/android/
 !plugins/chaquopy/android/**
+!plugins/mcpServer/android/
+!plugins/mcpServer/android/**
 *.jks
 *.keystore
 .env
