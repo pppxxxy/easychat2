@@ -100,13 +100,16 @@ test('审批钩子无硬编码中文（注释除外）', () => {
 });
 
 // 气泡形态已从「一段文字、end 时清掉」升级为「可见的结构化气泡」（见
-// tests/chatTools.test.mjs 的展示逻辑断言）。这里只钉住两条不变的属性：
+// tests/chatTools.test.mjs 的展示逻辑断言）。2026-10 起气泡消息的构造点与
+// 状态变换挪到 chat/toolBubbleView.js 的 updateToolBubbles（隐藏开关也走它，
+// 行为验证见 tests/toolBubbleVisibility.test.mjs），这里仍只钉两条不变的属性：
 // 临时不落库、三个出口清理。
 test('工具气泡：临时不落库 + 三个出口清理', () => {
-  assert.ok(source.includes('TOOL_BUBBLE_KIND'), '工具气泡有独立 kind');
-  assert.ok(/kind: TOOL_BUBBLE_KIND,[\s\S]{0,300}transient: true/.test(source),
+  const view = fs.readFileSync(path.resolve('src/chat/toolBubbleView.js'), 'utf8');
+  assert.ok(view.includes('TOOL_BUBBLE_KIND'), '工具气泡有独立 kind');
+  assert.ok(/kind: TOOL_BUBBLE_KIND,[\s\S]{0,300}transient: true/.test(view),
     '工具气泡标记 transient（落库过滤会剔除）');
-  assert.ok(source.includes("event.phase === 'start'"), 'start 打气泡');
+  assert.ok(source.includes('toolBubbleState(event)'), '事件经统一映射（start→running / end→done|error）');
   assert.ok(source.includes('setToolBubble('), 'end/收尾更新气泡状态');
   const clears = (source.match(/clearToolBubble\(\)/g) || []).length;
   assert.ok(clears >= 3, `至少三处清理（中止/成功/异常），实际 ${clears}`);

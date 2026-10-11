@@ -33,7 +33,8 @@ import { EMPTY_ONLINE_REQUEST_CONTEXT, resolveOnlineRequestContext } from './onl
 // I1：Steering 队列（运行中补充指令）——纯函数工厂，队列本身只在「本轮会跑工具循环」时建。
 import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
-import { TOOL_BUBBLE_KIND } from './chatConstants.js';
+// 工具过程气泡：事件→状态映射、隐藏判定与状态变换都在 toolBubbleView.js（唯一来源）。
+import { createToolBubbleApplier, toolBubbleState } from './toolBubbleView.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
 // O1 超限结果落盘（M 系）+ 工作区钩子事件面（D 系：注入/预置禁令，取代旧的 shellHookDenyRules）。
@@ -296,34 +297,18 @@ export default function useChatSend({
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
      // 工具过程气泡：由 onToolEvent 驱动，临时消息（不落库、不进上下文）。
-     // 同一个气泡对象原地更新状态（running → done/error），不逐轮堆叠。
-     const toolStatusId = `${Date.now()}-tool-bubble`;
-     const clearToolBubble = () => {
-       if (!isCurrentSession()) return;
-       setMessages(current => (
-         isCurrentSession() ? current.filter(item => item.id !== toolStatusId) : current
-       ));
-     };
-     const setToolBubble = (name, status, error = '') => {
-       if (!isCurrentSession()) return;
-       setMessages(current => {
-         if (!isCurrentSession()) return current;
-         const without = current.filter(item => item.id !== toolStatusId);
-         if (!name || !status) return without;
-         return [...without, {
-           id: toolStatusId,
-           role: ASSISTANT_ID,
-           text: '',
-           kind: TOOL_BUBBLE_KIND,
-           toolName: name,
-           toolStatus: status,
-           toolError: error,
-           pending: true,
-           transient: true,
-           timestamp: Date.now(),
-         }];
-       });
-     };
+     // 挂出 / 原地更新 / 清除、以及**隐藏判定**都在 toolBubbleView.js 里（唯一实现）。
+     // 可见性直读 chatOptionsRef：设置页改完回到聊天页即生效，本轮已在跑的工具也跟随。
+     // **审批弹层不走这里**：需要确认时由下面的 onToolApproval → approveToolCall 独立弹出。
+     // 隐藏过程提示**绝不**隐藏审批，否则工具会在用户不知情时执行（安全问题，不是偏好）。
+     const toolBubble = createToolBubbleApplier({
+       id: `${Date.now()}-tool-bubble`,
+       isCurrentSession,
+       getVisibility: () => chatOptionsRef.current,
+       setMessages,
+     });
+     const clearToolBubble = toolBubble.clear;
+     const setToolBubble = toolBubble.set;
      // P0-7：降级链中途换了模型 → 记下「从谁换到谁」，由 ChatScreen 在输入栏上方
      // 如实提示（不弹框、不打断生成）。只记当前会话：切走后旧会话的提示不该跟过来。
      const noteModelFallback = info => {
@@ -721,14 +706,13 @@ export default function useChatSend({
                 });
               },
               onToolEvent: event => {
-                // 可见的工具过程气泡：start 时挂出「正在…」，end 时原地改成「完成/失败」。
+                // 可见的工具过程气泡：start 挂出「正在…」，end 原地改成「完成/失败」。
+                // 事件→状态映射复用 toolBubbleState，不在这里重写一遍。
                 // 结束后不立刻清掉——用户要能看到「刚才搜过」，它随本轮结束一起消失
                 //（下面 clearToolBubble 在各收尾分支统一调用），且不落库。
-                if (!event) return;
-                if (event.phase === 'start') setToolBubble(event.name, 'running');
-                else if (event.phase === 'end') {
-                  setToolBubble(event.name, event.ok === false ? 'error' : 'done', event.error || '');
-                }
+                // 隐藏只掐「显示」：事件处理照旧，工具循环本身完全不受影响。
+                const state = toolBubbleState(event);
+                if (state) setToolBubble(state.name, state.status, state.error || '');
               },
               // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，不接的话 registry 会把需要
               // 确认的工具一律拒绝。钩子规则（before_shell / before_tool）**不走这里**：它们
