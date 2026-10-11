@@ -31,7 +31,10 @@ jobs:
             echo "Invalid EAS build id" >&2
             exit 1
           fi
-          npx eas-cli@latest build:view "$BUILD_ID" --json | tee eas-build-metadata.json
+          # 版本必须钉死（与 build-apk.yml 的 eas-cli@24.8.0 一致）：不写版本的「最新标签」
+          # 是可变引用，上游一发新版，这个工作流下次跑的就是没审过的代码（供应链风险）。
+          # 本仓禁止该标签形态，见 tests/ciWorkflows.test.mjs。
+          npx eas-cli@24.8.0 build:view "$BUILD_ID" --json | tee eas-build-metadata.json
 
       - name: Download and inspect EAS logs
         run: |
