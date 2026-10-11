@@ -7,9 +7,9 @@
   "fileLineBaseline": {
     "src/ChatScreen.js": 3170,
     "src/SettingsScreen.js": 2322,
-    "src/workspace/screen/GithubPanel.js": 1984,
     "src/chat/useChatSend.js": 1990,
-    "src/workspace/screen/ChatPanel.js": 1853,
+    "src/workspace/screen/GithubPanel.js": 1984,
+    "src/workspace/screen/ChatPanel.js": 1851,
     "src/character/CharacterDetailScreen.js": 1714,
     "src/workspace/screen/FilesPanel.js": 1580,
     "src/chat/chatStyles.js": 1558,

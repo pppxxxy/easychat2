@@ -6,7 +6,12 @@
 import { createAbortError, isCanceledError, streamChatCompletion } from '../network/api.js';
 // TOOL_RESULT_LIMIT 由 messages.js 定义（序列化就在那里），这里 import 而非再定义一份：
 // 2026-10-10 前两处各写 16*1024，改一处漏一处不会报错（审查报告 §0.4 第 2 条）。
+// M 系 O1 起序列化是异步的（超限先落盘再头尾预览），用 serializeToolResultAsync。
 import { TOOL_RESULT_LIMIT, serializeToolResultAsync, toAssistantMessage } from './messages.js';
+
+// 再导出：loop.js 曾是 TOOL_RESULT_LIMIT 的对外出口（M 系测试从 runAgentTurn 的模块取它）。
+// D 系把唯一定义收敛到 messages.js 后，这里保留 re-export 以免调用点/测试拿到 undefined。
+export { TOOL_RESULT_LIMIT };
 import { listToolsForMode, runTool } from './tools/registry.js';
 import { createTurnMachine, createTurnState } from './turn/turnState.js';
 import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';

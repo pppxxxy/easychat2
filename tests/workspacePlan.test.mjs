@@ -178,4 +178,19 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   //（见 resolveSendText 的注释与回归测试）。
   assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
   assert.ok(fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8').includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  // 2026-10-10 回归：发送按钮是 onPress={handleSend}，RN 把点击事件对象当第一实参传进来。
+  // 旧判据「overrideText === undefined」认不出事件对象，String(事件) = "[object Object]"，
+  // 于是「工作区发啥都变成 [object Object]」。判据必须是「是不是字符串」，且解析**只有一处
+  // 实现**——纯函数 resolveSendText（src/workspace/chat.js，行为测试在 workspaceChat.test.mjs）。
+  assert.ok(screen.includes('resolveSendText(overrideText, input)'), '文本取用走 resolveSendText 纯函数');
+  assert.equal(
+    screen.includes("typeof overrideText === 'string' ? overrideText : input"),
+    false,
+    '不得再内联一份判据（发送/草稿保护/compact 三处必须共用 resolveSendText）'
+  );
+  assert.equal(
+    screen.includes('overrideText === undefined ? input : overrideText'),
+    false,
+    '不得退回「只判 undefined」的旧判据（会把点击事件对象当文本）'
+  );
 });

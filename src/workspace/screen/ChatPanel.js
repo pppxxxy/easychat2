@@ -62,6 +62,7 @@ import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
 import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
+import { buildReactiveCompactDeps } from '../../chat/sessionCompaction.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
 import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
@@ -1022,7 +1023,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     if (controllerRef.current) controllerRef.current.abort();
   }, []);
 
-  // I2：overrideText 只认字符串——`onPress={handleSend}` 会传点击事件对象，见 resolveSendText。
+  // I2：overrideText——批准链路带确认文本发起。判据必须是「是不是字符串」而不是「是不是 undefined」：
+  // 发送按钮是 onPress={handleSend}，RN 会把点击事件对象当第一实参传进来，它不是 undefined，
+  // String(事件) = "[object Object]"（工作区发啥都变成它）；非字符串一律当没传（用输入框内容）。
+  // 解析收敛到纯函数 resolveSendText（src/workspace/chat.js，有行为回归测试）——发送/草稿保护/`/compact`
+  // 三处判据共用同一实现，不再各处内联。
   const handleSend = useCallback(async overrideText => {
     const text = resolveSendText(overrideText, input);
     // N2：手动压缩命令 `/compact`（工作区会话）。
@@ -1274,12 +1279,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
               const compacted = await runReactiveCompact({
                 messages: request,
                 error,
-                deps: {
-                  summarize: req => sendChatMessage(req, {
-                    stream: false,
-                    ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}),
-                  }),
-                },
+                deps: buildReactiveCompactDeps({
+                  store: storeRef.current, characterId: characterIdRef.current,
+                  summarize: req => sendChatMessage(req, { stream: false, ...(cfg ? { expectedConfigId: String(cfg.id || ''), expectedConfigFingerprint: getConfigFingerprint(cfg) } : {}) }),
+                }),
               });
               if (compacted.compacted) {
                 request = compacted.messages;

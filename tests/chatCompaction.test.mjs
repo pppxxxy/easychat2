@@ -106,7 +106,8 @@ test('D3 接线契约：ChatScreen 手动压缩 + 设置弹窗入口 + 失败不
   const screen = fs.readFileSync(path.resolve('src/ChatScreen.js'), 'utf8');
   assert.ok(screen.includes('handleCompactSession'), '压缩 handler 存在');
   assert.ok(screen.includes('stream: false'), '压缩走一次非流式模型调用');
-  assert.ok(screen.includes('applyCompaction(list, summary)'), '成功才替换消息数组');
+  assert.ok(screen.includes('runSessionCompaction({'), 'N2 整合：走四档管线（L0 修剪/L1 K1 清除/L2 摘要/L3 归档）');
+  assert.ok(screen.includes('setMessages(compacted.messages)'), '成功才替换消息数组');
   assert.ok(screen.includes("t('chat.settings.compactFail')"), '失败明确提示');
   assert.ok(screen.includes('compactInfo={compactInfo}'), '体积概览传给设置弹窗');
   const modal = fs.readFileSync(path.resolve('src/chat/ChatSettingsModal.js'), 'utf8');
