@@ -383,6 +383,8 @@ export const chat = {
   'chat.export.failed.title': '导出失败',
   'chat.export.failed.body': '导出或分享失败，请稍后重试。',
   'chat.export.empty': '当前会话没有可导出的消息。',
+  'chat.export.preview.caption': '预览 · 共 {count} 条，可上下滚动',
+  'chat.export.preview.webviewMissing': '当前构建未包含网页组件，无法内嵌预览；导出的 .html 文件仍可在浏览器中打开。',
   'chat.scrubber.closeA11y': '关闭定位',
   'chat.scrubber.toStart': '回到开头',
   'chat.scrubber.trackA11y': '内容定位滑块',

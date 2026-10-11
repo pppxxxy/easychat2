@@ -382,6 +382,8 @@ export const chat = {
   'chat.export.failed.title': 'Export failed',
   'chat.export.failed.body': 'Export or sharing failed. Please try again.',
   'chat.export.empty': 'This chat has no messages to export.',
+  'chat.export.preview.caption': 'Preview · {count} messages, scroll to see all',
+  'chat.export.preview.webviewMissing': 'This build has no web view component, so the inline preview is unavailable; the exported .html file still opens in a browser.',
   'chat.scrubber.closeA11y': 'Close scrubber',
   'chat.scrubber.toStart': 'Back to top',
   'chat.scrubber.trackA11y': 'Content position slider',
