@@ -68,6 +68,7 @@ import BackupPanel from './BackupPanel.js';
 import LocalModelPanel from './LocalModelPanel.js';
 import WorkspaceScreen from './workspace/screen/WorkspaceScreen.js';
 import useVectorSettings from './settings/useVectorSettings.js';
+import useImageRecognitionSettings from './settings/useImageRecognitionSettings.js';
 import useUserProfile from './settings/useUserProfile.js';
 import useGithubMcp from './settings/useGithubMcp.js';
 import useMcpServers from './settings/useMcpServers.js';
@@ -204,6 +205,10 @@ export default function SettingsScreen() {
     removeVectorConfig,
     testVector,
   } = useVectorSettings();
+
+  // 图片识别（OCR）配置域（settings/useImageRecognitionSettings.js）：整包透传给
+  // 拓展页的卡片；密钥仍复用 apiConfigs 的保险箱，没有第二套密钥存储。
+  const imageRecognitionProps = useImageRecognitionSettings();
 
   // 清空当前激活角色的向量记忆桶（维护入口，2026-10-05 审核报告的自救通道）：
   // 历史对话被切块写进桶后，删会话能按会话清，但错位/遗留分段需要一个一键全清的口。
@@ -699,6 +704,7 @@ export default function SettingsScreen() {
       .then(settings => setThinkingDisplay(settings.display))
       .catch(() => {});
     loadVectorSettings();
+    imageRecognitionProps.loadImageRecognitionSettings();
 
     getInlineImageSettings()
       .then(settings => {
@@ -1370,16 +1376,23 @@ export default function SettingsScreen() {
       : '',
     localeId === 'en' ? 'English' : '',
   ].filter(Boolean).join(' · ');
-  const experienceEnabledCount = [
-    chatOptions.streaming === true,
-    chatOptions.fullWidth === true,
-    chatOptions.richHtml !== false,
-    chatOptions.keepDraft === true,
-    chatOptions.timeAware === true,
-    locationSettings && locationSettings.awareness === true,
-    momentsEnabled === true,
-  ].filter(Boolean).length;
-  const experienceSummary = t('settings.summary.enabledCount', { count: experienceEnabledCount });
+  const experienceSummary = t('settings.summary.enabledCount', {
+    count: [
+      chatOptions.streaming === true,
+      chatOptions.fullWidth === true,
+      chatOptions.richHtml !== false,
+      chatOptions.keepDraft === true,
+      chatOptions.timeAware === true,
+      locationSettings && locationSettings.awareness === true,
+      momentsEnabled === true,
+    ].filter(Boolean).length,
+  });
+  // 图片识别开关的折叠摘要：与生图并排显示（见 extensionsSummaryText），
+  // 否则卡片收起后看不出图片识别开没开。
+  const imageRecognitionSummary = imageRecognitionProps.imageRecognition
+    && imageRecognitionProps.imageRecognition.enabled === true
+    ? t('settings.summary.on')
+    : t('settings.summary.off');
   const inlineImageSummary = inlineImage.enabled
     ? (activeImageProvider
       ? `${t('settings.summary.on')} · ${activeImageProvider.label}`
@@ -1478,6 +1491,9 @@ export default function SettingsScreen() {
     setPluginEntryOpen,
     setTtsEntryOpen,
     setTranscriptionEntryOpen,
+    // 图片识别（OCR）模型：整包透传（imageRecognition / imageRecognitionApiConfigs /
+    // imageRecognitionLoaded / load / flush / update），字段全部被 ImageRecognitionCard 消费。
+    ...imageRecognitionProps,
     // 向量记忆
     vectorPayload,
     vectorRef,
@@ -1719,7 +1735,7 @@ export default function SettingsScreen() {
             onToggle={next => toggleSection('extensions', next)}
             right={(
               <View style={styles.summaryRow}>
-                <Text style={styles.collapseSummary} numberOfLines={1}>{inlineImageSummary}</Text>
+                <Text style={styles.collapseSummary} numberOfLines={1}>{inlineImageSummary} · {imageRecognitionSummary}</Text>
                 <TopicButton
                   onPress={() => setTopic('inline-image')}
                   accessibilityLabel={t('settings.inlineImage.a11yTutorial')}

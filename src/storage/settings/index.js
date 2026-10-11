@@ -19,6 +19,26 @@ export {
   saveImageGenSettings,
 } from './imageGen.js';
 export {
+  DEFAULT_DESCRIPTION_PROMPT,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  DEFAULT_TIMEOUT_SECONDS,
+  DEFAULT_CONCURRENCY,
+  MAX_CONCURRENCY,
+  MIN_TIMEOUT_SECONDS,
+  MAX_TIMEOUT_SECONDS,
+  MAX_OUTPUT_TOKENS_LIMIT,
+  SCREEN_WATCH_SOURCES,
+  DEFAULT_SCREEN_WATCH_SOURCE,
+  normalizeImageRecognitionSettings,
+  getImageRecognitionSettings,
+  saveImageRecognitionSettings,
+  imageRecognitionCacheKey,
+  pruneImageRecognitionCache,
+  readImageRecognitionCache,
+  writeImageRecognitionCache,
+  clearImageRecognitionCache,
+} from './imageRecognition.js';
+export {
   getChatOptions,
   saveChatOptions,
   MUSIC_CLIP_SECONDS,

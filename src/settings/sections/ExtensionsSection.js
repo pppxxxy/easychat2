@@ -10,6 +10,7 @@ import {
 } from '../../ui/index.js';
 import SecretTextField from '../SecretTextField.js';
 import { IMAGE_PROVIDERS } from '../../imageGen/providers.js';
+import ImageRecognitionCard from './ImageRecognitionCard.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', labelKey: 'settings.inlineImage.position.start', metaKey: 'settings.inlineImage.position.startMeta' },
@@ -34,6 +35,9 @@ export default function ExtensionsSection(props) {
     setPluginEntryOpen,
     setTtsEntryOpen,
     setTranscriptionEntryOpen,
+    imageRecognition,
+    imageRecognitionApiConfigs,
+    updateImageRecognition,
   } = props;
   return (
     <>
@@ -158,6 +162,15 @@ export default function ExtensionsSection(props) {
             placeholder="400"
           />
           <Text style={styles.fieldHint}>{t('settings.inlineImage.keyNote')}</Text>
+          <FieldLabel style={styles.label}>{t('settings.imageRecognition.sectionTitle')}</FieldLabel>
+          <ImageRecognitionCard
+            styles={styles}
+            theme={theme}
+            t={t}
+            imageRecognition={imageRecognition}
+            imageRecognitionApiConfigs={imageRecognitionApiConfigs}
+            updateImageRecognition={updateImageRecognition}
+          />
           <FieldLabel style={styles.label}>{t('settings.inlineImage.otherFeatures')}</FieldLabel>
           <TouchableOpacity
             style={styles.linkRow}

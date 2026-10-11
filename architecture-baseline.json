@@ -4,9 +4,13 @@
   "excludedPaths": [
     "src/games/html/"
   ],
+  "_comment": "行数棘轮（只许收紧）。2026-10 唯一一次上调：src/SettingsScreen.js 2328 → 2344，理由见下。",
+  "_baselineChangeLog": [
+    "src/SettingsScreen.js 2328 → 2344（2026-10，图片识别 OCR 模型）：设置页新增「图片识别（OCR）模型」卡片（描述提示词是多行输入、另有接口配置/模型名/输出上限/超时/并发/附原图/看屏幕来源共 8 个控件）。卡片本体已拆到 settings/sections/ImageRecognitionCard.js，配置域已拆到 settings/useImageRecognitionSettings.js，设置页只留 hook 调用、一行折叠摘要与 4 行装配；剩余 16 行是这张卡在设置页里无法再外移的接线（hook 调用 + 摘要 + 装配 + import）。"
+  ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3168,
-    "src/SettingsScreen.js": 2328,
+    "src/SettingsScreen.js": 2344,
     "src/workspace/screen/GithubPanel.js": 1984,
     "src/chat/useChatSend.js": 1994,
     "src/workspace/screen/ChatPanel.js": 1768,
