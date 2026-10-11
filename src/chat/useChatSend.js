@@ -495,6 +495,9 @@ export default function useChatSend({
        }
        // 角色作息：读取会话所属角色的作息；启用时注入静态作息规则，并附带当前时间
        // （规则要靠当前时间判断时段，故启用作息即附带时间，与全局 timeAware 解耦）。
+       // 「本次请求的时刻」只取一次：时间行与作息规则的工作日/休息日判定必须同一天，
+       // 否则跨零点的那一轮会出现「时间行已是次日、作息还按前一天」的错配。
+       const requestNow = new Date();
        let scheduleText = '';
        let scheduleActive = false;
        try {
@@ -503,7 +506,8 @@ export default function useChatSend({
          );
          const schedule = scheduleCharacterId ? await getCharacterSchedule(scheduleCharacterId) : null;
          if (isScheduleActive(schedule)) {
-           scheduleText = buildSchedulePrompt(schedule);
+           // 传日期 → 概率事件按「天」确定性解析；同一天内文本逐字节一致（缓存契约）。
+           scheduleText = buildSchedulePrompt(schedule, { date: requestNow, characterId: scheduleCharacterId });
            scheduleActive = true;
          }
        } catch (error) {
@@ -524,9 +528,9 @@ export default function useChatSend({
          quote,
          // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
          stickerNames: resolveStickerNames(stickersRef.current),
-         // 时间感知开启（或角色作息启用）时附上当前时间（每次请求现算，保证准确）。
-         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive),
-         // 角色作息启用时附上作息规则（含「按当前时间判断状态」）。
+         // 时间感知开启（或角色作息启用）时附上当前时间（与作息规则取同一时刻，保证同日）。
+         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive, requestNow),
+         // 角色作息启用时附上作息规则（含「按当前时间判断状态」与今天的概率事件）。
          scheduleText,
          // 真实位置开启且存在最近位置时附上位置行。
          locationText: locationLine,

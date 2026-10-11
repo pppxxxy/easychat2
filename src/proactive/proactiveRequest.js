@@ -158,7 +158,8 @@ export function buildProactiveRequestMessages({
   const trimmedHistory = (Array.isArray(historyMessages) ? historyMessages : [])
     .filter(item => item && !item.pending && (item.role === 'user' || item.role === 'assistant'))
     .slice(-PROACTIVE_HISTORY_LIMIT);
-  // 作息规则是静态文本（不含时间戳），可安全快照；模型结合触发时的当前时间判断时段。
+  // 作息规则是不带日期的静态文本（见 buildProactiveRequestJson），可安全快照；
+  // 模型结合触发时的当前时间与星期判断时段与工作日/休息日。
   const extraSystemPrompt = [
     buildProactiveExtraPrompt({ messageType, customPrompt }),
     String(scheduleText || '').trim(),
@@ -236,6 +237,10 @@ export async function buildProactiveRequestJson({
 
   // 角色作息：读取角色作息并生成静态规则文本；启用作息时即使全局 timeAware 关闭，
   // 也写入时间占位符（规则需要当前时间判断时段）。
+  //
+  // 这里**故意不传 date**：快照保存后可能数天才触发，烘进「今天是工作日」「今天会发生
+  // 哪些概率事件」会在触发时说错话。不传日期时 buildSchedulePrompt 只列两套作息与事件
+  // 定义，工作日/休息日由原生替换出的 {{proactive_now}}（含日期与星期）让模型自行判断。
   let scheduleText = '';
   let scheduleActive = false;
   try {

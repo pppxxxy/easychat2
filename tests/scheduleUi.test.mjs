@@ -14,6 +14,7 @@ const PANEL = read('src/extension/SchedulePanel.js');
 const SEND = read('src/chat/useChatSend.js');
 const PROACTIVE = read('src/proactive/proactiveRequest.js');
 const PIPELINE = read('src/prompt/chatPipeline.js');
+const TASK = read('src/agent/task/taskRunner.js');
 const ZH = read('src/i18n/locales/zh-CN/schedule.js');
 const EN = read('src/i18n/locales/en/schedule.js');
 
@@ -35,13 +36,17 @@ test('作息面板：角色选择 + 启用开关 + 四时刻 + 保存', () => {
   assert.ok(PANEL.includes('resolveSchedulePeriod'));
 });
 
-test('对话注入：读取角色作息并附带当前时间', () => {
+test('对话注入：读取角色作息并附带当前时间（同一时刻，保证同日）', () => {
   assert.ok(SEND.includes('getCharacterSchedule(scheduleCharacterId)'));
-  assert.ok(SEND.includes('scheduleText = buildSchedulePrompt(schedule)'));
-  assert.ok(SEND.includes('buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive)'));
+  assert.ok(SEND.includes('buildSchedulePrompt(schedule, { date: requestNow, characterId: scheduleCharacterId })'));
+  assert.ok(SEND.includes('buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive, requestNow)'));
   assert.ok(SEND.includes('scheduleText,'));
   assert.ok(PIPELINE.includes('scheduleText'));
   assert.ok(PIPELINE.includes('const scheduleLine = String(scheduleText || \'\').trim();'));
+});
+
+test('定时任务注入：按本次运行时刻解析作息（同日的时间行与作息判定）', () => {
+  assert.ok(TASK.includes('buildSchedulePrompt(schedule, { date: now, characterId: roleId })'));
 });
 
 test('主动消息注入：作息规则写入快照并按作息附带时间占位符', () => {

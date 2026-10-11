@@ -15,6 +15,7 @@ import {
   buildProactiveAuthSettings,
   buildProactiveEndpoint,
 } from '../src/proactive/proactiveRequest.js';
+import { buildSchedulePrompt, normalizeSchedule } from '../src/chat/schedule.js';
 
 const character = { name: '小雨', systemPrompt: '你是小雨。', regexScripts: [{ id: 'r1' }] };
 
@@ -75,17 +76,30 @@ test('主动消息请求：时间感知写占位符，不固化保存时刻', ()
   assert.ok(!offSystem.content.includes('2026-09-30'));
 });
 
-test('主动消息请求：作息规则静态写入快照，不含具体时间戳', () => {
-  const messages = buildProactiveRequestMessages({
-    character,
-    timeAware: true,
-    scheduleText: '[角色作息] 起床 07:00 · 上班 09:00 · 下班 18:00 · 睡觉 23:00。\n- 睡眠时段：像「我也还没睡」。',
-  });
+test('主动消息请求：作息规则静态写入快照，不含日期也不声称今天是哪种日子', () => {
+  // 用真实现生成规则文本（主动消息路径**不传日期**：快照保存后数天才触发）。
+  const scheduleText = buildSchedulePrompt(normalizeSchedule({
+    schema: 2,
+    enabled: true,
+    splitWeekday: true,
+    workday: {
+      segments: [{ name: '上学', start: '08:00', end: '12:00' }],
+      events: [{ id: 'coffee', at: '15:00', description: '去楼下买咖啡', probability: 50 }],
+    },
+    restday: { segments: [{ name: '睡懒觉', start: '10:00', end: '12:00' }], events: [] },
+    holidays: ['2026-10-08'],
+  }));
+  const messages = buildProactiveRequestMessages({ character, timeAware: true, scheduleText });
   const system = messages.find(item => item.role === 'system');
-  assert.ok(system.content.includes('起床 07:00'), '作息写入系统提示');
+  assert.ok(system.content.includes('上学 08:00–12:00'), '作息写入系统提示');
+  assert.ok(system.content.includes('睡懒觉 10:00–12:00'), '两套作息都要进快照（触发日未知）');
+  assert.ok(system.content.includes('去楼下买咖啡'));
   assert.ok(system.content.includes('我也还没睡'));
-  // 静态文本：不含具体日期（主动消息快照会在未来任意时刻触发）
-  assert.equal(/20\d\d-\d\d-\d\d/.test(system.content.replace(PROACTIVE_TIME_TOKEN, '')), false);
+  // 静态文本：不含具体日期，也不固化「今天是工作日/休息日」或当天的事件判定
+  const stripped = system.content.replace(PROACTIVE_TIME_TOKEN, '');
+  assert.equal(/20\d\d-\d\d-\d\d/.test(stripped), false);
+  assert.equal(stripped.includes('[今天]'), false);
+  assert.equal(stripped.includes('今天会发生'), false);
   // 未传 scheduleText 时不注入
   const plain = buildProactiveRequestMessages({ character });
   assert.equal(plain.find(item => item.role === 'system').content.includes('角色作息'), false);
