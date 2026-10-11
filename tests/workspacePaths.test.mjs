@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   assertAllowedWorkspaceFile,
   assertAllowedWorkspaceOutputFile,
+  assertSafeWorkspaceSegment,
   assertWritableWorkspacePath,
   fileExtension,
   isAllowedWorkspaceFile,
@@ -36,6 +37,55 @@ test('normalizeWorkspacePath 只接受沙盒内相对路径', () => {
   assert.throws(() => normalizeWorkspacePath('a/../../b.txt'), /越出工作区/);
   assert.throws(() => normalizeWorkspacePath('a\u0000b.txt'), /非法字符/);
   assert.throws(() => normalizeWorkspacePath(`${'x'.repeat(300)}.txt`), /路径过长/);
+});
+
+// ---- P0：URL 编码形态的沙盒逃逸（2026-10-11）----
+//
+// 事故形态：路径拼成 URI 后由 Android 原生 `Uri.getPath()` **解码**
+//（expo-file-system 的 FileSystemLegacyModule.kt 里 `File(this.path!!)`），
+// 于是 `a/%2e%2e/%2e%2e/x` 在 JS 侧只是一个普通段、原样通过，到原生侧变成
+// `a/../../x` —— 逃出 `workspace/<id>/`。只拦字面量 `..` 等于没拦。
+test('P0 回归：编码形态的越界段一律拒绝（主沙盒）', () => {
+  const escapes = [
+    'a/%2e%2e/%2e%2e/x',
+    '%2e%2e',
+    '..%2f',
+    '%2F',
+    '%252e%252e',
+    '%2e%2e/x',
+    'a/%2E%2E/b',
+    '%2e%2e%2f%2e%2e%2fetc/passwd',
+    'x/%25252e%25252e/y',
+    'a%00b.txt',
+    'a/%2e%2e',
+  ];
+  for (const path of escapes) {
+    assert.throws(
+      () => normalizeWorkspacePath(path),
+      /越出工作区/,
+      `${path} 必须被拒绝（原生侧会百分号解码）`
+    );
+  }
+  // 判据本身可单独使用（git 侧共用同一份）
+  assert.throws(() => assertSafeWorkspaceSegment('%2e%2e'), /越出工作区/);
+  assert.throws(() => assertSafeWorkspaceSegment('..'), /越出工作区/);
+  assert.equal(assertSafeWorkspaceSegment('normal-name.js'), 'normal-name.js');
+});
+
+test('P0 回归：正常路径不被误拒（中文 / 空格 / 点开头段 / 无扩展名）', () => {
+  const ok = [
+    ['中文目录/文档.md', '中文目录/文档.md'],
+    ['my notes/周报 2026.md', 'my notes/周报 2026.md'],
+    ['.gitignore', '.gitignore'],
+    ['.easychat/skills/demo/SKILL.md', '.easychat/skills/demo/SKILL.md'],
+    ['a/.hidden/b.txt', 'a/.hidden/b.txt'],
+    ['src/..hidden', 'src/..hidden'],
+    ['Makefile', 'Makefile'],
+    ['a/./b//c.txt', 'a/b/c.txt'],
+  ];
+  for (const [input, expected] of ok) {
+    assert.equal(normalizeWorkspacePath(input), expected, `${input} 是合法路径`);
+  }
 });
 
 test('fileExtension 与文本/二进制判定（可写项目 → 黑名单制）', () => {
@@ -104,6 +154,25 @@ test('isProtectedWorkspacePath：三个审计/快照目录全拦，相邻的 age
   assert.equal(isProtectedWorkspacePath('notes/sessions/s.jsonl'), false);
   assert.equal(isProtectedWorkspacePath(''), false);
   assert.equal(isProtectedWorkspacePath(null), false);
+});
+
+// P1 回归（2026-10-11）：SAF 后端按**显示名**查找子项（safStore.js 的 findChild
+// 用 `entry.name === name`），大小写变体在真实文件系统上可能落到同一个目录。
+// 判据必须大小写不敏感，否则 `.easychat/SESSIONS/x.jsonl` 就绕过了守卫。
+test('P1 回归：受保护前缀判定大小写不敏感（SAF 按显示名匹配）', () => {
+  for (const path of [
+    '.easychat/SESSIONS/s1.jsonl',
+    '.EasyChat/sessions/s1.jsonl',
+    '.easychat/File-History/index.json',
+    '.easychat/ROLLBACK/1.json',
+    './.EASYCHAT/Rollback/1.json',
+  ]) {
+    assert.equal(isProtectedWorkspacePath(path), true, `${path} 必须被判为受保护`);
+    assert.throws(() => assertWritableWorkspacePath(path), /不允许改写/);
+  }
+  // 仍然不误伤相邻资产（大小写变体也一样）
+  assert.equal(isProtectedWorkspacePath('.easychat/HOOKS.json'), false);
+  assert.equal(isProtectedWorkspacePath('.easychat/Skills/x/SKILL.md'), false);
 });
 
 test('assertWritableWorkspacePath：受保护抛错，其它原样返回', () => {

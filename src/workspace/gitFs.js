@@ -19,19 +19,24 @@
 // 独占，调用方不要再拼沙盒前缀。
 
 import { Buffer } from 'buffer';
-import { sandboxDirectory } from './paths.js';
+import { assertSafeWorkspaceSegment, sandboxDirectory } from './paths.js';
 import { tActive } from '../i18n/index.js';
 
-// git 路径 → 规范化相对路径。拒绝绝对路径与任何 `..` 段（含 URL 编码形态）。
+// git 路径 → 规范化相对路径。拒绝绝对路径与任何越界段（含 URL 编码形态）。
+//
+// 段级判据来自 paths.js 的 `assertSafeWorkspaceSegment`（**唯一一份**，2026-10-11 P0）：
+// 此前这里自己拦 `..`/`%2e%2e`/`..%2f`，而主沙盒只拦字面量 `..` —— 同一威胁模型
+// 两处实现，修一处漏一处。现在两边共用同一判据，且判据比原来更严（任何含 `%` 的段）。
 export function normalizeGitPath(path) {
   const raw = String(path === undefined || path === null ? '' : path).replace(/\\/g, '/');
   const withoutRoot = raw.replace(/^\/+/, '').replace(/^\.\//, '');
   if (!withoutRoot) return '';
   const segments = withoutRoot.split('/');
-  for (const segment of segments) {
-    if (segment === '..' || segment === '%2e%2e' || segment === '..%2f') {
-      throw new Error(tActive('error.workspace.gitPathEscape', { path: String(path) }));
-    }
+  try {
+    for (const segment of segments) assertSafeWorkspaceSegment(segment);
+  } catch (error) {
+    // 文案带路径：git 内部路径出错时要能一眼看出是哪一个（主沙盒的判据不带路径）。
+    throw new Error(tActive('error.workspace.gitPathEscape', { path: String(path) }));
   }
   return segments.filter(segment => segment !== '' && segment !== '.').join('/');
 }
