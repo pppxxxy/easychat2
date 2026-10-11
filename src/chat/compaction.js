@@ -102,8 +102,6 @@ export function buildCompactionSystemPrompt(focus = '') {
   return `${COMPACTION_SYSTEM_PROMPT}\n\n额外要求：这次摘要请特别保留与下面这条关注点相关的内容（输出格式不变，仍是三段摘要）：${extra}`;
 }
 
-// N2：可选 toolTranscript（工具语义转写）追加到 user 段，保住「调用了哪些工具、动了哪些文件」。
-// D 系：可选 focus（用户关注点）经 buildCompactionSystemPrompt 注入。
 // 工具语义转写关注的工具（有「路径」语义的）——供摘要统一使用（原先在 compactionPipeline）。
 const TRANSCRIBE_TOOLS = new Set([
   'write_workspace_file', 'edit_workspace_file', 'read_workspace_file',
@@ -141,7 +139,17 @@ export function buildToolTranscript(messages) {
   return lines.join('\n');
 }
 
-export function buildCompactionSummaryRequest(messages, { toolTranscript = '', focus = '' } = {}) {
+// N2：构造压缩请求——system 指示三段式 + user 塞转写后的对话。
+// 工具语义转写（调用了哪些工具、动了哪些文件）由本函数**内部**基于 `expanded` 生成，
+// 追加到 user 段。D 系：可选 focus（用户关注点）经 buildCompactionSystemPrompt 注入。
+//
+// 2026-10-11 审查 P1-2：这里原先还有一个可选参数 `toolTranscript`，取值是
+// `传入值 || buildToolTranscript(expanded)`。那个「传入值优先」是个陷阱——调用方传
+// `buildToolTranscript(未展开的 list)` 时，只要它非空就会**短路掉基于 expanded 的转写**，
+// 把只存在于展示消息 `toolTrace` 里的工具调用整段丢掉（reactiveCompact 就这么踩了，
+// M 线「压缩靶子改为完整 transcript」的卖点在那条路径上静默失效）。
+// 全仓已无调用方传它，故删除：转写的唯一来源就是 expanded，没有第二种可能。
+export function buildCompactionSummaryRequest(messages, { focus = '' } = {}) {
   // ④ 完整 transcript：先展开工具轨迹（toolTrace → tool 消息），让摘要看得到工具调用/结果。
   const expanded = expandHistoryWithTraces(messages);
   const lines = (Array.isArray(expanded) ? expanded : [])
@@ -156,7 +164,8 @@ export function buildCompactionSummaryRequest(messages, { toolTranscript = '', f
     kept.unshift(line);
     total += line.length + 1;
   }
-  const transcript = String(toolTranscript || '').trim() || buildToolTranscript(expanded);
+  // 转写只从 expanded 算一次——不再接受调用方传入（见上方 P1-2 说明）。
+  const transcript = buildToolTranscript(expanded);
   const userContent = [kept.join('\n'), transcript].filter(Boolean).join('\n\n');
   return [
     { role: 'system', content: buildCompactionSystemPrompt(focus) },

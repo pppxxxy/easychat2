@@ -87,3 +87,61 @@ test('配对边界：切割点落在 toolUse↔结果之间时回退（无孤儿
   assert.match(REACTIVE_FAILED_MESSAGE, /自动压缩仍失败/);
   assert.ok(String(result.messages[0].content).includes(COMPACTION_MARKER));
 });
+
+// 回归 2026-10-11 审查 P1-2：本模块原先传 `{ toolTranscript: buildToolTranscript(list) }`，
+// 而 compaction.js 的取值是 `传入值 || buildToolTranscript(expanded)`——**传入值非空就短路**。
+// 只要 list 里有顶层 tool_calls（工作区 loop 的历史就是这样），短路就成立，
+// 于是只挂在展示消息 `toolTrace` 里的工具调用**完全不会被转写**：
+// M 线「压缩靶子改为完整 transcript」的卖点在这条路径上静默失效。
+// 这条测试必须同时具备两种工具调用（顶层一个 + toolTrace 里一个），否则短路触发不起来，
+// 测试就会「假绿」——这正是原 bug 能活下来的原因。
+test('回归 P1-2：reactive 路径的摘要请求必须展开 toolTrace（不被传入的转写短路）', async () => {
+  const messages = [
+    { role: 'user', text: '改一下 a.js' },
+    {
+      role: 'assistant',
+      text: '改完了',
+      // 展示消息上的轨迹：这里的工具调用**只**存在于 toolTrace 内。
+      toolTrace: [
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 't1',
+            type: 'function',
+            function: { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'a.js', content: 'x' }) },
+          }],
+        },
+        { role: 'tool', tool_call_id: 't1', content: '已写入 a.js（1 字符）' },
+      ],
+    },
+    // 顶层 tool_calls：让「未展开的转写」非空，从而触发旧代码的短路分支。
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{
+        id: 't2',
+        type: 'function',
+        function: { name: 'read_workspace_file', arguments: JSON.stringify({ path: 'b.js' }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 't2', content: 'b.js 的内容' },
+  ];
+
+  let seenRequest = null;
+  const result = await runReactiveCompact({
+    messages,
+    error: { code: 'context_length_exceeded' },
+    deps: {
+      summarize: async request => { seenRequest = request; return '摘要'; },
+    },
+  });
+  assert.equal(result.compacted, true);
+  assert.ok(seenRequest, '摘要器必须收到请求');
+  const userContent = String(seenRequest[1].content);
+  assert.ok(userContent.includes('a.js'), 'toolTrace 里的写调用必须被转写进摘要请求');
+  assert.ok(userContent.includes('b.js'), '顶层 tool_calls 的读调用同样必须在（两者都要）');
+  assert.ok(userContent.includes('write_workspace_file'), '转写要带上工具名');
+  assert.ok(userContent.includes('read_workspace_file'));
+});
+

@@ -9,7 +9,6 @@
 import { buildCompactionSummaryRequest } from './compaction.js';
 import {
   applyCompactionWithAuthority,
-  buildToolTranscript,
   buildTranscriptJsonl,
 } from './compactionPipeline.js';
 
@@ -69,7 +68,15 @@ export async function runReactiveCompact({ messages, error, deps = {} } = {}) {
     }
   }
 
-  const request = buildCompactionSummaryRequest(list, { toolTranscript: buildToolTranscript(list) });
+  // 与 compactionPipeline.js 用**同一种**调用形态：只传 focus（这里没有关注点，就什么都不传），
+  // 工具转写由 buildCompactionSummaryRequest 内部基于 `expanded`（含 toolTrace 展开）生成。
+  //
+  // 2026-10-11 审查 P1-2：这里原先传 `{ toolTranscript: buildToolTranscript(list) }`，
+  // 而 compaction.js 的取值是 `传入值 || buildToolTranscript(expanded)`——**传入值非空就短路**。
+  // list 里只要有顶层 tool_calls（工作区 loop 的历史就是这样），短路就成立，于是挂在
+  // 展示消息 `toolTrace` 里的那些工具调用**完全不会被转写**：M 线「压缩靶子改为完整 transcript」
+  // 的卖点在这条路径上静默失效，而两条路径的行为差异没有任何测试盯着。
+  const request = buildCompactionSummaryRequest(list, {});
   const summary = String((await deps.summarize(request)) || '').trim();
   if (!summary) return { compacted: false, messages: list, transcriptPath };
 
