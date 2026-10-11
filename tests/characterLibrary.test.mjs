@@ -69,6 +69,7 @@ const {
   withDeletedCharacters,
   runWithRollback,
   describeDefaultArtwork,
+  describeDefaultAssistantRefresh,
 } = runtimeModule.exports;
 
 const DEFAULT = { id: 'default', builtin: true, name: '助手', lastUsedAt: 0 };
@@ -182,6 +183,30 @@ test('describeDefaultArtwork：仅默认角色且字段为空时才补内置图'
     describeDefaultArtwork({ ...base, avatarUri: '   ' }),
     { avatar: true, bg: true }
   );
+});
+
+test('describeDefaultAssistantRefresh：仅内置卡且系统提示仍是历史种子时刷新', () => {
+  const base = {
+    id: 'default',
+    builtin: true,
+    defaultId: 'default',
+    legacyPrompts: ['旧提示'],
+    nextPrompt: '新提示',
+  };
+  assert.deepEqual(
+    describeDefaultAssistantRefresh({ ...base, systemPrompt: '旧提示' }),
+    { systemPrompt: '新提示' }
+  );
+  // 用户改过：不动
+  assert.equal(describeDefaultAssistantRefresh({ ...base, systemPrompt: '我自己改的' }), null);
+  // 非内置卡：不动
+  assert.equal(describeDefaultAssistantRefresh({ ...base, builtin: false, systemPrompt: '旧提示' }), null);
+  // 非默认角色：不动
+  assert.equal(describeDefaultAssistantRefresh({ ...base, id: 'other', systemPrompt: '旧提示' }), null);
+  // 已是新版：no-op
+  assert.equal(describeDefaultAssistantRefresh({ ...base, systemPrompt: '新提示' }), null);
+  // 缺新文案：不动
+  assert.equal(describeDefaultAssistantRefresh({ ...base, systemPrompt: '旧提示', nextPrompt: '' }), null);
 });
 
 test('runWithRollback：成功不改动，失败回滚并抛出原错误', async () => {

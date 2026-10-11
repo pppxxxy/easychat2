@@ -181,6 +181,7 @@ export { getAffinityStatus, saveAffinity } from './storage/affinity.js';
 export { exportBackup, importBackup } from './storage/backup.js';
 export {
   DEFAULT_CHARACTER,
+  DEFAULT_ASSISTANT_LEGACY_PROMPTS,
   clearCharacterEditDraft,
   getActiveCharacterId,
   getCharacterLibrary,

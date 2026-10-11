@@ -29,7 +29,7 @@ import {
 
 // 聚合对外导出：shared/payload 的公开符号统一从本模块转发，barrel 只需指向这里。
 export { CHARACTER_ITEM_PREFIX } from './payload.js';
-export { DEFAULT_CHARACTER, isCharacterLibraryWriteBlocked, sortCharacters } from './shared.js';
+export { DEFAULT_CHARACTER, DEFAULT_ASSISTANT_LEGACY_PROMPTS, isCharacterLibraryWriteBlocked, sortCharacters } from './shared.js';
 
 const CHARACTER_KEY = '@easychat2_character';
 // 旧格式：整库数组存一个键（超过约 2MB 会触发 Android SQLite 行读取上限）。
