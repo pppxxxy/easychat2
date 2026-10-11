@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { markMediaWrite } from '../storage/mediaProtection.js';
 import { decodeBytes } from '../books/decodeText.js';
 import { tActive } from '../i18n/index.js';
+import { isHttpImageUrl } from './imageDownloadDirectives.js';
 
 // 校验/落盘失败抛带 code 的 Error：message 走 i18n（随语言变化），
 // 调用方需要按失败原因分流提示时比 code，不要比 message。
@@ -387,6 +388,58 @@ export async function persistImageAttachment(uri, mime = '', name = '') {
   } catch (error) {
     await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
     throw error;
+  }
+}
+
+// 下载网络图片到 chat-images/：带超时、只认图片、复用附件的体积/像素上限，
+// 落盘即 markMediaWrite（回收器据此保护）。返回 { uri, mime, width, height }；
+// 失败抛带 code 的 Error（调用方只做「失败提示」，不区分具体原因）。
+export const DOWNLOAD_IMAGE_TIMEOUT_MS = 15000;
+
+function withTimeout(promise, ms, onTimeout) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try { if (onTimeout) onTimeout(); } catch (error) {}
+      reject(attachError('chat.downloadImage.failed', 'DOWNLOAD_IMAGE_TIMEOUT'));
+    }, ms);
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
+export async function downloadRemoteImage(url, { timeoutMs = DOWNLOAD_IMAGE_TIMEOUT_MS } = {}) {
+  const source = String(url || '').trim();
+  if (!isHttpImageUrl(source)) throw attachError('chat.downloadImage.failed', 'DOWNLOAD_IMAGE_BAD_URL');
+  const tempDir = `${FileSystem.cacheDirectory || ''}image-download/`;
+  await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
+  const tempUri = `${tempDir}dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    const result = await withTimeout(
+      FileSystem.downloadAsync(source, tempUri),
+      timeoutMs,
+      () => { FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {}); }
+    );
+    const status = Number(result && result.status) || 0;
+    if (status && (status < 200 || status >= 300)) {
+      throw attachError('chat.downloadImage.failed', 'DOWNLOAD_IMAGE_HTTP');
+    }
+    const headers = (result && result.headers) || {};
+    const contentType = String(headers['Content-Type'] || headers['content-type'] || '');
+    const info = await FileSystem.getInfoAsync(tempUri);
+    validateImageSize({ size: Number(info && info.size) || 0 });
+    const baseName = source.split('?')[0].split('#')[0];
+    const mime = getImageMime(baseName, contentType);
+    if (!isImage(baseName, contentType)) {
+      throw attachError('chat.downloadImage.failed', 'DOWNLOAD_IMAGE_NOT_IMAGE');
+    }
+    const { width, height } = await getImageDimensions(tempUri);
+    validateImageDimensions({ width, height });
+    const uri = await persistImageAttachment(tempUri, mime, baseName);
+    return { uri, mime, width, height };
+  } finally {
+    await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
   }
 }
 

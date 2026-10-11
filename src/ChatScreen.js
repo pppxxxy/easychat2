@@ -40,9 +40,11 @@ import {
    MAX_VIDEO_BYTES,
    takePhoto,
    validateImageSize,
+   downloadRemoteImage,
 } from './chat/attachments.js';
-import { createMediaMessage, STICKER_MESSAGE_KIND } from './chat/chatMedia.js';
-import { extractStickerDirectives, resolveStickerNames } from './chat/stickerDirectives.js';
+import { STICKER_MESSAGE_KIND } from './chat/chatMedia.js';
+import { buildAssistantReplyParts } from './chat/assistantReply.js';
+import { runImageDownloads } from './chat/imageDownloadRunner.js';
 import { createStickerImage, deleteStickerImage } from './chat/stickerImages.js';
 import { getCachedDisplayText } from './memory/displayTextCache.js';
 import { isGreetingMessage, listGreetingCandidates } from './character/cardGreetings.js';
@@ -562,7 +564,6 @@ export default function ChatScreen() {
      if (source && source.uri) deleteTemporaryImage(source.uri);
    }, [stickerNamePrompt]);
 
-
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd?.({ animated: true });
@@ -688,7 +689,6 @@ export default function ChatScreen() {
       return next.length === current.length ? current : next;
     });
   }, [messages]);
-
 
   // 角色与会话必须成对：导入/新建角色、或历史遗留的错配状态下，只要当前会话不属于当前角色，
   // 就切到该角色自己的会话。否则界面会继续显示上一个角色的对话，新消息还会写进那段会话。
@@ -1103,36 +1103,20 @@ export default function ChatScreen() {
     await runSummarize(session, messagesRef.current, true, normalizeCompactionFocus(focus));
   }, [runSummarize, t]);
 
-  const buildAssistantReply = useCallback(replyText => {
-    const list = Array.isArray(stickersRef.current) ? stickersRef.current : [];
-    const names = resolveStickerNames(list);
-    const { text, stickers: hitNames } = extractStickerDirectives(replyText || '', names);
-    const byName = new Map(list.map(item => [item.name, item]));
-    const now = Date.now();
-    const items = [];
-    const body = String(text || '').trim();
-    if (body) {
-      items.push({ id: `${now}-assistant`, role: ASSISTANT_ID, text: body, timestamp: now });
-    }
-    hitNames.forEach((name, index) => {
-      const sticker = byName.get(name);
-      if (!sticker) return;
-      items.push(createMediaMessage({
-        id: `${now}-assistant-sticker-${index}`,
-        kind: STICKER_MESSAGE_KIND,
-        role: ASSISTANT_ID,
-        uri: sticker.uri,
-        mime: sticker.mime,
-        name,
-        stickerName: name,
-        stickerId: sticker.id,
-        width: sticker.width,
-        height: sticker.height,
-        timestamp: now + index + 1,
-      }));
+  const downloadImageEnabledRef = useRef(false);
+  const runImageDownloadsRef = useRef(null);
+  // 解析助手回复：拆成文字 + 表情包消息，并剥离 <download_image:URL> 指令。
+  // 图片下载在回复落屏后异步执行（不阻塞）；sessionId 用于「切走后不再补图」的守卫。
+  const buildAssistantReply = useCallback((replyText, sessionId) => {
+    const result = buildAssistantReplyParts({
+      replyText,
+      stickers: stickersRef.current,
+      downloadEnabled: downloadImageEnabledRef.current === true,
     });
-    // createMediaMessage 固定 role:'user'（用户发表情包用），助手表情包需覆盖为 assistant。
-    return items.map(item => (item.kind === STICKER_MESSAGE_KIND ? { ...item, role: ASSISTANT_ID } : item));
+    if (result.imageDownloads.length) {
+      runImageDownloadsRef.current?.(result.imageDownloads, sessionId);
+    }
+    return result.parts;
   }, []);
 
   const synthesizeVoiceForReply = useCallback((replyParts, replyText) => {
@@ -1755,6 +1739,22 @@ export default function ChatScreen() {
     generateInlineImageRef.current = generateInlineImage;
     inlineImageEnabledRef.current = inlineImageSettings.enabled;
   }, [generateInlineImage, inlineImageSettings.enabled]);
+
+  // 图片下载执行：逐张下载并作为独立图片消息追加；切走会话即停手（isCurrentSession）。
+  const runImageDownloadsForSession = useCallback((urls, sessionId) => {
+    const target = String(sessionId || '');
+    return runImageDownloads({
+      urls,
+      isCurrentSession: () => !!target && activeSessionIdRef.current === target,
+      download: downloadRemoteImage,
+      appendMessage: message => setMessages(current => [...current, message]),
+      failedText: url => t('chat.downloadImage.failed', { url: String(url || '').slice(0, 80) }),
+    });
+  }, [t]);
+  useEffect(() => {
+    downloadImageEnabledRef.current = chatOptions.downloadImage === true;
+    runImageDownloadsRef.current = runImageDownloadsForSession;
+  }, [chatOptions.downloadImage, runImageDownloadsForSession]);
   useEffect(() => {
     sendTextRef.current = sendText;
   }, [sendText]);

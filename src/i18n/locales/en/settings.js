@@ -272,6 +272,8 @@ export const settings = {
   'settings.inlineImage.size': 'Size (Width*Height)',
   'settings.inlineImage.maxPromptChars': 'Prompt Length Limit (characters)',
   'settings.inlineImage.keyNote': 'Keys are stored only on this device and shared with "Extensions → Image Generation".',
+  'settings.downloadImage.enable': 'Image download',
+  'settings.downloadImage.hint': 'When on, the character can write <download_image:URL> in a reply to have the app download and show that web image in chat. Enable only for trusted sources — it makes the app fetch arbitrary URLs from the model.',
   'settings.inlineImage.otherFeatures': 'Other features',
   'settings.global.title': 'Global Settings',
   'settings.global.presets': 'Global Presets / Memory Summary',

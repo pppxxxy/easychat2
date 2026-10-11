@@ -102,9 +102,9 @@ test('角色发出的媒体消息同样渲染图片（回归：助手表情包�
   assert.match(styles, /mediaBox: \{/, 'chatStyles 应有 mediaBox');
   assert.match(styles, /messageImage: \{/, 'chatStyles 应有 messageImage');
   assert.match(styles, /mediaName: \{/, 'chatStyles 应有 mediaName');
-  // 助手表情包消息由 ChatScreen.buildAssistantReply 生成并覆盖 role:'assistant'
-  const chat = read('src/ChatScreen.js');
-  assert.match(chat, /return items\.map\(item => \(item\.kind === STICKER_MESSAGE_KIND \? \{ \.\.\.item, role: ASSISTANT_ID \} : item\)\)/, '助手表情包应覆盖 role 为 assistant');
+  // 助手表情包消息由 chat/assistantReply.js 生成并覆盖 role:'assistant'
+  const chat = read('src/chat/assistantReply.js');
+  assert.match(chat, /items\.map\(item => \(\s*item\.kind === STICKER_MESSAGE_KIND \? \{ \.\.\.item, role: ASSISTANT_ID \} : item\s*\)\)/, '助手表情包应覆盖 role 为 assistant');
 });
 
 test('图片消息可修改重发：回填附件而非正文', () => {

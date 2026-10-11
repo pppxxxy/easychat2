@@ -252,8 +252,7 @@ export default function useChatSend({
   const steeringRef = useRef(null);
   const [steeringAvailable, setSteeringAvailable] = useState(false);
   const [steeringNote, setSteeringNote] = useState('');
-  // P0-8：hooks.json 的注入类事件——session_start 每个会话只注入一次（内存记账），
-  // after_turn 的提醒排队给下一轮。两者都只在本次运行内有效（重启即丢，不写盘）。
+  // P0-8：hooks.json 的注入类事件——session_start 每个会话只注入一次（内存记账），after_turn 的提醒排队给下一轮；两者都只在本次运行内有效（重启即丢，不写盘）。
   const hookSessionInjectedRef = useRef(new Set());
   const pendingHookNoticesRef = useRef([]);
   // P2-7：上下文占用明细（按本次真实发出的请求分段测量；null = 还没发过请求）。
@@ -526,8 +525,9 @@ export default function useChatSend({
          stickerNames: resolveStickerNames(stickersRef.current),
          // 时间感知开启（或角色作息启用）时附上当前时间（每次请求现算，保证准确）。
          currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive),
-         // 角色作息启用时附上作息规则（含「按当前时间判断状态」）。
-         scheduleText,
+          // 角色作息启用时附上作息规则（含「按当前时间判断状态」）。
+          scheduleText,
+          downloadImageEnabled: chatOptionsRef.current.downloadImage === true,
          // 真实位置开启且存在最近位置时附上位置行。
          locationText: locationLine,
          // P0-8：hooks.json 的注入类事件（session_start / after_turn / before_prompt）。
@@ -873,8 +873,8 @@ export default function useChatSend({
          });
          return;
        }
-       // 解析表情包指令：回复可能被拆成「文字消息 + 若干表情包消息」。
-       const replyParts = buildAssistantReply(reply);
+        // 解析表情包 / 图片下载指令：回复可能被拆成「文字消息 + 若干媒体消息」。
+        const replyParts = buildAssistantReply(reply, sendSessionId);
        const replyText = replyParts.find(item => item.role === ASSISTANT_ID && !item.kind)?.text
          || '';
        // 记账放在拿到终稿之后：生成时长含解析开销，但只是毫秒级，换来「成功请求」口径准确。

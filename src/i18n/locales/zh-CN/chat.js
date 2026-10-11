@@ -226,6 +226,7 @@ export const chat = {
   'chat.menu.section.other': '其他',
   'chat.editGroup': '编辑群聊',
   'chat.editCharacter': '编辑角色',
+  'chat.downloadImage.failed': '图片下载失败：{url}',
   'chat.saved.title': '已保存',
   'chat.saved.character': '角色设定已同步，聊天页会立即生效。',
   'chat.saved.group': '群聊信息已更新。',

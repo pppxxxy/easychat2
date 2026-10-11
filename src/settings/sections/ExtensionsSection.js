@@ -31,6 +31,8 @@ export default function ExtensionsSection(props) {
     imageGenTesting,
     testImageGenProvider,
     openApiKeyUrl,
+    chatOptions,
+    updateChatOption,
     setPluginEntryOpen,
     setTtsEntryOpen,
     setTranscriptionEntryOpen,
@@ -158,6 +160,19 @@ export default function ExtensionsSection(props) {
             placeholder="400"
           />
           <Text style={styles.fieldHint}>{t('settings.inlineImage.keyNote')}</Text>
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="download-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('settings.downloadImage.enable')}</Text>
+            </View>
+            <Switch
+              value={!!(chatOptions && chatOptions.downloadImage === true)}
+              onValueChange={value => updateChatOption('downloadImage', value)}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.downloadImage.hint')}</FieldHint>
           <FieldLabel style={styles.label}>{t('settings.inlineImage.otherFeatures')}</FieldLabel>
           <TouchableOpacity
             style={styles.linkRow}

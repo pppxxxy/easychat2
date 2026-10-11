@@ -33,6 +33,9 @@ function normalizeChatOptions(raw) {
     // E2：上下文占用到 85% 自动压缩会话（省 token / 省费用）；缺省开启。
     // 关掉后 70% 的「建议压缩」提示条仍在（只是不再自动执行）。
     autoCompact: source.autoCompact !== false,
+    // 图片下载：开启后角色可在回复里用 <download_image:URL> 指令下载网络图片并显示在聊天中。
+    // 缺省关闭——它会让 App 主动访问模型给出的任意 URL。
+    downloadImage: source.downloadImage === true,
   };
 }
 
