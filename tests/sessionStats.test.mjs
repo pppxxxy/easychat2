@@ -177,22 +177,25 @@ test('展示格式化：token / 延迟 / 速度 / 占比', () => {
   assert.equal(formatPercent(0.42), '42%');
 });
 
-test('菜单与面板接线：⋯ 菜单有「本会话统计」，面板挂在聊天页', () => {
+// ChatScreen 是 3000 行的 RN 组件，Node 里渲染不了，菜单接线只能做源码断言——但**只钉
+// 跨模块契约**：i18n 词条键（用户可见）、真实存储/纯逻辑模块的 API 名（改它们必然要改 import）、
+// 面板组件是否挂载、「不做假数据」这条规则。
+// 已删除的**脆断言**（回归 2026-10-11 逐行审查 P2）：局部变量名
+//（openSessionStats / clearSessionStatsForActive）、JSX 片段（`messageCount={messages.filter`）、
+// 样式名（statBarFill）、菜单项内部字面量（`key: 'session-stats'`）——这些改个名字就红，
+// 钉的是「怎么写」而不是「做什么」，重构时只会制造噪音。
+// 存储侧的真实行为另见 tests/sessionStatsStorage.test.mjs（往返 / 分区 / 清空 / 上限）。
+test('菜单与面板接线：i18n 词条 + 真实模块 API + 不做假数据', () => {
   const screen = read('src/ChatScreen.js');
-  assert.ok(screen.includes("key: 'session-stats'"), '菜单项存在');
   assert.ok(screen.includes("t('chat.menu.sessionStats')"), '菜单文案走 i18n');
-  assert.ok(screen.includes("section: t('chat.menu.section.other')"), '归入「其他」分组');
-  assert.ok(screen.includes('openSessionStats'), '有打开处理');
-  assert.ok(screen.includes('getSessionStats(') && screen.includes('summarizeStats('), '打开时读并汇总');
-  assert.ok(screen.includes('<SessionStatsModal'), '面板已挂载');
-  assert.ok(screen.includes('messageCount={messages.filter'), '消息条数取当前会话（排除临时气泡）');
-  assert.ok(screen.includes('clearSessionStatsForActive'), '清空入口接线');
+  assert.ok(screen.includes("t('chat.menu.section.other')"), '归入「其他」分组');
+  assert.ok(screen.includes('getSessionStats(') && screen.includes('summarizeStats('), '打开时读存储域并汇总');
   assert.ok(screen.includes('clearSessionStats('), '清空走存储域');
+  assert.ok(screen.includes('<SessionStatsModal'), '面板已挂载');
 
   const modal = read('src/chat/SessionStatsModal.js');
   assert.ok(modal.includes("t('chat.stats.byConfig')"), '按 API 配置分组小节');
   assert.ok(modal.includes("t('chat.stats.note')"), '口径说明（估算/计时方式）如实标注');
-  assert.ok(modal.includes('statBarFill'), '占比条');
   assert.ok(!modal.includes('Math.random'), '不做假数据');
 });
 
