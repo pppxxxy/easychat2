@@ -202,6 +202,8 @@ export const character = {
   'character.editor.regex.markdownOnly': 'Display only',
   'character.editor.regex.promptOnly': 'Only for outgoing prompts',
   'character.fields.name.label': 'Name',
+  'character.fields.collapse': 'Collapse "{label}"',
+  'character.fields.expand': 'Expand "{label}"',
   'character.fields.name.placeholder': 'e.g. a rigorous coding assistant',
   'character.fields.systemPrompt.label': 'Persona / system prompt',
   'character.fields.systemPrompt.placeholder': 'Describe the character\'s tone, knowledge, and reply style',

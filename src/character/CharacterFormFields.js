@@ -39,6 +39,17 @@ function useFieldStyles() {
   const { theme, fonts } = useTheme();
   return React.useMemo(() => ({
     label: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), marginTop: 14, marginBottom: 6 },
+    // 多行字段的折叠头：标签 + chevron 同一行（与 label 同间距）
+    fieldHeader: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      marginTop: 14, marginBottom: 6,
+    },
+    fieldHeaderLabel: { marginTop: 0, marginBottom: 0 },
+    collapsedBox: {
+      borderWidth: 1, borderColor: theme.colors.surfaceBorder, backgroundColor: theme.colors.surface,
+      borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    },
+    collapsedText: { color: theme.colors.textFaint, fontSize: fonts.scaled(13) },
     multiline: { minHeight: 90, paddingTop: 10 },
     multilineSmall: { minHeight: 64, paddingTop: 10 },
     hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 6, lineHeight: fonts.scaled(17) },
@@ -96,21 +107,59 @@ function useFieldStyles() {
   }), [theme, fonts]);
 }
 
-// 单个字段渲染：text / multiline / multilineSmall 三种 type
+// 单个字段渲染：text / multiline / multilineSmall 三种 type。
+// 多行字段带**折叠开关**（用户反馈：设定/开场白太长，要滑到底部很累）——点标签行的 chevron
+// 收起/展开：收起时只留标签 + 一行预览，展开时恢复输入框。展开态 chevron 朝下（v）、
+// 收起态朝上（^）。text 字段（如 name）不折叠。
 export function Field({ field, draft, patch, styles }) {
+  const { theme } = useTheme();
+  const { t } = useTranslation();
   const value = draft[field.key] ?? '';
+  const collapsible = field.type !== 'text';
+  const [collapsed, setCollapsed] = React.useState(false);
   return (
     <>
-      <FieldLabel style={styles.label}>{field.label}</FieldLabel>
-      <TextField
-        style={field.type === 'text' ? undefined : styles[field.type]}
-        value={value}
-        onChangeText={text => patch(field.key, text)}
-        placeholder={field.placeholder}
-        multiline={field.type !== 'text'}
-        textAlignVertical={field.type !== 'text' ? 'top' : undefined}
-      />
-      {field.hint ? <FieldHint style={styles.hint}>{field.hint}</FieldHint> : null}
+      {collapsible ? (
+        <TouchableOpacity
+          style={styles.fieldHeader}
+          onPress={() => setCollapsed(prev => !prev)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={collapsed
+            ? t('character.fields.expand', { label: field.label })
+            : t('character.fields.collapse', { label: field.label })}
+        >
+          <FieldLabel style={styles.fieldHeaderLabel}>{field.label}</FieldLabel>
+          <Ionicons
+            name={collapsed ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={theme.colors.primarySoft}
+          />
+        </TouchableOpacity>
+      ) : (
+        <FieldLabel style={styles.label}>{field.label}</FieldLabel>
+      )}
+      {collapsed ? (
+        <TouchableOpacity
+          style={styles.collapsedBox}
+          onPress={() => setCollapsed(false)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.collapsedText} numberOfLines={1}>
+            {String(value).replace(/\s+/g, ' ').trim() || field.placeholder}
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <TextField
+          style={field.type === 'text' ? undefined : styles[field.type]}
+          value={value}
+          onChangeText={text => patch(field.key, text)}
+          placeholder={field.placeholder}
+          multiline={field.type !== 'text'}
+          textAlignVertical={field.type !== 'text' ? 'top' : undefined}
+        />
+      )}
+      {field.hint && !collapsed ? <FieldHint style={styles.hint}>{field.hint}</FieldHint> : null}
     </>
   );
 }
@@ -145,37 +194,59 @@ export function ImagePickerRow({ label, imageUri, onPick, onClear, styles, place
   );
 }
 
-// 备用开场白列表
+// 备用开场白列表（带折叠开关，与多行字段同一交互）
 export function GreetingList({ draft, styles, addGreeting, updateGreeting, removeGreeting }) {
   const { theme } = useTheme();
   const { t } = useTranslation();
+  const [collapsed, setCollapsed] = React.useState(false);
+  const label = t('character.fields.greetings.label');
+  const count = Array.isArray(draft.alternateGreetings) ? draft.alternateGreetings.length : 0;
   return (
     <>
-      <FieldLabel style={styles.label}>{t('character.fields.greetings.label')}</FieldLabel>
-      {draft.alternateGreetings.map((item, index) => (
-        <View key={`greeting-${index}`} style={styles.greetingRow}>
-          <TextField
-            style={[styles.multilineSmall, styles.greetingInput]}
-            value={item}
-            onChangeText={value => updateGreeting(index, value)}
-            placeholder={t('character.fields.greetings.placeholder', { n: index + 1 })}
-            multiline
-            textAlignVertical="top"
-          />
-          <TouchableOpacity
-            style={styles.greetingRemove}
-            onPress={() => removeGreeting(index)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel={t('character.fields.greetings.removeA11y')}
-          >
-            <Ionicons name="close" size={16} color={theme.colors.dangerSoft} />
-          </TouchableOpacity>
-        </View>
-      ))}
-      <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
-        <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
-        <Text style={styles.secondaryButtonText}>{t('character.fields.greetings.add')}</Text>
+      <TouchableOpacity
+        style={styles.fieldHeader}
+        onPress={() => setCollapsed(prev => !prev)}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={collapsed
+          ? t('character.fields.expand', { label })
+          : t('character.fields.collapse', { label })}
+      >
+        <FieldLabel style={styles.fieldHeaderLabel}>{count > 0 ? `${label}（${count}）` : label}</FieldLabel>
+        <Ionicons
+          name={collapsed ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={theme.colors.primarySoft}
+        />
       </TouchableOpacity>
+      {collapsed ? null : (
+        <>
+          {draft.alternateGreetings.map((item, index) => (
+            <View key={`greeting-${index}`} style={styles.greetingRow}>
+              <TextField
+                style={[styles.multilineSmall, styles.greetingInput]}
+                value={item}
+                onChangeText={value => updateGreeting(index, value)}
+                placeholder={t('character.fields.greetings.placeholder', { n: index + 1 })}
+                multiline
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={styles.greetingRemove}
+                onPress={() => removeGreeting(index)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel={t('character.fields.greetings.removeA11y')}
+              >
+                <Ionicons name="close" size={16} color={theme.colors.dangerSoft} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
+            <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+            <Text style={styles.secondaryButtonText}>{t('character.fields.greetings.add')}</Text>
+          </TouchableOpacity>
+        </>
+      )}
     </>
   );
 }

@@ -202,6 +202,8 @@ export const character = {
   'character.editor.regex.markdownOnly': '仅用于界面显示',
   'character.editor.regex.promptOnly': '仅用于发送提示词',
   'character.fields.name.label': '角色名',
+  'character.fields.collapse': '收起「{label}」',
+  'character.fields.expand': '展开「{label}」',
   'character.fields.name.placeholder': '例如：严谨的代码助手',
   'character.fields.systemPrompt.label': '人设 / 系统提示词',
   'character.fields.systemPrompt.placeholder': '描述角色的语气、知识和回答方式',
