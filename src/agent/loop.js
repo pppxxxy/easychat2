@@ -209,146 +209,157 @@ export async function runAgentTurn(messages, options = {}) {
   // I1：收束预警的"已提醒"标记（从轮号判断改为标记式——Steering 注入后允许再提醒
   // 一次：模型看到新目标后，旧的收束判断会误导，值得重新收束）。
   let budgetWarned = false;
-  while (round < maxRounds) {
-    round += 1;
-    if (signal && signal.aborted) throw createAbortError();
-    // I1：Steering——每轮模型请求前取出用户中途补充的指令，以 system 小段注入。
-    // 不中断当前工具链（工具调用的配对结构完整），只是让模型下一轮决策纳入新目标。
-    if (steering) {
-      const additions = steering.drain();
-      if (Array.isArray(additions) && additions.length > 0) {
-        for (const text of additions) {
-          history.push({ role: 'system', content: `用户中途补充：${text}，请在后续决策中纳入。` });
-        }
-        budgetWarned = false; // 新目标 → 允许收束预警再提一次
-      }
-    }
-    machine.startModelRequest();
-    // P1：K1 挂载——本轮请求前，上下文超预算时把旧工具结果落盘 + 占位。
-    // 只改 content、绝不拆散 tool_use↔tool_result；落盘失败保原文。无 persist 钩子则跳过。
-    if (persistToolResult) {
-      const plan = planResultClearing(history, { budgetBytes: contextBudgetBytes });
-      if (plan.indices.length) {
-        const cleared = await applyResultClearing(history, plan.indices, { persist: persistToolResult });
-        for (const entry of cleared.cleared) {
-          history[entry.index] = cleared.messages[entry.index];
-        }
-      }
-    }
-    const result = await streamRound(tools);
-    const roundText = typeof result.text === 'string' ? result.text : '';
-    machine.receiveModelResponse(roundText);
-    streamedText += roundText;
-    streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
-    // E1：usage 上抛（端点在每轮 SSE 尾部返回时才有）——回调抛错不影响主流程。
-    if (result && result.usage && onUsage) safeCallback(onUsage, { round, model: result.model, ...result.usage });
-    history.push(toAssistantMessage(result));
-    const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
-    if (!toolCalls.length) {
-      machine.complete(streamedText);
-      emitTranscript();
-      return streamedText;
-    }
-    machine.scheduleTools(toolCalls);
-    machine.startToolExecution();
-
-    // E2：本轮签名收集——与上一轮相同（或本轮内重复）的调用会被 nudge（不阻断）。
-    let hasRepeatedCall = false;
-    let planUpdatedThisRound = false;
-    const signaturesThisRound = new Set();
-    for (const call of toolCalls) {
+  // P5（2026-10-11 P1）：**中止路径也要回抛 transcript**。宿主（useChatSend.js）只在
+  // 成功路径 attach toolTrace，而中止是从循环里直接抛出的（signal.aborted 检查 / runTool
+  // 抛 AbortError）——不在这里兜一把，被中止那一轮已经发生的工具调用轨迹就全丢了。
+  // 已发生的调用是**事实**（副作用可能已经落地），丢了它下一轮组装请求时看不到自己做过什么。
+  try {
+    while (round < maxRounds) {
+      round += 1;
       if (signal && signal.aborted) throw createAbortError();
-      const signature = toolCallSignature(call);
-      if (lastRoundSignatures.has(signature) || signaturesThisRound.has(signature)) {
-        hasRepeatedCall = true;
+      // I1：Steering——每轮模型请求前取出用户中途补充的指令，以 system 小段注入。
+      // 不中断当前工具链（工具调用的配对结构完整），只是让模型下一轮决策纳入新目标。
+      if (steering) {
+        const additions = steering.drain();
+        if (Array.isArray(additions) && additions.length > 0) {
+          for (const text of additions) {
+            history.push({ role: 'system', content: `用户中途补充：${text}，请在后续决策中纳入。` });
+          }
+          budgetWarned = false; // 新目标 → 允许收束预警再提一次
+        }
       }
-      signaturesThisRound.add(signature);
-      const toolRound = round;
-      // A3 二期：start 事件带解析后的参数（订阅方按需读——计划进度条读 update_plan）。
-      safeCallback(onToolEvent, {
-        phase: 'start',
-        name: call.name,
-        round: toolRound,
-        args: parseToolArgs(call),
-      });
-      let outcome;
-      try {
-        outcome = await runTool(call, {
-          signal,
-          mode,
-          allowChatTools,
-          characterId: context.characterId,
-          sessionId: context.sessionId,
-          // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
-          // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
-          ...(onToolApproval ? { confirm: onToolApproval } : {}),
-          ...(permissionRules ? { permissionRules } : {}),
-          ...(onAskUser ? { ask: onAskUser } : {}),
-          ...(onToolResult ? { onToolResult } : {}),
+      machine.startModelRequest();
+      // P1：K1 挂载——本轮请求前，上下文超预算时把旧工具结果落盘 + 占位。
+      // 只改 content、绝不拆散 tool_use↔tool_result；落盘失败保原文。无 persist 钩子则跳过。
+      if (persistToolResult) {
+        const plan = planResultClearing(history, { budgetBytes: contextBudgetBytes });
+        if (plan.indices.length) {
+          const cleared = await applyResultClearing(history, plan.indices, { persist: persistToolResult });
+          for (const entry of cleared.cleared) {
+            history[entry.index] = cleared.messages[entry.index];
+          }
+        }
+      }
+      const result = await streamRound(tools);
+      const roundText = typeof result.text === 'string' ? result.text : '';
+      machine.receiveModelResponse(roundText);
+      streamedText += roundText;
+      streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
+      // E1：usage 上抛（端点在每轮 SSE 尾部返回时才有）——回调抛错不影响主流程。
+      if (result && result.usage && onUsage) safeCallback(onUsage, { round, model: result.model, ...result.usage });
+      history.push(toAssistantMessage(result));
+      const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls : [];
+      if (!toolCalls.length) {
+        machine.complete(streamedText);
+        emitTranscript();
+        return streamedText;
+      }
+      machine.scheduleTools(toolCalls);
+      machine.startToolExecution();
+
+      // E2：本轮签名收集——与上一轮相同（或本轮内重复）的调用会被 nudge（不阻断）。
+      let hasRepeatedCall = false;
+      let planUpdatedThisRound = false;
+      const signaturesThisRound = new Set();
+      for (const call of toolCalls) {
+        if (signal && signal.aborted) throw createAbortError();
+        const signature = toolCallSignature(call);
+        if (lastRoundSignatures.has(signature) || signaturesThisRound.has(signature)) {
+          hasRepeatedCall = true;
+        }
+        signaturesThisRound.add(signature);
+        const toolRound = round;
+        // A3 二期：start 事件带解析后的参数（订阅方按需读——计划进度条读 update_plan）。
+        safeCallback(onToolEvent, {
+          phase: 'start',
+          name: call.name,
+          round: toolRound,
+          args: parseToolArgs(call),
         });
-      } catch (error) {
-        if (isCanceledError(error) || (signal && signal.aborted)) throw createAbortError();
-        outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
+        let outcome;
+        try {
+          outcome = await runTool(call, {
+            signal,
+            mode,
+            allowChatTools,
+            characterId: context.characterId,
+            sessionId: context.sessionId,
+            // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
+            // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
+            ...(onToolApproval ? { confirm: onToolApproval } : {}),
+            ...(permissionRules ? { permissionRules } : {}),
+            ...(onAskUser ? { ask: onAskUser } : {}),
+            ...(onToolResult ? { onToolResult } : {}),
+          });
+        } catch (error) {
+          if (isCanceledError(error) || (signal && signal.aborted)) throw createAbortError();
+          outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
+        }
+        const ok = !(outcome && outcome.isError === true);
+        // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
+        if (call.name === PLAN_TOOL_NAME && ok) {
+          latestPlanArgs = parseToolArgs(call);
+          roundsSincePlanUpdate = 0;
+          planUpdatedThisRound = true;
+        }
+        // D2/O1：序列化工具结果。超限时若宿主提供 persistToolResult，先把整份落盘再
+        // 用「头尾预览 + 指针」替换（信息只移不丢）；否则退回 D2 头尾保留。
+        const serialized = await serializeToolResultAsync(outcome, {
+          limit: TOOL_RESULT_LIMIT,
+          toolName: call && call.name,
+          toolCallId: call && call.id,
+          persist: persistToolResult,
+        });
+        safeCallback(onToolEvent, {
+          phase: 'end',
+          name: call.name,
+          round: toolRound,
+          ok,
+          ...(ok ? {} : { error: serialized }),
+        });
+        // P0 加固：把权威错误标记随 tool 消息带下去（供 toolTrace 保留 → 展示层判状态）。
+        // API 侧的工具消息是**显式构造**的（apiProtocols/messages.js），此字段不会进请求体。
+        history.push({ role: 'tool', tool_call_id: call.id, content: serialized, isError: !ok });
+        machine.completeTool(call.id, { success: ok, content: serialized });
       }
-      const ok = !(outcome && outcome.isError === true);
-      // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
-      if (call.name === PLAN_TOOL_NAME && ok) {
-        latestPlanArgs = parseToolArgs(call);
+
+      // 预算预警（两段式第一段）：进入「还剩 2 轮」窗口起提示收束（标记式——
+      // I1 起 Steering 注入会重置标记，允许新目标下再提醒一次）。放在轮末：
+      // 只有「还会继续循环」才会走到这里（提前给出结论的那轮在上面就 return 了）。
+      if (!budgetWarned && round >= maxRounds - 2) {
+        history.push({ role: 'system', content: ROUND_BUDGET_WARNING });
+        budgetWarned = true;
+      }
+      // E2：重复调用 nudge（轮末注入，与预算预警同款位置——不打断 tool_calls 与
+      // tool 结果的配对结构，模型在下一轮开头看到）。
+      if (hasRepeatedCall) {
+        history.push({ role: 'system', content: REPEAT_CALL_NUDGE });
+      }
+      // O0.2：计划未更新 nag——有未完成步骤且连续多轮没更新时，轮末注入一行提醒。
+      // 注入后重置计数，避免此后每轮都提醒（每满阈值轮提醒一次）。
+      if (!planUpdatedThisRound) roundsSincePlanUpdate += 1;
+      if (shouldNudgePlan({ planArgs: latestPlanArgs, roundsSinceUpdate: roundsSincePlanUpdate })) {
+        history.push({ role: 'system', content: PLAN_NAG_TEXT });
         roundsSincePlanUpdate = 0;
-        planUpdatedThisRound = true;
       }
-      // D2/O1：序列化工具结果。超限时若宿主提供 persistToolResult，先把整份落盘再
-      // 用「头尾预览 + 指针」替换（信息只移不丢）；否则退回 D2 头尾保留。
-      const serialized = await serializeToolResultAsync(outcome, {
-        limit: TOOL_RESULT_LIMIT,
-        toolName: call && call.name,
-        toolCallId: call && call.id,
-        persist: persistToolResult,
-      });
-      safeCallback(onToolEvent, {
-        phase: 'end',
-        name: call.name,
-        round: toolRound,
-        ok,
-        ...(ok ? {} : { error: serialized }),
-      });
-      // P0 加固：把权威错误标记随 tool 消息带下去（供 toolTrace 保留 → 展示层判状态）。
-      // API 侧的工具消息是**显式构造**的（apiProtocols/messages.js），此字段不会进请求体。
-      history.push({ role: 'tool', tool_call_id: call.id, content: serialized, isError: !ok });
-      machine.completeTool(call.id, { success: ok, content: serialized });
+      lastRoundSignatures = signaturesThisRound;
+      machine.aggregateResults();
     }
 
-    // 预算预警（两段式第一段）：进入「还剩 2 轮」窗口起提示收束（标记式——
-    // I1 起 Steering 注入会重置标记，允许新目标下再提醒一次）。放在轮末：
-    // 只有「还会继续循环」才会走到这里（提前给出结论的那轮在上面就 return 了）。
-    if (!budgetWarned && round >= maxRounds - 2) {
-      history.push({ role: 'system', content: ROUND_BUDGET_WARNING });
-      budgetWarned = true;
-    }
-    // E2：重复调用 nudge（轮末注入，与预算预警同款位置——不打断 tool_calls 与
-    // tool 结果的配对结构，模型在下一轮开头看到）。
-    if (hasRepeatedCall) {
-      history.push({ role: 'system', content: REPEAT_CALL_NUDGE });
-    }
-    // O0.2：计划未更新 nag——有未完成步骤且连续多轮没更新时，轮末注入一行提醒。
-    // 注入后重置计数，避免此后每轮都提醒（每满阈值轮提醒一次）。
-    if (!planUpdatedThisRound) roundsSincePlanUpdate += 1;
-    if (shouldNudgePlan({ planArgs: latestPlanArgs, roundsSinceUpdate: roundsSincePlanUpdate })) {
-      history.push({ role: 'system', content: PLAN_NAG_TEXT });
-      roundsSincePlanUpdate = 0;
-    }
-    lastRoundSignatures = signaturesThisRound;
-    machine.aggregateResults();
+    // 上限兜底：整体省略 tools 字段（不发 tool_choice），强制文字收尾。
+    machine.startModelRequest();
+    history.push({ role: 'system', content: CAP_NOTICE });
+    const finalResult = await streamRound(null);
+    const finalText = typeof finalResult.text === 'string' ? finalResult.text : '';
+    machine.receiveModelResponse(finalText);
+    streamedText += finalText;
+    machine.complete(streamedText);
+    emitTranscript();
+    return streamedText;
+  } catch (error) {
+    // 中止（或任何抛出）之前已经发生的工具调用与结果都是事实，必须回抛给宿主持久化。
+    // emitTranscript 自身不抛（safeCallback 包着），不会把原错误盖掉。
+    emitTranscript();
+    throw error;
   }
-
-  // 上限兜底：整体省略 tools 字段（不发 tool_choice），强制文字收尾。
-  machine.startModelRequest();
-  history.push({ role: 'system', content: CAP_NOTICE });
-  const finalResult = await streamRound(null);
-  const finalText = typeof finalResult.text === 'string' ? finalResult.text : '';
-  machine.receiveModelResponse(finalText);
-  streamedText += finalText;
-  machine.complete(streamedText);
-  emitTranscript();
-  return streamedText;
 }
