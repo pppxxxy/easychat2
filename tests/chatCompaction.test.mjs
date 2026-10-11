@@ -227,6 +227,29 @@ test('回归 P1-5：压缩防重入的检查与占位都在任何 await 之前�
   assert.ok(/finally\s*\{[^}]*compactBusyRef\.current = false/.test(code), 'finally 里释放占位');
 });
 
+// 回归 2026-10-11 审查 P1-6：`handleCompactSession` 的依赖数组里带着 `messages`，而它每次
+// 流式更新都会换引用 → useCallback 跟着重建 → 它作为 useAutoCompact 的 `onCompact` 进了那个
+// effect 的依赖 → **每个 token 都让 effect 白跑一遍判定**（effect 里真正需要的是 messages.length，
+// 已单独在依赖里）。删掉 `messages` 依赖的前提是函数体不再直接读它（否则会读到旧数组），
+// 所以两条一起断言。
+test('回归 P1-6：压缩回调不依赖 messages（否则流式每帧重建回调、effect 白跑判定）', () => {
+  const screen = fs.readFileSync(path.resolve('src/ChatScreen.js'), 'utf8');
+  const body = extractCallback(screen, 'handleCompactSession');
+  const depsMatch = body.match(/\},\s*\[([^\]]*)\]\s*\);\s*$/);
+  assert.ok(depsMatch, '找到 handleCompactSession 的依赖数组');
+  const deps = depsMatch[1].split(',').map(item => item.trim()).filter(Boolean);
+  assert.equal(deps.includes('messages'), false, 'messages 不得出现在依赖里（它是每帧换引用的数组）');
+  assert.ok(deps.includes('messagesRef'), 'messagesRef 仍在（稳定引用，回调靠它读当前消息）');
+  // 函数体不得直接读 messages：删了依赖还读它，就会读到上一次渲染的旧数组（隐蔽 bug）。
+  // 注意要排除**属性访问**（`compacted.messages` 是 runSessionCompaction 的返回值字段，
+  // 与被删掉的那个闭包变量无关）——所以只匹配「前面不是点号」的 messages。
+  const code = body.replace(/\/\/[^\n]*/g, '').replace(/messagesRef/g, 'REF');
+  assert.equal(/(^|[^.\w])messages\b/.test(code), false, '函数体只许通过 messagesRef 读消息');
+  // useAutoCompact 侧确实把 onCompact 放进了依赖——所以上面的重建代价是真的（不是理论担忧）。
+  const autoCompact = fs.readFileSync(path.resolve('src/chat/useAutoCompact.js'), 'utf8');
+  assert.ok(/onCompact,\s*\]/.test(autoCompact), 'onCompact 在 effect 依赖里（回调重建会让 effect 重跑）');
+});
+
 // ---- 关注点（focus）：/compact 后面那句「这次要特别保留什么」----
 
 test('normalizeCompactionFocus：空白折叠、超长截断、空值归一为空串', () => {

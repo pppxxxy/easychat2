@@ -1524,9 +1524,8 @@ export default function ChatScreen() {
     }
   }, []);
 
-  // D3：压缩当前会话——一次模型调用压成三段摘要 + 保留最近 K 条原文；
-  // 失败保持原会话不动（压缩是锦上添花，绝不能成为会话损坏的来源）。
-  // 与分支系统：压缩会让引用旧消息的 fork 点失效，branchTree 按 `stale` 降级。
+  // D3：压缩当前会话——一次模型调用压成三段摘要 + 保留最近 K 条原文；失败保持原会话不动
+  //（压缩是锦上添花，绝不能成为会话损坏的来源）；fork 点失效由 branchTree 按 `stale` 降级。
   // E2：支持 { silent: true } 静默模式（85% 自动触发用）——不弹任何 Alert，
   // 返回 { ok, before?, after? } 供调用方决策；手动路径行为与旧版逐字一致。
   // N2 整合：走 M 的四档管线（L0 修剪/L1 K1 清除/L2 摘要/L3 归档 + 权威分离），与工作区
@@ -1548,7 +1547,7 @@ export default function ChatScreen() {
         return { ok: false, reason: 'hook-blocked' };
       }
       const { focus, store: workspaceStore } = hookFocus;
-      const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
+      const list = Array.isArray(messagesRef.current) ? messagesRef.current : [];
       const meaningful = countCompactionMessages(list);
       if (meaningful < COMPACTION_MIN_MESSAGES) {
         if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
@@ -1591,7 +1590,8 @@ export default function ChatScreen() {
       compactBusyRef.current = false;
       setCompactBusy(false);
     }
-  }, [character, contextUsage.window, messages, messagesRef, setMessages, t]);
+    // 依赖里不含 messages（P1-6）：函数体只经 messagesRef 读消息，否则流式每帧都重建回调。
+  }, [character, contextUsage.window, messagesRef, setMessages, t]);
 
   // P0-5 尾巴：压缩关注点弹窗。两处入口（提示条 / 聊天设置）都先开它，留空即普通压缩。
   const [compactFocusOpen, setCompactFocusOpen] = useState(false);
