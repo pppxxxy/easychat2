@@ -79,7 +79,6 @@ test('输入区：发送/停止/补充指令/移除附件都带 role（此前只
     'chat.composer.a11y.steer',
     'chat.composer.a11y.stop',
     'chat.composer.a11y.send',
-    'chat.composer.a11y.removeAttachment',
   ]) {
     const at = source.indexOf(`'${key}'`);
     assert.notEqual(at, -1, `${key} 未被使用`);
@@ -91,4 +90,14 @@ test('输入区：发送/停止/补充指令/移除附件都带 role（此前只
       `${key}: 有 label 无 role（同文件其它按钮都有，口径不统一）`
     );
   }
+  // 移除附件键改走共享的 IconButton（自带 accessibilityRole="button" + 按压缩放 +
+  // hitSlop），这里钉「别再手写 TouchableOpacity」——手写就得自己记得补 role。
+  const at = source.indexOf("t('chat.composer.a11y.removeAttachment'");
+  assert.notEqual(at, -1, 'removeAttachment 未被使用');
+  const tagStart = source.lastIndexOf('<', at);
+  assert.ok(
+    source.slice(tagStart, at).startsWith('<IconButton'),
+    '移除附件应走 IconButton（共享组件自带 role，别再手写）'
+  );
+  assert.ok(source.includes("from '../ui/index.js'"), 'IconButton 从共享 UI 入口导入');
 });

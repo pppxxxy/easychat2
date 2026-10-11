@@ -8,6 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTranslation } from '../i18n/I18nContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { IconButton } from '../ui/index.js';
 import ContextBar from './ContextBar.js';
 import { createChatStyles } from './chatStyles.js';
 
@@ -78,15 +79,15 @@ export default function ChatComposer({
                   <Ionicons name="document-text-outline" size={14} color={theme.colors.accentText} />
                 )}
                 <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
-                 <TouchableOpacity
+                 <IconButton
+                   name="close"
+                   size="sm"
+                   color={theme.colors.textFaint}
                    onPress={() => onRemoveAttachment(item.id)}
                    disabled={attachLocked}
                    hitSlop={15}
-                   accessibilityRole="button"
                    accessibilityLabel={t('chat.composer.a11y.removeAttachment', { name: item.name || t('chat.composer.quote.fallbackName') })}
-                 >
-                   <Ionicons name="close" size={14} color={theme.colors.textFaint} />
-                 </TouchableOpacity>
+                 />
               </View>
             ))}
           </ScrollView>
