@@ -21,15 +21,15 @@
 
 ## 真实差距（按优先级）
 
-1. **运行环境深度（最大）**：参考操作真实文件系统 / git / 包管理器 / LSP / 构建测试 / 任意 Bash；我们是 App 内**角色作用域沙盒** + `run_shell`/`run_python`，**无 LSP / 无本地 git（仅 GitHub API）/ 无包管理 / 无真实项目构建**，shell 也**无 OS 级隔离**。
-2. **多智能体编排**：已有**并行只读子代理**（`run_subagent` task 数组，并发 2）+ **可写子代理**（opt-in `mode:'write'`，逐写审批、默认只读）+ **依赖式工作流 `run_workflow`**（DAG：无依赖并行、有依赖带前置结论）；仍缺 **agent 团队 / 跨会话协作 / 子代理间自由通信**。
-3. **程序化接口 / SDK**：参考有 headless + ACP/JSON-RPC + Python/TS SDK；我们只有本地 OpenAI 兼容 API server + 定时任务，**无通用 agent SDK / 外部驱动协议**。
-4. **持久化 transcript**：参考持久化**完整 agent transcript（system + tool 消息）**；我们是**展示文本 + 嵌套 toolTrace** 的混合体，压缩靶子不是完整 transcript。
-5. **MCP 深度**：我们只有 `tools/call`（无 `resources` / `prompts` / 订阅）。
+1. **运行环境深度（最大）**：参考操作真实文件系统 / git / 包管理器 / LSP / 构建测试 / 任意 Bash；我们是 App 内**角色作用域沙盒** + `run_shell`/`run_python`。**已补 LSP-lite 代码大纲**（m1010m8：`list_symbols`，JS/TS/Python 顶层符号）；**真 LSP / 包管理 / 本地 git（仅 GitHub API）/ 真实项目构建 / OS 级隔离**仍需原生或依赖。
+2. **多智能体编排**：已有**并行只读子代理**（`run_subagent` task 数组，并发 2）+ **可写子代理**（opt-in `mode:'write'`，逐写审批、默认只读）+ **依赖式工作流 `run_workflow`**（DAG：无依赖并行、有依赖带前置结论）+ **团队共享黑板**（`src/agent/blackboard.js`：同一批次的多个分身用 `board_post`/`board_read` 自由传递中间结果，突破 DAG 的显式依赖——`run_workflow` 每步、`run_subagent` 并行批次各共享一块内存黑板，署名 `step.id`/`task-N`）+ **持久化团队**（`.easychat/teams/<name>.md` 保存好的多步编排，`run_team` 按名复用；步骤 `agent` 字段现按 `.easychat/agents/` 档案收窄工具/轮次，`workflowRunner.js` 统一执行路径）+ **跨会话黑板**（黑板序列化到 `.easychat/board/board.json`：`run_team` 默认 `remember=true` 播种+落盘，`run_workflow` 可 `remember=true` 开启；团队发现跨会话沉淀，列表枚举隐藏、模型走 `board_read` 读）；仍缺 **多设备/多人实时协作**。
+3. **程序化接口 / SDK**：参考有 headless + ACP/JSON-RPC + Python/TS SDK；我们**已落 JS 侧稳定事件协议**（m1010m8：`src/agent/protocol.js`，JSONL 事件流）+ **原生 HTTP endpoint `POST /v1/agent`**（本地 API server：原生转发请求体 → JS `src/workspace/headlessAgent.js` 跑一轮 agent 工具循环 → 原样回写 `object:'agent.run'`；契约纯模块 `src/agent/agentEndpoint.js`）；**Kotlin 未经编译验证**（本机无 JDK/Android SDK），由 `tests/localApiServerPlugin.test.mjs` 静态校验兜底。
+4. **持久化 transcript**：参考持久化**完整 agent transcript（system + tool 消息）**；我们是**展示文本 + 嵌套 toolTrace** 的混合体。**压缩靶子已改为展开后的完整 transcript**（m1010m8：`buildCompactionSummaryRequest` 内部展开轨迹 + 工具转写）；仍非「以内联 tool 消息为唯一存储」。
+5. **MCP 深度**：~~只有 `tools/call`~~ **已补齐**（m1010m8）：`tools/call` + `resources` + `prompts`（连接时拉目录、注册只读工具）。仍无订阅（`resources/subscribe`）。
 6. **上下文规模**：ZCode 主打 **1M token 长程**；我们默认 200k + 压缩。
 7. **检查点 / 回滚**：参考 `/rewind` 同时回滚**代码 + 对话**；我们是文件快照 + rollback baseline + rewind 联动，非「一键回到任意点」。
 8. **形态**：参考是 CLI / IDE / 桌面 / web；我们是移动 App（移动优先是优势，桌面 / IDE 工作流是差距）。
-9. **模型专门调优**：参考按自家模型深调（Claude 的 prompt cache/thinking、ZCode 的 GLM）；我们模型无关但缺 per-model 深度调优。
+9. **模型专门调优**：参考按自家模型深调（Claude 的 prompt cache/thinking、ZCode 的 GLM）；我们模型无关，**已补模型档案**（`src/network/modelProfiles.js`：按模型名识别家族、给出建议上下文窗口，未声明时兜底，设置页能力弹层显示识别结果），但**不做 per-model 系统提示/采样深调**。
 
 ## 一句话
 

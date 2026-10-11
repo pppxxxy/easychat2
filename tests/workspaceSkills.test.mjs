@@ -254,3 +254,18 @@ test('接线契约：ChatPanel 每轮直读技能并传入；设置面板可安�
     assert.ok(en.includes(key), `英文缺 ${key}`);
   }
 });
+
+test('skill 工具：按名字取技能全文（也认目录名）；缺名/找不到报错', async () => {
+  const { SKILL_TOOL_DEFINITION } = await import('../src/workspace/toolDefs/skillTool.js');
+  const store = makeStore({
+    [`.easychat/skills/weekly-report/${SKILL_FILE_NAME}`]: '---\nname: 周报\n---\n\n步骤一\n步骤二',
+  });
+  const ok = await SKILL_TOOL_DEFINITION.execute({ store }, { name: '周报' }, {});
+  assert.ok(ok.content.includes('步骤一') && ok.content.includes('步骤二'), '返回全文');
+  const byDir = await SKILL_TOOL_DEFINITION.execute({ store }, { name: 'weekly-report' }, {});
+  assert.ok(byDir.content.includes('步骤一'), '也认目录名');
+  const missing = await SKILL_TOOL_DEFINITION.execute({ store }, { name: '不存在' }, {});
+  assert.equal(missing.isError, true);
+  const empty = await SKILL_TOOL_DEFINITION.execute({ store }, {}, {});
+  assert.equal(empty.isError, true);
+});

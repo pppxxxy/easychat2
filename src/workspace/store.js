@@ -10,6 +10,7 @@ import {
 } from './paths.js';
 import { applyWorkspaceEdit } from './edit.js';
 import { FILE_HISTORY_DIR } from './fileHistory.js';
+import { BOARD_DIR } from './boardStore.js';
 import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
@@ -101,8 +102,9 @@ export async function listWorkspaceFilesDetailed({ root, characterId, fileSystem
   // J1：file-history 是隐形历史——不进列表枚举（恢复走专用入口），也不刷文件面板。
   // 注意 listWorkspaceFiles 的调用方（agent 的 list 工具 / 文件面板 / 压缩扫描）都
   // 不应该看到这批内部文件；fileHistory 模块自己用直读（readIndex），不依赖列表。
-  const hiddenPrefix = `${FILE_HISTORY_DIR}/`;
-  const files = results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
+  // 跨会话黑板（.easychat/board/）同款隐形：模型走 board_read 读，不看原始 JSON。
+  const hiddenPrefixes = [`${FILE_HISTORY_DIR}/`, `${BOARD_DIR}/`];
+  const files = results.filter(entry => !hiddenPrefixes.some(prefix => String(entry).startsWith(prefix))).sort();
   return { files, truncated: state.truncated };
 }
 

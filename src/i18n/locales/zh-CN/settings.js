@@ -389,6 +389,7 @@ export const settings = {
   'settings.capability.title': '确认模型能力',
   'settings.capability.modelLine': '模型：{model}。',
   'settings.capability.hint': '每个模型单独一套：决定聊天页是否开放「思考」、图片/视频上传与语音识别。确认后还需点表单里的「保存配置」才会写入本机。',
+  'settings.capability.profileHint': '识别到 {family} 家族：未声明上下文窗口时按 {window} 估算（可在下面填数字覆盖）。',
   'settings.capability.thinking': '支持思考（推理模型）',
   'settings.capability.thinkingField': '思考参数字段名',
   'settings.capability.vision': '支持识图（多模态模型）',

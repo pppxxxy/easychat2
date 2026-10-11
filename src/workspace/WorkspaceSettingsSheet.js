@@ -27,6 +27,7 @@ import { HOOKS_FILE, HOOK_EVENTS, parseWorkspaceHooks, validateWorkspaceHooks } 
 import { SKILLS_DIR } from './skills.js';
 import { AGENTS_DIR, AGENT_LIST_MAX } from './agents.js';
 import { summarizeSessionEvents } from './sessionEventView.js';
+import { TEAMS_DIR } from './teams.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -103,6 +104,12 @@ export default function WorkspaceSettingsSheet({
   // 用户写了档案，既看不到有没有被读到、也没有计数（技能至少还能装示例并计数）。
   // 只读展示，没有「安装示例」：仓库里没有样例档案可装。
   agents = [],
+  // 团队清单（.easychat/teams 的多步编排）；安装示例同样转发给 ChatPanel。
+  teams = [],
+  onInstallSampleTeams,
+  // 团队记忆（跨会话黑板）：宿主读好的主题快照 + 清空动作。
+  boardTopics = [],
+  onClearBoard,
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
   onInstallSampleCommands,
@@ -256,6 +263,22 @@ export default function WorkspaceSettingsSheet({
       value: mcpView.enabled > 0
         ? t('workspace.settings.mcp.count', { enabled: mcpView.enabled, total: mcpView.total })
         : (mcpView.total > 0 ? t('workspace.settings.mcp.allOff') : t('workspace.settings.mcp.emptyShort')),
+    },
+    {
+      id: 'teams',
+      icon: 'people-outline',
+      label: t('workspace.settings.teams'),
+      value: teams.length > 0
+        ? t('workspace.settings.teams.count', { count: teams.length })
+        : t('workspace.settings.teams.emptyShort'),
+    },
+    {
+      id: 'board',
+      icon: 'albums-outline',
+      label: t('workspace.settings.board'),
+      value: boardTopics.length > 0
+        ? t('workspace.settings.board.count', { count: boardTopics.length })
+        : t('workspace.settings.board.emptyShort'),
     },
     {
       id: 'commands',
@@ -543,6 +566,61 @@ export default function WorkspaceSettingsSheet({
             <Ionicons name="settings-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.skillsInstallText}>{t('workspace.settings.mcp.openSettings')}</Text>
           </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'teams') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.teams.hint', { dir: TEAMS_DIR })}</Text>
+          {teams.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.teams.empty')}</Text>
+          ) : teams.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {String(item && item.name || '')}
+              {'：'}
+              {String(item && item.description || '') || t('workspace.settings.teams.noDescription')}
+            </Text>
+          ))}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onInstallSampleTeams && onInstallSampleTeams()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.teams.install')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'board') {
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.board.hint')}</Text>
+          {boardTopics.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.board.empty')}</Text>
+          ) : boardTopics.map(topic => (
+            <View key={topic.topic} style={styles.boardTopic}>
+              <Text style={styles.boardTopicTitle}>
+                {t('workspace.settings.board.topic', { topic: topic.topic, count: topic.messages.length })}
+              </Text>
+              {topic.messages.map((msg, index) => (
+                <Text key={`${msg.from}-${index}`} style={styles.bodyHint} selectable>
+                  {msg.from ? `${msg.from}：` : ''}{msg.text}
+                </Text>
+              ))}
+            </View>
+          ))}
+          {boardTopics.length > 0 ? (
+            <TouchableOpacity
+              style={styles.skillsInstall}
+              onPress={() => onClearBoard && onClearBoard()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={15} color={theme.colors.danger || theme.colors.primary} />
+              <Text style={styles.skillsInstallText}>{t('workspace.settings.board.clear')}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       );
     }

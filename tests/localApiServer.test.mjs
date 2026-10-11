@@ -5,6 +5,7 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 import {
   addLocalApiServerRequestListener,
+  attachLocalApiServerAgent,
   attachLocalApiServerInference,
   buildOpenAiSseChunk,
   buildOpenAiSseFinal,
@@ -264,3 +265,49 @@ test('attachLocalApiServerInference：stream 但原生不支持 respondStream �
   await handler({ requestId: 's2', body: { stream: true, messages: [] } });
   assert.deepEqual(replies[0], { requestId: 's2', response: { text: '完整回复', model: 'qwen' } });
 });
+
+test('attachLocalApiServerAgent：/v1/agent 进 agent 运行并回写 agent.run 响应', async () => {
+  let handler = null;
+  const replies = [];
+  const runs = [];
+  attachLocalApiServerAgent({
+    runAgent: async parsed => {
+      runs.push(parsed);
+      return { text: '结论', model: 'm', steps: [{ name: 'read_workspace_file' }] };
+    },
+    addListener: cb => { handler = cb; return () => {}; },
+    respond: async (requestId, response) => { replies.push({ requestId, response }); return true; },
+  });
+  await handler({ requestId: 'a1', path: '/v1/agent', body: { prompt: '查一下' } });
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].prompt, '查一下');
+  assert.equal(replies[0].response.object, 'agent.run');
+  assert.equal(replies[0].response.text, '结论');
+  assert.deepEqual(replies[0].response.steps, [{ name: 'read_workspace_file' }]);
+});
+
+test('attachLocalApiServerAgent：runAgent 抛错回写失败文本；缺 runAgent 返回 noop', async () => {
+  let handler = null;
+  const replies = [];
+  attachLocalApiServerAgent({
+    runAgent: async () => { throw new Error('boom'); },
+    addListener: cb => { handler = cb; return () => {}; },
+    respond: async (requestId, response) => { replies.push(response); return true; },
+  });
+  await handler({ requestId: 'a2', path: '/v1/agent', body: {} });
+  assert.ok(replies[0].text.includes('boom'));
+  assert.equal(typeof attachLocalApiServerAgent({}), 'function', '缺 runAgent 返回 noop 卸载器');
+});
+
+test('attachLocalApiServerInference：忽略 /v1/agent 事件（不误当聊天推理）', async () => {
+  let handler = null;
+  let called = 0;
+  attachLocalApiServerInference({
+    runInference: async () => { called += 1; return 'x'; },
+    addListener: cb => { handler = cb; return () => {}; },
+    respond: async () => true,
+  });
+  await handler({ requestId: 'x', path: '/v1/agent', body: {} });
+  assert.equal(called, 0, 'agent 请求不得进聊天推理');
+});
+

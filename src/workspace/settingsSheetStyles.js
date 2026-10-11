@@ -212,6 +212,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   usageFill: { height: '100%', backgroundColor: theme.colors.primary },
   usageFillWarn: { backgroundColor: theme.colors.danger || theme.colors.primary },
+  // 团队记忆（黑板）：每个主题一块，标题 + 若干条结论。
+  boardTopic: { marginTop: 10 },
+  boardTopicTitle: {
+    color: theme.colors.text,
+    fontSize: fonts.scaled(12),
+    fontWeight: '700',
+  },
   divider: { height: tokens.border.thin, backgroundColor: theme.colors.surfaceBorder, marginVertical: 4 },
 });
 

@@ -7,6 +7,7 @@
 //   保守默认 32000（未声明时按最小常见窗口保守处理，宁可早压缩不溢出）。
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
+import { modelContextWindow } from '../network/modelProfiles.js';
 import {
   DEFAULT_AUTOCOMPACT_RATIO,
   DEFAULT_HEADROOM_TOKENS,
@@ -38,9 +39,10 @@ export function estimateHistoryTokens(messages) {
   })));
 }
 
-// 窗口解析：声明的 contextWindow 优先，其次本地模型 n_ctx，最后保守默认。
-export function resolveContextWindow({ declared = 0, localContextSize = 0 } = {}) {
-  const values = [Number(declared), Number(localContextSize)];
+// 窗口解析：声明的 contextWindow 优先，其次本地模型 n_ctx，再按模型家族建议（modelProfiles），
+// 最后保守默认。model 只作兜底——用户声明了窗口就永远以声明为准。
+export function resolveContextWindow({ declared = 0, localContextSize = 0, model = '' } = {}) {
+  const values = [Number(declared), Number(localContextSize), modelContextWindow(model)];
   for (const value of values) {
     if (Number.isFinite(value) && value > 0) return Math.floor(value);
   }

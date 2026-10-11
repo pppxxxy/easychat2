@@ -83,7 +83,7 @@ export function workspaceSkillsSection(skills) {
   if (sorted.length > shown.length) {
     lines.push(`（按名字排序仅列出前 ${shown.length} 个，还有 ${sorted.length - shown.length} 个——可用 list_workspace_files 查看 ${SKILLS_DIR}/ 下的全部技能目录）`);
   }
-  lines.push(`需要用到某个技能时，先用 read_workspace_file 读它的 ${SKILL_FILE_NAME} 全文，再按其中的步骤做；不要凭清单里的名字猜测内容。`);
+  lines.push(`需要用到某个技能时，用 skill 工具按名字取它的完整说明（或 read_workspace_file 读 ${SKILL_FILE_NAME} 全文），再按其中的步骤做；不要凭清单里的名字猜测内容。`);
   return lines.join('\n');
 }
 

@@ -191,7 +191,7 @@ export default function CardPreviewModal({ visible, draft, onClose, onSendTurn }
                   {isUser ? (
                     <Text style={[styles.bubbleText, styles.bubbleTextUser]}>{turn.display}</Text>
                   ) : (
-                    <AssistantMessageBody text={turn.display} fullWidth />
+                    <AssistantMessageBody text={turn.display} fullWidth textColor={theme.colors.text} />
                   )}
                 </View>
               </View>

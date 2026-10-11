@@ -4,9 +4,19 @@
 
 import { normalizeLocalModelApiServer } from './modelState.js';
 import { describeModelError, recordModelLog } from './modelLogs.js';
+import { AGENT_ENDPOINT_PATH, buildAgentEndpointResponse, parseAgentEndpointRequest } from '../agent/agentEndpoint.js';
 import { tActive } from '../i18n/index.js';
 
 const EVENT_REQUEST = 'LocalApiServer:onRequest';
+
+// 共享串行队列：/v1/chat/completions 与 /v1/agent 复用同一常驻模型，llama.rn 的
+// context 非并发安全，必须全局串行（不再各挂各的队列）。前一个任务无论成败都继续。
+let sharedQueue = Promise.resolve();
+function enqueue(task) {
+  const run = sharedQueue.then(task, task);
+  sharedQueue = run.then(() => {}, () => {});
+  return run;
+}
 
 let rnState;
 function getReactNative() {
@@ -187,7 +197,6 @@ export function attachLocalApiServerInference({ model, runInference, addListener
   const reply = typeof respond === 'function' ? respond : respondLocalApiServer;
   const replyStream = typeof respondStream === 'function' ? respondStream : respondLocalApiServerStream;
   const modelId = String((model && model.id) || 'local-model');
-  let queue = Promise.resolve();
   const handle = async event => {
     const stream = Boolean(event.body && event.body.stream);
     try {
@@ -226,7 +235,31 @@ export function attachLocalApiServerInference({ model, runInference, addListener
     }
   };
   return listen(event => {
-    queue = queue.then(() => handle(event)).catch(() => {});
-    return queue;
+    // /v1/agent 由 agent 附件处理（见 attachLocalApiServerAgent）——这里不碰。
+    if (!event || event.path === AGENT_ENDPOINT_PATH) return sharedQueue;
+    return enqueue(() => handle(event));
+  });
+}
+
+// 把 /v1/agent 请求接到「跑一轮 agent 工具循环」的函数：runAgent(parsed, event) →
+// 返回 { text, model?, steps?, usage? }，本函数组装成端点响应后回写。
+// addListener / respond 可注入（便于单测）。与聊天推理共用同一条串行队列。
+export function attachLocalApiServerAgent({ runAgent, addListener, respond } = {}) {
+  if (typeof runAgent !== 'function') return () => {};
+  const listen = typeof addListener === 'function' ? addListener : addLocalApiServerRequestListener;
+  const reply = typeof respond === 'function' ? respond : respondLocalApiServer;
+  const handle = async event => {
+    try {
+      const parsed = parseAgentEndpointRequest(event.body);
+      const result = await runAgent(parsed, event);
+      await reply(event.requestId, buildAgentEndpointResponse(result || {}));
+    } catch (error) {
+      recordModelLog('api', `agent 端点运行失败：${describeModelError(error)}`, { level: 'error' });
+      await reply(event.requestId, buildAgentEndpointResponse({ text: `agent 运行失败：${(error && error.message) || '未知错误'}` }));
+    }
+  };
+  return listen(event => {
+    if (!event || event.path !== AGENT_ENDPOINT_PATH) return sharedQueue;
+    return enqueue(() => handle(event));
   });
 }

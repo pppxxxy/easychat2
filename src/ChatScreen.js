@@ -998,11 +998,13 @@ export default function ChatScreen() {
         getActiveLocalModel().catch(() => null),
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const model = current ? getActiveModel(current) : '';
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
       contextUsage = computeContextUsage(list, resolveContextWindow({
         declared: caps.contextWindow,
         localContextSize,
+        model,
       }));
     } catch (error) {}
     if (!shouldSummarize({ session, messages: list, settings, contextUsage })) return;
@@ -1621,11 +1623,13 @@ export default function ChatScreen() {
           getActiveLocalModel().catch(() => null),
         ]);
         const current = configs.find(item => item.id === activeId) || configs[0];
-        const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+        const model = current ? getActiveModel(current) : '';
+        const caps = capabilitiesForModel(current, model);
         const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
         const usage = computeContextUsage(list, resolveContextWindow({
           declared: caps.contextWindow,
           localContextSize,
+          model,
         }));
         // maxOutput 一并带上：阈值按模型声明的输出上限预留（此前没接上）。
         if (alive) setContextUsage(usage && Number.isFinite(usage.ratio) ? { ...usage, maxOutput: Number(caps.maxOutput) || 0 } : { tokens: 0, window: 0, ratio: 0, maxOutput: 0 });

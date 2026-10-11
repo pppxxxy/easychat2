@@ -17,13 +17,11 @@ import {
   COMPACTION_TRIM_TAIL_CHARS,
   COMPACTION_TRIM_THRESHOLD_CHARS,
   buildCompactionSummaryRequest,
+  buildToolTranscript,
 } from './compaction.js';
 
-// 工具语义转写关注的工具（有「路径」语义的）。
-const TRANSCRIBE_TOOLS = new Set([
-  'write_workspace_file', 'edit_workspace_file', 'read_workspace_file',
-  'list_workspace_files', 'search_workspace', 'update_plan',
-]);
+// buildToolTranscript 已移到 compaction.js（摘要统一入口，含轨迹展开）；re-export 兼容既有引用点。
+export { buildToolTranscript };
 
 function textOf(item) {
   if (!item) return '';
@@ -50,38 +48,6 @@ export function trimLargeToolResults(messages, {
     return { ...item, content: `${head}\n${mark}\n${tail}` };
   });
   return { messages: out, changed };
-}
-
-// 工具语义转写（纯）：为 write/edit/read/list/search/plan 调用各生成一行
-// 「调用了 X：path（结果 N 字符）」——进摘要输入，保住「动了哪些文件」。
-export function buildToolTranscript(messages) {
-  const list = Array.isArray(messages) ? messages : [];
-  const results = new Map();
-  list.forEach(item => {
-    if (item && item.role === 'tool') results.set(String(item.tool_call_id), item);
-  });
-  const lines = [];
-  list.forEach(item => {
-    if (!item || item.role !== 'assistant' || !Array.isArray(item.tool_calls)) return;
-    item.tool_calls.forEach(call => {
-      // 历史里的 tool_calls 是 OpenAI 形态（{ id, type, function: { name, arguments } }）；
-      // 循环内联的则可能是 { id, name, arguments }——两种都认。
-      const fn = call && call.function ? call.function : call;
-      const name = String((fn && fn.name) || '');
-      if (!TRANSCRIBE_TOOLS.has(name)) return;
-      let path = '';
-      try {
-        const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : fn.arguments;
-        path = String((args && (args.path || args.subdir || args.pattern)) || '');
-      } catch (error) {
-        path = '';
-      }
-      const result = results.get(String(call.id));
-      const len = result ? textOf(result).length : 0;
-      lines.push(`调用了 ${name}：${path || '(无路径)'}（结果 ${len} 字符）`);
-    });
-  });
-  return lines.join('\n');
 }
 
 // 尾部按「配对单位」切割：保留最近 keep 条，但保证切割点不落在 toolUse↔toolResult 之间——
@@ -256,7 +222,8 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, deps = 
 
   // L2 摘要（+ L3 归档在破坏性替换前）。
   if (typeof d.summarize === 'function') {
-    const request = buildCompactionSummaryRequest(current, { toolTranscript: buildToolTranscript(current) });
+    // ④：buildCompactionSummaryRequest 内部展开轨迹并自带工具转写（摘要看得到工具调用/结果）。
+    const request = buildCompactionSummaryRequest(current);
     const summary = String((await d.summarize(request)) || '').trim();
     if (summary) {
       applied.push('L2');

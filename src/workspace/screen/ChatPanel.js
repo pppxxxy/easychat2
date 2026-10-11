@@ -27,6 +27,7 @@ import {
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Markdown from 'react-native-markdown-display';
 
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
@@ -66,6 +67,9 @@ import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
 import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
 import { searchChatMessages } from '../../chat/messageSearch.js';
+import { createMarkdownStyles } from '../../chat/assistantRender.js';
+import { clampMarkdownText } from '../../chat/markdownGuard.js';
+import { promptUserChoice } from '../../chat/askUserPrompt.js';
 import ToolCardList from './ToolCardList.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
@@ -88,6 +92,9 @@ import {
 } from '../../chat/attachments.js';
 import useChatRecorder from '../../chat/useChatRecorder.js';
 import { readWorkspaceAgents } from '../agents.js';
+import { installSampleTeams, readWorkspaceTeams } from '../teams.js';
+import { clearPersistentBlackboard, loadPersistentBlackboard } from '../boardStore.js';
+import { boardTopics } from '../../agent/blackboard.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createSteeringQueue } from '../../agent/steering.js';
 import {
@@ -157,10 +164,22 @@ function draftCacheKey(ownerId, chatId) {
   return `${String(ownerId || '')}:${String(chatId || '')}`;
 }
 
+// 助手正文：memo 化——流式期间只有「内容变化的那条」重新解析 Markdown，其余消息复用
+// 上次渲染（长会话 + 逐 token 更新下显著省算力）。markdownStyles 是稳定引用（useMemo）。
+const AssistantBody = React.memo(function AssistantBody({ content, markdownStyles }) {
+  return <Markdown style={markdownStyles}>{clampMarkdownText(content || '').text}</Markdown>;
+});
+
 export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // 助手正文按 Markdown 渲染（与主聊天页同款样式工厂）——agent 输出的代码块/列表不再显示原始标记。
+  // 取色传 theme.colors.text：气泡底色是 surface（深底），不能用聊天默认的 bubbleAssistantText（深字）。
+  const markdownStyles = useMemo(
+    () => createMarkdownStyles(theme, fonts, tokens, theme.colors.text),
+    [theme, fonts, tokens]
+  );
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -184,6 +203,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
   // P3-3：MCP 服务器（配置在「设置 → 扩展」）。工作区此前对它**零信号**——用户不知道
   // 自己的 MCP 工具在不在、有几个。这里只读展示，配置入口仍归主设置页。
   const [mcpServers, setMcpServers] = useState([]);
+  // 团队清单（设置面板展示用；发消息时另行直读，两处互不影响）。
+  const [workspaceTeams, setWorkspaceTeams] = useState([]);
+  // 团队记忆（跨会话黑板）快照（设置面板展示用；清空后置空）。
+  const [boardSnapshot, setBoardSnapshot] = useState([]);
   // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
@@ -386,11 +409,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         && (bucket.chats.find(item => item.id === bucket.activeId) || bucket.chats[0]);
       const list = (active && active.messages) || [];
       const current = configs.find(item => item.id === activeId) || configs[0];
-      const caps = capabilitiesForModel(current, current ? getActiveModel(current) : '');
+      const model = current ? getActiveModel(current) : '';
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = Number(localItem && localItem.contextSize) || 0;
       const computed = computeContextUsage(list, resolveContextWindow({
         declared: caps.contextWindow,
         localContextSize,
+        model,
       }));
       if (mountedRef.current) setUsage(computed);
     } catch (error) {
@@ -450,9 +475,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       ]);
       const current = configs.find(item => item.id === activeId) || configs[0];
       if (!current) return { ok: false, reason: 'failed' };
-      const caps = capabilitiesForModel(current, getActiveModel(current));
+      const model = getActiveModel(current);
+      const caps = capabilitiesForModel(current, model);
       const localContextSize = Number(localItem && localItem.contextSize) || 0;
-      const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize });
+      const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize, model });
       // 阈值统一走 compactionPolicy（Z 系采纳 #5：模型感知 + 输出预留 + 缓冲）。
       const policy = resolveAutoCompactPolicy({ contextWindow: windowSize });
       const autoRatio = windowSize > 0 ? policy.thresholdTokens / windowSize : AUTO_COMPACT_RATIO;
@@ -518,6 +544,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     getMcpServers()
       .then(list => {
         if (alive) setMcpServers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    readWorkspaceTeams(storeRef.current, characterId)
+      .then(list => {
+        if (alive) setWorkspaceTeams(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    loadPersistentBlackboard(storeRef.current, characterId)
+      .then(board => {
+        if (alive) setBoardSnapshot(boardTopics(board));
       })
       .catch(() => {});
     return () => {
@@ -790,6 +826,47 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
         t('workspace.settings.skills.installNone')
       );
     }
+  }, [characterId, t]);
+
+  const handleInstallSampleTeams = useCallback(async () => {
+    let installed = 0;
+    try {
+      installed = await installSampleTeams(storeRef.current, characterId);
+    } catch (error) {}
+    try {
+      const list = await readWorkspaceTeams(storeRef.current, characterId);
+      setWorkspaceTeams(Array.isArray(list) ? list : []);
+    } catch (error) {}
+    if (installed > 0) {
+      Alert.alert(
+        t('workspace.settings.teams.installDoneTitle'),
+        t('workspace.settings.teams.installDone', { count: installed })
+      );
+    } else {
+      Alert.alert(
+        t('workspace.settings.teams.installNoneTitle'),
+        t('workspace.settings.teams.installNone')
+      );
+    }
+  }, [characterId, t]);
+
+  const handleClearBoard = useCallback(() => {
+    Alert.alert(
+      t('workspace.settings.board.clearTitle'),
+      t('workspace.settings.board.clearBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            clearPersistentBlackboard(storeRef.current, characterId)
+              .then(() => setBoardSnapshot([]))
+              .catch(() => {});
+          },
+        },
+      ]
+    );
   }, [characterId, t]);
 
   // 斜杠命令建议：输入以 / 开头、且还在打命令名（没出炉空格）时才出现，
@@ -1163,6 +1240,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
     // E3：分身档案清单（渐进披露第一层）——同样每轮直读；run_subagent 没注册时
     // 提示词自动不注入（buildWorkspaceAgentSystemPrompt 内部判据）。
     const agents = mode === 'ask' ? [] : await readWorkspaceAgents(storeRef.current, ownerId);
+    // 团队清单（持久化团队）：同样每轮直读；run_team 没注册时提示词自动不注入。
+    const teams = mode === 'ask' ? [] : await readWorkspaceTeams(storeRef.current, ownerId);
     const systemPrompt = buildWorkspaceAgentSystemPrompt({
       mode,
       characterName,
@@ -1170,6 +1249,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       memory,
       skills,
       agents,
+      teams,
       // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
       readLog: readLogRef.current ? readLogRef.current.list() : [],
       // P0-8：hooks.json 的注入类事件（放在 readLog 之前，见该函数的缓存契约）。
@@ -1242,6 +1322,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             extraRules,
           });
         },
+        // ask_user：任务中途向用户提选择题（跨平台 Alert）。
+        onAskUser: payload => promptUserChoice({
+          ...payload,
+          cancelLabel: t('common.cancel'),
+          alert: (...a) => Alert.alert(...a),
+        }),
         // D4-1：结果增强钩子——hooks.json 的 on_tool_result（按工具名精确匹配，
         // 往成功结果尾部追加提醒）。每次调用直读（本轮内 agent 改了钩子立即生效）；
         // registry 侧兜底：错误结果不增强、钩子抛错按原结果返回。
@@ -1484,6 +1570,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
             sessionEvents={sessionEvents}
             mcpServers={mcpServers}
                   onInstallSampleSkills={handleInstallSampleSkills}
+                  teams={workspaceTeams}
+                  onInstallSampleTeams={handleInstallSampleTeams}
+                  boardTopics={boardSnapshot}
+                  onClearBoard={handleClearBoard}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}
                   hooksText={hooksText}
@@ -1519,6 +1609,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
                             选择手柄。只加在消息正文上——状态行/标签等 UI 文本不加（会吃长按）。 */}
                         {item.role === 'assistant' && !item.content && sending && item.id === lastAssistantId ? (
                           <ActivityIndicator size="small" color={theme.colors.primary} />
+                        ) : item.role === 'assistant' ? (
+                          // 助手正文走 Markdown（用户消息保持纯文本，与全应用约定一致）。
+                          <AssistantBody content={item.content} markdownStyles={markdownStyles} />
                         ) : (
                           <Text style={styles.bubbleText} selectable>{item.content}</Text>
                         )}

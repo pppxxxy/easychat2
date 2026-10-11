@@ -389,6 +389,7 @@ export const settings = {
   'settings.capability.title': 'Confirm Model Capabilities',
   'settings.capability.modelLine': 'Model: {model}. ',
   'settings.capability.hint': 'Each model has its own set: this controls whether the chat offers "Thinking", image/video uploads, and speech recognition. Tap "Save Configuration" in the form to persist.',
+  'settings.capability.profileHint': 'Detected {family} family: using {window} as the context window estimate unless you declare one below.',
   'settings.capability.thinking': 'Supports Thinking (reasoning models)',
   'settings.capability.thinkingField': 'Thinking Parameter Field',
   'settings.capability.vision': 'Supports Vision (multimodal models)',
