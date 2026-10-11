@@ -64,6 +64,23 @@ export const PROVIDERS = [
     secretFields: ['apiKey'],
   },
   {
+    id: 'anysearch',
+    label: 'AnySearch',
+    keyLinks: [{ label: '获取 AnySearch Key', labelKey: 'plugin.keyLink.anysearch', url: 'https://anysearch.com/console/api-keys' }],
+    baseUrl: 'https://api.anysearch.com/v1/search',
+    method: 'POST',
+    authType: 'header',
+    authKeyName: 'Authorization',
+    authPrefix: 'Bearer ',
+    queryParam: 'query',
+    limitParam: 'max_results',
+    extra: {},
+    // 结果包在响应信封 data.results 里（{ code, message, request_id, data: { results } }）
+    resultsPath: 'data.results',
+    fields: { title: 'title', url: 'url', snippet: 'snippet' },
+    secretFields: ['apiKey'],
+  },
+  {
     id: 'custom',
     label: '自定义',
     labelKey: 'plugin.provider.custom',

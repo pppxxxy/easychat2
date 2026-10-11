@@ -6,6 +6,7 @@ export const plugin = {
   'plugin.keyLink.googleCx': '创建搜索引擎（cx）',
   'plugin.keyLink.brave': '获取 Brave Search Key',
   'plugin.keyLink.tavily': '获取 Tavily Key',
+  'plugin.keyLink.anysearch': '获取 AnySearch Key',
   'plugin.webSearch.name': '联网搜索',
   'plugin.webSearch.desc': '角色可搜索网络信息，结合时事回答。',
   'plugin.webSearch.numberedName': '联网搜索 {index}',

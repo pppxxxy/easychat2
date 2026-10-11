@@ -6,6 +6,7 @@ export const plugin = {
   'plugin.keyLink.googleCx': 'Create a search engine (cx)',
   'plugin.keyLink.brave': 'Get a Brave Search Key',
   'plugin.keyLink.tavily': 'Get a Tavily Key',
+  'plugin.keyLink.anysearch': 'Get an AnySearch Key',
   'plugin.webSearch.name': 'Web Search',
   'plugin.webSearch.desc': 'Lets characters search the web and answer with up-to-date information.',
   'plugin.webSearch.numberedName': 'Web Search {index}',
