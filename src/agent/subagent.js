@@ -174,9 +174,14 @@ export async function runSubagent({
           args = {};
         }
         // 写子代理：需要确认的工具**逐条**先问用户，未批准则不执行（与主循环同款纪律）。
-        if (tool.requiresConfirmation && typeof confirm !== 'function') {
+        // 审查修复 F2：判据不能只看 tool.requiresConfirmation——写工具（write/edit/create_dir）
+        // 本身不带这个标记（主代理写文件本来就不逐条确认），于是这段确认在真实工具上
+        // **从来不会执行**，与「逐写审批」的承诺相反。改成「标记 || （写模式下非只读工具）」，
+        // 单一事实源，run_workflow 的步骤同样受它保护。
+        const needsConfirm = tool.requiresConfirmation === true || (mode === 'write' && tool.readOnly !== true);
+        if (needsConfirm && typeof confirm !== 'function') {
           outcome = { content: '该工具需要用户确认，但当前环境无法询问用户（未执行）。', isError: true };
-        } else if (tool.requiresConfirmation) {
+        } else if (needsConfirm) {
           const approved = await confirm({ name: call.name, args });
           outcome = approved ? undefined : { content: '用户拒绝了此操作（未执行）。', isError: true };
         }

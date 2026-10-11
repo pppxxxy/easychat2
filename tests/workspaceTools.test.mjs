@@ -91,6 +91,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
     'materialize_repo',
     'get_build_log',
     'run_subagent',
+    'run_workflow',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
@@ -100,11 +101,11 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   assert.deepEqual(listToolsForMode(AGENT_MODES.ASK), []);
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow'],
   );
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.WRITE).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx'],
   );
 });
 

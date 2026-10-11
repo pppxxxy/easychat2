@@ -253,8 +253,13 @@ test('接线契约：run_subagent 工具只读但不递归；能力清单含它�
   // 定义已按域拆到 toolDefs/（质量建议 ①）：断言跟着去新文件，并保留一条聚合断言。
   const toolFile = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentTool.js'), 'utf8');
   assert.ok(toolFile.includes("name: 'run_subagent'"), '工具已注册进工作区定义');
-  assert.ok(toolFile.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '子代理工具按名字白名单过滤（不看 readOnly 标志）');
-  assert.ok(toolFile.includes('READ_ONLY_TOOL_DEFINITIONS'), '只读对象直接引 readTools（不经注册表过滤）');
+  // 审查修复 F3：白名单收成单一来源（subagentToolSet），run_subagent 与 run_workflow 共用一份。
+  // 断言从「某个文件里有某字符串」升级为「工具文件用共用构建器 + 构建器行为正确」。
+  assert.ok(toolFile.includes('subagentToolSet('), '工具集来自共用构建器（不再各写一份白名单）');
+  assert.ok(toolFile.includes('hostAllowsWrite(ctx)'), 'F1：写权限看宿主模式，不看模型传的 mode');
+  const setFile = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentToolSet.js'), 'utf8');
+  assert.ok(setFile.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '按名字白名单过滤（不看 readOnly 标志）');
+  assert.ok(setFile.includes('READ_ONLY_TOOL_DEFINITIONS'), '只读对象直接引 readTools（不经注册表过滤）');
   assert.ok(toolFile.includes('timeoutMs: 300000'), '子代理需要更长的工具超时（多轮模型请求；E3 起 180s → 300s）');
   const indexFile = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
   assert.ok(indexFile.includes('SUBAGENT_TOOL_DEFINITION'), '索引层聚合了子代理定义');
@@ -299,7 +304,7 @@ test('E3 工具契约：task 支持数组、agent 可选、并发上限与防递
   assert.ok(source.includes('SUBAGENT_BATCH_LIMIT'), '批量上限常量（≤3）');
   assert.ok(source.includes('mapWithConcurrency(tasks, SUBAGENT_CONCURRENCY'), '并发按上限执行');
   assert.ok(source.includes('timeoutMs: 300000'), '超时 180s → 300s（并行批次按最慢一路算）');
-  assert.ok(source.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '名字白名单过滤保留（防递归未破坏）');
+  assert.ok(source.includes('subagentToolSet('), '名字白名单过滤保留（经共用构建器，防递归未破坏）');
   // 档案 tools 只能收窄，不能扩大：执行前按 profile.tools 再过滤一次。
   assert.ok(source.includes('subagentTools.filter(item => profile.tools.includes(item.name))'), '档案只收窄工具表');
   assert.ok(source.includes("readWorkspaceAgents(options.store"), '档案每轮直读（改完下一轮生效）');
@@ -352,4 +357,65 @@ test('写子代理：write 模式放行写工具并逐写 confirm；拒绝不执
     confirm: async () => true,
   });
   assert.equal(executed.length, 1, 'read 模式不执行写工具');
+});
+
+test('审查修复 F3/F1：共用工具集的行为——read 含 search 不含递归工具；写权限只认宿主模式', async () => {
+  const { subagentToolSet, hostAllowsWrite } = await import('../src/workspace/toolDefs/subagentToolSet.js');
+  const { AGENT_MODES } = await import('../src/agent/tools/registry.js');
+
+  const read = subagentToolSet('read').map(item => item.name);
+  assert.ok(read.includes('search_workspace'), 'F3：read 集含 search_workspace（此前工作流那份漏了它）');
+  assert.ok(read.includes('read_workspace_file'));
+  for (const forbidden of ['run_subagent', 'run_workflow', 'run_shell', 'run_python', 'write_workspace_file']) {
+    assert.equal(read.includes(forbidden), false, `read 集不得含 ${forbidden}（防递归/防越权）`);
+  }
+  const write = subagentToolSet('write').map(item => item.name);
+  assert.deepEqual(
+    write.filter(name => ['write_workspace_file', 'edit_workspace_file', 'create_workspace_dir'].includes(name)).sort(),
+    ['create_workspace_dir', 'edit_workspace_file', 'write_workspace_file'],
+    'write 集在 read 集之上叠加写三件'
+  );
+  assert.equal(write.includes('run_subagent'), false, '写集也不含递归工具');
+  assert.deepEqual(subagentToolSet('bogus').map(item => item.name), read, '未知 mode 按 read 处理');
+
+  // F1：只有宿主处于可改模式才算授权；缺省（undefined）按 ask 处理 = 不放行（与 canRunTool 同语义）
+  assert.equal(hostAllowsWrite({ mode: AGENT_MODES.WRITE }), true);
+  assert.equal(hostAllowsWrite({ mode: AGENT_MODES.READ }), false, 'read 模式下请求 write 不算授权');
+  assert.equal(hostAllowsWrite({ mode: AGENT_MODES.ASK }), false);
+  assert.equal(hostAllowsWrite({}), false, '宿主没说模式 → 不放行（默认拒绝）');
+  assert.equal(hostAllowsWrite(null), false);
+});
+
+test('审查修复 F2：真实写工具（不带 requiresConfirmation）在 write 模式下同样逐写确认', async () => {
+  const { runSubagent } = loadSubagent();
+  const { WRITE_TOOL_DEFINITIONS } = await import('../src/workspace/toolDefs/writeTools.js');
+  const real = WRITE_TOOL_DEFINITIONS.find(item => item.name === 'write_workspace_file');
+  assert.equal(real.requiresConfirmation, undefined, '写工具本身不带确认标记——这正是 F2 的成因');
+
+  const executed = [];
+  const tool = { ...real, execute: async () => { executed.push(1); return { content: 'written' }; } };
+  const streamWith = (id, finalText) => {
+    let round = 0;
+    return async () => {
+      round += 1;
+      return round === 1
+        ? { text: '', toolCalls: [{ id, name: 'write_workspace_file', arguments: '{}' }] }
+        : { text: finalText, toolCalls: [] };
+    };
+  };
+
+  let asked = 0;
+  await runSubagent({
+    task: '写文件', tools: [tool], store: {}, stream: streamWith('f2-a', '结论：未写。'),
+    mode: 'write', confirm: async () => { asked += 1; return false; },
+  });
+  assert.equal(asked, 1, 'write 模式下真实写工具也要逐条问（此前判据只看 requiresConfirmation → 从不问）');
+  assert.equal(executed.length, 0, '拒绝后不执行');
+
+  await runSubagent({
+    task: '写文件', tools: [tool], store: {}, stream: streamWith('f2-b', '结论：已写。'),
+    mode: 'write', confirm: async () => { asked += 1; return true; },
+  });
+  assert.equal(asked, 2);
+  assert.equal(executed.length, 1, '批准后执行一次');
 });

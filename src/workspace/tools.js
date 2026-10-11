@@ -22,6 +22,7 @@ import { MATERIALIZE_TOOL_DEFINITION } from './toolDefs/materializeTool.js';
 import { GET_BUILD_LOG_DEFINITION, RUN_REMOTE_BUILD_DEFINITION } from './toolDefs/ciTools.js';
 import { WRITE_TOOL_DEFINITIONS } from './toolDefs/writeTools.js';
 import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
+import { WORKFLOW_TOOL_DEFINITION } from './toolDefs/workflowTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
 import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from './toolDefs/execTools.js';
 
@@ -42,6 +43,7 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   MATERIALIZE_TOOL_DEFINITION,
   GET_BUILD_LOG_DEFINITION,
   SUBAGENT_TOOL_DEFINITION,
+  WORKFLOW_TOOL_DEFINITION,
   ...WRITE_TOOL_DEFINITIONS,
   RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,
