@@ -7,8 +7,9 @@
 // 不会改变「不想填」的用户体验，只是多了一次确认。
 
 import React, { useMemo } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 
+import { Sheet } from '../ui/index.js';
 import { COMPACTION_FOCUS_MAX } from './compaction.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -27,52 +28,46 @@ export default function CompactFocusModal({
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
-    <Modal
+    <Sheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      backdropMode="keyboard"
+      backdropStyle={styles.modalBackdrop}
+      cardStyle={[styles.modalSheet, styles.sheetWidth]}
+      header={<Text style={styles.modalTitle}>{t('chat.compact.focus.title')}</Text>}
     >
-      <KeyboardAvoidingView
-        style={styles.modalBackdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
-          <Text style={styles.modalTitle}>{t('chat.compact.focus.title')}</Text>
-          <Text style={styles.compactFocusHint}>{t('chat.compact.focus.hint')}</Text>
-          <TextInput
-            style={styles.stickerNameInput}
-            value={focus}
-            onChangeText={onChangeFocus}
-            placeholder={t('chat.compact.focus.placeholder')}
-            placeholderTextColor={theme.colors.textFaint}
-            autoFocus
-            multiline
-            maxLength={COMPACTION_FOCUS_MAX}
-            editable={!busy}
-          />
-          <View style={styles.stickerNameActions}>
-            <TouchableOpacity
-              style={[styles.selectButton, styles.selectButtonGhost]}
-              onPress={onClose}
-              disabled={busy}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.selectButton, busy && styles.sendButtonDisabled]}
-              onPress={onConfirm}
-              disabled={busy}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.selectButtonText}>
-                {busy ? t('chat.settings.compactBusy') : t('chat.compact.focus.confirm')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      <Text style={styles.compactFocusHint}>{t('chat.compact.focus.hint')}</Text>
+      <TextInput
+        style={styles.stickerNameInput}
+        value={focus}
+        onChangeText={onChangeFocus}
+        placeholder={t('chat.compact.focus.placeholder')}
+        placeholderTextColor={theme.colors.textFaint}
+        autoFocus
+        multiline
+        maxLength={COMPACTION_FOCUS_MAX}
+        editable={!busy}
+      />
+      <View style={styles.stickerNameActions}>
+        <TouchableOpacity
+          style={[styles.selectButton, styles.selectButtonGhost]}
+          onPress={onClose}
+          disabled={busy}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.selectButtonText}>{t('common.cancel')}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.selectButton, busy && styles.sendButtonDisabled]}
+          onPress={onConfirm}
+          disabled={busy}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.selectButtonText}>
+            {busy ? t('chat.settings.compactBusy') : t('chat.compact.focus.confirm')}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Sheet>
   );
 }

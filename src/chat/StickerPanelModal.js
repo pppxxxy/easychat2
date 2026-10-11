@@ -2,9 +2,10 @@
 // 拖动：编辑态下磁贴上移动超过阈值即进入拖拽（点击仍走选中），释放时按落点重排。
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Image, PanResponder, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
@@ -137,110 +138,110 @@ export default function StickerPanelModal({
   };
 
   return (
-    <Modal
+    <Sheet
       visible={visible}
-      transparent
+      onClose={onClose}
       animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.stickerBackdrop}>
-        <View style={[styles.stickerSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
-          <View style={styles.stickerHeader}>
-            <Text style={styles.stickerTitle}>{t('chat.sticker.title')}</Text>
-            <View style={styles.stickerHeaderActions}>
-              <TouchableOpacity
-                onPress={toggleEditing}
-                hitSlop={8}
-                accessibilityLabel={editing ? t('chat.sticker.editDoneA11y') : t('chat.sticker.editA11y')}
-                accessibilityRole="button"
-              >
-                <Text style={styles.stickerEditText}>{editing ? t('common.done') : t('chat.sticker.edit')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={onClose}
-                hitSlop={8}
-                accessibilityLabel={t('chat.sticker.closeA11y')}
-                style={styles.stickerHeaderClose}
-              >
-                <Ionicons name="close" size={22} color={theme.colors.textMuted} />
-              </TouchableOpacity>
-            </View>
+      backdropMode="static"
+      backdropStyle={styles.stickerBackdrop}
+      cardStyle={[styles.stickerSheet, styles.sheetWidth]}
+      header={(
+        <View style={styles.stickerHeader}>
+          <Text style={styles.stickerTitle}>{t('chat.sticker.title')}</Text>
+          <View style={styles.stickerHeaderActions}>
+            <TouchableOpacity
+              onPress={toggleEditing}
+              hitSlop={8}
+              accessibilityLabel={editing ? t('chat.sticker.editDoneA11y') : t('chat.sticker.editA11y')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.stickerEditText}>{editing ? t('common.done') : t('chat.sticker.edit')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityLabel={t('chat.sticker.closeA11y')}
+              style={styles.stickerHeaderClose}
+            >
+              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+            </TouchableOpacity>
           </View>
-          <ScrollView
-            style={styles.stickerScroll}
-            contentContainerStyle={styles.stickerGrid}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={!dragId}
-            onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}
+        </View>
+      )}
+    >
+      <ScrollView
+        style={styles.stickerScroll}
+        contentContainerStyle={styles.stickerGrid}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!dragId}
+        onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}
+      >
+        {!editing ? (
+          <TouchableOpacity
+            style={styles.stickerAddTile}
+            onPress={addStickerFromPicker}
+            disabled={stickerSaving}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.sticker.addA11y')}
           >
-            {!editing ? (
+            <Ionicons name="add" size={25} color={theme.colors.accentText} />
+            <Text style={styles.stickerAddText}>{t('chat.sticker.add')}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {stickers.map(sticker => {
+          const selected = selectedIds.has(sticker.id);
+          const isDragging = dragId === sticker.id;
+          const isDragOver = dragOverId === sticker.id && dragId !== sticker.id;
+          return (
+            <View
+              key={sticker.id}
+              style={[
+                styles.stickerTile,
+                selected && styles.stickerTileSelected,
+                isDragging && styles.stickerTileDragging,
+                isDragOver && styles.stickerTileDragOver,
+              ]}
+              {...(editing ? getResponder(sticker.id).panHandlers : null)}
+            >
               <TouchableOpacity
-                style={styles.stickerAddTile}
-                onPress={addStickerFromPicker}
-                disabled={stickerSaving}
                 activeOpacity={0.8}
+                disabled={!editing && (inputDisabled || stickerSaving)}
+                onPress={() => (editing ? toggleSelected(sticker.id) : sendSticker(sticker))}
+                style={styles.stickerTileButton}
                 accessibilityRole="button"
-                accessibilityLabel={t('chat.sticker.addA11y')}
+                accessibilityLabel={editing ? t('chat.sticker.selectA11y', { name: sticker.name }) : t('chat.sticker.sendA11y', { name: sticker.name })}
               >
-                <Ionicons name="add" size={25} color={theme.colors.accentText} />
-                <Text style={styles.stickerAddText}>{t('chat.sticker.add')}</Text>
+                <Image source={{ uri: sticker.uri }} style={styles.stickerImage} resizeMode="contain" />
+                <Text style={styles.stickerName} numberOfLines={1}>{sticker.name}</Text>
               </TouchableOpacity>
-            ) : null}
-            {stickers.map(sticker => {
-              const selected = selectedIds.has(sticker.id);
-              const isDragging = dragId === sticker.id;
-              const isDragOver = dragOverId === sticker.id && dragId !== sticker.id;
-              return (
-                <View
-                  key={sticker.id}
-                  style={[
-                    styles.stickerTile,
-                    selected && styles.stickerTileSelected,
-                    isDragging && styles.stickerTileDragging,
-                    isDragOver && styles.stickerTileDragOver,
-                  ]}
-                  {...(editing ? getResponder(sticker.id).panHandlers : null)}
-                >
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    disabled={!editing && (inputDisabled || stickerSaving)}
-                    onPress={() => (editing ? toggleSelected(sticker.id) : sendSticker(sticker))}
-                    style={styles.stickerTileButton}
-                    accessibilityRole="button"
-                    accessibilityLabel={editing ? t('chat.sticker.selectA11y', { name: sticker.name }) : t('chat.sticker.sendA11y', { name: sticker.name })}
-                  >
-                    <Image source={{ uri: sticker.uri }} style={styles.stickerImage} resizeMode="contain" />
-                    <Text style={styles.stickerName} numberOfLines={1}>{sticker.name}</Text>
-                  </TouchableOpacity>
-                  {editing ? (
-                    <View style={[styles.stickerCheck, selected && styles.stickerCheckOn]} pointerEvents="none">
-                      {selected ? (
-                        <Ionicons name="checkmark" size={13} color={theme.colors.primaryContrast} />
-                      ) : null}
-                    </View>
+              {editing ? (
+                <View style={[styles.stickerCheck, selected && styles.stickerCheckOn]} pointerEvents="none">
+                  {selected ? (
+                    <Ionicons name="checkmark" size={13} color={theme.colors.primaryContrast} />
                   ) : null}
                 </View>
-              );
-            })}
-          </ScrollView>
-          {editing ? (
-            <View style={styles.stickerEditBar}>
-              <Text style={styles.stickerEditHint}>
-                {selectedIds.size > 0 ? t('chat.sticker.selectedCount', { count: selectedIds.size }) : t('chat.sticker.editHint')}
-              </Text>
-              <TouchableOpacity
-                style={[styles.stickerDeleteButton, selectedIds.size === 0 && styles.sendButtonDisabled]}
-                onPress={confirmDeleteSelected}
-                disabled={selectedIds.size === 0}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
-                <Text style={styles.stickerDeleteText}>{t('common.delete')}</Text>
-              </TouchableOpacity>
+              ) : null}
             </View>
-          ) : null}
+          );
+        })}
+      </ScrollView>
+      {editing ? (
+        <View style={styles.stickerEditBar}>
+          <Text style={styles.stickerEditHint}>
+            {selectedIds.size > 0 ? t('chat.sticker.selectedCount', { count: selectedIds.size }) : t('chat.sticker.editHint')}
+          </Text>
+          <TouchableOpacity
+            style={[styles.stickerDeleteButton, selectedIds.size === 0 && styles.sendButtonDisabled]}
+            onPress={confirmDeleteSelected}
+            disabled={selectedIds.size === 0}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="trash-outline" size={15} color={theme.colors.text} />
+            <Text style={styles.stickerDeleteText}>{t('common.delete')}</Text>
+          </TouchableOpacity>
         </View>
-      </View>
-    </Modal>
+      ) : null}
+    </Sheet>
   );
 }
