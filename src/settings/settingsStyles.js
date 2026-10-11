@@ -207,6 +207,32 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   hintButton: {
     marginRight: 12,
   },
+  // 单角色锁列表的名字搜索框：外框充当输入框外观，内部 TextField 去掉自身边框与底色，
+  // 与前置搜索图标、后置清除按钮拼成一行。
+  characterSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: tokens.spacing.md,
+    marginTop: tokens.spacing.sm,
+    marginBottom: tokens.spacing.xs,
+  },
+  characterSearchIcon: { marginRight: tokens.spacing.sm },
+  characterSearchInput: {
+    flex: 1,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+  },
+  characterSearchClear: { paddingLeft: tokens.spacing.sm, paddingVertical: tokens.spacing.sm },
+  characterSearchEmpty: {
+    color: theme.colors.textFaint,
+    fontSize: fonts.scaled(12),
+    marginTop: tokens.spacing.sm,
+  },
   personaActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: tokens.spacing.sm },
   personaAddChip: {
     flexDirection: 'row',
