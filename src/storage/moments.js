@@ -104,10 +104,15 @@ export async function getProactiveSettings() {
   return normalizeProactiveSettings(stored.status === 'ok' ? stored.value : null);
 }
 
-export async function saveProactiveSettings(settings) {
-  const normalized = normalizeProactiveSettings(settings);
-  await AsyncStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(normalized));
-  return normalized;
+export function saveProactiveSettings(settings) {
+  // **必须入队**：bindProactiveSlotSession 写的是同一个键，且在队列里做读-改-写。
+  // 这条写入若绕过队列，就会插到「它读完、还没写」的中间——两边都基于旧快照，
+  // 后落盘的那次把对方刚提交的改动整个覆盖掉（后发起的调用不再生效）。
+  return enqueueMomentsMutation(async () => {
+    const normalized = normalizeProactiveSettings(settings);
+    await AsyncStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(normalized));
+    return normalized;
+  });
 }
 
 // 主动消息落库时把「新建对话」的槽绑定到实际写入的会话 id：重读当前设置后仅改该槽，

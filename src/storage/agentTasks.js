@@ -110,31 +110,36 @@ export function clearAgentTaskRun(taskId) {
   });
 }
 
-async function deleteAgentTasksForCharacters(characterIds) {
+// 角色删除钩子：读-改-写两个键。**必须入队**——saveAgentTasks / markAgentTaskRun /
+// clearAgentTaskRun 都在同一条队列上，这条钩子若绕过队列，就会插到它们中间：
+// 钩子读到旧表、别的写入落盘、钩子再把旧表写回去，把刚清掉的数据重新写回（孤儿复活）。
+function deleteAgentTasksForCharacters(characterIds) {
   const ids = (Array.isArray(characterIds) ? characterIds : []).map(id => String(id || '')).filter(Boolean);
-  if (ids.length === 0) return;
+  if (ids.length === 0) return Promise.resolve();
   const idSet = new Set(ids);
-  const tasks = await getAgentTasks();
-  const kept = tasks.filter(task => !idSet.has(String(task.roleId || '')));
-  const removedIds = tasks
-    .filter(task => idSet.has(String(task.roleId || '')))
-    .map(task => String(task.taskId || ''));
-  if (tasks.length !== kept.length) {
-    await AsyncStorage.setItem(AGENT_TASKS_KEY, JSON.stringify({ tasks: kept }));
-  }
-  if (removedIds.length > 0) {
-    const runs = await readRunDates();
-    let changed = false;
-    removedIds.forEach(id => {
-      if (id in runs) {
-        delete runs[id];
-        changed = true;
-      }
-    });
-    if (changed) {
-      await AsyncStorage.setItem(AGENT_TASK_RUNS_KEY, JSON.stringify(runs));
+  return agentTasksMutation.enqueue(async () => {
+    const tasks = await getAgentTasks();
+    const kept = tasks.filter(task => !idSet.has(String(task.roleId || '')));
+    const removedIds = tasks
+      .filter(task => idSet.has(String(task.roleId || '')))
+      .map(task => String(task.taskId || ''));
+    if (tasks.length !== kept.length) {
+      await AsyncStorage.setItem(AGENT_TASKS_KEY, JSON.stringify({ tasks: kept }));
     }
-  }
+    if (removedIds.length > 0) {
+      const runs = await readRunDates();
+      let changed = false;
+      removedIds.forEach(id => {
+        if (id in runs) {
+          delete runs[id];
+          changed = true;
+        }
+      });
+      if (changed) {
+        await AsyncStorage.setItem(AGENT_TASK_RUNS_KEY, JSON.stringify(runs));
+      }
+    }
+  });
 }
 
 // 角色删除时清理其定时 Agent 任务（谁的数据谁负责）。
