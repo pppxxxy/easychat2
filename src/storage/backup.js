@@ -6,12 +6,19 @@ import { File } from 'expo-file-system';
 
 import {
   BACKUP_MAX_BYTES,
+  BACKUP_MEDIA_DIRECTORIES,
+  BACKUP_MODE_QUICK,
+  QUICK_MEDIA_DIRECTORIES,
   buildBackupPayload,
+  collectLockSecretIds,
+  isQuickExportKey,
   planBackupImport,
+  scanSecretRefs,
 } from './dataBackup.js';
 import { recordDiagnostic } from './diagnostics.js';
 import { tActive } from '../i18n/index.js';
 import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
+import { readSecureValue, writeSecureValue } from './secretStore.js';
 import { createBackupChunkGenerator } from './backupStream.js';
 
 const MANAGED_PREFIX = '@easychat2_';
@@ -130,7 +137,18 @@ async function collectMedia(directory, prefix = '', hooks = {}) {
   return { items, failed };
 }
 
-export async function exportBackup({ appVersion = '', onProgress, signal, directory = '', fileName = '' } = {}) {
+// 合并（取长补短）：directory/fileName 来自「自动备份」（写专用子目录、固定文件名），
+// mode/includeSecrets 来自「导出范围」（完整/快速 + 可选包含密钥）。四者互不相干、
+// 都是可选参数，缺省时行为与原来的手动导出完全一致。
+export async function exportBackup({
+  appVersion = '',
+  onProgress,
+  signal,
+  directory = '',
+  fileName = '',
+  mode = 'full',
+  includeSecrets = false,
+} = {}) {
   const report = (phase, done, total) => {
     if (typeof onProgress === 'function') {
       try {
@@ -138,9 +156,14 @@ export async function exportBackup({ appVersion = '', onProgress, signal, direct
       } catch (error) {}
     }
   };
+  const quick = mode === BACKUP_MODE_QUICK;
   throwIfAborted(signal);
   const keys = await AsyncStorage.getAllKeys();
   const managedKeys = keys.filter(item => item.startsWith(MANAGED_PREFIX) && !item.endsWith(CORRUPT_SUFFIX));
+  const baseKeys = quick ? managedKeys.filter(isQuickExportKey) : managedKeys;
+  // 需要密钥时按全部键读取：引用可能藏在未导出的键里（如接口配置），只有读到才能
+  // 判定「哪些键引用了密钥」，进而把它们一并导出，避免恢复后密钥成为孤儿。
+  const readKeys = includeSecrets ? managedKeys : baseKeys;
   const storage = [];
   // 记录读不出的键：数据恰好损坏时最需要备份，静默跳过会让用户拿到一份
   // “看起来成功、实则残缺”的备份。这里统计并回传给 UI 明确提示。
@@ -152,19 +175,48 @@ export async function exportBackup({ appVersion = '', onProgress, signal, direct
   // - unreadableKeys：真读不出（getItem 抛错 + 大值兜底也 null），只能跳过。
   const unreadableKeys = [];
   const partialKeys = [];
-  report('storage', 0, managedKeys.length);
-  for (let index = 0; index < managedKeys.length; index += 1) {
+  const valuesByKey = new Map();
+  report('storage', 0, readKeys.length);
+  for (let index = 0; index < readKeys.length; index += 1) {
     throwIfAborted(signal);
-    const key = managedKeys[index];
+    const key = readKeys[index];
     const read = await readRawValue(key);
-    if (read.value !== undefined) storage.push({ key, value: read.value });
-    else if (read.opaqueRaw !== undefined) {
-      storage.push({ key, opaqueRaw: read.opaqueRaw });
-      partialKeys.push(key);
-    } else {
-      unreadableKeys.push(key);
+    if (read.value !== undefined) {
+      valuesByKey.set(key, { value: read.value });
+    } else if (read.opaqueRaw !== undefined) {
+      valuesByKey.set(key, { opaqueRaw: read.opaqueRaw });
     }
-    report('storage', index + 1, managedKeys.length);
+    report('storage', index + 1, readKeys.length);
+  }
+  // 决定最终导出键集合：基础集合 + （含密钥时）引用密钥的键与安全设置键。
+  const exportKeys = new Set(baseKeys);
+  let secrets = [];
+  if (includeSecrets) {
+    const scanEntries = [...valuesByKey.entries()].map(([key, entry]) => ({ key, ...entry }));
+    const refs = scanSecretRefs(scanEntries);
+    refs.keys.forEach(key => exportKeys.add(key));
+    // 角色锁密码/提示直接落安全存储：导出安全设置键，锁的「上锁名单」才能一并恢复。
+    exportKeys.add('@easychat2_security');
+    const securityEntry = valuesByKey.get('@easychat2_security');
+    const lockIds = collectLockSecretIds(securityEntry && securityEntry.value);
+    const ids = [...new Set([...refs.ids, ...lockIds])];
+    for (const id of ids) {
+      throwIfAborted(signal);
+      const value = await readSecureValue(id);
+      if (value) secrets.push({ id, value });
+    }
+  }
+  for (const key of exportKeys) {
+    const entry = valuesByKey.get(key);
+    if (!entry) continue;
+    if (entry.value !== undefined) storage.push({ key, value: entry.value });
+    else if (entry.opaqueRaw !== undefined) {
+      storage.push({ key, opaqueRaw: entry.opaqueRaw });
+      partialKeys.push(key);
+    }
+  }
+  for (const key of baseKeys) {
+    if (!valuesByKey.has(key)) unreadableKeys.push(key);
   }
   // 失败键名必须留痕：弹窗只显示数量、诊断日志此前完全没记录，用户无从排查
   // 是哪个键失败。这里把键名（去前缀前）写进诊断日志，供「诊断日志」回看。
@@ -182,7 +234,7 @@ export async function exportBackup({ appVersion = '', onProgress, signal, direct
   // screen-watch/ 刻意不登记：截图是临时运行文件（滚动保留 20 张自动清扫），
   // 不是用户创作内容；备份带上应用界面截图只有隐私暴露没有价值。评论文本在
   // AsyncStorage 键里随备份走，恢复后 imageUri 悬空不影响阅读。
-  for (const directory of ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge', 'music', 'books']) {
+  for (const directory of (quick ? QUICK_MEDIA_DIRECTORIES : BACKUP_MEDIA_DIRECTORIES)) {
     throwIfAborted(signal);
     const collected = await collectMedia(directory, '', {
       signal,
@@ -196,7 +248,7 @@ export async function exportBackup({ appVersion = '', onProgress, signal, direct
   }
   throwIfAborted(signal);
   report('packing', 0, 0);
-  const payload = buildBackupPayload({ storage, media, appVersion });
+  const payload = buildBackupPayload({ storage, media, appVersion, mode, secrets });
   // directory 缺省写 documentDirectory 根（手动导出）；自动备份传入专用子目录，
   // 与手动导出分开，避免「淘汰旧备份」误删用户手动导出的包。fileName 缺省用时间戳名。
   const baseDir = String(directory || FileSystem.documentDirectory || '');
@@ -216,6 +268,8 @@ export async function exportBackup({ appVersion = '', onProgress, signal, direct
     unreadableKeys,
     partialKeys,
     unreadableMedia,
+    secretsCount: secrets.length,
+    mode: quick ? BACKUP_MODE_QUICK : 'full',
     incomplete: unreadableKeys.length > 0 || unreadableMedia.length > 0 || partialKeys.length > 0,
   };
 }
@@ -264,6 +318,17 @@ async function writeBackupStream(uri, payload, { signal, report }) {
 export async function importBackup(payload, mode = 'merge') {
   const plan = planBackupImport(payload, mode);
   if (!plan.valid) throw new Error(plan.error);
+  // 先写回密钥：数据里的 secure 引用随后即可解析到明文。单条失败不阻断数据恢复
+  // （例如原生安全存储不可用），只记录数量回传。
+  let secretsCount = 0;
+  for (const item of plan.secrets || []) {
+    try {
+      await writeSecureValue(item.id, item.value);
+      secretsCount += 1;
+    } catch (error) {
+      recordDiagnostic('secrets', error, `importBackup 密钥写回失败：${item.id}`);
+    }
+  }
   const storageKeys = plan.storage
     .map(item => item.key)
     .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
@@ -304,5 +369,5 @@ export async function importBackup(payload, mode = 'merge') {
     recordDiagnostic('storage', error, 'importBackup');
     throw error;
   }
-  return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode, opaqueCount };
+  return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode, opaqueCount, secretsCount };
 }

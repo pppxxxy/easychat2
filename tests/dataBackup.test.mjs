@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 
 import {
   BACKUP_MAX_BYTES,
+  BACKUP_MEDIA_DIRECTORIES,
   buildBackupPayload,
+  collectLockSecretIds,
   filterPendingMessages,
   isAllowedMediaPath,
+  isQuickExportKey,
+  isQuickExportMediaPath,
   planBackupImport,
   sanitizeAndFilterBackupValue,
   sanitizeBackupValue,
+  scanSecretRefs,
   validateBackupPayload,
 } from '../src/storage/dataBackup.js';
 
@@ -180,4 +185,111 @@ test('planBackupImport：opaqueRaw 条目透传，不做结构化清理', () => 
   });
   assert.equal(plan.valid, true);
   assert.deepEqual(plan.storage[0], { key: '@easychat2_broken', opaqueRaw: '{ bad' });
+});
+
+test('isQuickExportKey：命中角色卡与会话/消息/分支/记忆摘要，排除工作区与设置', () => {
+  assert.equal(isQuickExportKey('@easychat2_character_index'), true);
+  assert.equal(isQuickExportKey('@easychat2_character_item::c1'), true);
+  assert.equal(isQuickExportKey('@easychat2_character_schedules'), true);
+  assert.equal(isQuickExportKey('@easychat2_affinity'), true);
+  assert.equal(isQuickExportKey('@easychat2_sessions'), true);
+  assert.equal(isQuickExportKey('@easychat2_active_session'), true);
+  assert.equal(isQuickExportKey('@easychat2_messages::s1'), true);
+  assert.equal(isQuickExportKey('@easychat2_branch_index::s1'), true);
+  assert.equal(isQuickExportKey('@easychat2_branch_item::s1::b1'), true);
+  assert.equal(isQuickExportKey('@easychat2_session_summaries::s1'), true);
+  // 排除：设置、工作区、本地模型、安全设置等
+  assert.equal(isQuickExportKey('@easychat2_chat_options'), false);
+  assert.equal(isQuickExportKey('@easychat2_api_configs'), false);
+  assert.equal(isQuickExportKey('@easychat2_workspace_files'), false);
+  assert.equal(isQuickExportKey('@easychat2_local_model'), false);
+  assert.equal(isQuickExportKey('@easychat2_security'), false);
+});
+
+test('isQuickExportMediaPath：仅角色与聊天相关目录', () => {
+  assert.equal(isQuickExportMediaPath('avatars/a.jpg'), true);
+  assert.equal(isQuickExportMediaPath('characters/a.json'), true);
+  assert.equal(isQuickExportMediaPath('chat-images/a.jpg'), true);
+  assert.equal(isQuickExportMediaPath('voice/a.m4a'), true);
+  assert.equal(isQuickExportMediaPath('stickers/a.png'), true);
+  assert.equal(isQuickExportMediaPath('music/a.mp3'), false);
+  assert.equal(isQuickExportMediaPath('books/a.epub'), false);
+  assert.equal(isQuickExportMediaPath('card-forge/a.json'), false);
+  assert.equal(isQuickExportMediaPath('characters/../secret.txt'), false);
+});
+
+test('完整导出媒体目录补齐 music/books（与采集清单对齐）', () => {
+  assert.ok(BACKUP_MEDIA_DIRECTORIES.includes('music'));
+  assert.ok(BACKUP_MEDIA_DIRECTORIES.includes('books'));
+});
+
+test('scanSecretRefs：找出引用密钥的键与去前缀 id', () => {
+  const { keys, ids } = scanSecretRefs([
+    { key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:apiConfigs_a_apiKey' }], activeId: 'a' } },
+    { key: '@easychat2_tts', value: { nested: { token: 'secure:v1:tts_x' } } },
+    { key: '@easychat2_plain', value: { note: 'no ref' } },
+    { key: '@easychat2_broken', opaqueRaw: 'secure:v1:ghost' },
+  ]);
+  assert.deepEqual(keys.sort(), ['@easychat2_api_configs', '@easychat2_tts']);
+  assert.deepEqual(ids.sort(), ['apiConfigs_a_apiKey', 'tts_x']);
+});
+
+test('collectLockSecretIds：从 security 键枚举角色锁密码与提示 id', () => {
+  const ids = collectLockSecretIds({ appLock: { enabled: true }, characterLocks: { c1: true, c2: true } });
+  assert.deepEqual(ids, ['character_lock_c1', 'character_lock_hint_c1', 'character_lock_c2', 'character_lock_hint_c2']);
+  assert.deepEqual(collectLockSecretIds(null), []);
+  assert.deepEqual(collectLockSecretIds({ appLock: {} }), []);
+});
+
+test('buildBackupPayload：携带密钥时保留 secure 引用并写入密钥清单', () => {
+  const payload = buildBackupPayload({
+    storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1', plain: 'keep' }] } }],
+    media: [],
+    mode: 'quick',
+    secrets: [{ id: 'id1', value: 'sk-real' }],
+  });
+  assert.equal(payload.mode, 'quick');
+  assert.equal(payload.secretsExcluded, false);
+  assert.deepEqual(payload.secrets, [{ id: 'id1', value: 'sk-real' }]);
+  assert.equal(payload.storage[0].value.configs[0].apiKey, 'secure:v1:id1');
+  assert.equal(payload.storage[0].value.configs[0].plain, 'keep');
+});
+
+test('buildBackupPayload：不含密钥时维持剥离（secretsExcluded）', () => {
+  const payload = buildBackupPayload({
+    storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1' }] } }],
+    media: [],
+  });
+  assert.equal(payload.secretsExcluded, true);
+  assert.equal(payload.storage[0].value.configs[0].apiKey, '');
+  assert.equal(payload.secrets, undefined);
+  assert.equal(payload.mode, 'full');
+});
+
+test('planBackupImport：含密钥时保留引用，不含时剥离', () => {
+  const withSecrets = planBackupImport({
+    schemaVersion: 1,
+    storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1' }] } }],
+    media: [],
+    secrets: [{ id: 'id1', value: 'sk-real' }],
+  });
+  assert.equal(withSecrets.storage[0].value.configs[0].apiKey, 'secure:v1:id1');
+  assert.deepEqual(withSecrets.secrets, [{ id: 'id1', value: 'sk-real' }]);
+
+  const without = planBackupImport({
+    schemaVersion: 1,
+    storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1' }] } }],
+    media: [],
+  });
+  assert.equal(without.storage[0].value.configs[0].apiKey, '');
+  assert.deepEqual(without.secrets, []);
+});
+
+test('validateBackupPayload：密钥清单校验（可选、结构错误拒绝）', () => {
+  const base = { schemaVersion: 1, storage: [], media: [] };
+  assert.equal(validateBackupPayload({ ...base, secrets: [{ id: 'a', value: 'v' }] }).valid, true);
+  assert.equal(validateBackupPayload(base).valid, true);
+  assert.equal(validateBackupPayload({ ...base, secrets: 'nope' }).valid, false);
+  assert.equal(validateBackupPayload({ ...base, secrets: [{ id: '', value: 'v' }] }).valid, false);
+  assert.equal(validateBackupPayload({ ...base, secrets: [{ id: 'a', value: 1 }] }).valid, false);
 });

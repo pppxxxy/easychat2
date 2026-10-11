@@ -6,6 +6,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -61,7 +62,21 @@ export default function BackupPanel({ visible, onClose, onImported }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null);
+  const [mode, setMode] = useState('full');
+  const [includeSecrets, setIncludeSecrets] = useState(false);
   const exportControllerRef = useRef(null);
+
+  // 含密钥开关默认关闭；开启前必须明确告知含敏感信息，确认后才生效。
+  const toggleSecrets = value => {
+    if (!value) {
+      setIncludeSecrets(false);
+      return;
+    }
+    Alert.alert(t('backup.secrets.warn.title'), t('backup.secrets.warn.body'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('backup.secrets.warn.confirm'), onPress: () => setIncludeSecrets(true) },
+    ]);
+  };
 
   const handleExport = async () => {
     if (busy) return;
@@ -74,8 +89,12 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         appVersion: '1.0.0',
         signal: controller.signal,
         onProgress: setProgress,
+        mode,
+        includeSecrets,
       });
-      const summary = t('backup.summary', { keys: result.storageCount, media: result.mediaCount, size: (result.bytes / 1024 / 1024).toFixed(2) });
+      const summary = result.secretsCount > 0
+        ? t('backup.summaryWithSecrets', { keys: result.storageCount, media: result.mediaCount, secrets: result.secretsCount, size: (result.bytes / 1024 / 1024).toFixed(2) })
+        : t('backup.summary', { keys: result.storageCount, media: result.mediaCount, size: (result.bytes / 1024 / 1024).toFixed(2) });
       // 读不出的键/文件会被跳过，抢救原始数据的键也在其中：必须明确告知，
       // 避免用户拿到“成功”的残缺备份。失败键名直接列出（任务书 P0-1）。
       const unreadableNames = formatKeyNames(result.unreadableKeys, t);
@@ -138,7 +157,10 @@ export default function BackupPanel({ visible, onClose, onImported }) {
       if (!validation.valid) throw new Error(validation.error);
       const result = await importBackup(payload, mode);
       await onImported?.();
-      Alert.alert(t('backup.alert.importDone.title'), t('backup.alert.importDone.body', { keys: result.storageCount, media: result.mediaCount }));
+      const doneBody = result.secretsCount > 0
+        ? t('backup.alert.importDone.bodySecrets', { keys: result.storageCount, media: result.mediaCount, secrets: result.secretsCount })
+        : t('backup.alert.importDone.body', { keys: result.storageCount, media: result.mediaCount });
+      Alert.alert(t('backup.alert.importDone.title'), doneBody);
     } catch (error) {
       Alert.alert(t('backup.alert.importFailed.title'), error.message || t('backup.alert.importFailed.body'));
     } finally {
@@ -157,11 +179,45 @@ export default function BackupPanel({ visible, onClose, onImported }) {
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.content}>
-            <Text style={styles.hint}>{t('backup.hint')}</Text>
+            <Text style={styles.sectionTitle}>{t('backup.export.section')}</Text>
+            <View style={styles.modeRow}>
+              <TouchableOpacity
+                style={[styles.modeButton, mode === 'full' && styles.modeButtonActive]}
+                onPress={() => setMode('full')}
+                disabled={busy}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modeText, mode === 'full' && styles.modeTextActive]}>{t('backup.mode.full')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeButton, mode === 'quick' && styles.modeButtonActive]}
+                onPress={() => setMode('quick')}
+                disabled={busy}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modeText, mode === 'quick' && styles.modeTextActive]}>{t('backup.mode.quick')}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.hint}>{mode === 'full' ? t('backup.mode.fullHint') : t('backup.mode.quickHint')}</Text>
+            <View style={styles.capabilityRow}>
+              <View style={styles.linkLeft}>
+                <Ionicons name="key-outline" size={17} color={theme.colors.primaryMuted} />
+                <Text style={styles.linkText}>{t('backup.secrets.label')}</Text>
+              </View>
+              <Switch
+                value={includeSecrets}
+                onValueChange={toggleSecrets}
+                disabled={busy}
+                trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+                thumbColor={theme.colors.primaryContrast}
+              />
+            </View>
+            {includeSecrets ? <Text style={styles.warnHint}>{t('backup.secrets.hint')}</Text> : null}
             <TouchableOpacity style={styles.primaryButton} onPress={handleExport} disabled={busy} activeOpacity={0.8}>
               <Ionicons name="share-outline" size={18} color={theme.colors.primaryContrast} />
               <Text style={styles.primaryText}>{busy ? progressText(progress, t) : t('backup.export')}</Text>
             </TouchableOpacity>
+            <Text style={styles.hint}>{t('backup.hint')}</Text>
             {busy ? (
               <>
                 <Text style={styles.progressHint}>
@@ -198,6 +254,15 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   content: { paddingBottom: 18 },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 12 },
+  warnHint: { color: theme.colors.warning || theme.colors.danger, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 12 },
+  modeRow: { flexDirection: 'row', marginBottom: 10 },
+  modeButton: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.4), backgroundColor: theme.colors.primaryAlpha(0.08) },
+  modeButtonActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  modeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700' },
+  modeTextActive: { color: theme.colors.primaryContrast },
+  capabilityRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, marginBottom: 4 },
+  linkLeft: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+  linkText: { color: theme.colors.text, fontSize: fonts.scaled(14), marginLeft: 8 },
   progressHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginBottom: 8 },
   sectionTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800', marginTop: 18, marginBottom: 8 },
   primaryButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, borderRadius: tokens.radius.md, paddingVertical: 12, marginBottom: 8 },
