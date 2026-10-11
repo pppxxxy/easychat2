@@ -212,3 +212,32 @@ test('回归 P0-2：纵深防御第二层——runSubagent 自己再断言一次
   assert.deepEqual(writes, []);
   assert.equal(streamHolder.calls, 0, '拒绝发生在任何模型请求之前');
 });
+
+// 回归 P1-3：run_subagent 与 run_workflow 曾各拼一份「只读来源」，修 search_workspace 时
+// 只改了 subagentTool → 工作流子代理拿不到搜索，而提示词还在让它用 search_workspace 定位。
+// 这里不查源码，而是**从模型真正收到的 tool schema** 上验证两条路径都给到了搜索工具
+//（源码断言只能证明「写了这行」，行为断言才能证明「模型真拿得到」）。
+test('回归 P1-3：两条子代理路径都把 search_workspace 交给模型（工作流那侧曾漏掉）', async () => {
+  const seen = [];
+  streamHolder.calls = 0;
+  streamHolder.fn = async (history, options) => {
+    seen.push((options && Array.isArray(options.tools) ? options.tools : [])
+      .map(item => item && item.function && item.function.name));
+    return { text: '结论：读完了。', toolCalls: [] };
+  };
+  await SUBAGENT_TOOL_DEFINITION.execute(
+    { store: makeStore([]) },
+    { task: '读一下工作区' },
+    { workspaceMode: 'read', characterId: 'ch', confirm: async () => true },
+  );
+  await WORKFLOW_TOOL_DEFINITION.execute(
+    { store: makeStore([]) },
+    { steps: [{ id: 'r1', task: '读一下工作区' }] },
+    { workspaceMode: 'read', characterId: 'ch', confirm: async () => true },
+  );
+  assert.equal(seen.length, 2, '两条路径各发了一次模型请求');
+  for (const names of seen) {
+    assert.deepEqual([...names].sort(), ['list_workspace_files', 'read_workspace_file', 'search_workspace'],
+      '子代理只读工具表必须恰好是这三项（search_workspace 是 P1-3 曾漏掉的那个）');
+  }
+});

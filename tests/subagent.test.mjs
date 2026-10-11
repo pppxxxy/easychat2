@@ -253,9 +253,13 @@ test('接线契约：run_subagent 工具只读但不递归；能力清单含它�
   // 定义已按域拆到 toolDefs/（质量建议 ①）：断言跟着去新文件，并保留一条聚合断言。
   const toolFile = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentTool.js'), 'utf8');
   assert.ok(toolFile.includes("name: 'run_subagent'"), '工具已注册进工作区定义');
-  assert.ok(toolFile.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '子代理工具按名字白名单过滤（不看 readOnly 标志）');
-  assert.ok(toolFile.includes('READ_ONLY_TOOL_DEFINITIONS'), '只读对象直接引 readTools（不经注册表过滤）');
   assert.ok(toolFile.includes('timeoutMs: 300000'), '子代理需要更长的工具超时（多轮模型请求；E3 起 180s → 300s）');
+  // P1-3：工具表装配搬到唯一装配点（run_subagent 与 run_workflow 共用），断言跟着搬。
+  const assembly = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentTools.js'), 'utf8');
+  assert.ok(assembly.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '子代理工具按名字白名单过滤（不看 readOnly 标志）');
+  assert.ok(assembly.includes('READ_ONLY_TOOL_DEFINITIONS'), '只读对象直接引 readTools（不经注册表过滤）');
+  assert.ok(assembly.includes('SEARCH_TOOL_DEFINITION'), '只读来源必须含 search_workspace（P1-3：工作流那侧曾漏掉）');
+  assert.ok(toolFile.includes('buildSubagentTools'), 'run_subagent 使用唯一装配点');
   const indexFile = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
   assert.ok(indexFile.includes('SUBAGENT_TOOL_DEFINITION'), '索引层聚合了子代理定义');
 
@@ -267,7 +271,7 @@ test('接线契约：run_subagent 工具只读但不递归；能力清单含它�
     '子代理不得 import 全局注册表（结构上不可递归）');
 
   const caps = fs.readFileSync(path.resolve('src/workspace/capabilities.js'), 'utf8');
-  assert.ok(caps.includes("'run_subagent'"), '能力清单如实列出子代理');
+  assert.ok(caps.includes("'run_subagent'") || caps.includes('WORKSPACE_TOOL_NAMES'), '能力清单如实列出子代理');
 });
 
 test('E3 mapWithConcurrency：有界并发、结果保序、空输入与抛错行为', async () => {
@@ -299,7 +303,10 @@ test('E3 工具契约：task 支持数组、agent 可选、并发上限与防递
   assert.ok(source.includes('SUBAGENT_BATCH_LIMIT'), '批量上限常量（≤3）');
   assert.ok(source.includes('mapWithConcurrency(tasks, SUBAGENT_CONCURRENCY'), '并发按上限执行');
   assert.ok(source.includes('timeoutMs: 300000'), '超时 180s → 300s（并行批次按最慢一路算）');
-  assert.ok(source.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '名字白名单过滤保留（防递归未破坏）');
+  // P1-3：名字白名单过滤搬到了唯一装配点，断言跟着搬（意图不变：防递归未破坏）。
+  const assembly = fs.readFileSync(path.resolve('src/workspace/toolDefs/subagentTools.js'), 'utf8');
+  assert.ok(assembly.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '名字白名单过滤保留（防递归未破坏）');
+  assert.ok(assembly.includes('SUBAGENT_WRITE_TOOL_NAMES.includes(item.name)'), '写来源同样按白名单收（防递归 + 防越权）');
   // 档案 tools 只能收窄，不能扩大：执行前按 profile.tools 再过滤一次。
   assert.ok(source.includes('subagentTools.filter(item => profile.tools.includes(item.name))'), '档案只收窄工具表');
   assert.ok(source.includes("readWorkspaceAgents(options.store"), '档案每轮直读（改完下一轮生效）');

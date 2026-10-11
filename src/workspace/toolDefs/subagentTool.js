@@ -8,11 +8,9 @@
 // E3 扩展：agent（可选分身名，从 .easychat/agents/<name>.md 取档案收窄工具集与
 // 轮次）+ task 支持数组（≤3 个，并发上限 2，按序合并结论）。
 
-import { mapWithConcurrency, runSubagent, SUBAGENT_TOOL_NAMES, SUBAGENT_WRITE_TOOL_NAMES } from '../../agent/subagent.js';
+import { mapWithConcurrency, runSubagent } from '../../agent/subagent.js';
 import { readWorkspaceAgents } from '../agents.js';
-import { READ_ONLY_TOOL_DEFINITIONS } from './readTools.js';
-import { SEARCH_TOOL_DEFINITION } from './searchTool.js';
-import { WRITE_TOOL_DEFINITIONS } from './writeTools.js';
+import { buildSubagentTools } from './subagentTools.js';
 
 // 并行任务数上限：手机端同时两条模型流是上限（网络与速率限制考虑）。
 export const SUBAGENT_BATCH_LIMIT = 3;
@@ -51,8 +49,8 @@ export const SUBAGENT_TOOL_DEFINITION = {
     required: ['task'],
   },
   execute: async (options, args, ctx) => {
-    // 只读工具按**名字白名单**过滤（不含 run_subagent——它自己也是 readOnly，
-    // 只看标志会递归）：防递归是结构性的，不靠"记得别给"。
+    // 防递归（不含 run_subagent——它自己也是 readOnly，只看标志会递归）由工具表装配点
+    // 按**名字白名单**结构性保证，见 toolDefs/subagentTools.js。
     const writeMode = String((args && args.mode) || 'read').toLowerCase() === 'write';
     // P0-2（纵深防御第一层）：run_subagent 是 readOnly 工具，**READ 模式也能被模型调用**；
     // 而 runSubagent 内部直接调 tool.execute，绕过了 registry.canRunTool 的模式闸门。
@@ -66,15 +64,9 @@ export const SUBAGENT_TOOL_DEFINITION = {
         isError: true,
       };
     }
-    // 只读来源 = readTools 两项 + searchTool（search_workspace）；按名字白名单收。
-    const readSource = READ_ONLY_TOOL_DEFINITIONS.concat([SEARCH_TOOL_DEFINITION]);
-    let subagentTools = readSource.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
-    // write 模式叠加写工具（仍受名字白名单 + 防递归约束；逐写由宿主审批）。
-    if (writeMode) {
-      subagentTools = subagentTools.concat(
-        WRITE_TOOL_DEFINITIONS.filter(item => SUBAGENT_WRITE_TOOL_NAMES.includes(item.name))
-      );
-    }
+    // 工具表由**唯一装配点**给出（readTools + searchTool，write 模式再叠加 writeTools）——
+    // 与 run_workflow 共用同一个函数，杜绝「修了一处忘了另一处」（P1-3）。
+    let subagentTools = buildSubagentTools(writeMode ? 'write' : 'read');
     let maxRounds;
     // E3：分身档案（可选）——tools 已在解析层 ∩ 只读白名单；这里再按档案收窄
     // 工具表（名单外的名字在 parseAgentMarkdown 已丢，这里只是执行映射）。
