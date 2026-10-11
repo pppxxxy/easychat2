@@ -119,7 +119,6 @@ import {
   collectSessionStartNotices,
   collectToolResultNotices,
   collectTurnEndNotices,
-  hookPermissionRules,
   installSampleHooks,
   readHookPermissionRules,
   readWorkspaceHooks,
