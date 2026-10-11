@@ -20,12 +20,16 @@ import {
 } from '../apiProtocols.js';
 import { tActive } from '../i18n/index.js';
 import { trimMessagesToContext } from '../localModel/localContext.js';
+// 超时策略（纯函数，见 requestTimeout.js）：首字节 / 空闲 / 非流式三档。流式未吐字放宽，
+// 非流式（压缩摘要/记忆总结/制卡）另给阈值——它没有「首字节」这回事。
+import { isFirstBytePhase, timeoutMessage, timeoutMsFor, timeoutPhase } from './requestTimeout.js';
+// 参数被拒判定（400/422）：见 requestErrors.js——它决定 400/422 是否可降级换模型。
+import { isParamRejectedError } from './requestErrors.js';
 // P0-7 下半：降级链的判定层（纯函数，见同目录 fallbackModels.js）。
 import { planFallbackChain, shouldFallback } from './fallbackModels.js';
 
 // F4：在线路径上下文硬裁剪（纯函数，可测）。仅当模型声明了 contextWindow > 0 且未
-// 显式关闭时生效；直接复用本地模型同款裁剪（系统提示恒保留）。未声明窗口 = 原样返回，
-// 不做按兜底的激进裁剪。返回原始数组（不裁剪时）或裁剪后的数组。
+// 显式关闭时生效；复用本地模型同款裁剪（系统提示恒保留）。未声明窗口 = 原样返回。
 export function trimOnlineMessages(messages, { contextWindow = 0, reserveOutputTokens = 0, enabled = true } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const declared = Math.floor(Number(contextWindow) || 0);
@@ -38,12 +42,7 @@ export function trimOnlineMessages(messages, { contextWindow = 0, reserveOutputT
   return result.removedCount > 0 ? result.messages : list;
 }
 
-// 首包（首字节）等待单独放宽：推理模型思考期间可能几十秒不吐字，
-// 用同一个 30s 阈值会误报“请求超时”。
-const FIRST_BYTE_TIMEOUT_MS = 120000;
-const IDLE_TIMEOUT_MS = 30000;
-
-// 接口没有返回内容时的占位文本。调用方可用它区分“真的没回复”，
+// 接口没有收到内容时的占位文本。调用方可用它区分“真的没回复”，
 // 避免把这段占位当成角色的真实回复（例如写入动态评论）。
 export const EMPTY_REPLY_TEXT = '没有收到回复。';
 // 旧版哨兵文案：isConfigChangedError 仍兼容匹配它（老会话/旧调用方抛出的实例）。
@@ -68,8 +67,8 @@ function fingerprint(value) {
 
 export function getConfigFingerprint(config) {
   const source = config && typeof config === 'object' ? config : {};
-  // 能力按**当前模型**解析：换模型本来就会让指纹变化（activeModel 已在表内），
-  // 同一配置下不同模型的能力差异也必须反映在指纹里（能力改到一半时中止在途请求）。
+  // 能力按**当前模型**解析：换模型会让指纹变化（activeModel 已在表内），同一配置下
+  // 不同模型的能力差异也必须反映在指纹里（能力改到一半时中止在途请求）。
   const caps = capabilitiesForModel(source, getActiveModel(source));
   return fingerprint(JSON.stringify([
     String(source.id || ''),
@@ -193,13 +192,9 @@ export function isCanceledError(error) {
 }
 
 // E1：usage 宽容解析——三种方言一次归一（缓存经济学的地基：没有它就没有命中观测）。
-//   · OpenAI 系：usage.prompt_tokens_details.cached_tokens
-//   · DeepSeek：usage.prompt_cache_hit_tokens
-//   · Anthropic：usage.cache_read_input_tokens（**input_tokens 不含缓存部分**，
-//     这里把 cache_read + cache_creation 并进 prompt，统一成「prompt ⊇ cached」口径，
-//     与 OpenAI/DeepSeek 可比）
-// 流式与非流式共用；payload 里任何位置带 usage 都认（Anthropic 在 message.usage、
-// 部分网关在 delta.usage）。解析不出返回 null——绝不影响主流程。
+//   OpenAI 系 prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens /
+//   Anthropic cache_read_input_tokens（其 input_tokens 不含缓存，并入 prompt，
+//   统一成「prompt ⊇ cached」口径）。流式与非流式共用；解析不出返回 null。
 export function extractUsage(payload) {
   if (!payload || typeof payload !== 'object') return null;
   const source = payload.usage
@@ -213,12 +208,21 @@ export function extractUsage(payload) {
   };
   const cacheRead = num(source.cache_read_input_tokens);
   const cacheCreation = num(source.cache_creation_input_tokens);
-  const rawPrompt = num(source.prompt_tokens) || num(source.input_tokens);
+  const cachedHit = num(source.prompt_cache_hit_tokens)
+    || num(source.prompt_tokens_details && source.prompt_tokens_details.cached_tokens);
+  // 按**方言**显式分支（2026-10-11 P1）：判据是字段**在不在**，不是值真不真——
+  // prompt_tokens 合法为 0（全命中缓存），用 `||` 会把它跳过并误取 input_tokens，
+  // 于是缓存命中率 Σcached/Σprompt 可能 >100%。OpenAI/DeepSeek 的 prompt_tokens 是
+  // 「含缓存」的全量（存在就以它为准）；Anthropic 的 input_tokens 不含缓存，并入 prompt。
+  const has = value => Number.isFinite(Number(value));
+  const rawPrompt = has(source.prompt_tokens)
+    ? num(source.prompt_tokens)
+    : num(source.input_tokens);
   const promptTokens = rawPrompt + cacheRead + cacheCreation;
   const completionTokens = num(source.completion_tokens) || num(source.output_tokens);
-  const cachedTokens = num(source.prompt_cache_hit_tokens)
-    || num(source.prompt_tokens_details && source.prompt_tokens_details.cached_tokens)
-    || cacheRead;
+  const hasHit = has(source.prompt_cache_hit_tokens)
+    || has(source.prompt_tokens_details && source.prompt_tokens_details.cached_tokens);
+  const cachedTokens = hasHit ? cachedHit : cacheRead;
   if (!promptTokens && !completionTokens && !cachedTokens) return null;
   return { promptTokens, completionTokens, cachedTokens };
 }
@@ -242,11 +246,9 @@ async function resolveChatConfig(options = {}) {
 // 「text 为空 + tool_calls」是正常形态，占位文本会污染 assistant 历史。
 //
 // P0-7 降级链（下半）：这里是**所有在线请求的唯一收口**（聊天走 agent/loop.js，
-// 群聊/记忆总结/压缩/日记/动态/制卡各自直连），所以接线只能放在这一层——逐处加壳
-// 必漏。配置了「降级模型」时按 `planFallbackChain` 依次尝试：只有**可判定失败**
-// （429 / 5xx / 超时 / 网络不可达）且**本轮还没有任何产出**才换下一个模型；
-// 401/403（密钥）、404（模型名）、400/422（参数）与用户中断一律不换——换模型只是
-// 把同一个错误再犯一遍，还会白花额度。
+// 群聊/记忆总结/压缩/日记/动态/制卡各自直连），所以接线只能放在这一层。按
+// `planFallbackChain` 依次尝试：只有**可判定失败**（429 / 5xx / 超时 / 网络不可达，
+// 以及参数被拒的 400/422）且**本轮还没有任何产出**才换下一个模型。
 export async function streamChatCompletion(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
   const onReasoning = options && typeof options.onReasoning === 'function' ? options.onReasoning : null;
@@ -284,8 +286,7 @@ export async function streamChatCompletion(messages, options = {}) {
   }
   const model = getActiveModel(config);
   const hasModel = (Array.isArray(config.models) && config.models.length > 0)
-    || String(config.activeModel || '').trim()
-    || String(config.model || '').trim();
+    || String(config.activeModel || config.model || '').trim();
   if (!hasModel) {
     throw new Error(tActive('error.api.modelMissing'));
   }
@@ -355,12 +356,13 @@ export async function streamChatCompletion(messages, options = {}) {
   throw lastError;
 }
 
-// 失败原因的可判定摘要：只用于日志与宿主提示，不做文案匹配（文案会随语言漂移）。
+// 失败原因的可判定摘要（只用于日志与宿主提示；不匹配文案，文案会随语言漂移）。
 function describeFallbackReason(error) {
   const status = Number(error && error.httpStatus);
   if (Number.isFinite(status) && status > 0) return `HTTP ${status}`;
   if (error && error.timeout === true) return 'timeout';
   if (error && error.network === true) return 'network';
+  if (error && error.paramRejected === true) return 'param-rejected';
   return 'unknown';
 }
 
@@ -375,9 +377,8 @@ function notifyModelFallback(options, info) {
 }
 
 // 单次请求：一次 XHR 往返（含流式解析）。降级链的每一环都调它。
-// 除 `model` 外的解析结果由 streamChatCompletion 传入——换模型重试不重做配置解析、
-// 不重读设置；但**按模型解析**的三项（能力、输出预算、上下文窗口）必须在每次尝试里
-// 重算，否则降级后仍在用主模型的窗口与 max_tokens。
+// 除 `model` 外的解析结果由 streamChatCompletion 传入（换模型不重做配置解析、不重读设置）；
+// 但**按模型解析**的三项（能力、输出预算、上下文窗口）必须在每次尝试里重算。
 async function requestOnce(messages, options, attempt) {
   const config = attempt.config;
   const model = attempt.model;
@@ -399,19 +400,17 @@ async function requestOnce(messages, options, attempt) {
     buildSamplingParams(samplingSettings),
     options && options.overrides
   );
-  // 输出长度：只在模型的「自定义参数」打开时介入（面板上写的就是「留空 = 默认 32000」）。
-  // 关闭时完全不干预——不发 max_tokens，保持全局采样设置/服务端默认不动，
-  // 避免给不支持大输出的模型悄悄带上 32000 而报错。
+  // 输出长度：只在模型的「自定义参数」打开时介入（面板上写的就是「留空 = 默认 32000」）；
+  // 关闭时完全不干预——不发 max_tokens，避免给不支持大输出的模型悄悄带上而报错。
   const modelCaps = capabilitiesForModel(config, model);
   if (modelCaps.customParams === true) {
     samplingParams.max_tokens = modelCaps.maxOutput > 0
       ? modelCaps.maxOutput
       : DEFAULT_MAX_OUTPUT_TOKENS;
   }
-  // F4 在线路径上下文硬裁剪：只在模型**声明了** contextWindow（且未显式关闭裁剪）时
-  // 生效，复用本地模型同款 trimMessagesToContext（系统提示恒保留、最旧的非系统消息先丢）。
-  // 未声明窗口时不做任何裁剪——避免按 200K 兜底误伤大窗口模型。这样即便「记忆总结」
-  // 关闭、80% 自动压缩不接线，超窗请求也有最后一道防线。
+  // F4 在线路径上下文硬裁剪：只在模型**声明了** contextWindow（且未显式关闭）时生效。
+  // 未声明窗口时不做任何裁剪——避免按 200K 兜底误伤大窗口模型；即便「记忆总结」关闭、
+  // 80% 自动压缩不接线，超窗请求也有这最后一道防线。
   const requestMessages = trimOnlineMessages(messages, {
     contextWindow: modelCaps.contextWindow,
     reserveOutputTokens: Number(samplingParams.max_tokens) > 0 ? Number(samplingParams.max_tokens) : 0,
@@ -482,14 +481,8 @@ async function requestOnce(messages, options, attempt) {
     const settle = (fn, value) => {
       if (settled) return;
       settled = true;
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-        idleTimer = null;
-      }
-      if (removeAbortListener) {
-        removeAbortListener();
-        removeAbortListener = null;
-      }
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (removeAbortListener) { removeAbortListener(); removeAbortListener = null; }
       fn(value);
     };
     const succeed = value => settle(resolve, value);
@@ -529,9 +522,7 @@ async function requestOnce(messages, options, attempt) {
             xhr.abort();
           } catch (abortError) {}
         })
-        .finally(() => {
-          configCheckInFlight = false;
-        });
+        .finally(() => { configCheckInFlight = false; });
     };
 
     const finishFromStream = () => {
@@ -554,18 +545,18 @@ async function requestOnce(messages, options, attempt) {
     const armIdleTimer = () => {
       if (settled) return;
       if (idleTimer) clearTimeout(idleTimer);
-      const waitingFirstByte = !sawFirstByte;
+      // 三档：流式未收到字节 = 首字节；流式已开始 = 空闲；非流式 = 整包等待。
+      const phase = timeoutPhase({ stream, sawFirstByte });
+      const waitingFirstByte = isFirstBytePhase(phase);
       idleTimer = setTimeout(() => {
-        const timeoutError = new Error(waitingFirstByte
-          ? '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）'
-          : '请求超时，请检查网络后重试');
-        // 结构化标记（2026-10-10，P0-7）：降级链要判断「这次失败值不值得换模型重试」，
-        // 靠文案匹配会被翻译/措辞改动带偏，所以在这里挂上可判定的字段。
+        const timeoutError = new Error(timeoutMessage(phase));
+        // 结构化标记（P0-7）：降级链靠字段判定「值不值得换模型重试」，不看文案。
         timeoutError.timeout = true;
         timeoutError.firstByte = waitingFirstByte;
+        timeoutError.timeoutPhase = phase;
         fail(timeoutError);
         xhr.abort();
-      }, waitingFirstByte ? FIRST_BYTE_TIMEOUT_MS : IDLE_TIMEOUT_MS);
+      }, timeoutMsFor(phase));
     };
 
     const tryDispatch = () => {
@@ -639,9 +630,9 @@ async function requestOnce(messages, options, attempt) {
       if (onChunk) onChunk(fullText);
     };
 
-    // SSE 事件由若干行组成、以空行分隔；同一事件的多个 `data:` 行需按规范用
-    // 换行拼接后再解析。但部分服务端不补空行，直接连发多条完整 `data:`，因此
-    // 追加新行前先试探上一段是否已是完整事件：能解析就先派发，否则继续累积。
+    // SSE 事件由若干行组成、以空行分隔；同一事件的多个 `data:` 行需按规范用换行拼接后
+    // 再解析。但部分服务端不补空行、直接连发多条完整 `data:`，因此追加新行前先试探上一段
+    // 是否已是完整事件：能解析就先派发，否则继续累积。
     const handleLine = line => {
       if (settled) return;
       const trimmed = line.replace(/\r$/, '').trim();
@@ -689,6 +680,9 @@ async function requestOnce(messages, options, attempt) {
       try {
         if (stream && (!xhr.status || (xhr.status >= 200 && xhr.status < 300))) drainIncremental();
         if (settled) return;
+        // 非流式也会走 onprogress，但 drainIncremental 被上面的 stream 判断挡住了——
+        // 这里显式置位，语义才如实（否则每次进度事件都按「还没收到」重新计时）。
+        if (!stream) sawFirstByte = true;
         armIdleTimer();
       } catch (error) {
         fail(error);
@@ -700,8 +694,10 @@ async function requestOnce(messages, options, attempt) {
       if (settled) return;
       if (xhr.status < 200 || xhr.status >= 300) {
         const httpError = new Error(formatApiError(xhr.responseText, xhr.status));
-        // 结构化状态码（P0-7）：429 与 5xx 可降级重试，4xx 其余是确定性失败（换模型也一样）。
+        // 结构化状态码（P0-7）：429 与 5xx 可降级重试，401/403/404 是确定性失败。
+        // 400/422 **要看文本**：参数按每个模型的能力位注入，主模型不认的降级模型很可能认。
         httpError.httpStatus = xhr.status;
+        httpError.paramRejected = isParamRejectedError({ status: xhr.status, message: httpError.message });
         fail(httpError);
         return;
       }
@@ -735,8 +731,8 @@ async function requestOnce(messages, options, attempt) {
       }
       try {
         const data = JSON.parse(body);
-        // HTTP 200 也可能带 error（网关/服务商的错误体），必须按失败处理，
-        // 否则会被当成“空回复”继续朗读、记账、写总结。
+        // HTTP 200 也可能带 error（网关/服务商的错误体），必须按失败处理，否则会被当成
+        // “空回复”继续朗读、记账、写总结。
         const errorMessage = parseProtocolError(protocol, data) || extractErrorMessage(data);
         if (errorMessage) {
           fail(new Error(errorMessage));

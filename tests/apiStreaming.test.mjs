@@ -4,6 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
+import {
+  FIRST_BYTE_TIMEOUT_MS,
+  IDLE_TIMEOUT_MS,
+  NONSTREAM_TIMEOUT_MS,
+  isFirstBytePhase,
+  timeoutMessage,
+  timeoutMsFor,
+  timeoutPhase,
+} from '../src/network/requestTimeout.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -387,8 +396,80 @@ test('streamChatCompletion 省略 tools 时不携带 tools 字段', async () => 
 });
 
 // 用一个能记录 URL 与请求头的 FakeXHR 跑协议集成测试。
-function withRecordingXhr(run, responseText) {
-  return async () => {
+// P1 回归（2026-10-11）：非流式请求被误判成「等首字节超时」。
+//
+// 事故形态：`waitingFirstByte = !sawFirstByte`，而 sawFirstByte 只在 `stream === true`
+// 的 onprogress 路径置位 —— stream:false 的请求阈值恒为 FIRST_BYTE_TIMEOUT_MS（120s），
+// 文案也恒为「等待首个响应超时」。而**压缩摘要、记忆总结、制卡都是 stream:false**
+//（最慢的调用），超时后进降级链，每个模型再等 120s。
+test('P1 回归：超时档位纯函数（首字节 / 空闲 / 非流式），非流式不再按首字节算', () => {
+  assert.equal(timeoutPhase({ stream: true, sawFirstByte: false }), 'first-byte');
+  assert.equal(timeoutPhase({ stream: true, sawFirstByte: true }), 'idle');
+  assert.equal(timeoutPhase({ stream: false, sawFirstByte: false }), 'nonstream',
+    '非流式没有「首字节」这回事');
+  assert.equal(timeoutPhase({ stream: false, sawFirstByte: true }), 'nonstream');
+  assert.equal(timeoutMsFor('first-byte'), FIRST_BYTE_TIMEOUT_MS);
+  assert.equal(timeoutMsFor('idle'), IDLE_TIMEOUT_MS);
+  assert.equal(timeoutMsFor('nonstream'), NONSTREAM_TIMEOUT_MS);
+  assert.ok(NONSTREAM_TIMEOUT_MS > FIRST_BYTE_TIMEOUT_MS, '非流式（最慢的调用）阈值要更宽');
+  assert.equal(isFirstBytePhase('nonstream'), false);
+  assert.equal(isFirstBytePhase('first-byte'), true);
+  assert.match(timeoutMessage('nonstream'), /非流式/);
+  assert.match(timeoutMessage('first-byte'), /首个响应/);
+  assert.match(timeoutMessage('idle'), /请求超时/);
+});
+
+// 行为测试：假 XHR 不回包，把时钟拨到阈值，看超时错误挂在哪个档位。
+test('P1 回归：stream:false 在 120s 不超时、300s 才按非流式档超时；流式仍 120s 首字节', async t => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const previous = activeConfig;
+  globalThis.XMLHttpRequest = FakeXHR;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    // ① 非流式：拨到 120s 不该超时（旧行为会在这里就报「等待首个响应超时」）
+    activeConfig = { ...previous, fallbackModels: [] };
+    FakeXHR.autoRespond = false;
+    const { streamChatCompletion } = loadApi();
+    const pending = streamChatCompletion([{ role: 'user', content: '总结一下' }], { stream: false })
+      .then(value => ({ value }), error => ({ error }));
+    // 请求真正发出去（armIdleTimer 已挂上）之后才拨表，否则竞速没意义。
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(FakeXHR.last, '前置条件：请求已发出');
+    t.mock.timers.tick(FIRST_BYTE_TIMEOUT_MS);
+    let settled = false;
+    pending.then(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, `120s 时非流式请求不得被判超时（阈值应为 ${NONSTREAM_TIMEOUT_MS}）`);
+
+    // ② 再拨到 300s：按非流式档超时，文案与结构化标记都对
+    t.mock.timers.tick(NONSTREAM_TIMEOUT_MS - FIRST_BYTE_TIMEOUT_MS);
+    const outcome = await pending;
+    assert.ok(outcome.error, '必须超时');
+    assert.match(outcome.error.message, /非流式/, '文案要说清是非流式整包等待');
+    assert.equal(outcome.error.timeout, true);
+    assert.equal(outcome.error.firstByte, false, '非流式不是首字节等待');
+    assert.equal(outcome.error.timeoutPhase, 'nonstream');
+    assert.equal(JSON.parse(FakeXHR.last.body).stream, false, '前置条件：请求确实是 stream:false');
+
+    // ③ 流式：首字节档仍是 120s
+    FakeXHR.autoRespond = false;
+    const streaming = streamChatCompletion([{ role: 'user', content: 'hi' }])
+      .then(value => ({ value }), error => ({ error }));
+    await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.tick(FIRST_BYTE_TIMEOUT_MS);
+    const streamOutcome = await streaming;
+    assert.ok(streamOutcome.error, '流式 120s 无首字节 → 超时');
+    assert.equal(streamOutcome.error.timeoutPhase, 'first-byte');
+    assert.equal(streamOutcome.error.firstByte, true);
+    assert.match(streamOutcome.error.message, /首个响应/);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+    activeConfig = previous;
+    FakeXHR.autoRespond = true;
+  }
+});
+
+function withRecordingXhr(run, responseText) {  return async () => {
     const originalXHR = globalThis.XMLHttpRequest;
     FakeXHR.autoRespond = true;
     FakeXHR.responseText = responseText;
@@ -619,6 +700,36 @@ test('E1 extractUsage：三方言归一（OpenAI/DeepSeek/Anthropic）+ 坏输�
   assert.equal(extractUsage('nope'), null);
   assert.equal(extractUsage({}), null);
   assert.equal(extractUsage({ usage: {} }), null, '空 usage 视为没有');
+});
+
+// P1 回归（2026-10-11）：`prompt_tokens: 0`（全命中缓存）是**合法值**，不能被 `||` 跳过。
+//
+// 事故形态：`num(prompt_tokens) || num(input_tokens)` —— prompt_tokens 为 0 时落到
+// input_tokens 上；某些网关同时给两者（input_tokens 是另一个语义），于是 prompt 被算成
+// 一个不相干的数，缓存命中率 Σcached/Σprompt 可能 >100%。
+test('P1 回归：extractUsage 按方言显式分支，prompt_tokens=0 不被 || 跳过', () => {
+  const { extractUsage } = loadApi();
+  // OpenAI 方言：prompt_tokens 是权威值，即便为 0 也不该去看 input_tokens
+  assert.deepEqual(
+    extractUsage({
+      usage: { prompt_tokens: 0, input_tokens: 999, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 0 } },
+    }),
+    { promptTokens: 0, completionTokens: 5, cachedTokens: 0 },
+    'prompt_tokens=0 是合法值（全命中缓存），不得回落到 input_tokens'
+  );
+  // DeepSeek 方言：prompt_tokens 存在时以它为准（含缓存命中部分）
+  assert.deepEqual(
+    extractUsage({ usage: { prompt_tokens: 0, input_tokens: 123, prompt_cache_hit_tokens: 0, completion_tokens: 1 } }),
+    { promptTokens: 0, completionTokens: 1, cachedTokens: 0 }
+  );
+  // Anthropic 方言：只给 input_tokens（+缓存）→ 并入 prompt，仍成立
+  assert.deepEqual(
+    extractUsage({ usage: { input_tokens: 0, output_tokens: 3, cache_read_input_tokens: 50 } }),
+    { promptTokens: 50, completionTokens: 3, cachedTokens: 50 },
+    'input_tokens=0 时缓存部分仍要并进 prompt'
+  );
+  // 全零 = 没有可用信息 → null
+  assert.equal(extractUsage({ usage: { prompt_tokens: 0, completion_tokens: 0 } }), null);
 });
 
 test('E1 流式 usage 端到端：最后一个 chunk 的 usage 被带进返回值', async () => {

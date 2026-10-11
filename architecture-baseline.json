@@ -21,8 +21,7 @@
     "src/character/CharacterLibraryScreen.js": 949,
     "src/workspace/WorkspaceSettingsSheet.js": 910,
     "src/CardForgeScreen.js": 902,
-    "src/ProactivePanel.js": 894,
-    "src/network/api.js": 801
+    "src/ProactivePanel.js": 894
   },
   "allowedCycles": []
 }
