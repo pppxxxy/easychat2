@@ -39,7 +39,11 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
   assert.ok(source.includes('writeWorkspaceBinaryFile') && source.includes('buildDocxBytes'),
     'Word 导出复用 docx 纯函数与二进制写');
   assert.ok(source.includes('Sharing.shareAsync'), '分享接 expo-sharing');
-  assert.ok(source.includes('animationType="slide"'), '面板为滑入式 Modal');
+  // 回归（2026-10-11）：本面板曾是「滑入式 Modal」（animationType="slide"），而工作区
+  // 唯一的那层 Modal 在 WorkspaceScreen——面板再包一层就是三层 z 轴堆叠复发。二级层
+  // （角色切换 / 环境模板目录 / 文件预览）已改为铺满面板的 View（styles.layer）。
+  assert.ok(!source.includes('<Modal'), '面板不得自套 Modal（唯一 Modal 在 WorkspaceScreen）');
+  assert.ok(source.includes('styles.layer'), '二级层改为面板内铺满的 View');
   assert.ok(/container:\s*\{[^}]*paddingTop/.test(source), '全屏容器需顶部内边距，避免标题/关闭贴到状态栏');
   // 工作区角色：打开时解析（未设置落到默认工作助手）+ 选择器可切换并写回设置。
   assert.ok(source.includes('resolveWorkspaceAssistant'), '打开面板解析工作区角色');
