@@ -17,9 +17,8 @@ export default function VoiceSettingsModal({ visible, onClose, voiceMode, onTogg
           <Text style={styles.modalTitle}>{t('chat.voiceSettings.title')}</Text>
           <View style={styles.linkRow}>
             <View style={styles.linkLeft}>
-              <Ionicons name="volume-high-outline" size={17} color={theme.colors.primaryMuted} />
+              <Ionicons name="volume-high-outline" size={17} color={theme.colors.primaryMuted} style={styles.linkIcon} />
               <View style={{ flex: 1 }}>
-
                 <Text style={styles.chatSettingsText}>{t('chat.voice.broadcast.label')}</Text>
                 <Text style={styles.chatSettingsHint}>{t('chat.voice.broadcast.hint')}</Text>
               </View>
@@ -33,11 +32,10 @@ export default function VoiceSettingsModal({ visible, onClose, voiceMode, onTogg
           </View>
           <View style={styles.linkRow}>
             <View style={styles.linkLeft}>
-              <Ionicons name="chatbox-ellipses-outline" size={17} color={theme.colors.primaryMuted} />
+              <Ionicons name="chatbox-ellipses-outline" size={17} color={theme.colors.primaryMuted} style={styles.linkIcon} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.chatSettingsText}>{t('chat.voiceSettings.fullMode')}</Text>
                 <Text style={styles.chatSettingsHint}>{t('chat.voiceSettings.fullModeHint')}</Text>
-
               </View>
             </View>
             <Switch
@@ -56,7 +54,7 @@ export default function VoiceSettingsModal({ visible, onClose, voiceMode, onTogg
             activeOpacity={0.7}
           >
             <View style={styles.linkLeft}>
-              <Ionicons name="mic-outline" size={17} color={theme.colors.primaryMuted} />
+              <Ionicons name="mic-outline" size={17} color={theme.colors.primaryMuted} style={styles.linkIcon} />
               <Text style={styles.chatSettingsText}>{t('chat.voiceSettings.transcription')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
