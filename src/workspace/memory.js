@@ -11,6 +11,8 @@
 //   刚改过它——缓存一旦判断失误（文件系统 mtime 粒度、外部编辑），模型就会按
 //   旧指令工作；直读就是一次沙盒 IO，成本可忽略，换「永远最新」。
 
+import { utf8ByteLength } from '../utils/byteLength.js';
+
 export const WORKSPACE_MEMORY_FILE = 'AGENTS.md';
 export const WORKSPACE_MEMORY_MAX_BYTES = 8192;
 
@@ -37,21 +39,11 @@ export const WORKSPACE_MEMORY_TEMPLATE = [
   '',
 ].join('\n');
 
-// UTF-8 字节长度（手写，不依赖 TextEncoder：Hermes 环境不保证有，实现也简单）。
-export function utf8ByteLength(text) {
-  const value = String(text == null ? '' : text);
-  let bytes = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.codePointAt(index);
-    // 代理对（emoji 等）占两个 code unit，跳过低位继续。
-    if (code > 0xffff) index += 1;
-    if (code <= 0x7f) bytes += 1;
-    else if (code <= 0x7ff) bytes += 2;
-    else if (code <= 0xffff) bytes += 3;
-    else bytes += 4;
-  }
-  return bytes;
-}
+// UTF-8 字节长度：实现在 utils/byteLength.js（此前这里还有一份手写副本，
+// 与 storage/io.js、storage/backupStream.js、chat/RichHtmlMessage.js 各自一份）。
+// 本文件内部要用，所以 import 出局部绑定；再 re-export 保持既有引用面不变
+//（tests/workspaceMemory.test.mjs 直接测它）。
+export { utf8ByteLength };
 
 const TRUNCATE_NOTICE = '\n\n（AGENTS.md 过长已截断：请精简这份记忆文件，超出部分不会生效）';
 

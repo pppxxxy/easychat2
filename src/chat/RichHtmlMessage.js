@@ -14,6 +14,7 @@ import {
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
+import { utf8ByteLength } from '../utils/byteLength.js';
 
 // react-native-webview 是可选能力，缺失时降级为不渲染（与 ExtensionScreen 的游戏一致）。
 let WebViewComponent = null;
@@ -27,23 +28,7 @@ try {
 export const RICH_HTML_INLINE_SOURCE_LIMIT = 512 * 1024;
 export { RICH_HTML_MAX_RENDER_HEIGHT, RICH_HTML_SCROLL_THRESHOLD };
 
-function utf8ByteLength(value) {
-  const text = String(value || '');
-  let bytes = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    if (code <= 0x7f) bytes += 1;
-    else if (code <= 0x7ff) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
-      const next = text.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        index += 1;
-      } else bytes += 3;
-    } else bytes += 3;
-  }
-  return bytes;
-}
+// utf8ByteLength 已抽到 utils/byteLength.js（此前这里还有一份手写副本）。
 
 // 用 WebView 渲染含 <style>/<script> 的助手消息：动态高度 + 命令按钮桥接。
 // allowFullscreenVideo：聊天内富 HTML 卡片开启原生视频全屏按钮——
