@@ -29,6 +29,7 @@ import { USER_ID } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
 import ThinkingIndicator from './ThinkingIndicator.js';
 import VoiceBubble from './VoiceBubble.js';
+import BranchSwitcher from './BranchSwitcher.js';
 
 // 视频气泡点按：交给系统分享面板（Android chooser 里含视频播放器），
 // 避免为本地回放引入 expo-video 一类播放器依赖。
@@ -74,7 +75,7 @@ function renderHighlightedText(text, keyword, styles) {
 }
 
 
-const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, bubbleStyle = 'rounded', onReselectGreeting, onStartSelection, selectionMode, selected, onSaveImage, onSaveAsSticker, onDeleteImageMessage }) {
+const MessageBubble = React.memo(function MessageBubble({ message, rawText, characterName, characterAvatar, userAvatarUri, onSlashCommand, canRegenerate, onRegenerate, onEditUserMessage, onSelectText, onQuote, onPressQuote, onGenerateImage, onBroadcast, highlightKeyword, isMatch, isActiveMatch, fullWidth, thinkingDisplay, overlayActions, richHtmlEnabled, bubbleStyle = 'rounded', onReselectGreeting, onStartSelection, selectionMode, selected, onSaveImage, onSaveAsSticker, onDeleteImageMessage, branchNav, onBranchCheckout, onBranchDeleteOthers }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const plainBubbles = bubbleStyle === 'plain';
@@ -241,6 +242,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
         : (!isUser && canRegenerate
           ? { key: 'regenerate', label: t('chat.bubble.regenerate'), icon: 'reload-outline', onPress: () => onRegenerate?.(message.id) }
           : null),
+      !isUser && onBranchDeleteOthers && branchNav && Array.isArray(branchNav.branches) && branchNav.branches.length > 0
+        ? { key: 'delete-branches', label: t('chat.branch.deleteOthers'), icon: 'trash-outline', onPress: () => onBranchDeleteOthers(branchNav.branches) }
+        : null,
       onStartSelection
         ? { key: 'select-message', label: t('chat.bubble.selectMessage'), icon: 'checkmark-circle-outline', onPress: () => onStartSelection(message.id) }
         : null,
@@ -525,6 +529,18 @@ const fullWidthAssistant = !isUser && fullWidth;
               </TouchableOpacity>
             ) : null}
           </View>
+        ) : null}
+        {!isUser && !message.pending && !selectionMode && branchNav && branchNav.total > 1 ? (
+          <BranchSwitcher
+            index={branchNav.index}
+            total={branchNav.total}
+            hasPrev={!!branchNav.prevId}
+            hasNext={!!branchNav.nextId}
+            onPrev={() => onBranchCheckout?.(branchNav.prevId)}
+            onNext={() => onBranchCheckout?.(branchNav.nextId)}
+            disabled={!!branchNav.disabled}
+            styles={styles}
+          />
         ) : null}
       </View>
       {isUser ? avatarElement : null}

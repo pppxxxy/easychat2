@@ -376,6 +376,9 @@ export const chat = {
   'chat.branch.deleteFailed.title': '删除失败',
   'chat.branch.deleteFailed.body': '该分支删除失败，请稍后重试。',
   'chat.branch.readFailed': '分支读取失败',
+  'chat.branch.prevA11y': '上一个版本',
+  'chat.branch.nextA11y': '下一个版本',
+  'chat.branch.deleteOthers': '删除其它版本',
   // ---- 对话导出（chat/ConversationExportModal.js、chat/ShareCard.js）----
   'chat.export.title': '导出对话',
   'chat.export.defaultTitle': '对话记录',

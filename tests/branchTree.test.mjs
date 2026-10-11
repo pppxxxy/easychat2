@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   branchFromTail,
   buildBranchDescriptor,
+  buildForkVersions,
   createBranchId,
   groupBranchesByFork,
   planCheckout,
@@ -40,6 +41,41 @@ test('buildBranchDescriptor：只含轻量字段，preview 取最后一条可展
   assert.equal(descriptor.preview, '剧情二');
   assert.equal(descriptor.createdAt, 1234);
   assert.equal('messages' in descriptor, false);
+});
+
+test('buildBranchDescriptor：versionTime 取尾段首条时间戳（缺则回落归档时刻）', () => {
+  assert.equal(buildBranchDescriptor('b', 'a', [msg('x', 'assistant', '新', 555)], 1234).versionTime, 555);
+  assert.equal(buildBranchDescriptor('b', 'a', [msg('x', 'assistant', '新', 0)], 1234).versionTime, 1234);
+});
+
+test('buildForkVersions：按时间旧→新排序，当前版本按自身时间落位', () => {
+  const branches = [
+    { id: 'v1', versionTime: 100 },
+    { id: 'v3', versionTime: 300 },
+  ];
+  const mid = buildForkVersions(branches, 200);
+  assert.equal(mid.index, 2);
+  assert.equal(mid.total, 3);
+  assert.equal(mid.prevId, 'v1');
+  assert.equal(mid.nextId, 'v3');
+
+  const last = buildForkVersions(branches, 400);
+  assert.equal(last.index, 3);
+  assert.equal(last.nextId, '');
+  assert.equal(last.prevId, 'v3');
+
+  const first = buildForkVersions(branches, 50);
+  assert.equal(first.index, 1);
+  assert.equal(first.prevId, '');
+  assert.equal(first.nextId, 'v1');
+});
+
+test('buildForkVersions：无归档分支时只有当前一版（不渲染切换器）', () => {
+  const only = buildForkVersions([], 100);
+  assert.equal(only.index, 1);
+  assert.equal(only.total, 1);
+  assert.equal(only.prevId, '');
+  assert.equal(only.nextId, '');
 });
 
 test('planCheckout：替换为分叉点及其之前 + 目标分支尾段', () => {

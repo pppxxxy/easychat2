@@ -33,14 +33,49 @@ export function branchFromTail(messages, forkIndex) {
 }
 
 // 生成分支索引描述符：不含消息正文，只有定位与预览所需的轻量字段。
+// versionTime 取尾段首条消息的时间戳（= 这一版回复产生的时间），用于版本排序；
+// 缺时间戳时回落到归档时刻。createdAt 仍是归档时刻（保留原语义）。
 export function buildBranchDescriptor(id, forkMessageId, messages, now = Date.now()) {
   const list = Array.isArray(messages) ? messages : [];
+  const firstTimestamp = Number(list[0] && list[0].timestamp);
+  const archivedAt = Number(now) || Date.now();
   return {
     id: String(id || ''),
     forkMessageId: String(forkMessageId || ''),
-    createdAt: Number(now) || Date.now(),
+    createdAt: archivedAt,
+    versionTime: Number.isFinite(firstTimestamp) && firstTimestamp > 0 ? firstTimestamp : archivedAt,
     messageCount: list.length,
     preview: buildPreview(list),
+  };
+}
+
+// 某个分叉点的版本序列与当前版本位置。
+//   branches —— 该分叉点的归档分支描述符（含 versionTime / createdAt）；
+//   activeVersionTime —— 当前活动尾段的版本时间（尾段首条消息时间戳）。
+// 版本按时间旧→新排序，当前版本按自身时间插到对应位置。返回：
+//   index —— 当前版本序号（1-based）；total —— 版本总数；
+//   prevId / nextId —— 前一版 / 后一版对应的归档分支 id（无则 ''，用于箭头禁用）。
+export function buildForkVersions(branches, activeVersionTime) {
+  const list = (Array.isArray(branches) ? branches : [])
+    .map(branch => ({
+      id: String((branch && branch.id) || ''),
+      time: Number(branch && (branch.versionTime != null ? branch.versionTime : branch.createdAt)) || 0,
+    }))
+    .filter(item => item.id)
+    .sort((a, b) => a.time - b.time);
+  const activeTime = Number(activeVersionTime) || 0;
+  let position = list.length;
+  for (let i = 0; i < list.length; i += 1) {
+    if (activeTime < list[i].time) {
+      position = i;
+      break;
+    }
+  }
+  return {
+    index: position + 1,
+    total: list.length + 1,
+    prevId: position > 0 ? list[position - 1].id : '',
+    nextId: position < list.length ? list[position].id : '',
   };
 }
 

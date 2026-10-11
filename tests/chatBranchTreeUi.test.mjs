@@ -11,28 +11,27 @@ const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 
 const CHAT_SCREEN = read('src/ChatScreen.js');
 const MESSAGE_LIST = read('src/chat/MessageList.js');
-const FORK_ROW = read('src/chat/BranchForkRow.js');
+const SWITCHER = read('src/chat/BranchSwitcher.js');
 const USE_BRANCHES = read('src/chat/useChatBranches.js');
 const ZH = read('src/i18n/locales/zh-CN/chat.js');
 const EN = read('src/i18n/locales/en/chat.js');
 
-test('分叉入口按分叉消息渲染，空分支不渲染', () => {
-  assert.ok(MESSAGE_LIST.includes("import BranchForkRow from './BranchForkRow.js';"));
-  assert.ok(MESSAGE_LIST.includes('const forkBranches = forkMap ? (forkMap.get(String(message.id || \'\')) || []) : [];'));
-  assert.ok(MESSAGE_LIST.includes('forkBranches.length > 0 ? ('), '仅在存在分支时渲染入口');
-  assert.ok(MESSAGE_LIST.includes('const rootBranches = forkMap ? (forkMap.get(\'\') || []) : [];'));
-  // 入口挂在消息之后（两种返回分支都要带 forkRow）
-  assert.equal(MESSAGE_LIST.match(/\{forkRow\}/g)?.length, 2, '富 HTML 与普通两条返回分支都要带分叉入口');
+test('版本切换器按「分叉点之后的第一条消息」渲染，空分支不渲染', () => {
+  assert.ok(MESSAGE_LIST.includes("import { buildForkVersions } from './branchTree.js';"));
+  assert.ok(MESSAGE_LIST.includes('const prevId = index > 0'), '分叉点取前一条消息');
+  assert.ok(MESSAGE_LIST.includes('...buildForkVersions(forkBranches, message.timestamp)'));
+  assert.ok(MESSAGE_LIST.includes('branchNav={branchNav}'), '把 nav 交给气泡渲染');
+  // 不再用占位的分叉行
+  assert.equal(MESSAGE_LIST.includes('BranchForkRow'), false, '旧分叉行已移除');
 });
 
-test('BranchForkRow：可展开 + 切换/删除回调 + 发送中禁用切换', () => {
-  assert.ok(FORK_ROW.includes("useState(false)"), '有展开状态');
-  assert.ok(FORK_ROW.includes('onCheckoutBranch'), '切换回调');
-  assert.ok(FORK_ROW.includes('onDeleteBranch'), '删除回调');
-  assert.ok(FORK_ROW.includes('checkoutDisabled'), '发送中禁用切换');
-  assert.ok(FORK_ROW.includes("t('chat.branch.checkout')"));
-  assert.ok(FORK_ROW.includes("t('chat.branch.delete')"));
-  assert.ok(FORK_ROW.includes('count === 0) return null'), '空分支不渲染');
+test('BranchSwitcher：紧凑 <N///M> + 前后箭头 + 到端置灰', () => {
+  assert.ok(SWITCHER.includes('///'), '显示 当前///总数');
+  assert.ok(SWITCHER.includes('prevDisabled'), '前一版禁用态');
+  assert.ok(SWITCHER.includes('nextDisabled'), '后一版禁用态');
+  assert.ok(SWITCHER.includes("t('chat.branch.prevA11y')"));
+  assert.ok(SWITCHER.includes("t('chat.branch.nextA11y')"));
+  assert.ok(SWITCHER.includes('Number(total) > 1'), '单版本不渲染');
 });
 
 test('useChatBranches：切会话/刷新计数变化时重载，仅读索引', () => {
@@ -64,6 +63,9 @@ test('分支词条中英齐备', () => {
     'chat.branch.stale.title',
     'chat.branch.checkoutFailed.title',
     'chat.branch.deleteFailed.title',
+    'chat.branch.prevA11y',
+    'chat.branch.nextA11y',
+    'chat.branch.deleteOthers',
   ];
   keys.forEach(key => {
     assert.ok(ZH.includes(`'${key}'`), `zh-CN 缺 ${key}`);
