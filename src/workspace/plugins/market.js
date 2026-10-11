@@ -67,9 +67,10 @@ export const PLUGIN_MARKET = Object.freeze([
             required: ['text'],
           },
           handler: [
-            'if (!ctx.write) return "缺少 fs.write 权限";',
+            'if (!ctx.read || !ctx.write) return "缺少 fs 权限";',
+            'const prev = await ctx.read(".easychat/TODO.md").catch(() => ({ content: "" }));',
             'const line = `- [ ] ${String(args.text || "").trim()}\\n`;',
-            'await ctx.write(".easychat/TODO.md", line, { append: true });',
+            'await ctx.write(".easychat/TODO.md", `${(prev && prev.content) || ""}${line}`);',
             'return `已追加待办：${String(args.text || "").trim()}`;',
           ].join('\n'),
         },

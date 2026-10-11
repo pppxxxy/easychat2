@@ -445,7 +445,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   }, []);
 
   // N2：工作区会话压缩（四档管线）。展示历史里没有 tool 消息，L0/L1 自然空转，
-  // 实际走 L2 摘要 + L3 归档——即「摘要旧史 + 保留尾部」。silent=true 时按 0.8 线自判
+  // 实际走 L2 摘要 + L3 归档——即「摘要旧史 + 保留尾部」。silent=true 时按 compactionPolicy 阈值自判
   //（每轮自动调用）；手动时 autoRatio=0 强制压缩。失败一律不改会话（压缩是增强）。
   const compactWorkspaceNow = useCallback(async ({ silent = false, list: overrideList = null } = {}) => {
     if (compactingRef.current) return { ok: false, reason: 'busy' };
@@ -1412,7 +1412,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       // W7：回合检查点——把本轮的改动落成本地提交（旁路增强，失败绝不影响回合）。
       const gitRunner = mode === 'ask' ? null : resolveGitRunner(wsSettingsRef.current || wsSettings);
       if (gitRunner) runTurnCheckpoint({ git: gitRunner, request: outgoingText, characterId: ownerId }).catch(() => {});
-      // N2：本轮结束后按 0.8 线静默压缩（用本轮终稿拼出准确历史，避免闭包滞后）。
+      // N2：本轮结束后按 compactionPolicy 阈值静默压缩（用本轮终稿拼出准确历史，避免闭包滞后）。
       if (mode !== 'ask') {
         compactWorkspaceNow({
           silent: true,

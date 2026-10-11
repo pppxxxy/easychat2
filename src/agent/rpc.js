@@ -60,7 +60,9 @@ export function parseRpcMessage(text) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { kind: 'invalid', error: { code: RPC_ERROR_CODES.INVALID_REQUEST, message: '消息不是对象' } };
   }
-  const hasId = Object.prototype.hasOwnProperty.call(parsed, 'id') && parsed.id !== null && parsed.id !== undefined;
+  // JSON-RPC 2.0 允许响应带 `id: null`（对无法解析 id 的请求的应答）——所以「有没有 id」
+  // 看**属性是否存在**，而不是值是否非 null。
+  const hasId = Object.prototype.hasOwnProperty.call(parsed, 'id') && parsed.id !== undefined;
   if (parsed.error && hasId) {
     return { kind: 'error', id: parsed.id, error: parsed.error };
   }
