@@ -37,6 +37,6 @@ export async function saveSessionPlan(sessionId, steps) {
   return list;
 }
 
-export async function clearSessionPlan(sessionId) {
-  return saveSessionPlan(sessionId, []);
-}
+// 这里曾有一个 clearSessionPlan(id) = saveSessionPlan(id, [])，全仓零调用（死导出）。
+// 会话删除改走 mutations.js 的 sessionScopedKeys（把计划键并进同一次 multiRemove），
+// 于是它连「唯一的潜在调用点」也没了——删掉，而不是留着等下一个调用方以为它在生效。
