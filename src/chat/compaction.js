@@ -15,6 +15,7 @@
 // 消息**（会话内容，不是界面文案）——铁律照旧。
 
 import { expandHistoryWithTraces } from './toolTrace.js';
+import { messageTextOf } from './messageText.js';
 
 export const COMPACTION_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const COMPACTION_KEEP_RECENT = 6;
@@ -78,10 +79,10 @@ export function formatBytes(bytes) {
   return `${value}B`;
 }
 
-// 消息 → 一行转写（聊天页消息用 text 字段；空内容跳过）。
+// 消息 → 一行转写（正文读取统一走 messageText.js：聊天页在 text、工作区在 content）。
 function messageLine(item) {
   const role = item && item.role === 'user' ? '用户' : '助手';
-  const text = String((item && (item.text || item.content)) || '').replace(/\s+/g, ' ').trim();
+  const text = messageTextOf(item).replace(/\s+/g, ' ').trim();
   if (!text) return '';
   const clipped = text.length > COMPACTION_PER_MESSAGE_MAX
     ? `${text.slice(0, COMPACTION_PER_MESSAGE_MAX)}…`
@@ -109,11 +110,6 @@ const TRANSCRIBE_TOOLS = new Set([
   'list_workspace_files', 'search_workspace', 'update_plan',
 ]);
 
-function textOf(item) {
-  if (!item) return '';
-  return String(item.content != null ? item.content : (item.text != null ? item.text : ''));
-}
-
 // 工具语义转写：把「调用了哪些工具、动了哪些文件」提炼成几行（摘要请求 user 段的附加）。
 export function buildToolTranscript(messages) {
   const list = Array.isArray(messages) ? messages : [];
@@ -138,7 +134,7 @@ export function buildToolTranscript(messages) {
         path = '';
       }
       const result = results.get(String(call.id));
-      const len = result ? textOf(result).length : 0;
+      const len = result ? messageTextOf(result).length : 0;
       lines.push(`调用了 ${name}：${path || '(无路径)'}（结果 ${len} 字符）`);
     });
   });
@@ -179,7 +175,7 @@ export function applyCompaction(messages, summary, recentCount = COMPACTION_KEEP
   const keep = Math.max(0, Math.floor(Number(recentCount) || 0));
   const meaningful = list.filter(item => item
     && (item.role === 'user' || item.role === 'assistant')
-    && String((item && (item.text || item.content)) || '').trim());
+    && messageTextOf(item).trim());
   const recent = keep > 0 ? meaningful.slice(-keep) : [];
   const summaryMessage = {
     id: `compaction-${Date.now()}`,

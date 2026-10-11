@@ -19,14 +19,14 @@ import {
   buildCompactionSummaryRequest,
   buildToolTranscript,
 } from './compaction.js';
+import { messageTextOf } from './messageText.js';
 
 // buildToolTranscript 已移到 compaction.js（摘要统一入口，含轨迹展开）；re-export 兼容既有引用点。
 export { buildToolTranscript };
 
-function textOf(item) {
-  if (!item) return '';
-  return String(item.content != null ? item.content : (item.text != null ? item.text : ''));
-}
+// 正文读取统一走 messageText.js 的单一口径（此前本模块自带一份 content 优先的 textOf，
+// 与 compaction.js 的 text 优先、contextUsage.js 的「只看 text」三种口径并存——
+// 摘要消息正文契约事故（见 messageText.js 文件头）就是它们分歧的产物）。
 
 // L0（纯）：超大工具结果 → 头 + 标注 + 尾。只改 tool 消息 content，配对不变。
 // 落盘由调用方（orchestrator）先做；本函数不做 I/O。
@@ -40,7 +40,7 @@ export function trimLargeToolResults(messages, {
   let changed = false;
   const out = list.map(item => {
     if (!item || item.role !== 'tool') return item;
-    const content = textOf(item);
+    const content = messageTextOf(item);
     if (content.length <= thresholdChars) return item;
     changed = true;
     const head = content.slice(0, headChars);
@@ -117,7 +117,7 @@ export function applyCompactionWithAuthority(messages, summary, {
   const list = Array.isArray(messages) ? messages : [];
   let currentRequest = '';
   for (let i = list.length - 1; i >= 0; i -= 1) {
-    if (list[i] && list[i].role === 'user') { currentRequest = textOf(list[i]); break; }
+    if (list[i] && list[i].role === 'user') { currentRequest = messageTextOf(list[i]); break; }
   }
   const recent = (Number(retainTokens) > 0 && typeof estimateTokens === 'function')
     ? sliceRecentByBudget(list, { retainTokens, minMessages, estimateTokens })
@@ -129,10 +129,16 @@ export function applyCompactionWithAuthority(messages, summary, {
     String(summary == null ? '' : summary).trim(),
   ];
   if (transcriptPath) head.push(`完整历史：${transcriptPath}`);
+  // 正文必须**两个字段都写**：聊天页的正文契约是 `text`（MessageBubble 渲染、getMessagePromptText
+  // 发请求、conversationExport 导出都只读 text），而工作区面板渲染的是 `content`（ChatPanel），
+  // 两者共用本函数。只写 content 会让聊天页出现一个空气泡、且摘要对模型完全不可见（2026-10-11 事故）；
+  // 只写 text 则工作区面板空白。口径见 chat/messageText.js。
+  const body = head.join('\n');
   const summaryMessage = {
     id: `compaction-${Date.now()}`,
     role: 'assistant',
-    content: head.join('\n'),
+    text: body,
+    content: body,
     at: Date.now(),
   };
   return [summaryMessage, ...recent];
@@ -165,7 +171,7 @@ export function buildTranscriptJsonl(messages) {
 export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
   const first = Array.isArray(messages) ? messages[0] : null;
   if (!first) return false;
-  if (!textOf(first).includes(COMPACTION_MARKER)) return false;
+  if (!messageTextOf(first).includes(COMPACTION_MARKER)) return false;
   return messages.length <= keep + 1;
 }
 
@@ -191,11 +197,11 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     let changed = false;
     const next = [];
     for (const item of current) {
-      if (item && item.role === 'tool' && textOf(item).length > COMPACTION_TRIM_THRESHOLD_CHARS) {
+      if (item && item.role === 'tool' && messageTextOf(item).length > COMPACTION_TRIM_THRESHOLD_CHARS) {
         let stored = null;
-        try { stored = await d.persist(textOf(item), { toolCallId: item.tool_call_id, toolName: '' }); } catch (error) { stored = null; }
+        try { stored = await d.persist(messageTextOf(item), { toolCallId: item.tool_call_id, toolName: '' }); } catch (error) { stored = null; }
         if (stored && stored.path) {
-          const content = textOf(item);
+          const content = messageTextOf(item);
           const head = content.slice(0, COMPACTION_TRIM_HEAD_CHARS);
           const tail = content.slice(Math.max(COMPACTION_TRIM_HEAD_CHARS, content.length - COMPACTION_TRIM_TAIL_CHARS));
           next.push({ ...item, content: `${head}\n${COMPACTION_TRIM_MARK}（完整内容见 ${stored.path}）\n${tail}` });

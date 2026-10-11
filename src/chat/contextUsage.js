@@ -7,6 +7,7 @@
 //   保守默认 32000（未声明时按最小常见窗口保守处理，宁可早压缩不溢出）。
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
+import { messageTextOf } from './messageText.js';
 import {
   DEFAULT_AUTOCOMPACT_RATIO,
   DEFAULT_HEADROOM_TOKENS,
@@ -31,12 +32,14 @@ export const DEFAULT_CONTEXT_WINDOW = 200000;
 export const AUTO_COMPACT_RATIO = MEMORY_SUMMARY_RATIO;
 export { SESSION_AUTO_COMPACT_RATIO, SESSION_COMPACT_HINT_RATIO } from './compactionPolicy.js';
 
-// 会话消息（{ role, text }）→ 估算 token。
+// 会话消息（{ role, text } 或 { role, content }）→ 估算 token。
+// 正文读取统一走 messageText.js：此前这里只看 text，工作区面板的 content 消息一律估成 0 token
+//（占用条与自动压缩判据在工作区页面上等于失效），是同一批「三种口径」分歧的一部分。
 export function estimateHistoryTokens(messages) {
   const list = Array.isArray(messages) ? messages : [];
   return estimateMessagesTokens(list.map(item => ({
     role: item && item.role,
-    content: String((item && item.text) || ''),
+    content: messageTextOf(item),
   })));
 }
 

@@ -19,6 +19,7 @@ import {
   normalizeCompactionFocus,
 } from './compaction.js';
 import { runCompactionPipeline } from './compactionPipeline.js';
+import { messageTextOf } from './messageText.js';
 import { computeContextUsage } from './contextUsage.js';
 import { estimateMessagesTokens } from '../localModel/localContext.js';
 import {
@@ -79,7 +80,7 @@ export function buildSessionCompactionDeps({
     minMessages: COMPACTION_KEEP_RECENT,
     estimateTokens: message => estimateMessagesTokens([{
       role: message && message.role,
-      content: String((message && (message.content != null ? message.content : message.text)) || ''),
+      content: messageTextOf(message),
     }]),
   };
   if (typeof summarize === 'function') deps.summarize = summarize;
@@ -116,7 +117,7 @@ export function buildReactiveCompactDeps({ store = null, characterId = '', summa
 export function countCompactionMessages(list) {
   return (Array.isArray(list) ? list : []).filter(item => item
     && (item.role === 'user' || item.role === 'assistant')
-    && String((item && (item.text || item.content)) || '').trim()).length;
+    && messageTextOf(item).trim()).length;
 }
 
 export async function runSessionCompaction({

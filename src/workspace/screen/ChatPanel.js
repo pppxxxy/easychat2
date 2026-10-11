@@ -60,6 +60,7 @@ import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '.
 import { resolveAutoCompactPolicy } from '../../chat/compactionPolicy.js';
 import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
 import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
+import { messageTextOf } from '../../chat/messageText.js';
 import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
 import { buildReactiveCompactDeps } from '../../chat/sessionCompaction.js';
@@ -473,7 +474,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
           retainTokens: Math.max(0, Math.floor(windowSize * COMPACTION_RETAIN_RATIO)),
           estimateTokens: msg => estimateMessagesTokens([{
             role: msg && msg.role,
-            content: String((msg && (msg.content != null ? msg.content : msg.text)) || ''),
+            content: messageTextOf(msg),
           }]),
         },
       });
