@@ -9,6 +9,7 @@ import { formatBytes } from '../../utils/format.js';
 import {
   cancelQueuedDownload,
   getDownloadQueueSnapshot,
+  retryQueuedDownload,
   subscribeDownloadQueue,
 } from '../downloadQueue.js';
 
@@ -80,17 +81,29 @@ export default function DownloadTasks({ styles, t }) {
             ) : null}
             <View style={styles.downloadTaskFooter}>
               <Text style={styles.downloadTaskFooterMeta} numberOfLines={1}>
-                {sizeText ? `${footerMeta}` : footerMeta}
+                {footerMeta}
                 {running && sizeText ? ` · ${t('localModel.download.keepForeground')}` : ''}
               </Text>
-              <TouchableOpacity
-                onPress={() => cancelQueuedDownload(task.id).catch(() => {})}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={t('localModel.download.cancel')}
-              >
-                <Text style={styles.downloadCancelText}>{t('localModel.download.cancel')}</Text>
-              </TouchableOpacity>
+              <View style={styles.downloadTaskActions}>
+                {failed ? (
+                  <TouchableOpacity
+                    onPress={() => retryQueuedDownload(task.id).catch(() => {})}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('localModel.download.retry')}
+                  >
+                    <Text style={styles.downloadRetryText}>{t('localModel.download.retry')}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  onPress={() => cancelQueuedDownload(task.id).catch(() => {})}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('localModel.download.cancel')}
+                >
+                  <Text style={styles.downloadCancelText}>{t('localModel.download.cancel')}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         );

@@ -161,19 +161,6 @@ function formatApiError(text, status) {
   return trimmed.slice(0, 300);
 }
 
-export function normalizeAssistantContent(value) {
-  if (typeof value === 'string') return value;
-  if (!Array.isArray(value)) return '';
-  return value
-    .map(part => {
-      if (typeof part === 'string') return part;
-      if (part && typeof part.text === 'string') return part.text;
-      if (part && typeof part.content === 'string') return part.content;
-      return '';
-    })
-    .join('');
-}
-
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   // 复用共享错误解析：error.message + metadata.raw（OpenRouter 上游真凶）。
