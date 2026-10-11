@@ -102,7 +102,8 @@ Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easyc
   - Persistence primitives (`@react-native-async-storage/async-storage`, `expo-sqlite`, `expo-secure-store`) are imported only inside `src/storage/**` and `src/storage.js` (plus the not-yet-migrated `src/books|music|screenWatch/**`). ESLint `no-restricted-imports` blocks the rest.
   - Per-character data cleanup on character deletion is registered via `onCharacterDeleted(name, fn)` from `src/storage/characterLifecycle.js` inside the domain module itself — `saveCharacterState` runs the hooks. Do not add cascade entries to `storage.js` by hand.
   - Startup-period components/bridges go under `src/startup/` (target state).
-  - `npm run guard:structure` (also run in CI) fails when `src/` root `.js` count exceeds the cap in `scripts/guard-structure.mjs`. Lower the cap after each migration batch; raise it only with a stated reason.
+  - `npm run guard:structure` (also run in CI) fails when `src/` root `.js` count exceeds the cap in `scripts/guard-structure.mjs`. Lower the cap after each migration batch; raise it only with a stated reason. This cap is the **hard** ratchet (36 → 31, never raised).
+  - The same guard freezes per-file line counts above 800 through `architecture-baseline.json` (threshold = actual value, no slack). Unlike the root-file cap, the line baseline **may be raised** — but only in the same commit as the code change, with the reason stated in the commit message, and only after confirming the code and structure still meet long-term maintainability (extract into submodules first; never pad the number by moving code around, squeezing comments or joining lines). Protocol block: top of `scripts/guard-structure.mjs`.
 
 ## Docs
 

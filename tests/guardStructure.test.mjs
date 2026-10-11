@@ -110,3 +110,40 @@ test('守卫行为：WorkspaceScreen 自己仍可持有唯一的那层 Modal', (
     assert.equal(result.status, 0, `WorkspaceScreen 是唯一允许持有 Modal 的文件：\n${result.stderr}`);
   });
 });
+
+// 规则文字也是契约（2026-10-12 用户裁决）：行数基线**允许抬高**，前提是「提交说明写清理由 +
+// 代码与结构仍满足长期可维护」。旧文案写的是「棘轮只许收紧」——而历史里抬高 113 次、
+// 下调 104 次，文案与实际做法不符；规则和现实不符时，被绕过的一定是规则。
+// 这条不测「文案存在」，测的是**被拦下的人看到的两条出口是否都在**：
+// 只给「拆到子模块」等于继续骗人（有些增长是真的必要），只给「改数字」等于放水。
+test('守卫行为：行数超基线时的失败信息必须给出两条真实出口（外提 / 有理由抬高）', () => {
+  withTempRepo({}, root => {
+    fs.mkdirSync(path.join(root, 'src', 'chat'), { recursive: true });
+    const target = path.join(root, 'src', 'chat', 'Big.js');
+    fs.writeFileSync(target, '// x\n'.repeat(900));
+    fs.writeFileSync(
+      path.join(root, 'architecture-baseline.json'),
+      JSON.stringify({
+        version: 1,
+        maxFileLines: 800,
+        excludedPaths: [],
+        fileLineBaseline: { 'src/chat/Big.js': 900 },
+        allowedCycles: [],
+      })
+    );
+    // 基线 == 实际：这正是「有理由抬高后把基线改成新的实际值」的合法形态，必须通过
+    const ok = runGuard(root);
+    assert.equal(ok.status, 0, `基线 = 实际值应当通过：\n${ok.stderr}`);
+
+    // 长一行 → 拦下，且失败信息要同时给出两条出口
+    fs.appendFileSync(target, '// y\n');
+    const blocked = runGuard(root);
+    assert.equal(blocked.status, 1, '超出基线必须拦下');
+    assert.match(blocked.stderr, /Big\.js：901 行 > 基线 900/, '要报出实际值与基线');
+    assert.match(blocked.stderr, /拆到子模块/, '要给出「外提」这条出口');
+    assert.match(blocked.stderr, /写清理由/, '要给出「有理由抬高」这条出口');
+    assert.match(blocked.stderr, /长期可维护/, '抬高前必须确认代码与结构仍满足长期可维护');
+    assert.match(blocked.stderr, /同一次提交/, '抬高必须与代码改动在同一次提交里完成');
+    assert.doesNotMatch(blocked.stderr, /只许收紧/, '不得再写「只许收紧」这句与实际做法不符的话');
+  });
+});

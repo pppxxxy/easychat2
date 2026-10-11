@@ -4,10 +4,24 @@
 // 一次性动作，真正的防复发是在 PR 阶段拦住新文件继续往根丢。因此这里设一个
 // 根目录 .js 文件数的上限，超过就失败。
 //
-// 棘轮协议（2026-10-07 快赢4 启动）：阈值 = 当前实际值，不再留缓冲——
+// 两条棘轮，协议**不一样**，别把它们混成一条（2026-10-12 用户裁决后如实分开写）：
+//
+// 【1】根目录文件数上限（硬闸，2026-10-07 快赢4 启动）：阈值 = 当前实际值，不留缓冲——
 // - 新增根文件 → 直接失败（先把新文件归域，或迁走一个既有根文件做净零交换）；
 // - 每完成一批归域迁移 → 把 MAX_ROOT_FILES 下调到新的实际值（随手随迁）；
-// - 上调阈值 = 棘轮失效，禁止；确需放宽必须在本文件说明理由并经用户确认。
+// - 历史上只降不升（36 → 33 → 32 → 31），这是唯一一条真的单向收紧的规则；
+//   确需放宽必须在本文件说明理由并经用户确认。
+//
+// 【2】文件行数基线（预算 + 摩擦，Z 系采纳 #2）：**允许抬高，但有前提**——
+// - 抬高必须在**同一次提交**里完成，且在提交说明里写清理由：为什么这些行是必要的
+//   （新增了真实逻辑/结构，而不是把代码挪个地方、压注释、合并行来凑数字）；
+// - 抬高前必须确认代码与结构仍满足**长期可维护**：优先把改动拆到子模块；
+//   文件已经难评审时，正确的动作是外提而不是改数字；
+// - 抬高不是"棘轮失效"：它是这条规则的正常出口。历史事实是抬高 113 次 / 下调 104 次
+//   （旧文案写「只许减不许增」，与实际做法不符，已按 2026-10-12 用户裁决改为本口径）；
+// - 阈值仍**不得高于实际值**（不留空转余量）——留余量会让棘轮对这几个文件形同虚设，
+//   2026-10-11 逐行审查 P2 抓过这个坑（ChatPanel 标 1851 实际 1712 等），
+//   tests/architecturePolicy.test.mjs 把它钉成可执行不变量。
 //
 // 2026-10-08 Stage 5：WorkspacePanel.js 迁至 workspace/screen/FilesPanel.js，33 → 32。
 // 2026-10-11：resourceMutex.js（纯工具）迁至 utils/resourceMutex.js，32 → 31。
@@ -35,7 +49,7 @@ if (rootFiles.length > MAX_ROOT_FILES) {
 if (rootFiles.length < MAX_ROOT_FILES) {
   console.log(
     `[guard:structure] 提示：根文件 ${rootFiles.length} 个已低于上限 ${MAX_ROOT_FILES}，`
-    + '请随本批迁移把 MAX_ROOT_FILES 下调到实际值（棘轮只许收紧）。'
+    + '请随本批迁移把 MAX_ROOT_FILES 下调到实际值（根目录上限是硬闸，只降不升）。'
   );
 }
 console.log(`[guard:structure] ok：src/ 根目录 ${rootFiles.length} 个 .js（上限 ${MAX_ROOT_FILES}）。`);
@@ -129,7 +143,9 @@ console.log('[guard:structure] ok：工作区面板未自套 Modal。');
 // ---- 架构策略：文件行数棘轮（Z 系采纳 #2）----
 // 背景：easychat2 有 16 个文件超过 800 行（ChatScreen 3062 行），单文件过大让评审、
 // 测试与并发修改都变难。一次性拆完不现实，所以用棘轮：存量记进 architecture-baseline.json，
-// 只许减不许增；新文件一律不得超上限。（对照 zai-org/ZCode 的 architecture-policy.yaml。）
+// 阈值 = 实际值（不留余量）；新文件一律不得超上限。（对照 zai-org/ZCode 的 architecture-policy.yaml。）
+// 允许抬高，但前提见文件头的【2】：提交说明写清理由 + 代码与结构仍满足长期可维护 +
+// 与代码改动同一次提交。每次抬高/下调都记进 architecture-baseline.json 的 _baselineChangeLog。
 const baselinePath = path.join(here, '..', 'architecture-baseline.json');
 const policy = JSON.parse(readFileSync(baselinePath, 'utf8'));
 const MAX_FILE_LINES = Number(policy.maxFileLines) || 800;
@@ -157,9 +173,13 @@ for (const file of collectJsFiles(srcDir).concat([path.join(repoRoot, 'App.js')]
 }
 if (growth.length > 0) {
   console.error(
-    '[guard:structure] 以下文件超出各自基线行数（棘轮只许收紧）：\n'
+    '[guard:structure] 以下文件超出各自基线行数（行数基线不得留空转余量）：\n'
     + growth.map(x => `  ${x}`).join('\n')
-    + '\n请把改动拆到子模块，或随本次拆分同步下调 architecture-baseline.json。'
+    + '\n两条合法出口：'
+    + '\n  ①（优先）把改动拆到子模块，并随本次拆分同步下调 architecture-baseline.json；'
+    + '\n  ② 确需增长：先在提交说明里写清理由（这些行是真实逻辑/结构，不是挪代码、'
+    + '\n     压注释或合并行凑出来的），确认代码与结构仍满足长期可维护后，'
+    + '\n     把基线同步改成新的实际值——必须与代码改动在同一次提交里完成。'
   );
   process.exit(1);
 }

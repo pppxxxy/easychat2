@@ -25,7 +25,6 @@ import {
   isDisclaimerAcknowledged,
   isOnboardingDone,
 } from './src/storage/settings.js';
-import { getActiveLocalModel } from './src/storage/localModels.js';
 import { getDiarySettings } from './src/storage/diary.js';
 import { migrateLegacyMessages } from './src/storage/sessions.js';
 import { DEFAULT_CHARACTER, markDefaultGreetingShown } from './src/storage/characters.js';
@@ -51,18 +50,9 @@ import { ROUTE_NAMES } from './src/navigation/routeNames.js';
 import { maskSecrets } from './src/storage/secrets.js';
 import { getCharacterEditGuard, resolveTabName, shouldConfirmTabLeave } from './src/character/characterEditGuard.js';
 import { recordDiagnostic } from './src/storage/diagnostics.js';
-import { runLocalModel } from './src/localModel/adapter.js';
 import { hydrateDownloadQueue } from './src/localModel/downloadQueue.js';
-import {
-  attachLocalApiServerAgent,
-  attachLocalApiServerInference,
-  isLocalApiServerAvailable,
-  stopLocalApiServer,
-} from './src/localModel/localApiServer.js';
-import { isMcpServerAvailable, stopMcpServer } from './src/mcp/serverBridge.js';
-import { attachRuntimeMcpServer, syncMcpServer } from './src/mcp/serverRuntime.js';
-import { runHeadlessAgent } from './src/workspace/headlessAgent.js';
-import { tryAcquireResource } from './src/utils/resourceMutex.js';
+import LocalApiServerBridge from './src/startup/localApiServerBridge.js';
+import McpServerBridge from './src/startup/mcpServerBridge.js';
 import SecurityGate from './src/security/SecurityGate.js';
 import { useTabIconScale } from './src/ui/animations.js';
 
@@ -537,66 +527,6 @@ function ProactiveMessageBridge({ navigationReady }) {
     return () => subscription.remove();
   }, [loaded, ingestPending]);
 
-  return null;
-}
-
-// 本地 API 服务桥：把原生 HTTP 请求接到常驻本地模型，退后台/卸载时停服释放端口。
-function LocalApiServerBridge() {
-  useEffect(() => {
-    if (!isLocalApiServerAvailable()) return undefined;
-    const unsubscribe = attachLocalApiServerInference({
-      runInference: async (messages, model, options = {}) => {
-        const item = await getActiveLocalModel().catch(() => null);
-        if (!item) throw new Error('No local model selected');
-        const release = tryAcquireResource('local-model');
-        if (!release) throw new Error('Local model is busy');
-        try {
-          // OpenAI 语义是无状态：每个请求用独立会话标识，跨请求必清 KV cache，
-          // 避免上一个客户端请求的内容串进下一个请求。
-          const result = await runLocalModel(messages, item, {
-            conversationKey: `api-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            // v5 Stage D：把流式 token 透传给 API 服务器桥（stream=true 时逐片回写 SSE）。
-            onToken: typeof options.onToken === 'function' ? options.onToken : undefined,
-          });
-          return result && typeof result.text === 'string' ? result.text : '';
-        } finally {
-          release();
-        }
-      },
-    });
-    // P3-8：POST /v1/agent —— 程序化驱动一轮 agent 工具循环（复用工作区组装：沙盒 + 系统提示 + 工具）。
-    const unsubscribeAgent = attachLocalApiServerAgent({ runAgent: runHeadlessAgent });
-    let previous = AppState.currentState;
-    const subscription = AppState.addEventListener('change', next => {
-      if (previous === 'active' && next !== 'active') {
-        stopLocalApiServer().catch(() => {});
-      }
-      previous = next;
-    });
-    return () => {
-      unsubscribe();
-      unsubscribeAgent();
-      subscription.remove();
-      stopLocalApiServer().catch(() => {});
-    };
-  }, []);
-  return null;
-}
-
-// 内置 MCP Server 桥：接原生事件（有请求就交给协议层应答）+ 按设置启停。
-// 与上面那个本地 API 服务桥的**关键差别**：这里**不监听 AppState**。本地 API 服务是给
-// 本机自己用的（退后台就该停，省端口省电）；MCP 是给另一台设备上的 agent 用的，
-// 一退后台就断会让人以为坏了。进程被 Android 杀掉才会断，那时原生 invalidate() 会收尾。
-function McpServerBridge() {
-  useEffect(() => {
-    if (!isMcpServerAvailable()) return undefined;
-    const detach = attachRuntimeMcpServer();
-    syncMcpServer().catch(() => {});
-    return () => {
-      detach();
-      stopMcpServer().catch(() => {});
-    };
-  }, []);
   return null;
 }
 

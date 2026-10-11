@@ -2,7 +2,7 @@
 //
 // 从 src/chat/useChatSend.js 外提：那段接线（识别 → 描述注入 → 是否附原图 → 降级
 // 判定）是纯编排，与发送流程的其它部分零交叉，抽出来既能直测、也不让已经顶到行数
-// 基线的 useChatSend 继续膨胀（棘轮只许收紧）。
+// 基线的 useChatSend 继续膨胀（行数基线不留余量，能外提就外提）。
 //
 // 三条纪律（都有行为测试钉住）：
 // 1. 描述注入到**消息对象**上（description / descriptionFailed），由 chatMedia 的
