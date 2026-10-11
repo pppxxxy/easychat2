@@ -27,6 +27,7 @@ import { maskSecrets } from '../storage/secrets.js';
 
 import { useTranslation } from '../i18n/I18nContext.js';
 
+import AccessibilityCard from './AccessibilityCard.js';
 import { captureAppScreen } from './capture.js';
 import {
   addCaptureFailedListener,
@@ -396,6 +397,10 @@ export default function ScreenWatchScreen() {
           <Text style={styles.hint}>{t('screenWatch.overlay.unsupported')}</Text>
         </Card>
       )}
+
+      {/* 无障碍权限链路（状态查询 + 引导开启）。不接管采集：采集仍是上面的悬浮窗
+          （MediaProjection）。开启无障碍只省掉「每次重新授权录屏」这一步。 */}
+      <AccessibilityCard />
 
       <Card style={styles.captureCard}>
         <Text style={styles.sectionTitle}>{t('screenWatch.characterLabel')}</Text>

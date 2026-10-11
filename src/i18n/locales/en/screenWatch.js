@@ -48,4 +48,16 @@ export const screenWatch = {
   'screenWatch.overlay.capturePerm.title': 'Screen capture grant needed',
   'screenWatch.overlay.capturePerm.body': 'Without the screen capture grant, frames cannot be grabbed.',
   'screenWatch.overlay.startFailed': 'The floating window failed to start. Please retry.',
+  // ---- Accessibility permission path (screenWatch/AccessibilityCard.js) ----
+  // Wording discipline: only promise “one less screen-recording grant”. Accessibility
+  // screenshot APIs are unverified locally and are NOT wired up, so nothing here claims
+  // that turning this on makes capture itself work without a grant.
+  'screenWatch.accessibility.title': 'Accessibility permission (optional)',
+  'screenWatch.accessibility.description': 'Every time you turn the floating window on, the system asks you to confirm screen recording. Enabling this app under system Accessibility removes that repeated step and makes screen peeking easier.',
+  'screenWatch.accessibility.statusOn': 'Accessibility is on',
+  'screenWatch.accessibility.statusOff': 'Accessibility is off',
+  'screenWatch.accessibility.statusUnknown': 'Checking accessibility status…',
+  'screenWatch.accessibility.open': 'Open system settings',
+  'screenWatch.accessibility.howTo': 'The button opens the system Accessibility list; find this app in the list and turn it on. The system has no deep link to this app\'s own entry, so you need to find it yourself.',
+  'screenWatch.accessibility.notEnough': 'Note: frames are still captured by the floating window. Enabling accessibility only saves you the repeated grant — it does not make capture grant-free by itself.',
 };

@@ -2,12 +2,14 @@ package com.pppxxxy.easychat2.screenoverlay
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.text.TextUtils
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -200,6 +202,72 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("ERR_OVERLAY_NAME", e.message, e)
+        }
+    }
+
+    /**
+     * 无障碍服务是否已开启。只读查询，不申请任何权限、不产生副作用。
+     *
+     * 两条判据取**或**：
+     *  1. 进程内绑定标记（ScreenAccessibilityService.isConnected）——服务确实活着，
+     *     但进程刚重启、服务尚未绑定时会漏报；
+     *  2. 系统设置里的已启用列表（Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES）——
+     *     用户开启过就有记录，冷启动也能立刻答对。
+     * 所以冷启动首帧靠 (2)，运行中靠 (1)(2) 任一。用 ComponentName.flattenToString
+     * 拼出与系统同一格式的字符串再做**精确**比对（列表以 `:` 分隔）：不能用 contains
+     * 裸匹配，否则 `com.foo` 会命中 `com.foobar`（历史上有过这类误判）。
+     *
+     * ⚠️ 未在本地核实：沙箱无 Android SDK / Java，本方法无法编译或运行验证。
+     * Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES 的取值格式、以及
+     * AccessibilityManager.getEnabledAccessibilityServiceList 在各 API level 的
+     * 行为差异，都需要真机/打包验证。
+     */
+    @ReactMethod
+    fun isAccessibilityEnabled(promise: Promise) {
+        try {
+            if (ScreenAccessibilityService.isConnected) {
+                promise.resolve(true)
+                return
+            }
+            val expected = ComponentName(
+                reactContext.packageName,
+                ScreenAccessibilityService::class.java.name
+            ).flattenToString()
+            val raw = Settings.Secure.getString(
+                reactContext.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            )
+            if (raw.isNullOrEmpty()) {
+                promise.resolve(false)
+                return
+            }
+            val enabled = TextUtils.SimpleStringSplitter(':').apply { setString(raw) }
+                .asSequence()
+                .map { it.trim() }
+                .any { it.equals(expected, ignoreCase = true) }
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            // 查询失败按「未开启」处理：界面给的是引导（去系统设置开启），
+            // 报错只会让用户卡在一个他无法处置的错误上。
+            Log.w(TAG, "accessibility query failed: ${e.message}")
+            promise.resolve(false)
+        }
+    }
+
+    /**
+     * 打开系统「无障碍」设置页。**无法直达本应用那一项**——系统没有这样的
+     * Intent extra（未在本地核实是否存在厂商扩展），所以这里只打开总列表，
+     * 界面文案必须如实说「在列表里找到本应用」，不要把话说满。
+     */
+    @ReactMethod
+    fun openAccessibilitySettings(promise: Promise) {
+        try {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_ACCESSIBILITY_SETTINGS", e.message, e)
         }
     }
 

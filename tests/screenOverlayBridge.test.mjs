@@ -40,6 +40,8 @@ test('parseStateEvent 缺字段按 false 处理', () => {
 });
 
 test('overlay.js 暴露全部桥方法且惰性读取原生模块', () => {
+  // 这份清单是**桥方法台账**（防止某个方法被误删后界面静默失效）；每个方法的行为
+  // 断言在 tests/screenAccessibilityBridge.test.mjs（注入假原生模块真跑函数）。
   for (const name of [
     'isOverlaySupported',
     'canDrawOverlays',
@@ -50,6 +52,8 @@ test('overlay.js 暴露全部桥方法且惰性读取原生模块', () => {
     'isOverlayActive',
     'captureOverlayFrame',
     'updateOverlayText',
+    'isAccessibilityEnabled',
+    'openAccessibilitySettings',
     'addCaptureListener',
     'addRequestCaptureListener',
     'addStateListener',
