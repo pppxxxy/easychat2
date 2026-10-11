@@ -19,7 +19,7 @@ npm run test:coverage # tests + c8 coverage gate (60% floor)
 ```
 
 - Lint runs through the repo-local ESLint config: `npm run lint` (equivalent to `eslint App.js src plugins tests`). Node regression tests run with `npm test`; verify native UI paths with `npm run start` and exercise the changed path manually（聊天相关改动按 `SMOKE_TEST.md` 走查）, plus `npm ci` for dependency integrity. Enabled rules: `no-undef`, `react/jsx-uses-vars`、`react-hooks/rules-of-hooks`、`no-unused-vars` (catch 参数与默认导入 `React` 忽略)。`eslint` 精确锁定 `10.11.0`（`^` 也会随 minor 漂移，且 core 的 JSX 使用追踪是 10 的新行为），`package.json` 的 `engines.node` 对齐 eslint 要求（`^20.19.0 || ^22.13.0 || >=24`）；`react/jsx-uses-vars` 让 lint 在 eslint 9/10 下行为一致。`react-hooks/exhaustive-deps` 尚未启用——存量 37 处多为刻意省略依赖（改错会改变 effect 触发时机），需逐条人工判断后再单独开启。
-- 覆盖率门禁是 `npm run test:coverage`（`c8` + `.c8rc.json`）：只统计可在纯 Node 测试里加载的模块，RN UI 层（`react-native`/`@expo/vector-icons` 等）排除在外；当前为 60% 的「只升不降」地板，实际行覆盖约 81%（纳入集约 15400 行，另有约 62% 的 src 行数因 RN 依赖被排除，见 `.c8rc.json`）。测试脚手架用 `Module._compile` 加载源码时必须传**真实源码路径**（如 `src/storage.js`），用合成文件名（`*.test-runtime.cjs`）会让 V8 覆盖率记到假路径、真实文件显示 0%。
+- 覆盖率门禁是 `npm run test:coverage`（`c8` + `.c8rc.json`）：只统计可在纯 Node 测试里加载的模块，RN UI 层（`react-native`/`@expo/vector-icons` 等）排除在外；地板是 60% 的「只升不降」（写在 `package.json` 的 `test:coverage` 脚本里）。**实际覆盖率以该命令的输出为准**，本文件不再写死一个会随每次提交漂移的数字（此前写的「约 81%」「纳入集约 15400 行」「约 62% 被排除」三个数都错）：2026-10-11 实测行覆盖 **78.22%**（56565/72310 条可执行语句），而 `src/**/*.js` + `App.js` 共 126612 行、被 `.c8rc.json` 排除 53529 行（**42.3%**）、纳入统计 73083 行。测试脚手架用 `Module._compile` 加载源码时必须传**真实源码路径**（如 `src/storage.js`），用合成文件名（`*.test-runtime.cjs`）会让 V8 覆盖率记到假路径、真实文件显示 0%。
 - Metro does not check for undefined references, so a missing import or a module-level helper using component-scope variables still bundles and then crashes at runtime. After touching UI code, run `npm run lint`; it must print nothing. `npm run lint` now also covers `plugins/*.js` and `tests/*.mjs`（`eslint App.js src plugins tests`）。
 - `lint` 的覆盖率排除用**显式文件清单**（`.c8rc.json`），不要再加 `*Screen.js`/`*Panel.js`/`*View.js` 这类后缀通配——它们会静默排除未来任何同后缀的非 UI 模块。新增 UI 文件时手动登记。
 - `default.jpg`（仓库根）**无任何代码引用**，是本地手工大卡解析测试素材；Metro 只打包被 `require` 的静态资源，故不增大 APK。**已从版本库移除并以 `.gitignore` 忽略**，仅保留在本地工作区；如丢失可自备同类大卡图片。
@@ -90,7 +90,10 @@ Storage keys: `@easychat2_api_configs` (legacy `@easychat2_api_config`), `@easyc
 - Never commit or print real API keys or tokens; use placeholders.
 - Testing convention (enforced by review, see 审查待办 for the ratio):
   - Source-string assertions (reading the source with `readFileSync` and asserting `includes(...)`) are allowed ONLY to pin a fixed regression bug (they are cheap and effective for that). New-feature tests must be behavior tests (import the module and run it).
-  - Do not add new source-assertion tests; the existing ~66 are legacy and migrate gradually.
+  - Do not add new source-assertion tests; the existing **30** are legacy and migrate gradually.
+    口径（可复算）：`tests/*.mjs` 里**既不 `import` 被测源码、也不经 `Module._compile`/`Module._load`
+    加载真模块**，只读源码文本做字符串断言的文件。2026-10-11 实测 30 个（另有 121 个「混装」文件
+    同时做行为断言与源码断言，不在此列）。此前这里写「~66」是错的口径（把混装文件也算进去了）。
   - User-visible strings (Alert.alert / throw new Error) must go through i18n `t()` — `eslint-rules/no-hardcoded-chinese.mjs` enforces this; files still on the migration list in `eslint.config.mjs` are legacy (list only shrinks).
 - Error-shape convention: storage layer returns `{ status }` objects; agent tools return result objects (`toErrorResult`); everything else `throw new Error(...)`. Pick per layer — don't mix within one layer.
 - File-system imports are layer-restricted like persistence primitives (see `eslint.config.mjs`): new files must not import `expo-file-system(\/legacy)?` directly; write through the domain's own wrapper that calls `markMediaWrite` after every file write (media GC protection).
