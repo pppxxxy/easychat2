@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import CollapsibleHint from '../CollapsibleHint.js';
+import { TextField } from '../../ui/index.js';
+import { filterCharactersByName } from '../characterSearch.js';
 
 // 设置页「隐私与安全」卡：应用锁（生物识别）+ 角色锁（数字密码）展示区。
 // 状态与保存逻辑在 SettingsScreen，本卡只做展示与回调转发。
@@ -24,6 +26,11 @@ export default function SecuritySection(props) {
   } = props;
 
   const list = Array.isArray(characters) ? characters : [];
+  // 单角色锁的角色可能很多，加一个按名字的本地搜索框，避免在长列表里一直往下翻。
+  // 搜索态只属于本卡片的展示层（卡片折叠时随组件卸载自动重置），不落存储、不上报父组件。
+  const [query, setQuery] = useState('');
+  const searching = query.trim().length > 0;
+  const visibleList = filterCharactersByName(list, query);
   const biometricUnavailable = !!(biometricAvailability && biometricAvailability.available === false);
   const appLockOn = appLockSettings && appLockSettings.enabled === true;
 
@@ -80,7 +87,33 @@ export default function SecuritySection(props) {
         </View>
         <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
       </TouchableOpacity>
-      {list.map(item => {
+      {list.length > 0 ? (
+        <View style={styles.characterSearchRow}>
+          <Ionicons name="search" size={16} color={theme.colors.textFaint} style={styles.characterSearchIcon} />
+          <TextField
+            style={styles.characterSearchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder={t('settings.security.searchPlaceholder')}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel={t('settings.security.searchPlaceholder')}
+          />
+          {searching ? (
+            <TouchableOpacity
+              style={styles.characterSearchClear}
+              onPress={() => setQuery('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={t('settings.security.searchClear')}
+            >
+              <Ionicons name="close-circle" size={17} color={theme.colors.textFaint} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+      {visibleList.map(item => {
         const locked = characterLocks[item.id] === true;
         return (
           <TouchableOpacity
@@ -120,6 +153,9 @@ export default function SecuritySection(props) {
           </TouchableOpacity>
         );
       })}
+      {searching && visibleList.length === 0 ? (
+        <Text style={styles.characterSearchEmpty}>{t('settings.security.searchEmpty')}</Text>
+      ) : null}
     </>
   );
 }
