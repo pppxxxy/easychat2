@@ -83,14 +83,14 @@ export function sandboxPathFromUri(uri) {
 // 以为这就是全部内容而去改错文件。
 // **头尾都保**（能力升级任务书 A2）：报错、失败原因几乎总在尾部——只保头等于把
 // 诊断信息切掉，输出越长的命令越是如此。默认按 3:1 分配（头 48K / 尾 16K）。
-export function truncateShellOutput(text, limit = SHELL_OUTPUT_LIMIT) {
+export function truncateShellOutput(text, limit = SHELL_OUTPUT_LIMIT, hint = '需要看中段请用 grep/sed 收窄后重跑') {
   const value = String(text === undefined || text === null ? '' : text);
   if (value.length <= limit) return { text: value, truncated: false };
   const tailSize = Math.floor(limit / 4);
   const headSize = limit - tailSize;
   const omitted = value.length - limit;
   return {
-    text: `${value.slice(0, headSize)}\n…（中间省略 ${omitted} 字符；需要看中段请用 grep/sed 收窄后重跑）…\n${value.slice(-tailSize)}`,
+    text: `${value.slice(0, headSize)}\n…（中间省略 ${omitted} 字符；${hint}）…\n${value.slice(-tailSize)}`,
     truncated: true,
   };
 }
