@@ -43,6 +43,7 @@ export const chat = {
   'chat.composer.a11y.record': '录制语音消息',
   'chat.composer.a11y.stopRecord': '结束录音并转写',
   'chat.composer.a11y.cancelRecord': '取消录音',
+  'chat.composer.a11y.removeAttachment': '移除附件 {name}',
   'chat.composer.recording': '正在录音…松开结束，上滑取消',
   'chat.composer.recording.cancel': '取消',
   'chat.composer.quote.fallbackName': '原文',
@@ -356,7 +357,8 @@ export const chat = {
   'chat.list.hintApiKey': '请先在“设置”里填写 API Key，然后输入消息。',
   'chat.list.loadEarlierA11y': '加载更早消息',
   'chat.list.loadEarlier': '加载更早消息（还有 {count} 条）',
-  'chat.list.longPressSelectA11y': '长按选择消息',
+  // 多选态下每条消息才是「按钮」；非多选态 accessible={false}，读屏按内容读。
+  'chat.list.selectMessageA11y': '选择或取消选择这条消息',
   // ---- 对话分支 / 分支回溯（chat/BranchForkRow.js）----
   'chat.branch.forkEntry': '↩ 此处另有 {count} 条分支',
   'chat.branch.forkEntryRoot': '↩ 开头另有 {count} 条分支',

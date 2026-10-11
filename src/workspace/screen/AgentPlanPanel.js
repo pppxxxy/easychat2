@@ -38,15 +38,22 @@ export default function AgentPlanPanel({ plan = [], canApprove = false, sending 
         style={styles.header}
         onPress={() => setCollapsed(value => !value)}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={t('workspace.chat.plan.title', { done, total: steps.length })}
+        accessibilityState={{ expanded: !collapsed }}
       >
         <Ionicons name="list-outline" size={14} color={theme.colors.primary} />
         <Text style={styles.title} numberOfLines={1}>
           {t('workspace.chat.plan.title', { done, total: steps.length })}
         </Text>
+        {/* chevron 是纯装饰：展开状态已由 header 的 accessibilityState.expanded 表达，
+            再让读屏单独念一遍「chevron-up」只会加噪音。 */}
         <Ionicons
           name={collapsed ? 'chevron-down' : 'chevron-up'}
           size={14}
           color={theme.colors.textFaint}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
         />
       </TouchableOpacity>
       {collapsed ? null : steps.map((item, index) => (

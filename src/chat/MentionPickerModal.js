@@ -31,7 +31,7 @@ export default function MentionPickerModal({
         activeOpacity={1}
         onPress={onClose}
       >
-        <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
+        <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.mention.title')}</Text>
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
             <TouchableOpacity

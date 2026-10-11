@@ -82,6 +82,8 @@ export default function ChatComposer({
                    onPress={() => onRemoveAttachment(item.id)}
                    disabled={attachLocked}
                    hitSlop={6}
+                   accessibilityRole="button"
+                   accessibilityLabel={t('chat.composer.a11y.removeAttachment', { name: item.name || t('chat.composer.quote.fallbackName') })}
                  >
                    <Ionicons name="close" size={14} color={theme.colors.textFaint} />
                  </TouchableOpacity>
@@ -167,6 +169,7 @@ export default function ChatComposer({
               <TouchableOpacity
                 style={styles.sendButton}
                 onPress={onSend}
+                accessibilityRole="button"
                 accessibilityLabel={t('chat.composer.a11y.steer')}
                 activeOpacity={0.8}
               >
@@ -176,6 +179,7 @@ export default function ChatComposer({
             <TouchableOpacity
               style={[styles.sendButton, styles.stopButton]}
               onPress={onStop}
+              accessibilityRole="button"
               accessibilityLabel={t('chat.composer.a11y.stop')}
               activeOpacity={0.8}
             >
@@ -190,7 +194,9 @@ export default function ChatComposer({
             ]}
             onPress={onSend}
             disabled={inputDisabled || (!input.trim() && attachments.length === 0)}
+            accessibilityRole="button"
             accessibilityLabel={t('chat.composer.a11y.send')}
+            accessibilityState={{ disabled: inputDisabled || (!input.trim() && attachments.length === 0) }}
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-up" size={20} color={theme.colors.text} />

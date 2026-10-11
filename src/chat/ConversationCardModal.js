@@ -204,7 +204,7 @@ export default function ConversationCardModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
+      <View style={styles.container} accessibilityViewIsModal importantForAccessibility="yes">
         <View style={styles.header}>
           <Text style={styles.title}>{t('chat.cardFromChat.title')}</Text>
           <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>

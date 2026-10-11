@@ -13,7 +13,7 @@ export default function VoiceSettingsModal({ visible, onClose, voiceMode, onTogg
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <View style={styles.modalSheet}>
+        <View style={styles.modalSheet} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.voiceSettings.title')}</Text>
           <View style={styles.linkRow}>
             <View style={styles.linkLeft}>

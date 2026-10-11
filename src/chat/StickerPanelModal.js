@@ -144,7 +144,7 @@ export default function StickerPanelModal({
       onRequestClose={onClose}
     >
       <View style={styles.stickerBackdrop}>
-        <View style={styles.stickerSheet}>
+        <View style={styles.stickerSheet} accessibilityViewIsModal importantForAccessibility="yes">
           <View style={styles.stickerHeader}>
             <Text style={styles.stickerTitle}>{t('chat.sticker.title')}</Text>
             <View style={styles.stickerHeaderActions}>

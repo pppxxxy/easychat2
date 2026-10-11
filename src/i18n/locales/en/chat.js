@@ -43,6 +43,7 @@ export const chat = {
   'chat.composer.a11y.record': 'Record a voice message',
   'chat.composer.a11y.stopRecord': 'Finish recording and transcribe',
   'chat.composer.a11y.cancelRecord': 'Cancel recording',
+  'chat.composer.a11y.removeAttachment': 'Remove attachment {name}',
   'chat.composer.recording': 'Recording… release to finish, swipe up to cancel',
   'chat.composer.recording.cancel': 'Cancel',
   'chat.composer.quote.fallbackName': 'Original',
@@ -356,7 +357,9 @@ export const chat = {
   'chat.list.hintApiKey': 'Fill in your API Key in "Settings" first, then type a message.',
   'chat.list.loadEarlierA11y': 'Load earlier messages',
   'chat.list.loadEarlier': 'Load earlier messages ({count} more)',
-  'chat.list.longPressSelectA11y': 'Long-press to select messages',
+  // Each message is a button only in selection mode; otherwise accessible={false} so
+  // the screen reader reads the content instead of announcing a button per message.
+  'chat.list.selectMessageA11y': 'Select or deselect this message',
   // ---- Conversation branches (chat/BranchForkRow.js) ----
   'chat.branch.forkEntry': '↩ {count} other branch(es) here',
   'chat.branch.forkEntryRoot': '↩ {count} branch(es) at the start',

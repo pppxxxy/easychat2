@@ -113,13 +113,27 @@ export default function ToolCallRow({ tool, onOpenHistory = null }) {
   return (
     <View style={styles.card}>
       {body ? (
-        <TouchableOpacity onPress={() => setExpanded(value => !value)} activeOpacity={0.8}>
+        <TouchableOpacity
+          onPress={() => setExpanded(value => !value)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          // label 用可见文字（工具名 + 参数摘要）；状态/图标由 accessibilityState 与
+          // 可见的「运行中 m:ss」表达，不在这里重复。
+          accessibilityLabel={tool.args ? `${tool.name} ${tool.args}` : String(tool.name)}
+          accessibilityState={{ expanded }}
+        >
           {header}
         </TouchableOpacity>
       ) : header}
       {body ? (expanded ? body : null) : null}
       {showHistoryLink ? (
-        <TouchableOpacity style={styles.historyLink} onPress={onOpenHistory} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.historyLink}
+          onPress={onOpenHistory}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={t('workspace.chat.tool.history')}
+        >
           <Ionicons name="time-outline" size={12} color={theme.colors.primaryMuted} />
           <Text style={styles.historyLinkText}>{t('workspace.chat.tool.history')}</Text>
         </TouchableOpacity>

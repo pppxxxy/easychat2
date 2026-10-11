@@ -119,6 +119,9 @@ test('退役键双 locale 已清理，新键双语齐备', async () => {
     'chat.topBar.a11y.broadcastOn', 'chat.topBar.a11y.broadcastOff',
     'chat.topBar.a11y.newChat',
     'chat.composer.a11y.mention', 'chat.composer.a11y.fullScreen',
+    // 无障碍改造后退役：非多选态不再把每条消息当按钮，该 hint 没有承载点了
+    // （多选态改用 chat.list.selectMessageA11y + accessibilityState.selected）。
+    'chat.list.longPressSelectA11y',
   ]) {
     assert.equal(dead in zhCN, false, `zh 仍残留 ${dead}`);
     assert.equal(dead in en, false, `en 仍残留 ${dead}`);

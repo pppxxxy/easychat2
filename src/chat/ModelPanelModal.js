@@ -39,7 +39,7 @@ export default function ModelPanelModal({
         style={styles.modelBackdrop}
         onPress={onClose}
       >
-        <Pressable style={styles.modelSheet} onPress={() => {}}>
+        <Pressable style={styles.modelSheet} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modelTitle}>{t('chat.modelPanel.title')}</Text>
           <Text style={styles.modelLabel}>{t('chat.modelPanel.source')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>

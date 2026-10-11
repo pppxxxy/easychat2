@@ -30,7 +30,7 @@ export default function AttachmentMenuModal({ visible, onClose, onSelect, vision
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}}>
+        <TouchableOpacity style={styles.modalSheet} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <View style={styles.attachMenuHeader}>
             <Text style={styles.modalTitle}>{t('chat.attach.title')}</Text>
             <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('chat.attach.close')}>

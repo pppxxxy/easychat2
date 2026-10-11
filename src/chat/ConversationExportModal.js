@@ -129,7 +129,7 @@ export default function ConversationExportModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity style={styles.exportSheet} activeOpacity={1} onPress={() => {}}>
+        <TouchableOpacity style={styles.exportSheet} activeOpacity={1} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <View style={styles.exportHeader}>
             <Text style={styles.modalTitle}>{t('chat.export.title')}</Text>
             <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')}>

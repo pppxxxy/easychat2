@@ -127,15 +127,21 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
         style={styles.header}
         onPress={() => setCollapsed(value => !value)}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={t('workspace.chat.summary.title', { count: files.length })}
+        accessibilityState={{ expanded: !collapsed }}
       >
         <Ionicons name="git-commit-outline" size={14} color={theme.colors.primary} />
         <Text style={styles.title} numberOfLines={1}>
           {t('workspace.chat.summary.title', { count: files.length })}
         </Text>
+        {/* chevron 纯装饰：展开状态由 header 的 accessibilityState.expanded 表达。 */}
         <Ionicons
           name={collapsed ? 'chevron-down' : 'chevron-up'}
           size={14}
           color={theme.colors.textFaint}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
         />
       </TouchableOpacity>
 
