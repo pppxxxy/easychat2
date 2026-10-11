@@ -99,6 +99,12 @@ export const memory = {
   'memory.tutorial.title': 'Tutorial',
   'memory.bucket.pinned': 'Pinned',
   'memory.bucket.recent': 'Recent',
+  'memory.bucket.recent7': 'Last 7 days',
+  'memory.bucket.older': 'Earlier',
+  // Filter chips and row badges (memoryBuckets.js only supplies the key).
+  'memory.filter.all': 'All',
+  'memory.filter.local': 'Local',
+  'memory.filter.screenWatch': 'Screen chats',
   'memory.bucket.day': 'A day ago',
   'memory.bucket.week': 'A week ago',
   'memory.bucket.month': 'A month ago',

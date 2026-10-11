@@ -665,6 +665,7 @@ export default function MemoryScreen({ navigation }) {
         >
           {memoryChips.map(chip => {
             const active = memoryFilter === chip.id;
+            const chipLabel = chip.labelKey ? t(chip.labelKey) : chip.label;
             return (
               <TouchableOpacity
                 key={chip.id}
@@ -674,10 +675,10 @@ export default function MemoryScreen({ navigation }) {
                   setMemoryFilter(chip.id);
                 }}
                 activeOpacity={0.75}
-                accessibilityLabel={t('memory.a11y.filter', { label: chip.label })}
+                accessibilityLabel={t('memory.a11y.filter', { label: chipLabel })}
                 accessibilityRole="button"
               >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{chip.label}</Text>
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{chipLabel}</Text>
               </TouchableOpacity>
             );
           })}
@@ -729,6 +730,7 @@ export default function MemoryScreen({ navigation }) {
             if (item.kind === 'header') {
               const expanded = effectiveExpanded.has(item.groupId);
               const showClearAll = isScreenWatch && groups.length > 0 && item.groupId === groups[0].id;
+              const headerLabel = item.labelKey ? t(item.labelKey) : item.label;
               return (
                 <TouchableOpacity
                   style={styles.groupHeader}
@@ -736,14 +738,14 @@ export default function MemoryScreen({ navigation }) {
                   disabled={editing}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={expanded ? t('memory.a11y.collapseGroup', { label: item.label }) : t('memory.a11y.expandGroup', { label: item.label })}
+                  accessibilityLabel={expanded ? t('memory.a11y.collapseGroup', { label: headerLabel }) : t('memory.a11y.expandGroup', { label: headerLabel })}
                 >
                   <Ionicons
                     name={expanded ? 'chevron-down' : 'chevron-forward'}
                     size={16}
                     color={theme.colors.textFaint}
                   />
-                  <Text style={styles.groupLabel}>{item.label}</Text>
+                  <Text style={styles.groupLabel}>{headerLabel}</Text>
                   <Text style={styles.groupCount}>{item.count}</Text>
                   {showClearAll ? (
                     <TouchableOpacity
@@ -776,7 +778,7 @@ export default function MemoryScreen({ navigation }) {
                   )}
                   name={threadName}
                   preview={screenThreadPreview(thread) || t('memory.screenWatch.emptyPreview')}
-                  time={formatSessionTime(thread.updatedAt)}
+                  time={formatSessionTime(thread.updatedAt, t)}
                   onLongPress={() => onThreadActions(thread)}
                 />
               );
@@ -801,14 +803,16 @@ export default function MemoryScreen({ navigation }) {
                   />
                 )}
                 name={name}
-                badges={buildSessionBadges(session)}
+                badges={buildSessionBadges(session).map(badge => (
+                  badge.labelKey ? { ...badge, text: t(badge.labelKey) } : badge
+                ))}
                 pinned={session.pinned === true}
                 preview={
                   String(session.preview || '').trim()
                   || String(previewFallback[session.id] || '').trim()
                   || t('memory.emptyPreview')
                 }
-                time={formatSessionTime(session.updatedAt)}
+                time={formatSessionTime(session.updatedAt, t)}
                 selectable={editing}
                 selected={selectedIds.includes(session.id)}
                 onPress={() => (editing ? toggleSelect(session.id) : onOpen(session))}

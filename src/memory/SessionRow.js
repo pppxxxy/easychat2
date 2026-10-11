@@ -8,10 +8,13 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
+import { BASE_LOCALE, translate } from '../i18n/index.js';
 
 // 相对时间：今天显示时分，昨天显示「昨天」，更早显示「M月D日」。
 // 原 MemoryScreen 内联实现，提到这里供三处复用。
-export function formatSessionTime(timestamp) {
+// t 可选：不传时按基准语言（中文）取词——非 React 调用方也能拿到可读文案。
+export function formatSessionTime(timestamp, t) {
+  const tr = typeof t === 'function' ? t : (key, params) => translate(BASE_LOCALE, key, params);
   const value = Number(timestamp);
   if (!Number.isFinite(value) || value <= 0) return '';
   const date = new Date(value);
@@ -22,8 +25,8 @@ export function formatSessionTime(timestamp) {
   }
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return '昨天';
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  if (date.toDateString() === yesterday.toDateString()) return tr('memory.date.yesterday');
+  return tr('memory.date.md', { m: date.getMonth() + 1, d: date.getDate() });
 }
 
 export function SessionAvatar({ isGroup = false, uri = '', name = '', members = [], size = 44 }) {

@@ -75,13 +75,28 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   },
   currentPillText: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', flexShrink: 1 },
 
+  // 英文下「新建 / Group Chat / Select」三枚胶囊比中文长得多，一行放不下。
+  // 允许换行：标题行留在第一行，动作组整体折到下一行（组内仍可再折），
+  // 避免按钮被挤出屏幕（2026-10-11 英文界面回归）。
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: 6,
     marginBottom: 6,
   },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+  // 动作组：三枚胶囊自己一行，换行时靠右对齐（marginLeft:'auto' 把剩余空间留在左侧）。
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    columnGap: 6,
+    rowGap: 6,
+    marginLeft: 'auto',
+  },
   cardTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '800', marginLeft: 8 },
   presetEntryRow: {
     flexDirection: 'row',

@@ -13,10 +13,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { en } from '../src/i18n/locales/en.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterLibraryScreen.js'), 'utf8');
 const STYLES = readFileSync(path.join(HERE, '..', 'src', 'character', 'characterStyles.js'), 'utf8');
-
 // 库列表 <FlatList ...> 的完整元素文本
 const flatListStart = SCREEN.indexOf('<FlatList');
 assert.ok(flatListStart > 0, '找不到库列表 FlatList');
@@ -49,4 +51,39 @@ test('container 的 padding 保留：CharacterDetailScreen 的 ScrollView 依赖
   assert.ok(line.includes('padding: 18'), 'container 的 padding 不得删（详情页共用此样式）');
   const detail = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterDetailScreen.js'), 'utf8');
   assert.ok(detail.includes('style={styles.container}'), '详情页 ScrollView 仍在用 container，删 padding 会破坏详情页布局');
+});
+
+test('角色库头部动作组可换行：英文长标签不再把按钮挤出屏幕', () => {
+  // 三枚胶囊（新建 / Group Chat / Select）包进 cardActions 动作组，与标题行分开。
+  assert.ok(SCREEN.includes('styles.cardActions'), '三枚胶囊应包在 cardActions 动作组里');
+  const headerStart = STYLES.indexOf('cardHeader: {');
+  const headerLine = STYLES.slice(headerStart, STYLES.indexOf('}', headerStart));
+  assert.ok(headerLine.includes("flexWrap: 'wrap'"), 'cardHeader 应允许换行（标题与动作组分两行）');
+  const actionsStart = STYLES.indexOf('cardActions: {');
+  assert.ok(actionsStart > 0, 'characterStyles 缺 cardActions 定义');
+  const actionsLine = STYLES.slice(actionsStart, STYLES.indexOf('}', actionsStart));
+  assert.ok(actionsLine.includes("flexWrap: 'wrap'"), 'cardActions 应允许组内换行');
+  assert.ok(actionsLine.includes("marginLeft: 'auto'"), '动作组应靠右（换行后仍贴右缘）');
+  // 硬编码中文清干净：这些文案一律走 i18n
+  assert.ok(!SCREEN.includes("'多选'"), '多选应走 t(character.library.select)');
+  assert.ok(!SCREEN.includes("'全选'"), '全选应走 t(common.selectAll)');
+  assert.ok(!SCREEN.includes('已选'), '已选计数应走 t(character.library.selectedCount)');
+  assert.ok(!SCREEN.includes('折叠角色列表'), '折叠角色列表应走 i18n');
+  assert.ok(!SCREEN.includes('创建中'), '创建中应走 i18n');
+  assert.ok(!SCREEN.includes('未命名'), '未命名兜底应走 t(common.unnamedCharacter)');
+  assert.ok(!SCREEN.includes('当前：${'), '页头「当前：」应走 t(character.library.currentLabel)');
+  assert.ok(!SCREEN.includes('本卡由 AI 生成'), 'AIGC 角标应走 t(character.library.aigcBadge)');
+  assert.ok(SCREEN.includes("t('character.library.select')"));
+  assert.ok(SCREEN.includes("t('character.library.expandAll', { count: characterDisplayItems.length })"));
+  assert.ok(SCREEN.includes("t('character.library.currentLabel', {"));
+  assert.ok(SCREEN.includes("t('character.library.group.selectMembers', { count: groupSelected.length })"));
+  // 词条两语言都在，英文确实较短（这是「挤不下」的根因）
+  assert.equal(zhCN['character.library.select'], '多选');
+  assert.equal(en['character.library.select'], 'Select');
+  assert.equal(en['character.library.expandAll'], 'Show all characters ({count})');
+  assert.equal(en['common.selectAll'], 'Select All');
+  assert.equal(en['common.deselectAll'], 'Deselect All');
+  assert.equal(en['character.library.currentLabel'], 'Current: {name}');
+  assert.equal(en['character.library.group.selectMembers'], 'Select members ({count} selected / 2-8)');
+  assert.equal(en['common.unnamedCharacter'], 'Unnamed character');
 });

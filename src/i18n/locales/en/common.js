@@ -21,6 +21,8 @@ export const common = {
   'common.notSet': 'Not set',
   'common.error.retry': 'Please try again.',
   'common.groupChat': 'Group Chat',
+  'common.selectAll': 'Select All',
+  'common.deselectAll': 'Deselect All',
   'common.error.saveFailed': 'Save Failed',
   'common.error.deleteFailed': 'Delete Failed',
   'common.error.storageOrPermission': 'Please check storage space or permissions.',

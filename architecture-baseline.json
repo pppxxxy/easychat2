@@ -16,9 +16,9 @@
     "src/CardForgeEditor.js": 1338,
     "src/music/MusicScreen.js": 1182,
     "src/books/BookReaderView.js": 1114,
-    "src/MemoryScreen.js": 1031,
+    "src/MemoryScreen.js": 1035,
     "src/ImageGenScreen.js": 997,
-    "src/character/CharacterLibraryScreen.js": 949,
+    "src/character/CharacterLibraryScreen.js": 953,
     "src/workspace/WorkspaceSettingsSheet.js": 910,
     "src/CardForgeScreen.js": 902,
     "src/ProactivePanel.js": 894
