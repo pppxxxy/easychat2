@@ -434,7 +434,7 @@ export async function invalidateHistorySummaries({
           }),
         };
       }).catch(restoreError => {
-        if (__DEV__) console.warn('[memorySummary] summary restore failed', restoreError);
+        if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[memorySummary] summary restore failed', restoreError);
       });
     }
     throw error;
@@ -641,7 +641,7 @@ export async function applySummary({
       worldInfo: (Array.isArray(current && current.worldInfo) ? current.worldInfo : [])
         .filter(item => String((item && item.id) || '') !== entry.id),
     })).catch(restoreError => {
-      if (__DEV__) console.warn('[memorySummary] boundary rollback failed', restoreError);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[memorySummary] boundary rollback failed', restoreError);
     });
     throw error;
   }

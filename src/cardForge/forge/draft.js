@@ -45,7 +45,7 @@ export function draftFromCharacter(character) {
   const draft = createForgeDraft();
   FORGE_FIELDS.forEach(key => { draft[key] = preserveText(source[key]); });
   draft.tags = Array.isArray(source.tags)
-    ? source.tags.map(item => preserveText(item, 40)).filter(Boolean).slice(0, MAX_PRESERVED_ITEMS)
+    ? source.tags.map(item => preserveText(item, 40)).filter(Boolean).slice(0, MAX_FORGE_TAG_COUNT)
     : [];
   draft.systemPrompt = preserveText(source.systemPrompt);
   draft.alternateGreetings = Array.isArray(source.alternateGreetings)

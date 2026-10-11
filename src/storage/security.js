@@ -232,23 +232,27 @@ export async function verifyCharacterPasscode(characterId, passcode) {
   return diff === 0;
 }
 
-async function deleteCharacterLocksInternal(characterIds) {
+function deleteCharacterLocksInternal(characterIds) {
   const ids = (Array.isArray(characterIds) ? characterIds : [])
     .map(id => String(id || ''))
     .filter(Boolean);
-  if (ids.length === 0) return;
-  const current = await readSecurity();
-  const characterLocks = { ...current.characterLocks };
-  let changed = false;
-  for (const id of ids) {
-    if (characterLocks[id]) {
-      delete characterLocks[id];
-      changed = true;
+  if (ids.length === 0) return Promise.resolve();
+  // 入队串行：与 saveAppLockSettings / setCharacterLock 并发时，不在同一队列里做读-改-写
+  // 会互相整表覆盖（复活已删角色的锁或丢掉新锁）。
+  return securityMutation.enqueue(async () => {
+    const current = await readSecurity();
+    const characterLocks = { ...current.characterLocks };
+    let changed = false;
+    for (const id of ids) {
+      if (characterLocks[id]) {
+        delete characterLocks[id];
+        changed = true;
+      }
+      await removeSecureValue(LOCK_SECURE_PREFIX + id);
+      await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
     }
-    await removeSecureValue(LOCK_SECURE_PREFIX + id);
-    await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
-  }
-  if (changed) await writeSecurity({ ...current, characterLocks });
+    if (changed) await writeSecurity({ ...current, characterLocks });
+  });
 }
 
 // 角色删除时清理其锁与密码（谁的数据谁负责）。

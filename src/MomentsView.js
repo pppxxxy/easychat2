@@ -224,7 +224,9 @@ export default function MomentsView({ active = true }) {
             )),
         };
       }));
-      if (!next) throw new Error(t('moments.error.saveFailed'));
+      // mutateMoments 失败时已经弹过「保存失败」并返回 null——这里直接返回，
+      // 不再 throw，否则外层 catch 会为同一次失败再弹一个框（用户看到两层错误弹窗）。
+      if (!next) return;
       // 保存期间用户可能已经输入了新草稿，只有内容仍是本次提交的文本时才清空。
       setCommentDrafts(current => {
         if (String(current[moment.id] || '').trim() !== text) return current;
