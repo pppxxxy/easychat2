@@ -38,6 +38,9 @@ export const INSTALL_PACK_TOOL_DEFINITION = {
     + 'agents / teams / hooks 文件写入工作区。默认**不覆盖**已存在的同名文件（幂等）；'
     + '要覆盖传 overwrite=true。pack 可以是 JSON 字符串或对象。',
   readOnly: false,
+  // 扩展包会写 hooks.json / skills / agents 等「会改 agent 自身行为」的文件——逐条确认，
+  // 让用户看见要装什么（与 run_shell/run_python 同一档纪律）。
+  requiresConfirmation: true,
   // 批量写扩展文件：可能超过默认 15s 兜底，显式声明更长超时。
   timeoutMs: 60000,
   parameters: {

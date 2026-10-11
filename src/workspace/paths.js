@@ -117,7 +117,16 @@ const PROTECTED_WRITE_PREFIXES = Object.freeze([
   '.easychat/rollback/',
 ]);
 
-// 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀。
+// 会改「agent 自身行为」的单文件（2026-10-11 补）：与上面三类审计数据不同——它被改写
+// 等于**代码执行**：`.easychat/plugins.json` 是插件装配源，插件 handler 会在沙盒里执行。
+// （hooks.json / skills / commands / agents / teams 的可写是**刻意设计**——agent 的自我演进
+//  通路，见 workspaceTools 测试「相邻的 agent 资产不受影响」；这里不推翻它。）
+// 用户仍可在面板/UI 里装插件；这里只挡 agent 的写工具。
+const PROTECTED_WRITE_FILES = Object.freeze([
+  '.easychat/plugins.json',
+]);
+
+// 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀/精确文件。
 export function isProtectedWorkspacePath(path) {
   const clean = String(path == null ? '' : path)
     .replace(/\\/g, '/')
@@ -125,6 +134,7 @@ export function isProtectedWorkspacePath(path) {
     .filter(segment => segment && segment !== '.')
     .join('/');
   if (!clean) return false;
+  if (PROTECTED_WRITE_FILES.includes(clean)) return true;
   return PROTECTED_WRITE_PREFIXES.some(prefix => clean === prefix.slice(0, -1) || clean.startsWith(prefix));
 }
 

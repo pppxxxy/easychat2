@@ -287,7 +287,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   mainRow: { flex: 1, flexDirection: 'row' },
   rail: {
+    // 固定宽 + 明确不许伸缩：只有 width 时，某些设备/字号下 rail 可能被内容撑开、
+    // 把右侧对话挤成窄条（用户反馈：左栏占了半屏）。maxWidth + flexGrow/Shrink:0
+    // 把这条约束钉死，内容再宽也只在 rail 内部滚动/换行。
     width: RAIL_WIDTH,
+    maxWidth: RAIL_WIDTH,
+    flexGrow: 0,
+    flexShrink: 0,
     paddingTop: 10,
     paddingHorizontal: 6,
     borderRightWidth: tokens.border.thin,
@@ -312,7 +318,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   railLabelActive: { color: theme.colors.primary, fontWeight: '700' },
   railContent: { paddingBottom: 12 },
   railSpacer: { flex: 1 },
-  content: { flex: 1 },
+  content: { flex: 1, minWidth: 0 },
   // P1：宽屏两栏。`paneHidden` 用于「宽屏 + 设置领域」——对话保持挂载（不丢草稿）但不参与布局。
   paneRow: { flex: 1, flexDirection: 'row' },
   paneFill: { flex: 1 },

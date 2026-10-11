@@ -6,6 +6,7 @@
 
 import { runAgentTurn } from '../agent/loop.js';
 import { listToolsForMode } from '../agent/tools/registry.js';
+import { resolveHeadlessMode } from '../agent/agentEndpoint.js';
 import { getWorkspaceSettings } from '../storage/workspace.js';
 import { createWorkspaceStore } from './native.js';
 import { resolveWorkspaceAssistant } from './assistant.js';
@@ -17,6 +18,8 @@ import { readWorkspaceTeams } from './teams.js';
 import { registerWorkspaceTools } from './tools.js';
 
 // 跑一轮 agent。返回 { text, steps, characterId, mode }。缺 prompt 且无历史 → 空结果。
+// 纯函数：端点的实际运行模式。写模式必须经宿主显式 allowWrite 才生效，否则降级为 read
+//（端点是程序化入口，写工具不需要逐条确认——不能让任何持 Bearer 的客户端无确认写沙盒）。
 export async function runHeadlessAgent({
   prompt = '',
   messages = [],
@@ -24,12 +27,16 @@ export async function runHeadlessAgent({
   maxRounds = 0,
   characterId = '',
   signal = null,
+  // 端点是程序化入口：默认只读。请求里的 mode:'write' 必须经宿主显式 allowWrite 才生效，
+  // 否则降级为 read——避免任何持 Bearer 的本机客户端无确认写沙盒（写工具不需要逐条确认）。
+  allowWrite = false,
 } = {}) {
+  const effectiveMode = resolveHeadlessMode(mode, allowWrite);
   const text = String(prompt || '').trim();
   const history = (Array.isArray(messages) ? messages : [])
     .filter(item => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
     .map(item => ({ role: item.role, content: item.content }));
-  if (!text && history.length === 0) return { text: '', steps: [], mode, characterId };
+  if (!text && history.length === 0) return { text: '', steps: [], mode: effectiveMode, characterId };
 
   const settings = await getWorkspaceSettings();
   const store = createWorkspaceStore(settings);
@@ -41,18 +48,18 @@ export async function runHeadlessAgent({
   registerWorkspaceTools({ store });
   const steps = [];
   try {
-    const tools = listToolsForMode(mode).map(item => item.function.name);
+    const tools = listToolsForMode(effectiveMode).map(item => item.function.name);
     const memory = await readWorkspaceMemory(store, ownerId).catch(() => '');
-    const skills = mode === 'ask' ? [] : await readWorkspaceSkills(store, ownerId).catch(() => []);
-    const agents = mode === 'ask' ? [] : await readWorkspaceAgents(store, ownerId).catch(() => []);
-    const teams = mode === 'ask' ? [] : await readWorkspaceTeams(store, ownerId).catch(() => []);
-    const systemPrompt = buildWorkspaceAgentSystemPrompt({ mode, characterName, tools, memory, skills, agents, teams });
+    const skills = effectiveMode === 'ask' ? [] : await readWorkspaceSkills(store, ownerId).catch(() => []);
+    const agents = effectiveMode === 'ask' ? [] : await readWorkspaceAgents(store, ownerId).catch(() => []);
+    const teams = effectiveMode === 'ask' ? [] : await readWorkspaceTeams(store, ownerId).catch(() => []);
+    const systemPrompt = buildWorkspaceAgentSystemPrompt({ mode: effectiveMode, characterName, tools, memory, skills, agents, teams });
     const result = await runAgentTurn([
       { role: 'system', content: systemPrompt },
       ...history,
       ...(text ? [{ role: 'user', content: text }] : []),
     ], {
-      mode,
+      mode: effectiveMode,
       ...(maxRounds > 0 ? { maxRounds } : {}),
       signal,
       context: { characterId: ownerId },
@@ -61,7 +68,7 @@ export async function runHeadlessAgent({
       },
     });
     const output = typeof result === 'string' ? result : String((result && result.text) || '');
-    return { text: output, steps, mode, characterId: ownerId };
+    return { text: output, steps, mode: effectiveMode, characterId: ownerId };
   } finally {
     // 全局注册表是共享单例（工作区聊天也用它）：**不注销**——注销会把 UI 已注册的同名工具
     // 一并清空，留下「注册表为空」的窗口。保留注册即可；UI 每次发送前都会重新注册（useChatSend）。

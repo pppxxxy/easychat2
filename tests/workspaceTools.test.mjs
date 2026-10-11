@@ -483,6 +483,7 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
     '.easychat/file-history/index.json',
     '.easychat/file-history/entries/abc.json',
     '.easychat/rollback/1700000000000.json',
+    '.easychat/plugins.json',
   ];
   for (const path of protectedPaths) {
     const denied = await runTool(

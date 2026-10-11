@@ -13,6 +13,12 @@ export const AGENT_ENDPOINT_PATH = '/v1/agent';
 export const AGENT_ENDPOINT_OBJECT = 'agent.run';
 export const AGENT_MODES = Object.freeze(['ask', 'read', 'write']);
 
+// 纯函数：端点的**实际**运行模式。写模式必须经宿主显式 allowWrite 才生效，否则降级为 read
+//（端点是程序化入口，写工具不需要逐条确认——不能让任何持 Bearer 的客户端无确认写沙盒）。
+export function resolveHeadlessMode(mode, allowWrite = false) {
+  return (mode === 'write' && !allowWrite) ? 'read' : mode;
+}
+
 function messageText(content) {
   if (typeof content === 'string') return content;
   // 多模态 content 数组：拼接其中的 text 片段。

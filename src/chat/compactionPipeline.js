@@ -139,13 +139,10 @@ export function applyCompactionWithAuthority(messages, summary, {
     String(summary == null ? '' : summary).trim(),
   ];
   if (transcriptPath) head.push(`完整历史：${transcriptPath}`);
-  // 正文必须**两个字段都写**：聊天页的正文契约是 `text`（MessageBubble 渲染、getMessagePromptText
-  // 发请求、conversationExport 导出都只读 text），而工作区面板渲染的是 `content`（ChatPanel），
-  // 两者共用本函数。只写 content 会让聊天页出现一个空气泡、且摘要对模型完全不可见（2026-10-11 事故）；
-  // 只写 text 则工作区面板空白。口径见 chat/messageText.js。
+  // 同时写 `text` 与 `content`：主聊天页消息一律用 `text`（MessageBubble / estimateHistoryTokens
+  // 都只读 `text`），工作区 ChatPanel 用 `content`。此前只写 `content`，于是主聊天页压缩后
+  // 摘要气泡空白、且被算成 0 token（占用率失真、可能反复触发压缩）。
   const body = head.join('\n');
-  // 时间戳只取一次：原先 id 与 at 各调一次 Date.now()，跨毫秒时两者会不一致
-  //（id 说的时刻与 at 说的时刻差 1ms）——顺手消掉这处小分叉。
   const at = Date.now();
   const summaryMessage = {
     id: nextCompactionMessageId(at),
