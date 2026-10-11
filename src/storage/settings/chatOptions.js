@@ -4,6 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeImagePosition } from '../../imageGen/inlineImagePrompt.js';
+import { normalizeHiddenToolNotices } from '../../chat/toolNoticeVisibility.js';
 import { BUBBLE_STYLES, THEMES } from '../../theme/themes.js';
 import { readJson } from '../io.js';
 import { normalizeImageProviderId } from './imageProvider.js';
@@ -33,6 +34,12 @@ function normalizeChatOptions(raw) {
     // E2：上下文占用到 85% 自动压缩会话（省 token / 省费用）；缺省开启。
     // 关掉后 70% 的「建议压缩」提示条仍在（只是不再自动执行）。
     autoCompact: source.autoCompact !== false,
+    // 工具使用提示（聊天页的「工具过程气泡」）可见性：总开关 + 按工具隐藏。
+    // 与 chatTools 同域是因为它们是同一件事的两面：那条决定工具能不能用，
+    // 这两条只决定「用了工具」要不要说出来。判定唯一来源见
+    // chat/toolNoticeVisibility.js——失败与审批永远不受这两条影响。
+    hideAllToolNotices: source.hideAllToolNotices === true,
+    hiddenToolNotices: normalizeHiddenToolNotices(source.hiddenToolNotices),
   };
 }
 
