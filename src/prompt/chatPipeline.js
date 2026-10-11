@@ -3,6 +3,7 @@ import { getMessagePromptText } from '../chat/chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 import { buildSystemChunks, buildSystemSections, composeSystemText, planSystemCache } from './systemSections.js';
 import { expandHistoryWithTraces } from '../chat/toolTrace.js';
+import { buildStickerInstruction } from '../chat/stickerDirectives.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
 
@@ -80,7 +81,7 @@ const DOWNLOAD_IMAGE_INSTRUCTION =
   + 'URL 必须以 http:// 或 https:// 开头。系统会自动下载并把它显示在聊天里，'
   + '你不需要在正文里重复贴 URL，也不要编造 URL。只在确实需要展示图片时使用，一条回复最多 3 张。';
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, scheduleText, locationText, downloadImageEnabled, extraSystemPrompt, voiceAudio }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, stickerEnabled, currentTimeText, scheduleText, locationText, downloadImageEnabled, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   // P5：展开历史里的工具轨迹（toolTrace → tool 消息），让 agent 看到跨轮的工具结果。
   const history = buildHistory(expandHistoryWithTraces(historyMessages), scripts);
@@ -147,6 +148,8 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const stickerList = (Array.isArray(stickerNames) ? stickerNames : [])
     .map(item => String(item || '').trim())
     .filter(Boolean);
+  // 表情包教学：开关开启且用户确有表情包时才注入（无表情包时即使开启也不发指令）。
+  const stickerText = stickerEnabled ? buildStickerInstruction(stickerList) : '';
   const presetList = (Array.isArray(globalPresets) ? globalPresets : [])
     .map(item => String(item || ''))
     .map(item => item.trim())
@@ -178,6 +181,7 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     downloadImageText: downloadImageLine ? replaceUser(downloadImageLine) : '',
     timeText: timeText ? replaceUser(timeText) : '',
     baseText,
+    stickerText: stickerText ? replaceUser(stickerText) : '',
     personaText: userPersona ? replaceUser(userPersona) : '',
     exampleText: exampleDialogue ? replaceUser(exampleDialogue) : '',
     worldAfterText: afterText ? replaceUser(afterText) : '',

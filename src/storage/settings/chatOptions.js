@@ -4,6 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeImagePosition } from '../../imageGen/inlineImagePrompt.js';
+import { normalizeStickerChance, normalizeStickerPosition } from '../../chat/stickerPolicy.js';
 import { BUBBLE_STYLES, THEMES } from '../../theme/themes.js';
 import { readJson } from '../io.js';
 import { normalizeImageProviderId } from './imageProvider.js';
@@ -36,6 +37,13 @@ function normalizeChatOptions(raw) {
     // 图片下载：开启后角色可在回复里用 <download_image:URL> 指令下载网络图片并显示在聊天中。
     // 缺省关闭——它会让 App 主动访问模型给出的任意 URL。
     downloadImage: source.downloadImage === true,
+    // 表情包：开启后角色可用 [[表情包:名称]] 发用户拥有的表情包；仅当用户确实有表情包时
+    // 才注入教学（无表情包时即使开启也不发）。缺省关闭。
+    stickerEnabled: source.stickerEnabled === true,
+    // 发表情包的概率 0~1（0=从不，1=只要模型想发就发）；缺省 0.5。
+    stickerChance: normalizeStickerChance(source.stickerChance),
+    // 表情包相对文字的位置：文字下方（默认，与旧行为一致）/ 文字上方。
+    stickerPosition: normalizeStickerPosition(source.stickerPosition),
   };
 }
 

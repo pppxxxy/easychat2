@@ -521,8 +521,8 @@ export default function useChatSend({
          pluginContext,
          images,
          quote,
-         // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
-         stickerNames: resolveStickerNames(stickersRef.current),
+          stickerNames: resolveStickerNames(stickersRef.current),
+          stickerEnabled: chatOptionsRef.current.stickerEnabled === true,
          // 时间感知开启（或角色作息启用）时附上当前时间（每次请求现算，保证准确）。
          currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive),
           // 角色作息启用时附上作息规则（含「按当前时间判断状态」）。
