@@ -4,7 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeImagePosition } from '../../imageGen/inlineImagePrompt.js';
-import { BUBBLE_STYLES, THEMES } from '../../theme/themes.js';
+import { BUBBLE_STYLES, THEMES, normalizeCustomColors } from '../../theme/themes.js';
 import { readJson } from '../io.js';
 import { normalizeImageProviderId } from './imageProvider.js';
 
@@ -83,7 +83,7 @@ const FONT_SCALE_IDS = ['default', 'system', 'small', 'medium', 'large', 'xlarge
 // 旧版本写入的 JSON 没有这个 key，归一化必须容忍缺失并回落到默认值，
 // 否则升级用户的外观设置会被整体重置。
 export const LOCALE_IDS = ['zh-CN', 'en'];
-const DEFAULT_APPEARANCE = { themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN' };
+const DEFAULT_APPEARANCE = { themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN', customColors: {} };
 
 function normalizeAppearance(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -93,6 +93,9 @@ function normalizeAppearance(raw) {
       ? source.fontScaleId
       : DEFAULT_APPEARANCE.fontScaleId,
     localeId: LOCALE_IDS.includes(source.localeId) ? source.localeId : DEFAULT_APPEARANCE.localeId,
+    // 「自定义」主题的配色覆盖值：只留已知槽位 + 合法色值（见 themes.normalizeCustomColors）。
+    // 稀疏存储——未改动的槽位不落盘，靠自定义主题底稿补齐，以后加槽位不会让旧配置失效。
+    customColors: normalizeCustomColors(source.customColors),
   };
 }
 

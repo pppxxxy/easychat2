@@ -157,21 +157,21 @@ test('外观三字段共存：语言写入后主题与字号不被抹掉', async
   assert.equal(raw.fontScaleId, 'xlarge');
   // 再读回：三字段都还在
   const loaded = await settings.getAppearanceSettings();
-  assert.deepEqual(loaded, { themeId: 'pink', fontScaleId: 'xlarge', localeId: 'en' });
+  assert.deepEqual(loaded, { themeId: 'pink', fontScaleId: 'xlarge', localeId: 'en', customColors: {} });
 });
 
 test('外观键损坏或缺失时返回完整默认值（含语言）', async () => {
   store.delete(APPEARANCE_KEY);
   assert.deepEqual(await settings.getAppearanceSettings(), {
-    themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN',
+    themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN', customColors: {},
   });
   store.set(APPEARANCE_KEY, '{ not json');
   assert.deepEqual(await settings.getAppearanceSettings(), {
-    themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN',
+    themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN', customColors: {},
   });
   store.set(APPEARANCE_KEY, JSON.stringify([1, 2, 3]));
   assert.deepEqual(await settings.getAppearanceSettings(), {
-    themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN',
+    themeId: 'dark', fontScaleId: 'default', localeId: 'zh-CN', customColors: {},
   });
   store.clear();
 });
@@ -188,7 +188,7 @@ test('patchAppearanceSettings：改主题不重置语言，改语言不重置主
   // 用户先设成英文 + 粉色主题
   await settings.patchAppearanceSettings({ themeId: 'pink', fontScaleId: 'large', localeId: 'en' });
   assert.deepEqual(await settings.getAppearanceSettings(),
-    { themeId: 'pink', fontScaleId: 'large', localeId: 'en' });
+    { themeId: 'pink', fontScaleId: 'large', localeId: 'en', customColors: {} });
 
   // ThemeContext 只提交主题字段——语言与字号必须原样保留
   const afterTheme = await settings.patchAppearanceSettings({ themeId: 'blue' });
@@ -209,13 +209,40 @@ test('patchAppearanceSettings：无补丁 / 非法补丁不破坏现有值', asy
   store.clear();
   await settings.patchAppearanceSettings({ themeId: 'crimson', fontScaleId: 'small', localeId: 'en' });
   const noPatch = await settings.patchAppearanceSettings();
-  assert.deepEqual(noPatch, { themeId: 'crimson', fontScaleId: 'small', localeId: 'en' });
+  assert.deepEqual(noPatch, { themeId: 'crimson', fontScaleId: 'small', localeId: 'en', customColors: {} });
   const badPatch = await settings.patchAppearanceSettings(null);
-  assert.deepEqual(badPatch, { themeId: 'crimson', fontScaleId: 'small', localeId: 'en' });
+  assert.deepEqual(badPatch, { themeId: 'crimson', fontScaleId: 'small', localeId: 'en', customColors: {} });
   // 补丁里带非法值时该项归一，其余项不受影响
   const badValue = await settings.patchAppearanceSettings({ localeId: 'ja' });
   assert.equal(badValue.localeId, 'zh-CN', '非法语言归一为默认');
   assert.equal(badValue.themeId, 'crimson', '其余字段不受影响');
+  store.clear();
+});
+
+test('自定义配色：写入/读回/归一，且改字号不抹掉配色', async () => {
+  store.clear();
+  await settings.patchAppearanceSettings({
+    themeId: 'custom',
+    customColors: {
+      background: '#fff5f8',
+      primary: '#C2185B',
+      未知槽位: '#000000',
+      text: 'not-a-color',
+    },
+  });
+  const loaded = await settings.getAppearanceSettings();
+  assert.equal(loaded.themeId, 'custom', '自定义主题 id 在白名单内（否则会被归一回 dark）');
+  assert.deepEqual(loaded.customColors, { background: '#fff5f8', primary: '#C2185B' },
+    '未知槽位与非法色值被丢弃');
+
+  // ThemeContext 改字号只提交字号字段——自定义配色必须原样保留
+  const afterFont = await settings.patchAppearanceSettings({ fontScaleId: 'large' });
+  assert.equal(afterFont.themeId, 'custom');
+  assert.deepEqual(afterFont.customColors, { background: '#fff5f8', primary: '#C2185B' });
+
+  // 整体写（saveAppearanceSettings）不带 customColors 时会清空——这正是写入方必须走 patch 的理由
+  const naive = await settings.saveAppearanceSettings({ themeId: 'custom' });
+  assert.deepEqual(naive.customColors, {});
   store.clear();
 });
 

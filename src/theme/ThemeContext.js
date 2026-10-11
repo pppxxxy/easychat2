@@ -10,12 +10,14 @@ import React, {
 import { Alert, PixelRatio, useWindowDimensions } from 'react-native';
 
 import {
+  CUSTOM_THEME_ID,
   DEFAULT_FONT_SCALE_ID,
   DEFAULT_THEME_ID,
   FONT_SCALES,
   THEMES,
   getFontOption,
   getTheme,
+  normalizeCustomColors,
   resolveFontScale,
 } from './themes.js';
 import { getAppearanceSettings, patchAppearanceSettings } from '../storage/settings.js';
@@ -29,9 +31,11 @@ const ThemeContext = createContext(null);
 export function ThemeProvider({ children }) {
   const [themeId, setThemeId] = useState(DEFAULT_THEME_ID);
   const [fontScaleId, setFontScaleId] = useState(DEFAULT_FONT_SCALE_ID);
+  const [customColors, setCustomColors] = useState({});
   const mountedRef = useRef(true);
   const themeIdRef = useRef(DEFAULT_THEME_ID);
   const fontScaleIdRef = useRef(DEFAULT_FONT_SCALE_ID);
+  const customColorsRef = useRef({});
   const lastSavedRef = useRef(null);
   const saveQueueRef = useRef(Promise.resolve());
   const persistRevisionRef = useRef(0);
@@ -47,12 +51,15 @@ export function ThemeProvider({ children }) {
         if (persistRevisionRef.current !== revisionAtLoad) return;
         themeIdRef.current = settings.themeId;
         fontScaleIdRef.current = settings.fontScaleId;
+        customColorsRef.current = settings.customColors;
         lastSavedRef.current = {
           themeId: settings.themeId,
           fontScaleId: settings.fontScaleId,
+          customColors: settings.customColors,
         };
         setThemeId(settings.themeId);
         setFontScaleId(settings.fontScaleId);
+        setCustomColors(settings.customColors);
       })
       .catch(() => {});
     return () => {
@@ -82,8 +89,10 @@ export function ThemeProvider({ children }) {
         if (fallback && mountedRef.current) {
           themeIdRef.current = fallback.themeId;
           fontScaleIdRef.current = fallback.fontScaleId;
+          customColorsRef.current = fallback.customColors || {};
           setThemeId(fallback.themeId);
           setFontScaleId(fallback.fontScaleId);
+          setCustomColors(fallback.customColors || {});
         }
         Alert.alert(tActive('theme.alert.saveFailed.title'), tActive('common.error.storageOrPermission'));
       });
@@ -93,29 +102,55 @@ export function ThemeProvider({ children }) {
     const resolved = getTheme(id).id;
     themeIdRef.current = resolved;
     setThemeId(resolved);
-    persist({ themeId: resolved, fontScaleId: fontScaleIdRef.current });
+    persist({
+      themeId: resolved,
+      fontScaleId: fontScaleIdRef.current,
+      customColors: customColorsRef.current,
+    });
+  }, [persist]);
+
+  // 保存自定义配色：归一化后落盘，并把当前主题切到「自定义」——
+  // 用户点「保存并应用」的预期就是立刻看到新配色生效。
+  const changeCustomColors = useCallback(colors => {
+    const normalized = normalizeCustomColors(colors);
+    customColorsRef.current = normalized;
+    themeIdRef.current = CUSTOM_THEME_ID;
+    setCustomColors(normalized);
+    setThemeId(CUSTOM_THEME_ID);
+    persist({
+      themeId: CUSTOM_THEME_ID,
+      fontScaleId: fontScaleIdRef.current,
+      customColors: normalized,
+    });
   }, [persist]);
 
   const changeFontScale = useCallback(id => {
     const resolved = getFontOption(id).id;
     fontScaleIdRef.current = resolved;
     setFontScaleId(resolved);
-    persist({ themeId: themeIdRef.current, fontScaleId: resolved });
+    persist({
+      themeId: themeIdRef.current,
+      fontScaleId: resolved,
+      customColors: customColorsRef.current,
+    });
   }, [persist]);
 
   const reloadAppearance = useCallback(async () => {
     const settings = await getAppearanceSettings();
     themeIdRef.current = settings.themeId;
     fontScaleIdRef.current = settings.fontScaleId;
+    customColorsRef.current = settings.customColors;
     lastSavedRef.current = {
       themeId: settings.themeId,
       fontScaleId: settings.fontScaleId,
+      customColors: settings.customColors,
     };
     setThemeId(settings.themeId);
     setFontScaleId(settings.fontScaleId);
+    setCustomColors(settings.customColors);
   }, []);
 
-  const theme = useMemo(() => getTheme(themeId), [themeId]);
+  const theme = useMemo(() => getTheme(themeId, customColors), [themeId, customColors]);
 
   const { fontScale: windowFontScale } = useWindowDimensions();
   const systemScale = windowFontScale || PixelRatio.getFontScale();
@@ -128,6 +163,8 @@ export function ThemeProvider({ children }) {
       themes: THEMES,
       themeId,
       setThemeId: changeTheme,
+      customColors,
+      setCustomColors: changeCustomColors,
       fontScaleId,
       fontScales: FONT_SCALES,
       setFontScaleId: changeFontScale,
@@ -136,7 +173,7 @@ export function ThemeProvider({ children }) {
       fonts: { scale, scaled },
       tokens,
     };
-  }, [theme, themeId, changeTheme, fontScaleId, changeFontScale, reloadAppearance, systemScale]);
+  }, [theme, themeId, changeTheme, customColors, changeCustomColors, fontScaleId, changeFontScale, reloadAppearance, systemScale]);
 
   return (
     <ThemeContext.Provider value={value}>
@@ -154,6 +191,8 @@ export function useTheme() {
     themes: THEMES,
     themeId: DEFAULT_THEME_ID,
     setThemeId: () => {},
+    customColors: {},
+    setCustomColors: () => {},
     fontScaleId: DEFAULT_FONT_SCALE_ID,
     fontScales: FONT_SCALES,
     setFontScaleId: () => {},

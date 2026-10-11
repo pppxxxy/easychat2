@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { THEMES, CUSTOM_THEME_ID } from '../src/theme/themes.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
@@ -33,6 +34,8 @@ const SETTINGS = [
   read('src/settings/SecretTextField.js'),
 ].join('\n');
 const STYLES = read('src/settings/settingsStyles.js');
+const APPEARANCE = read('src/settings/sections/AppearanceSection.js');
+const CUSTOM_MODAL = read('src/settings/CustomThemeModal.js');
 const PROFILE = read('src/settings/useUserProfile.js');
 const PKG = JSON.parse(read('package.json'));
 
@@ -166,4 +169,31 @@ test('模型列表：检测与按输入搜索共用同一拉取逻辑，且搜�
   assert.ok(SETTINGS.includes("accessibilityLabel={t('settings.api.a11ySearchModels')}"), '搜索按钮可访问名应走 i18n 键');
   assert.equal(zhCN['settings.api.a11ySearchModels'], '按输入内容搜索接口上的模型', '语言包中文值正确');
   assert.ok(STYLES.includes('modelSearchButton:'));
+});
+
+test('外观：粉白 / 自定义两档就位，自定义配色编辑器可从外观卡打开', () => {
+  // 主题白名单由 THEMES 派生：漏加进 THEMES 会被归一回 dark（选中当场看似成功、冷启动丢失）
+  assert.ok(THEMES.some(item => item.id === 'pinkWhite'), '粉白主题在主题表内');
+  assert.ok(THEMES.some(item => item.id === CUSTOM_THEME_ID), '自定义主题在主题表内');
+  assert.equal(zhCN['theme.pinkWhite'], '粉白');
+  assert.equal(zhCN['theme.custom'], '自定义');
+
+  // 编辑器弹层归外观卡自己持有：设置页宿主文件有行数棘轮，加状态/渲染会顶破基线
+  assert.ok(APPEARANCE.includes("import CustomThemeModal from '../CustomThemeModal.js';"), '外观卡挂编辑器');
+  assert.ok(APPEARANCE.includes('const [customThemeOpen, setCustomThemeOpen] = useState(false);'), '编辑器开关状态在外观卡内');
+  assert.ok(APPEARANCE.includes('onPress={() => setCustomThemeOpen(true)}'), '「编辑」入口打开编辑器');
+  assert.ok(APPEARANCE.includes('<CustomThemeModal'), '编辑器已渲染');
+  assert.ok(APPEARANCE.includes('setCustomColors(colors)'), '保存即应用（同时切到自定义主题并落盘）');
+  // 自定义芯片色块显示「实际在用」的配色，而不是出厂底稿
+  assert.ok(APPEARANCE.includes('getTheme(CUSTOM_THEME_ID, customColors)'), '自定义芯片显示真实配色');
+  assert.ok(APPEARANCE.includes('useTheme()'), '配色取自主题 Context，不额外穿一层 sectionProps');
+  assert.ok(APPEARANCE.includes('customDraftSeed'), '首次打开以当前主题为起稿点（而不是中性底稿）');
+
+  // 编辑器本体：分组槽位 + 预置色板 + 十六进制输入 + 实时预览 + 恢复默认
+  assert.ok(CUSTOM_MODAL.includes('CUSTOM_COLOR_GROUPS.map'), '按分组列出可改槽位');
+  assert.ok(CUSTOM_MODAL.includes('CUSTOM_COLOR_PRESETS.map'), '预置色板一键选色');
+  assert.ok(CUSTOM_MODAL.includes('isValidHexColor'), '十六进制输入按合法色值提交');
+  assert.ok(CUSTOM_MODAL.includes("t('theme.custom.preview.title')"), '顶部实时预览');
+  assert.ok(CUSTOM_MODAL.includes('resolveCustomColors'), '草稿以出厂底稿补齐未改动槽位');
+  assert.equal(zhCN['settings.appearance.customTheme.open'], '编辑', '入口文案走 i18n');
 });
