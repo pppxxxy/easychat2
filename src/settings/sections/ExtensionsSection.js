@@ -11,6 +11,7 @@ import {
 import SecretTextField from '../SecretTextField.js';
 import { IMAGE_PROVIDERS } from '../../imageGen/providers.js';
 import ImageRecognitionCard from './ImageRecognitionCard.js';
+import ToolVisibilityCard from './ToolVisibilityCard.js';
 
 const INLINE_IMAGE_POSITION_OPTIONS = [
   { value: 'start', labelKey: 'settings.inlineImage.position.start', metaKey: 'settings.inlineImage.position.startMeta' },
@@ -38,6 +39,8 @@ export default function ExtensionsSection(props) {
     imageRecognition,
     imageRecognitionApiConfigs,
     updateImageRecognition,
+    chatOptions,
+    updateChatOption,
   } = props;
   return (
     <>
@@ -170,6 +173,14 @@ export default function ExtensionsSection(props) {
             imageRecognition={imageRecognition}
             imageRecognitionApiConfigs={imageRecognitionApiConfigs}
             updateImageRecognition={updateImageRecognition}
+          />
+          <FieldLabel style={styles.label}>{t('settings.toolNotice.sectionTitle')}</FieldLabel>
+          <ToolVisibilityCard
+            styles={styles}
+            theme={theme}
+            t={t}
+            chatOptions={chatOptions}
+            updateChatOption={updateChatOption}
           />
           <FieldLabel style={styles.label}>{t('settings.inlineImage.otherFeatures')}</FieldLabel>
           <TouchableOpacity

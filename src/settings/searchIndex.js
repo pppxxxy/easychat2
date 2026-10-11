@@ -58,6 +58,8 @@ export const SETTINGS_SEARCH_INDEX = [
   { sectionId: 'extensions', label: '联网搜索', keywords: ['联网', '搜索', 'web search', '网络'] },
   { sectionId: 'extensions', label: '语音播报', keywords: ['语音播报', 'tts', '朗读', '声音'] },
   { sectionId: 'extensions', label: '语音转文字', keywords: ['语音转文字', 'asr', '转写', '听写', '转文字'] },
+  // 工具使用提示（隐藏「用了某工具」的过程气泡）：与扩展卡同区，关键词覆盖「工具」入口。
+  { sectionId: 'extensions', label: '工具使用提示', keywords: ['工具提示', '隐藏工具', '工具气泡', '工具过程', 'tool notice', 'tool bubble', 'hide tool'] },
 
   { sectionId: 'vector', label: '启用向量检索', keywords: ['向量', 'vector', '检索', 'embedding', '记忆'] },
   { sectionId: 'vector', label: '向量配置', keywords: ['向量配置', 'embedding 模型'] },
