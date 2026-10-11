@@ -1,6 +1,12 @@
-// 角色作息存储：按角色保存一份可选的作息（起床/上班/下班/睡觉 + 启用开关）。
-// 小而稳定的集合，单键存 map；沿用 readJsonStatus / backupCorruptValue 的损坏兜底。
-// 角色删除时清理对应条目（模块内注册钩子，见 storage/characterLifecycle.js）。
+// 角色作息存储：按角色保存一份可选的作息（可命名时间段 + 概率事件 + 工作日/休息日两套
+// + 自定义节假日日期列表 + 启用开关）。小而稳定的集合，单键存 map；沿用
+// readJsonStatus / backupCorruptValue 的损坏兜底。
+//
+// 旧数据迁移：读路径统一过 `normalizeSchedule`，它内部先跑 `migrateSchedule`
+// （v1 的 {wake, workStart, workEnd, sleep} → v2 的两段时间段，带 schema 版本号），
+// 因此历史作息读到即等价可用，不会丢；下一次保存会把迁移结果写回（幂等）。
+// 角色删除时清理对应条目（模块内注册钩子，见 storage/characterLifecycle.js）——
+// 钩子按 characterId 整条删除，新字段（segments/events/holidays）一并清掉。
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

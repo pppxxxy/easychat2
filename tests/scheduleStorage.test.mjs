@@ -84,20 +84,58 @@ function loadSchedule() {
   return loadModule(path.resolve('src/storage/schedule.js'));
 }
 
-test('saveCharacterSchedule / getCharacterSchedule：按角色持久化', async () => {
+test('saveCharacterSchedule / getCharacterSchedule：按角色持久化新模型', async () => {
   const mod = loadSchedule();
-  await mod.saveCharacterSchedule('c1', { enabled: true, wake: '06:30', workStart: '09:00', workEnd: '18:00', sleep: '23:30' });
+  await mod.saveCharacterSchedule('c1', {
+    schema: 2,
+    enabled: true,
+    splitWeekday: true,
+    workday: { segments: [{ name: '上学', start: '08:00', end: '12:00' }], events: [] },
+    restday: { segments: [{ name: '睡懒觉', start: '10:00', end: '12:00' }], events: [] },
+    holidays: ['2026-10-08'],
+  });
   const got = await mod.getCharacterSchedule('c1');
   assert.equal(got.enabled, true);
-  assert.equal(got.wake, '06:30');
+  assert.equal(got.splitWeekday, true);
+  assert.equal(got.workday.segments[0].name, '上学');
+  assert.equal(got.restday.segments[0].name, '睡懒觉');
+  assert.deepEqual(got.holidays, ['2026-10-08']);
   assert.equal(await mod.getCharacterSchedule('nope'), null);
 });
 
-test('saveCharacterSchedule：非法时间归一为默认', async () => {
+test('读路径迁移：旧四时刻数据读到即等价的新模型（不丢用户作息）', async () => {
   const mod = loadSchedule();
-  await mod.saveCharacterSchedule('c2', { enabled: true, wake: '99:99' });
+  store.set('@easychat2_character_schedules', JSON.stringify({
+    old: { enabled: true, wake: '06:30', workStart: '09:00', workEnd: '18:00', sleep: '23:30' },
+  }));
+  const got = await mod.getCharacterSchedule('old');
+  assert.equal(got.schema, 2);
+  assert.equal(got.enabled, true);
+  assert.deepEqual(
+    got.workday.segments.map(s => [s.builtin, s.start, s.end]),
+    [['sleep', '23:30', '06:30'], ['work', '09:00', '18:00']]
+  );
+});
+
+test('迁移写回：保存任一角色会把其它角色的旧数据一起落成新模型', async () => {
+  const mod = loadSchedule();
+  store.set('@easychat2_character_schedules', JSON.stringify({
+    old: { enabled: true, wake: '06:30', workStart: '09:00', workEnd: '18:00', sleep: '23:30' },
+  }));
+  await mod.saveCharacterSchedule('fresh', { schema: 2, enabled: true });
+  const raw = JSON.parse(store.get('@easychat2_character_schedules'));
+  assert.equal(raw.old.schema, 2, '旧条目在下次保存时被写回成新模型');
+  assert.equal(raw.old.workday.segments.length, 2);
+});
+
+test('saveCharacterSchedule：非法时间段被丢弃、非法时间回退默认', async () => {
+  const mod = loadSchedule();
+  await mod.saveCharacterSchedule('c2', { schema: 2, enabled: true, workday: { segments: [{ name: 'x', start: '99:99', end: '10:00' }] } });
   const got = await mod.getCharacterSchedule('c2');
-  assert.equal(got.wake, '07:00');
+  assert.deepEqual(got.workday.segments, []);
+  // 完全没写过作息的角色拿到默认两段（等价旧默认四时刻）
+  const empty = await mod.saveCharacterSchedule('c3', { enabled: true });
+  assert.deepEqual(empty.workday.segments.map(s => [s.start, s.end]), [['23:00', '07:00'], ['09:00', '18:00']]);
 });
 
 test('getAllCharacterSchedules：返回全部角色作息', async () => {
@@ -116,14 +154,27 @@ test('deleteCharacterSchedule：删除单个条目', async () => {
   assert.equal(await mod.deleteCharacterSchedule('a'), false);
 });
 
-test('角色删除钩子：清理对应作息', async () => {
+test('角色删除钩子：整条清理，新字段（时间段/概率事件/节假日）一并清掉', async () => {
   const mod = loadSchedule();
   const lifecycle = loadModule(path.resolve('src/storage/characterLifecycle.js'));
-  await mod.saveCharacterSchedule('keep', { enabled: true });
-  await mod.saveCharacterSchedule('gone', { enabled: true });
+  const rich = {
+    schema: 2,
+    enabled: true,
+    splitWeekday: true,
+    workday: { segments: [{ name: '上学', start: '08:00', end: '12:00' }], events: [{ at: '15:00', description: '买咖啡', probability: 30 }] },
+    restday: { segments: [], events: [] },
+    holidays: ['2026-10-08'],
+  };
+  await mod.saveCharacterSchedule('keep', rich);
+  await mod.saveCharacterSchedule('gone', rich);
   await lifecycle.runCharacterCleanup(['gone']);
   assert.equal(await mod.getCharacterSchedule('gone'), null);
-  assert.ok(await mod.getCharacterSchedule('keep'), '未删除的角色保留');
+  const kept = await mod.getCharacterSchedule('keep');
+  assert.ok(kept, '未删除的角色保留');
+  assert.equal(kept.workday.events[0].description, '买咖啡');
+  assert.deepEqual(kept.holidays, ['2026-10-08']);
+  const raw = JSON.parse(store.get('@easychat2_character_schedules'));
+  assert.deepEqual(Object.keys(raw), ['keep'], '存储里不留残键');
 });
 
 test('损坏存储：备份原始值后按空处理', async () => {
