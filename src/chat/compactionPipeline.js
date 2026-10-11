@@ -193,8 +193,13 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
   const ratioOf = typeof d.estimateRatio === 'function' ? d.estimateRatio : () => 0;
   let current = Array.isArray(messages) ? messages : [];
   const applied = [];
-  if (isCompactedHistory(current)) return { messages: current, applied, transcriptPath: '' };
-  if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath: '' };
+  // L3 归档路径必须在**函数顶部**声明：它是本次压缩的产出之一（调用方要拿它显示/落库），
+  // 而早期短路 return 与最终 return 都要带上它。2026-10-11 审查 P0-5：这里原先每个 return 都
+  // 硬编码 `transcriptPath: ''`，L3 明明已写盘、路径也进了摘要正文，调用方（ChatPanel）却永远
+  // 拿到空串——「归档了但没人知道在哪」。对照组 chat/reactiveCompact.js 的写法是对的。
+  let transcriptPath = '';
+  if (isCompactedHistory(current)) return { messages: current, applied, transcriptPath };
+  if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath };
 
   // L0 修剪：先落盘（O1）再修剪；落盘失败保原文。
   if (typeof d.persist === 'function') {
@@ -218,7 +223,7 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     if (changed) {
       current = next;
       applied.push('L0');
-      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath: '' };
+      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath };
     }
   }
 
@@ -228,7 +233,7 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     if (cleared && cleared.changed && Array.isArray(cleared.messages)) {
       current = cleared.messages;
       applied.push('L1');
-      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath: '' };
+      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath };
     }
   }
 
@@ -241,7 +246,7 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     const summary = String((await d.summarize(request)) || '').trim();
     if (summary) {
       applied.push('L2');
-      let transcriptPath = '';
+      // 赋值（不是重新声明）：transcriptPath 在函数顶部声明，最终 return 要把它带出去。
       if (typeof d.writeTranscript === 'function') {
         const stored = await d.writeTranscript(buildTranscriptJsonl(current));
         transcriptPath = stored && stored.path ? stored.path : '';
@@ -260,5 +265,5 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
       });
     }
   }
-  return { messages: current, applied, transcriptPath: '' };
+  return { messages: current, applied, transcriptPath };
 }

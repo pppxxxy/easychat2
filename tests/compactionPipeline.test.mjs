@@ -158,6 +158,8 @@ test('runCompactionPipeline：四档全跑（L0→L1→L2→L3）+ 权威分离 
   assert.deepEqual(result.applied, ['L0', 'L1', 'L2', 'L3']);
   assert.match(String(result.messages[0].content), /\[历史压缩\]/);
   assert.match(String(result.messages[0].content), /完整历史：\.transcripts\/t\.jsonl/);
+  // 回归 P0-5：摘要正文里的归档路径必须与返回值一致——见下面的专项测试。
+  assert.equal(result.transcriptPath, '.transcripts/t.jsonl');
 
   // 幂等：对已压缩历史再跑 → no-op
   const again = await runCompactionPipeline(result.messages, { autoRatio: 0.8, deps: { estimateRatio: () => 0.9, summarize: async () => 'X' } });
@@ -208,6 +210,49 @@ test('P4：sliceRecentByBudget 起点落在 tool 结果时回退（配对不破�
   const out = sliceRecentByBudget(msgs, { retainTokens: 205, minMessages: 0, estimateTokens: est });
   assert.ok(out[0] && Array.isArray(out[0].tool_calls), '首个是被回退纳入的 assistant(tool_calls)');
   assert.equal(findOrphanToolMessages(out).length, 0, '无孤儿');
+});
+
+// 回归 2026-10-11 审查 P0-5：runCompactionPipeline 的**所有** return 原先都硬编码
+// `transcriptPath: ''`——L3 明明已经写盘、路径也拼进了摘要正文，调用方（ChatPanel）
+// 却永远拿到空串：归档了，但没人知道在哪。对照组 chat/reactiveCompact.js 的写法是对的。
+test('回归 P0-5：L3 写盘后 transcriptPath 必须原样带出，且与摘要正文里的指针一致', async () => {
+  const messages = [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: 'ok' },
+  ];
+  const result = await runCompactionPipeline(messages, {
+    autoRatio: 0,
+    deps: {
+      estimateRatio: () => 0.9,
+      summarize: async () => '三段式摘要',
+      writeTranscript: async jsonl => {
+        assert.match(jsonl, /"role":"user"/, '归档的是完整历史的 jsonl');
+        return { path: '.transcripts/2026-10-11.jsonl' };
+      },
+    },
+  });
+  assert.deepEqual(result.applied, ['L2', 'L3']);
+  assert.equal(result.transcriptPath, '.transcripts/2026-10-11.jsonl', '归档路径必须带出（此前恒为空串）');
+  // 「摘要里写着路径、返回值却是空」正是原 bug 的自相矛盾之处，这里把两者钉在一起。
+  assert.ok(
+    String(result.messages[0].text).includes(`完整历史：${result.transcriptPath}`),
+    '摘要正文里的归档指针必须与返回的 transcriptPath 是同一个值',
+  );
+
+  // 没走 L3 的路径（没注入 writeTranscript）必须如实给空串，而不是 undefined
+  // ——调用方会直接把它当字符串用。
+  const noArchive = await runCompactionPipeline(messages, {
+    autoRatio: 0,
+    deps: { estimateRatio: () => 0.9, summarize: async () => '三段式摘要' },
+  });
+  assert.deepEqual(noArchive.applied, ['L2']);
+  assert.equal(noArchive.transcriptPath, '', '没归档就是空串（不是 undefined）');
+  assert.equal(String(noArchive.messages[0].text).includes('完整历史：'), false);
+
+  // 早期短路 return 也要带上该字段（形状一致，调用方不必判 undefined）
+  const tooSmall = await runCompactionPipeline(messages, { autoRatio: 0.9, deps: { estimateRatio: () => 0.1 } });
+  assert.deepEqual(tooSmall.applied, []);
+  assert.equal(tooSmall.transcriptPath, '');
 });
 
 test('P4：applyCompactionWithAuthority 传 retainTokens 时按 token 保留尾部', () => {
