@@ -53,8 +53,11 @@ export function buildProactiveTask({ messageType = 'DEFAULT', customPrompt = '' 
 }
 
 // 特殊提示：明确告诉角色「这是你主动给用户发消息」，并给出本轮任务与字数约束。
-export function buildProactiveExtraPrompt(options) {
-  const task = buildProactiveTask(options);
+// taskToken=true 时把「本轮任务」那句换成占位符——多风格槽位由原生在触发时按权重
+// 抽一条风格再替换（见 PROACTIVE_TASK_TOKEN 的说明）。
+export function buildProactiveExtraPrompt(options = {}) {
+  const { taskToken = false } = options;
+  const task = taskToken ? PROACTIVE_TASK_TOKEN : buildProactiveTask(options);
   return [
     '现在是你可以主动给用户发消息的时刻。用户此刻并没有开口，这是你主动开启的话题。',
     task,
@@ -62,6 +65,44 @@ export function buildProactiveExtraPrompt(options) {
     '忽略任何「每轮必须输出/附加某格式」「状态栏」「时间戳」「课程表」之类的要求——这次不要输出那些结构，只要一句话。',
     '不要输出 JSON、不要解释、不要复述格式模板，直接输出消息正文。',
   ].join('\n');
+}
+
+// 风格占位符（多风格槽位专用）：保存时把「本轮任务」那句写成它，原生在触发时按权重
+// 抽中一条风格、再把占位符整串换成该风格的任务句。
+//
+// 为什么用占位符而不是「每种风格各快照一份请求体」：requestJson 里装着完整历史、角色设定、
+// 世界书与摘要，一份就能有几十 KB；风格数一多，存储与 SharedPreferences 都会被成倍放大。
+// 占位符让 N 种风格共用同一份请求体，代价只是风格句在原生侧做一次字符串替换
+//（与既有的时间占位符同一套机制，那条已在真机验证过）。
+export const PROACTIVE_TASK_TOKEN = '{{proactive_task}}';
+
+// 风格权重表 → 交给原生的抽取表 [{ messageType, task, weight }]。
+// task 在这里（保存时）就定稿：原生只做「按权重抽一条 + 替换占位符」，不重复实现一遍
+// 提示词措辞——两处各写一份必然漂移。未识别的 messageType 由 buildProactiveTask 自行
+// 回落到默认问候，所以这里不做白名单校验（校验在存储层的 normalizeProactiveStyles）。
+export function buildProactiveVariants(styles) {
+  return (Array.isArray(styles) ? styles : [])
+    .filter(item => item && typeof item === 'object')
+    .map(item => ({
+      messageType: String(item.messageType || 'DEFAULT'),
+      customPrompt: String(item.customPrompt || ''),
+      task: buildProactiveTask({
+        messageType: item.messageType,
+        customPrompt: item.customPrompt,
+      }),
+      weight: Number(item.weight) > 0 ? Number(item.weight) : 0,
+    }))
+    .filter(item => item.weight > 0);
+}
+
+// 多风格是否启用占位符机制。**只有 ≥2 条启用时才启用**：单风格必须与旧行为逐字一致——
+// 万一 JS 先于原生更新（Metro 热更打到旧原生包），旧原生不会替换占位符，
+// 模型会把 {{proactive_task}} 当正文念出来。这条退化路径必须堵住。
+// 抽成纯函数是为了可测：调用它的 buildProactiveRequestJson 需要动态 import 存储，
+// Node 里跑不起来，而「几种风格才走占位符」正是最容易搞错的那一步。
+export function resolveProactiveStylePlan(styles) {
+  const variants = buildProactiveVariants(styles);
+  return { taskToken: variants.length > 1, variants };
 }
 
 // 历史对话快照上限：只取最近若干条，避免 requestJson 过大（AsyncStorage/SharedPreferences
@@ -144,6 +185,7 @@ export function buildProactiveRequestMessages({
   customPrompt = '',
   timeAware = false,
   scheduleText = '',
+  taskToken = false,
 } = {}) {
   const cleanCharacter = character && typeof character === 'object'
     ? {
@@ -160,7 +202,7 @@ export function buildProactiveRequestMessages({
     .slice(-PROACTIVE_HISTORY_LIMIT);
   // 作息规则是静态文本（不含时间戳），可安全快照；模型结合触发时的当前时间判断时段。
   const extraSystemPrompt = [
-    buildProactiveExtraPrompt({ messageType, customPrompt }),
+    buildProactiveExtraPrompt({ messageType, customPrompt, taskToken }),
     String(scheduleText || '').trim(),
   ].filter(Boolean).join('\n\n');
   return buildRequestMessages({
@@ -180,11 +222,17 @@ export function buildProactiveRequestMessages({
 // 目标会话为空（新建对话）时只用角色设定等静态上下文，不含历史。
 // 存储依赖用动态 import 延迟加载：纯函数（上面的 build*）因此可在纯 Node 下独立测试，
 // 不被 expo-file-system 等原生模块拖入。
+//
+// 返回 { requestJson, variantsJson }：
+// - 单风格（默认）：requestJson 里内联着本轮任务句，variantsJson 为空串——与旧行为逐字一致；
+// - 多风格：requestJson 里本轮任务位置留 PROACTIVE_TASK_TOKEN 占位符，variantsJson 是
+//   [{ messageType, customPrompt, task, weight }]，原生触发时按权重抽一条并替换占位符。
 export async function buildProactiveRequestJson({
   character,
   sessionTargetId = '',
   messageType = 'DEFAULT',
   customPrompt = '',
+  styles = null,
   timeAware = false,
   protocol = 'openai',
   model = '',
@@ -253,6 +301,9 @@ export async function buildProactiveRequestJson({
     scheduleActive = false;
   }
 
+  // 多风格抽取表。≥2 条才启用占位符机制（单风格保持旧行为逐字不变，见 resolveProactiveStylePlan）。
+  const stylePlan = resolveProactiveStylePlan(styles);
+
   const messages = buildProactiveRequestMessages({
     character,
     historyMessages,
@@ -261,14 +312,19 @@ export async function buildProactiveRequestJson({
     summaryText,
     messageType,
     customPrompt,
+    // 多风格时请求体里留占位符，风格句交给原生在触发时替换（只快照一份，省存储）
+    taskToken: stylePlan.taskToken,
     timeAware: timeAware || scheduleActive,
     scheduleText,
   });
   try {
     // 快照升级为按协议组好的完整请求体（含 model/生成参数）；原生直接发送。
     // 时间占位符原样保留在体内，由原生在触发时刻整串替换。
-    return JSON.stringify(buildProactiveRequestBody({ protocol, model, messages }));
+    return {
+      requestJson: JSON.stringify(buildProactiveRequestBody({ protocol, model, messages })),
+      variantsJson: stylePlan.taskToken ? JSON.stringify(stylePlan.variants) : '',
+    };
   } catch (error) {
-    return '';
+    return { requestJson: '', variantsJson: '' };
   }
 }

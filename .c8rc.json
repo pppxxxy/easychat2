@@ -66,6 +66,7 @@
     "src/security/PinModal.js",
     "src/security/SecurityGate.js",
     "src/proactive/proactiveMessage.js",
+    "src/proactive/ProactiveStyleEditor.js",
     "src/chat/stickerImages.js",
     "src/cardForge/media.js",
     "src/theme/ThemeContext.js",

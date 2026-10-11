@@ -44,6 +44,7 @@ import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { useNavigation } from '@react-navigation/native';
 import { buildProactiveRequestJson } from './proactive/proactiveRequest.js';
+import ProactiveStyleEditor from './proactive/ProactiveStyleEditor.js';
 import PaneHeader from './ui/PaneHeader.js';
 
 // 互动：让角色在指定时间主动发消息。面板负责编辑（角色 / 多个时间 / 模式 / API 来源），
@@ -367,19 +368,25 @@ export default function ProactivePanel() {
           && String(item.characterId || '') === String(slot.roleId || '')
         ));
         let requestJson = '';
+        let variantsJson = '';
         if (character) {
           try {
-            requestJson = await buildProactiveRequestJson({
+            const built = await buildProactiveRequestJson({
               character,
               sessionTargetId: boundValid ? boundId : '',
               messageType: slot.messageType,
               customPrompt: slot.customPrompt,
+              // 多风格：>1 条启用时请求体里留占位符，风格句随 variantsJson 交给原生在触发时替换
+              styles: slot.styles,
               timeAware,
               protocol: proactiveProtocol,
               model,
             });
+            requestJson = built.requestJson;
+            variantsJson = built.variantsJson;
           } catch (error) {
             requestJson = '';
+            variantsJson = '';
           }
         }
         const payload = {
@@ -388,6 +395,8 @@ export default function ProactivePanel() {
           persona: character ? rolePersona(character) : slot.persona,
           sessionTargetId: boundValid ? boundId : '',
           requestJson,
+          // 风格抽取表随本次 schedule 下发（空串 = 单风格，原生保持旧行为）
+          variantsJson,
           // 角色头像本地 URI：通知用它当头像，避免系统用角色名首字当占位。
           // 不入 JS 设置键（normalizeProactiveSlot 会丢弃），仅随本次 schedule 传给原生。
           avatarUri: (character && character.avatarUri) || '',
@@ -620,34 +629,14 @@ export default function ProactivePanel() {
                   </TouchableOpacity>
                 ))}
               </View>
-              <Text style={styles.fieldLabel}>{t('proactive.messageType.label')}</Text>
-              <View style={styles.chipWrap}>
-                {messageTypeOptions.map(option => {
-                  const active = (slot.messageType || 'DEFAULT') === option.value;
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => updateSlot(slot.slotId, { messageType: option.value })}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              {slot.messageType === 'CUSTOM' ? (
-                <TextInput
-                  style={styles.promptInput}
-                  value={slot.customPrompt || ''}
-                  onChangeText={text => updateSlot(slot.slotId, { customPrompt: text })}
-                  placeholder={t('proactive.customPrompt.placeholder')}
-                  placeholderTextColor={theme.colors.textFaint}
-                  multiline
-                />
-              ) : null}
+              <ProactiveStyleEditor
+                slot={slot}
+                onChange={patch => updateSlot(slot.slotId, patch)}
+                styles={styles}
+                theme={theme}
+                t={t}
+                typeOptions={messageTypeOptions}
+              />
               <CollapsibleSelect
                 label={t('proactive.session.label')}
                 // 槽绑定的会话若已被删除（不在候选里）则显示为空，等同「新建对话」。
@@ -774,10 +763,13 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   sortButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
   fieldLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600', marginTop: 12 },
+  weightRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  weightLabel: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13) },
+  weightInput: { width: 68, textAlign: 'center', color: theme.colors.text, fontSize: fonts.scaled(13), backgroundColor: theme.colors.background, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.surfaceBorder, paddingVertical: 6 },
+  weightPercent: { width: 72, textAlign: 'right', color: theme.colors.textMuted, fontSize: fonts.scaled(12) },
   promptInput: {
     marginTop: 8,
-    minHeight: 64,
-    color: theme.colors.text,
+    minHeight: 64,    color: theme.colors.text,
     fontSize: fonts.scaled(13),
     backgroundColor: theme.colors.background,
     borderRadius: 8,

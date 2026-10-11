@@ -45,8 +45,63 @@ export const PROACTIVE_MODES = ['WORK', 'EXACT'];
 // 主动消息类型：默认 / 关心心情 / 问好（按时段自动选早/中/晚）/ 自定义提示词。
 export const PROACTIVE_MESSAGE_TYPES = ['DEFAULT', 'CARE', 'GREETING', 'CUSTOM'];
 
+// 随机时段：0 = 固定时刻（旧行为，在 hour:minute 准点发）；
+// >0 = 在起始时刻之后的 N 分钟内随机挑一个时刻发送。上限 12 小时——
+// 再长就等于「当天随便什么时候」，反而不好预期。
+export const PROACTIVE_WINDOW_MAX_MINUTES = 720;
+
 export function makeProactiveSlotId() {
   return `slot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// 权重只接受正数；非法/非正一律当 0（= 不参与抽取）。
+function normalizeWeight(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.min(num, 1000);
+}
+
+export function normalizeProactiveWindowMinutes(value) {
+  const num = Math.trunc(Number(value));
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.min(num, PROACTIVE_WINDOW_MAX_MINUTES);
+}
+
+// 风格权重表 → [{ messageType, customPrompt, weight }]。
+// **正权重之和恒为 1**（「加起来的是一」这条约束的唯一事实源就在这里：界面收原始相对
+// 权重，存进存储的永远是比例）。0 权重的条目**保留**——用户把某条调到 0 只是暂时停用，
+// 不该顺手抹掉他填过的自定义提示词；抽取时（原生与 buildProactiveVariants）只认正权重。
+// 同一 messageType 只留第一条；全部为 0 时把第一条提升为权重 1——
+// 否则「一条都不发」这种配置会让原生侧无风格可选。
+export function normalizeProactiveStyles(raw, fallback = {}) {
+  const source = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  const entries = [];
+  for (const item of source) {
+    const src = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+    const messageType = PROACTIVE_MESSAGE_TYPES.includes(src.messageType) ? src.messageType : 'DEFAULT';
+    if (seen.has(messageType)) continue;
+    seen.add(messageType);
+    entries.push({
+      messageType,
+      customPrompt: String(src.customPrompt || ''),
+      weight: normalizeWeight(src.weight),
+    });
+  }
+  if (entries.length === 0) {
+    entries.push({
+      messageType: PROACTIVE_MESSAGE_TYPES.includes(fallback.messageType) ? fallback.messageType : 'DEFAULT',
+      customPrompt: String(fallback.customPrompt || ''),
+      weight: 1,
+    });
+  }
+  const total = entries.reduce((sum, item) => sum + item.weight, 0);
+  if (total <= 0) return [{ ...entries[0], weight: 1 }];
+  // 保留 6 位小数：够精确保存比例，又不让 JSON 里拖出一长串浮点尾巴。
+  return entries.map(item => ({
+    ...item,
+    weight: item.weight > 0 ? Math.round((item.weight / total) * 1e6) / 1e6 : 0,
+  }));
 }
 
 function normalizeProactiveSlot(raw, index = 0) {
@@ -56,6 +111,14 @@ function normalizeProactiveSlot(raw, index = 0) {
   const hour = Number.isFinite(hourValue) && hourValue >= 0 && hourValue <= 23 ? hourValue : 8;
   const minute = Number.isFinite(minuteValue) && minuteValue >= 0 && minuteValue <= 59 ? minuteValue : 0;
   const roleId = String(source.roleId || '');
+  // 风格权重表是唯一事实源；旧数据只有 messageType/customPrompt 时按单条权重 1 补上。
+  const styles = normalizeProactiveStyles(source.styles, {
+    messageType: PROACTIVE_MESSAGE_TYPES.includes(source.messageType) ? source.messageType : 'DEFAULT',
+    customPrompt: String(source.customPrompt || ''),
+  });
+  // 兼容镜像取「第一条**启用**的风格」：原生只在 variants 缺失时用它兜底，
+  // 镜像到一个权重 0 的停用风格会让兜底文案与用户实际启用的风格不符。
+  const primary = styles.find(item => item.weight > 0) || styles[0];
   return {
     slotId: String(source.slotId || `slot-${index}-${roleId}-${hour}-${minute}`),
     roleId,
@@ -63,15 +126,18 @@ function normalizeProactiveSlot(raw, index = 0) {
     persona: String(source.persona || ''),
     hour,
     minute,
+    // 随机时段长度（分钟）。0 = 准点发。
+    windowMinutes: normalizeProactiveWindowMinutes(source.windowMinutes),
     mode: PROACTIVE_MODES.includes(source.mode) ? source.mode : 'WORK',
     enabled: source.enabled !== false,
     apiConfigId: String(source.apiConfigId || ''),
     model: String(source.model || ''),
     revision: String(source.revision || ''),
-    messageType: PROACTIVE_MESSAGE_TYPES.includes(source.messageType)
-      ? source.messageType
-      : 'DEFAULT',
-    customPrompt: String(source.customPrompt || ''),
+    styles,
+    // 兼容镜像：保留主风格的两个旧字段。旧读侧与「原生在 variants 缺失时的兜底文案」
+    // 仍按这两个字段取值；界面已改为直接读写 styles。
+    messageType: primary.messageType,
+    customPrompt: primary.customPrompt,
     // 指定衔接的历史对话 id；空串表示「新建对话」。首次触发新建后由落库逻辑回填为新建的会话 id，
     // 之后该槽固定复用这一段；会话被删则视为空串，下次触发再新建并重新绑定。
     sessionTargetId: String(source.sessionTargetId || ''),

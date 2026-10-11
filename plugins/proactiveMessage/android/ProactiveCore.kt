@@ -19,6 +19,7 @@ import com.pppxxxy.easychat2.MainActivity
 import com.pppxxxy.easychat2.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -48,6 +49,42 @@ enum class MessageType { DEFAULT, CARE, GREETING, CUSTOM }
  */
 enum class ScheduleExecutor { MESSAGE, AGENT }
 
+/** 随机时段上限（分钟）：12 小时。与 JS 侧 PROACTIVE_WINDOW_MAX_MINUTES 保持一致。 */
+const val MAX_WINDOW_MINUTES = 720
+
+/** 请求体里「本轮任务」那句的占位符：多风格槽位由原生在触发时替换成抽中风格的任务句。
+ *  与 JS 侧 proactiveRequest.js 的 PROACTIVE_TASK_TOKEN 必须逐字一致。 */
+const val PROACTIVE_TASK_TOKEN = "{{proactive_task}}"
+
+/**
+ * 多风格抽取表的一条：触发时原生按 weight 随机抽一条，用它的 task 替换请求体里的占位符。
+ * task 由 JS 在保存时就定稿（JS 侧 buildProactiveTask），原生不重复实现一遍提示词措辞——
+ * 两处各写一份必然漂移。
+ */
+data class ProactiveVariant(
+    val messageType: MessageType = MessageType.DEFAULT,
+    val customPrompt: String = "",
+    val task: String = "",
+    val weight: Double = 0.0
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("messageType", messageType.name)
+        .put("customPrompt", customPrompt)
+        .put("task", task)
+        .put("weight", weight)
+
+    companion object {
+        fun fromJson(json: JSONObject): ProactiveVariant = ProactiveVariant(
+            messageType = runCatching {
+                MessageType.valueOf(json.optString("messageType", "DEFAULT"))
+            }.getOrDefault(MessageType.DEFAULT),
+            customPrompt = json.optString("customPrompt", ""),
+            task = json.optString("task", ""),
+            weight = json.optDouble("weight", 0.0)
+        )
+    }
+}
+
 /**
  * 一个"时间槽"：某角色在某个时刻的一条定时任务。
  * 同一角色可以配置多个槽（早 8:00、晚 21:00…），因此唯一标识用 slotId，
@@ -74,16 +111,41 @@ data class RoleSchedule(
     // 角色头像本地文件 URI（file://…/avatars/xxx），用于通知头像。
     val avatarUri: String = "",
     // 执行者：MESSAGE（原生生成问候，默认）或 AGENT（唤醒 JS 跑定时 Agent 任务）。
-    val executor: ScheduleExecutor = ScheduleExecutor.MESSAGE
+    val executor: ScheduleExecutor = ScheduleExecutor.MESSAGE,
+    // 随机时段长度（分钟）：0 = 在 hour:minute 准点发（旧行为）；
+    // >0 = 在 [hour:minute, hour:minute + windowMinutes) 内随机挑一个时刻发。
+    val windowMinutes: Int = 0,
+    // 多风格抽取表（权重和由 JS 归一为 1）。非空时触发时按权重抽一条，
+    // 用它的 task 替换请求体里的 PROACTIVE_TASK_TOKEN，并用它的类型出兜底文案。
+    val variants: List<ProactiveVariant> = emptyList()
 ) {
     init {        require(roleId.isNotBlank())
         require(hour in 0..23)
         require(minute in 0..59)
+        require(windowMinutes >= 0)
     }
 
     /** 兜底：老数据没有 slotId 时按角色+时刻派生，保证同一槽稳定 */
     val resolvedSlotId: String
         get() = slotId.ifBlank { "$roleId-$hour-$minute" }
+
+    /**
+     * 按权重抽一条风格；没有可用抽取表时返回 null（调用方保持单风格行为）。
+     * 权重和由 JS 归一，这里只做累积比较——不重新归一，避免与 JS 的算法分叉。
+     */
+    fun pickVariant(random: Random = Random.Default): ProactiveVariant? {
+        val usable = variants.filter { it.weight > 0.0 }
+        if (usable.isEmpty()) return null
+        val total = usable.sumOf { it.weight }
+        if (total <= 0.0) return usable.first()
+        var roll = random.nextDouble() * total
+        for (variant in usable) {
+            roll -= variant.weight
+            if (roll < 0.0) return variant
+        }
+        // 浮点累减误差兜底：抽到最后一个
+        return usable.last()
+    }
 
     fun toJson(): JSONObject = JSONObject()
         .put("roleId", roleId)
@@ -100,6 +162,8 @@ data class RoleSchedule(
         .put("requestJson", requestJson)
         .put("avatarUri", avatarUri)
         .put("executor", executor.name)
+        .put("windowMinutes", windowMinutes)
+        .put("variants", JSONArray().apply { variants.forEach { put(it.toJson()) } })
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -121,7 +185,15 @@ data class RoleSchedule(
             avatarUri = json.optString("avatarUri", ""),
             executor = runCatching {
                 ScheduleExecutor.valueOf(json.optString("executor", "MESSAGE"))
-            }.getOrDefault(ScheduleExecutor.MESSAGE)
+            }.getOrDefault(ScheduleExecutor.MESSAGE),
+            // 老配置没有这两个字段：默认 0 / 空表 = 旧行为（准点、单风格）
+            windowMinutes = json.optInt("windowMinutes", 0).coerceIn(0, MAX_WINDOW_MINUTES),
+            variants = runCatching {
+                val array = json.optJSONArray("variants") ?: return@runCatching emptyList()
+                (0 until array.length())
+                    .mapNotNull { index -> array.optJSONObject(index)?.let { ProactiveVariant.fromJson(it) } }
+                    .filter { it.weight > 0.0 }
+            }.getOrDefault(emptyList())
         )
     }
 }
@@ -181,18 +253,46 @@ object MessageClock {
         }.timeInMillis
     }
 
+    /** 时段长度（分钟），已夹到合法区间。0 = 准点发。 */
+    private fun windowSpan(config: RoleSchedule): Int =
+        config.windowMinutes.coerceIn(0, MAX_WINDOW_MINUTES)
+
+    /**
+     * 在 [dayStart, dayStart + windowMinutes) 里随机挑一个时刻；固定时刻（span=0）返回 dayStart。
+     * 窗口已过（或剩余区间为空）返回 -1，由调用方顺延到明天。
+     * notBefore 用于「今天」：今天窗口若已开始，只能在剩余区间里抽，不能抽到过去。
+     */
+    private fun pickInWindow(config: RoleSchedule, dayStart: Long, notBefore: Long, random: Random): Long {
+        val span = windowSpan(config)
+        if (span <= 0) return dayStart
+        val end = dayStart + span * 60_000L
+        val lower = maxOf(dayStart, notBefore)
+        if (lower >= end) return -1L
+        return lower + (random.nextDouble() * (end - lower)).toLong()
+    }
+
     fun todayTarget(config: RoleSchedule): Long = targetOn(config, Calendar.getInstance())
 
-    fun nextTarget(config: RoleSchedule): Long {
+    fun nextTarget(config: RoleSchedule, random: Random = Random.Default): Long {
         val now = Calendar.getInstance()
-        val today = targetOn(config, now)
-        if (today > now.timeInMillis) return today
+        val nowMs = now.timeInMillis
+        val todayStart = targetOn(config, now)
+        val today = pickInWindow(config, todayStart, nowMs, random)
+        if (today > nowMs) return today
+        // 固定时刻且今天已过（pickInWindow 原样返回了过去的起点），或今天窗口已结束 → 顺延明天
         val tomorrow = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
-        return targetOn(config, tomorrow)
+        val tomorrowStart = targetOn(config, tomorrow)
+        val next = pickInWindow(config, tomorrowStart, 0L, random)
+        return if (next < 0) tomorrowStart else next
     }
 
     fun isExpired(config: RoleSchedule, nowMillis: Long): Boolean {
-        val diff = nowMillis - todayTarget(config)
+        // 过期判据是「**窗口结束** + 宽限」，不是「抽中的那个时刻」：抽中的时刻本身是随机的，
+        // 拿它当基准会让同一分钟内两次判定结果不同（发送前复检会因此误判）。
+        // 固定时刻（span=0）时退化成原来的「起点 + 宽限」，逐字不变。
+        val start = todayTarget(config)
+        val deadline = start + windowSpan(config) * 60_000L
+        val diff = nowMillis - deadline
         val expired = diff > MAX_LATENESS_MS
         if (expired) {
             Log.w("MessageClock", "任务过期跳过: slot=${config.resolvedSlotId} 偏差=${diff}ms")
@@ -828,10 +928,24 @@ object ProactiveMessageSender {
         }
         if (MessageClock.isExpired(schedule, System.currentTimeMillis())) return
 
+        // 多风格：按权重抽一条，用它的任务句替换请求体里的占位符，兜底文案也用它的类型——
+        // 否则会出现「抽到关心却发了一句默认问候」。没有抽取表时（单风格）逐字不变。
+        // 占位符即使没抽到风格也一律替换掉：宁可少一句任务说明，也不能把 {{…}} 发给模型。
+        val picked = schedule.pickVariant()
+        val effective = if (picked == null && !schedule.requestJson.contains(PROACTIVE_TASK_TOKEN)) {
+            schedule
+        } else {
+            schedule.copy(
+                messageType = picked?.messageType ?: schedule.messageType,
+                customPrompt = picked?.customPrompt ?: schedule.customPrompt,
+                requestJson = schedule.requestJson.replace(PROACTIVE_TASK_TOKEN, picked?.task ?: "")
+            )
+        }
+
         val generated = store.loadApiSettings()
-            ?.let { AiApiClient().generateProactiveMessage(it, schedule) }
-        val text = generated ?: FallbackMessages.random(schedule.messageType).also {
-            Log.i(TAG, "AI 生成失败，使用本地降级文案: slot=$slotId")
+            ?.let { AiApiClient().generateProactiveMessage(it, effective) }
+        val text = generated ?: FallbackMessages.random(effective.messageType).also {
+            Log.i(TAG, "AI 生成失败，使用本地降级文案: slot=$slotId style=${effective.messageType}")
         }
 
         // 网络请求可能耗时较久，发送前复检

@@ -131,6 +131,10 @@ const {
   bindProactiveSlotSession,
   makeProactiveSlotId,
   PROACTIVE_MODES,
+  PROACTIVE_MESSAGE_TYPES,
+  PROACTIVE_WINDOW_MAX_MINUTES,
+  normalizeProactiveStyles,
+  normalizeProactiveWindowMinutes,
   getPersonas,
   createPersona,
   deletePersona,
@@ -241,14 +245,39 @@ test('消息类型：槽可保存 messageType 与 customPrompt，非法值回退
 
 test('互动面板：提供默认/关心心情/问好/自定义四种消息类型与自定义输入框', () => {
   const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  // 风格编辑器已拆成子模块（面板有行数棘轮）：断言跨面板 + 子模块一起读，
+  // 免得拆文件后断言错位。
+  const editor = fs.readFileSync(path.resolve('src/proactive/ProactiveStyleEditor.js'), 'utf8');
+  const ui = `${panel}\n${editor}`;
   assert.ok(panel.includes('buildMessageTypeOptions'), '消息类型选项构造函数');
   for (const [key, label] of [['proactive.type.default', '默认'], ['proactive.type.care', '关心心情'], ['proactive.type.greeting', '问好'], ['proactive.type.custom', '自定义']]) {
-    assert.ok(panel.includes(`t('${key}')`), `应引用消息类型选项 ${key} 的 i18n 键`);
+    assert.ok(ui.includes(`t('${key}')`), `应引用消息类型选项 ${key} 的 i18n 键`);
     assert.equal(zhCN[key], label, '语言包中文值正确');
   }
-  // 选「自定义」时才出现提示词输入框
-  assert.ok(panel.includes("slot.messageType === 'CUSTOM'"));
-  assert.ok(panel.includes('customPrompt'));
+  // 选「自定义」且它有权重时才出现提示词输入框
+  assert.ok(editor.includes("row.type === 'CUSTOM'"));
+  assert.ok(editor.includes('customPrompt'));
+});
+
+test('互动面板：随机时段与风格权重都在编辑器里接线', () => {
+  const panel = fs.readFileSync(path.resolve('src/ProactivePanel.js'), 'utf8');
+  const editor = fs.readFileSync(path.resolve('src/proactive/ProactiveStyleEditor.js'), 'utf8');
+  const model = fs.readFileSync(path.resolve('src/proactive/proactiveStyleModel.js'), 'utf8');
+  // 时段与权重同属「什么时候发、发哪种」，都在子模块里
+  assert.ok(editor.includes('PROACTIVE_WINDOW_OPTIONS'), '时段选项表');
+  assert.ok(editor.includes('onChange({ windowMinutes: option })'), '时段写回槽位');
+  assert.ok(editor.includes('buildStyleRows'), '按类型摊平权重表');
+  assert.ok(editor.includes('styleRowsToStyles'), '界面行写回槽位');
+  // 换算在纯逻辑模块里（Node 可测），编辑器只渲染
+  assert.ok(model.includes('percentToWeight') && model.includes('weightToPercent'), '百分比 ↔ 比例换算');
+  // 面板把窗口长度与风格抽取表下发给原生
+  assert.ok(panel.includes('variantsJson'), '风格抽取表随 schedule 下发');
+  assert.ok(panel.includes('styles: slot.styles'), '快照按风格表组装（多风格走占位符）');
+  for (const key of ['proactive.window.label', 'proactive.weight.label', 'proactive.weight.hint']) {
+    assert.ok(editor.includes(`t('${key}')`), `应引用 ${key}`);
+    assert.ok(typeof zhCN[key] === 'string' && zhCN[key].length > 0, `${key} 中文词条存在`);
+  }
+  assert.equal(zhCN['proactive.window.off'], '准点');
 });
 
 test('主动消息落库：存储导出 appendProactiveMessage，桥接消费并 ack', () => {
@@ -500,4 +529,110 @@ test('API 配置：空列表保存回退默认配置', async () => {
   assert.equal(saved.configs.length, 1);
   assert.equal(saved.configs[0].id, 'default');
   assert.equal(saved.activeId, 'default');
+});
+
+// —— 随机时段 + 风格权重（存储归一）——
+
+test('时段归一：0/负数/非数字当「准点」，正数夹到 12 小时上限', () => {
+  assert.equal(PROACTIVE_WINDOW_MAX_MINUTES, 720);
+  for (const value of [0, -5, null, undefined, '', 'abc', NaN]) {
+    assert.equal(normalizeProactiveWindowMinutes(value), 0, String(value));
+  }
+  assert.equal(normalizeProactiveWindowMinutes(30), 30);
+  assert.equal(normalizeProactiveWindowMinutes('120'), 120);
+  assert.equal(normalizeProactiveWindowMinutes(90.7), 90, '取整');
+  assert.equal(normalizeProactiveWindowMinutes(99999), PROACTIVE_WINDOW_MAX_MINUTES, '夹上限');
+});
+
+test('权重归一：正权重之和恒为 1，相对值按比例折算', () => {
+  const two = normalizeProactiveStyles([
+    { messageType: 'GREETING', weight: 1 },
+    { messageType: 'CARE', weight: 3 },
+  ]);
+  assert.deepEqual(two.map(item => [item.messageType, item.weight]), [['GREETING', 0.25], ['CARE', 0.75]]);
+  const sum = two.reduce((total, item) => total + item.weight, 0);
+  assert.ok(Math.abs(sum - 1) < 1e-9, `权重和应为 1，实际 ${sum}`);
+  // 三等分不留浮点长尾
+  const three = normalizeProactiveStyles([
+    { messageType: 'DEFAULT', weight: 1 },
+    { messageType: 'CARE', weight: 1 },
+    { messageType: 'GREETING', weight: 1 },
+  ]);
+  assert.equal(three[0].weight, 0.333333);
+});
+
+test('权重归一：0 权重条目保留（保住用户填的提示词），全 0 时提升第一条', () => {
+  const kept = normalizeProactiveStyles([
+    { messageType: 'GREETING', weight: 2 },
+    { messageType: 'CUSTOM', customPrompt: '问我晚饭吃了没', weight: 0 },
+  ]);
+  const custom = kept.find(item => item.messageType === 'CUSTOM');
+  assert.equal(custom.weight, 0);
+  assert.equal(custom.customPrompt, '问我晚饭吃了没', '停用不等于删掉提示词');
+
+  const allZero = normalizeProactiveStyles([
+    { messageType: 'CARE', weight: 0 },
+    { messageType: 'GREETING', weight: 0 },
+  ]);
+  assert.deepEqual(allZero.map(item => [item.messageType, item.weight]), [['CARE', 1]]);
+
+  // 去重 / 未知类型 / 非法权重 / 空表
+  assert.equal(normalizeProactiveStyles([
+    { messageType: 'CARE', weight: 1 },
+    { messageType: 'CARE', weight: 5 },
+  ]).length, 1);
+  assert.equal(normalizeProactiveStyles([{ messageType: '乱写', weight: 1 }])[0].messageType, 'DEFAULT');
+  assert.deepEqual(normalizeProactiveStyles([{ messageType: 'CARE', weight: 'x' }]).map(item => item.weight), [1]);
+  assert.deepEqual(
+    normalizeProactiveStyles(null, { messageType: 'GREETING', customPrompt: 'p' }),
+    [{ messageType: 'GREETING', customPrompt: 'p', weight: 1 }],
+  );
+  assert.deepEqual(PROACTIVE_MESSAGE_TYPES, ['DEFAULT', 'CARE', 'GREETING', 'CUSTOM']);
+});
+
+test('槽位往返：时段与风格表落盘读回不变；旧数据（只有 messageType）自动补成单风格', async () => {
+  await saveProactiveSettings({
+    slots: [{
+      slotId: 's1',
+      roleId: 'r1',
+      hour: 9,
+      minute: 0,
+      windowMinutes: 180,
+      styles: [
+        { messageType: 'GREETING', customPrompt: '', weight: 1 },
+        { messageType: 'CARE', customPrompt: '', weight: 3 },
+      ],
+    }],
+  });
+  const loaded = await getProactiveSettings();
+  assert.equal(loaded.slots[0].windowMinutes, 180);
+  assert.deepEqual(loaded.slots[0].styles.map(item => [item.messageType, item.weight]),
+    [['GREETING', 0.25], ['CARE', 0.75]]);
+  // 兼容镜像取第一条启用风格（原生在抽取表缺失时的兜底文案用它）
+  assert.equal(loaded.slots[0].messageType, 'GREETING');
+
+  // 旧数据：没有 styles 字段，只有 messageType/customPrompt
+  store.set(KEY, JSON.stringify({
+    slots: [{ slotId: 's2', roleId: 'r2', hour: 8, minute: 0, messageType: 'CARE', customPrompt: '早点睡' }],
+  }));
+  const legacy = await getProactiveSettings();
+  assert.deepEqual(legacy.slots[0].styles, [{ messageType: 'CARE', customPrompt: '早点睡', weight: 1 }]);
+  assert.equal(legacy.slots[0].windowMinutes, 0, '旧槽位默认准点发');
+  assert.equal(legacy.slots[0].messageType, 'CARE');
+
+  // 镜像取「第一条启用」：第一条被停用时不能镜像到它，否则原生兜底文案与实际风格不符
+  store.set(KEY, JSON.stringify({
+    slots: [{
+      slotId: 's3',
+      roleId: 'r3',
+      hour: 8,
+      minute: 0,
+      styles: [
+        { messageType: 'GREETING', weight: 0 },
+        { messageType: 'CARE', weight: 1 },
+      ],
+    }],
+  }));
+  const mirrored = await getProactiveSettings();
+  assert.equal(mirrored.slots[0].messageType, 'CARE');
 });

@@ -209,6 +209,17 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
+    /** 多风格抽取表：JS 传 JSON 字符串 → List<ProactiveVariant>。坏输入一律当空表（退回单风格）。 */
+    private fun parseVariants(json: String?): List<ProactiveVariant> {
+        if (json.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(json)
+            (0 until array.length())
+                .mapNotNull { index -> array.optJSONObject(index)?.let { ProactiveVariant.fromJson(it) } }
+                .filter { it.weight > 0.0 }
+        }.getOrDefault(emptyList())
+    }
+
     @ReactMethod
     fun schedule(config: ReadableMap, promise: Promise) {
         try {
@@ -236,7 +247,14 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                         if (config.hasKey("executor")) config.getString("executor") ?: "MESSAGE"
                         else "MESSAGE"
                     )
-                }.getOrDefault(ScheduleExecutor.MESSAGE)
+                }.getOrDefault(ScheduleExecutor.MESSAGE),
+                // 随机时段长度：越界值夹到 [0, MAX_WINDOW_MINUTES]，不让一个坏数字把调度算飞
+                windowMinutes = (if (config.hasKey("windowMinutes")) config.getInt("windowMinutes") else 0)
+                    .coerceIn(0, MAX_WINDOW_MINUTES),
+                // 多风格抽取表：JS 传 JSON 字符串（数组跨 Interop 编组不可靠，与 ackPendingMessages 同款处理）
+                variants = parseVariants(
+                    if (config.hasKey("variantsJson")) config.getString("variantsJson") else null
+                )
             )
             val store = MessageStore(reactContext)
             store.upsertSchedule(schedule)
