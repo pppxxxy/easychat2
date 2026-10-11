@@ -142,7 +142,7 @@ import {
 } from './imageGen/inlineImagePrompt.js';
 
 import {
-  AI_DISCLAIMER_TEXT,
+  AI_DISCLAIMER_TEXT_KEY,
   ASSISTANT_ID,
   NEAR_BOTTOM_THRESHOLD,
   USER_ID,
@@ -875,11 +875,8 @@ export default function ChatScreen() {
     onScrubberToStart,
     onScrubberToEnd,
   } = useScrollScrubber({
-    messages,
-    characterName: character.name,
-    scrollRef,
-    messageOffsetsRef,
-    scrollToMessage,
+    messages, characterName: character.name, t,
+    scrollRef, messageOffsetsRef, scrollToMessage,
   });
 
   // focus：/compact 后跟的关注点（「这次总结要特别保留什么」）；自动路径不传。
@@ -2628,7 +2625,7 @@ export default function ChatScreen() {
         onOpenMore={() => setMoreOpen(true)}
       />
       <View style={styles.aiNoticeBar} pointerEvents="none">
-        <Text style={styles.aiNoticeText}>{AI_DISCLAIMER_TEXT}</Text>
+        <Text style={styles.aiNoticeText}>{t(AI_DISCLAIMER_TEXT_KEY)}</Text>
       </View>
       <ChatSearchBar
         visible={searchOpen}

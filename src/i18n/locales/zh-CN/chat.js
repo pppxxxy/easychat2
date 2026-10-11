@@ -47,6 +47,16 @@ export const chat = {
   'chat.composer.recording.cancel': '取消',
   'chat.composer.quote.fallbackName': '原文',
   'chat.thinking.placeholder': '正在思考...',
+  // 原先硬编码在 src/chat/chatConstants.js 的模块级常量里（渲染层直接读走，不随语言切换）。
+  'chat.aiDisclaimer': 'AI 生成可能有误，仅供参考',
+  'chat.noBody': '（未生成正文）',
+  'chat.thinking.level.low': '低',
+  'chat.thinking.level.medium': '中',
+  'chat.thinking.level.high': '高',
+  'chat.thinking.display.open': '开启',
+  'chat.thinking.display.fold': '折叠',
+  'chat.thinking.display.off': '关闭',
+  'chat.sticker.saving': '保存中',
   'chat.tool.status.reading': '正在使用工具（{name}）…',
   // ---- 聊天内工具调用的过程气泡 ----
   'chat.toolBubble.name.search': '联网搜索',

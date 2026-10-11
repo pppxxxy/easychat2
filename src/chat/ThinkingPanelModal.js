@@ -6,7 +6,7 @@ import { Modal, Pressable, Switch, Text, TouchableOpacity, View } from 'react-na
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage/settings.js';
-import { THINKING_DISPLAY_LABELS, THINKING_LEVEL_LABELS } from './chatConstants.js';
+import { THINKING_DISPLAY_KEYS, THINKING_LEVEL_KEYS } from './chatConstants.js';
 import { createChatStyles } from './chatStyles.js';
 
 export default function ThinkingPanelModal({
@@ -73,7 +73,7 @@ export default function ThinkingPanelModal({
                       active && styles.thinkingLevelTextActive,
                     ]}
                   >
-                    {THINKING_LEVEL_LABELS[level]}
+                    {t(THINKING_LEVEL_KEYS[level])}
                   </Text>
                 </TouchableOpacity>
               );
@@ -102,7 +102,7 @@ export default function ThinkingPanelModal({
                       active && styles.thinkingLevelTextActive,
                     ]}
                   >
-                    {THINKING_DISPLAY_LABELS[display]}
+                    {t(THINKING_DISPLAY_KEYS[display])}
                   </Text>
                 </TouchableOpacity>
               );

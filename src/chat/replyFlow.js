@@ -56,14 +56,15 @@ function attachReasoning(replyParts, reasoning) {
   ));
 }
 
-// 用解析后的回复分段替换 pending 占位符；回复为空时落「没有收到回复。」。
+// 用解析后的回复分段替换 pending 占位符；回复为空时落 i18n 的「没有收到回复。」。
 // 注意：与原实现一致，即使未命中占位符也返回新数组（保持既有重渲染节奏）。
-export function replacePendingWithReply(messages, pendingId, replyParts) {
+// t 由调用方注入（本模块保持 Node 可加载，不 import RN 侧 I18nContext）。
+export function replacePendingWithReply(messages, pendingId, replyParts, t) {
   const next = [];
   (messages || []).forEach(item => {
     if (item && item.id === pendingId) {
       if (!Array.isArray(replyParts) || replyParts.length === 0) {
-        next.push({ ...item, text: '没有收到回复。', pending: false, waitingForResponse: false });
+        next.push({ ...item, text: t('chat.send.noReply'), pending: false, waitingForResponse: false });
       } else {
         const reasoning = typeof item.reasoning === 'string' ? item.reasoning : '';
         const parts = reasoning.trim() ? attachReasoning(replyParts, reasoning) : replyParts;
@@ -85,13 +86,13 @@ export function classifyReplyError(error, isConfigChangedError, isCanceledError)
 }
 
 // 构造错误气泡：原文经 maskSecrets 后存 errorRawRef，气泡 detail 只放脱敏文本。
-export function buildReplyErrorMessage(pendingId, error) {
+export function buildReplyErrorMessage(pendingId, error, t) {
   const rawText = buildErrorRawText(error);
   return {
     message: {
       id: `${pendingId}-error`,
       role: SYSTEM_ERROR_ID,
-      text: '请求失败，点击查看详情',
+      text: t('chat.error.summary'),
       detail: maskSecrets(rawText),
       timestamp: Date.now(),
     },
@@ -100,8 +101,8 @@ export function buildReplyErrorMessage(pendingId, error) {
 }
 
 // 错误合并：占位符已有部分内容（settle 后仍在）则落盘并追加错误条目，否则整条替换。
-export function mergeErrorMessage(messages, pendingId, errorMessage) {
-  const settled = settlePendingMessage(messages || [], pendingId);
+export function mergeErrorMessage(messages, pendingId, errorMessage, t) {
+  const settled = settlePendingMessage(messages || [], pendingId, t);
   const keptPartial = settled.some(item => item && item.id === pendingId);
   if (keptPartial) return settled.concat(errorMessage);
   return (messages || []).map(item => (
@@ -110,6 +111,8 @@ export function mergeErrorMessage(messages, pendingId, errorMessage) {
 }
 
 // 自动摘要的输入：基础消息 + 回复分段（空回复以「没有收到回复。」占位参与）。
+// 这里的占位符**刻意不进 i18n**：它是喂给摘要模型的输入（模型提示词不进 i18n 是仓库铁律），
+// 与上面渲染给用户看的 chat.send.noReply 是两条不同的路径。
 export function buildAutoSummaryInput(baseMessages, replyParts, pendingAssistantMessage) {
   return [
     ...(baseMessages || []),

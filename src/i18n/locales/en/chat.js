@@ -47,6 +47,17 @@ export const chat = {
   'chat.composer.recording.cancel': 'Cancel',
   'chat.composer.quote.fallbackName': 'Original',
   'chat.thinking.placeholder': 'Thinking...',
+  // Previously hardcoded as module-level constants in src/chat/chatConstants.js
+  // (read directly by the render layer, so they never followed the locale).
+  'chat.aiDisclaimer': 'AI-generated content may be inaccurate — for reference only',
+  'chat.noBody': '(no reply body)',
+  'chat.thinking.level.low': 'Low',
+  'chat.thinking.level.medium': 'Medium',
+  'chat.thinking.level.high': 'High',
+  'chat.thinking.display.open': 'Open',
+  'chat.thinking.display.fold': 'Collapsed',
+  'chat.thinking.display.off': 'Off',
+  'chat.sticker.saving': 'Saving…',
   'chat.tool.status.reading': 'Using tool ({name})…',
   // ---- In-chat tool call process bubble ----
   'chat.toolBubble.name.search': 'Web search',

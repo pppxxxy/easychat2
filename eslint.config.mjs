@@ -1,7 +1,7 @@
 import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 
-import noHardcodedChinese from './eslint-rules/no-hardcoded-chinese.mjs';
+import noHardcodedChinese, { noHardcodedChineseText } from './eslint-rules/no-hardcoded-chinese.mjs';
 
 export default [
   {
@@ -41,11 +41,12 @@ export default [
     },
   },
   {
-    // i18n 防复发：用户可见文案（Alert.alert / throw new Error）不得硬编码中文。
+    // i18n 防复发（第一批）：用户可见文案（Alert.alert / throw new Error）不得硬编码中文。
     // 判定用本地规则 eslint-rules/no-hardcoded-chinese.mjs（AST 级，注释不算）。
-    // 已知覆盖边界：只统计 Alert.alert / throw new Error 的**直接**中文字符串参数——
-    // JSX 正文、setNotice 类提示、Alert 按钮配置对象内的文案（如 { text: '取消' }）
-    // 都不在规则内（ProactivePanel 全文件未接 i18n 却不在清单里，即此盲区；详见审查待办）。
+    // 本批仍有的覆盖边界：只统计 Alert.alert / throw new Error 的**直接**中文字符串参数——
+    // setNotice 类提示、Alert 按钮配置对象内的文案（如 { text: '取消' }）不在规则内
+    //（ProactivePanel 全文件未接 i18n 却不在清单里，即此盲区；详见审查待办）。
+    // JSX 正文与模块级导出常量已由下面的**第二批**规则（no-hardcoded-chinese-text）覆盖。
     //
     // 下面的 `ignores` 是**存量迁移清单（只减不增）**：由规则实测生成——81 个文件、
     // 763 处（2026-10-02 复测；早期注释里的「32 文件 / 559 处」是 grep 口径的误记，
@@ -144,6 +145,85 @@ export default [
     plugins: { local: { rules: { 'no-hardcoded-chinese': noHardcodedChinese } } },
     rules: {
       'local/no-hardcoded-chinese': 'error',
+    },
+  },
+  {
+    // i18n 防复发（第二批）：JSX 正文与**模块级导出常量**里的中文。
+    // 首版只查 Alert.alert / throw new Error 的直接字面量参数，于是
+    // `export const THINKING_PLACEHOLDER = '正在思考...'` 这类模块级常量（渲染层直接
+    // 读走、永不随语言切换）与 <Text>你好</Text> 这类 JSX 正文全在规则之外。
+    // 判定见 eslint-rules/no-hardcoded-chinese.mjs 的 noHardcodedChineseText。
+    //
+    // 下面是与首批**互相独立**的存量冻结清单（只减不增）：由扩展后的规则实测生成。
+    // 迁移方式 = 换成 t('<key>') / 改导出 i18n key 并补 src/i18n/locales 双语言词条，
+    // 然后从这里删掉该行。新文件一律不得加入。
+    //
+    // ⚠️ 清单里有两类，删行前先看清：
+    //   (a) 待迁移：用户可见文案（如 onboarding/**、settings/presets.js）；
+    //   (b) 永久豁免：**不该进 i18n 的中文**——workspace/toolDefs/** 的工具描述是
+    //       发给模型的提示词（仓库铁律：模型提示词不进 i18n）、settings/searchIndex.js
+    //       是匹配用关键词、navigation/routeNames.js 是路由名。这类文件留在这里表示
+    //       「已知且不迁」，迁移方向是把中文从常量里挪走（改为 key/表驱动），而不是塞进 locale。
+    files: ['src/**/*.js', 'App.js'],
+    ignores: [
+      'src/i18n/**',
+      // ---- (b) 永久豁免：内容**不该进 i18n**（模型提示词 / 匹配关键词 / 内部标识符）----
+      // 这些文件里的中文是发给模型的提示词、参与匹配的关键词，或用户自己输入的固定
+      // 命令字（如 @全体、路由名）。迁移方向是「把中文从常量里挪到表驱动」，不是塞进 locale。
+      'src/agent/loop.js',
+      'src/agent/planNudge.js',
+      'src/agent/subagent.js',
+      'src/cardForge/forge/assist.js',
+      'src/cardForge/forge/shared.js',
+      'src/cardForge/forge/state.js',
+      'src/character/cardParser/regexScripts.js',
+      'src/character/cardParser/worldInfo.js',
+      'src/chat/compaction.js',
+      'src/chat/groupMentions.js',
+      'src/memory/memoryConstants.js',
+      'src/memory/memorySummary.js',
+      'src/navigation/routeNames.js',
+      'src/plugins/registry.js',
+      'src/prompt/chatPipeline.js',
+      'src/settings/searchIndex.js',
+      'src/workspace/assistant.js',
+      'src/workspace/chat.js',
+      'src/workspace/commands.js',
+      'src/workspace/hooks.js',
+      'src/workspace/memory.js',
+      'src/workspace/skills.js',
+      'src/workspace/teams.js',
+      'src/workspace/templates.js',
+      // 工具描述整族都是模型提示词（tools 的 description 字段）：整目录豁免，
+      // 新增工具文件也自动在内——这正是我们要的，工具描述不该翻成英文界面语言。
+      'src/workspace/toolDefs/**',
+      // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
+      'src/aigc/attribution.js',
+      'src/character/cardHelpers.js',
+      'src/chat/reactiveCompact.js',
+      'src/chat/voiceMessages.js',
+      'src/games/games.js',
+      'src/imageGen/providers.js',
+      'src/localModel/modelCatalog.js',
+      'src/localModel/modelState.js',
+      'src/memory/memoryBuckets.js',
+      'src/network/api.js',
+      'src/network/apiVendors.js',
+      'src/onboarding/disclaimerContent.js',
+      'src/onboarding/onboardingContent.js',
+      'src/plugins/providers.js',
+      'src/settings/presets.js',
+      'src/storage/characters/shared.js',
+      'src/tts/providers.js',
+      'src/vectorMemory/providers.js',
+      'src/workspace/gitCheckpoint.js',
+      'src/workspace/plugins/market.js',
+    ],
+    // 插件命名空间用 local-i18n：ESLint flat config 不允许在两个配置对象里重复定义
+    // 同一个插件名（"Cannot redefine plugin"），而本批必须与首批用**不同的 ignores**。
+    plugins: { 'local-i18n': { rules: { 'no-hardcoded-chinese-text': noHardcodedChineseText } } },
+    rules: {
+      'local-i18n/no-hardcoded-chinese-text': 'error',
     },
   },
   {

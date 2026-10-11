@@ -105,7 +105,9 @@ test('⋯ 菜单分组：会话 / 角色与模型 / 其他，编辑角色一等�
 
 test('免责声明常驻不动（用户裁决：Phase 1.1 否决，钉死防回归）', () => {
   assert.ok(CHAT_SCREEN.includes('styles.aiNoticeBar'), '免责条保留在顶栏');
-  assert.ok(CHAT_SCREEN.includes('AI_DISCLAIMER_TEXT'), '免责文案常量保留');
+  // 回归：文案曾是硬编码中文常量（英文界面也显示中文），现改为 i18n key + t()
+  assert.ok(CHAT_SCREEN.includes('AI_DISCLAIMER_TEXT_KEY'), '免责文案走 i18n key');
+  assert.ok(CHAT_SCREEN.includes('{t(AI_DISCLAIMER_TEXT_KEY)}'), '经 t() 取值渲染');
   assert.ok(!CHAT_SCREEN.includes('disclaimerDismissed'), '不得引入一次性消失开关');
 });
 

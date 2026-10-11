@@ -12,6 +12,8 @@ import { formatScrubberTime, messageTimestamp } from './chatHelpers.js';
 export default function useScrollScrubber({
   messages,
   characterName,
+  // 定位预览里的说话人兜底文案（「我」/「角色」）走 i18n：由宿主传入 t。
+  t,
   scrollRef,
   messageOffsetsRef,
   scrollToMessage,
@@ -32,11 +34,13 @@ export default function useScrollScrubber({
       const timestamp = messageTimestamp(message);
       return {
         label: formatScrubberTime(timestamp),
-        speaker: message.role === USER_ID ? '我' : (characterName || '角色'),
+        speaker: message.role === USER_ID
+          ? t('chat.bubble.me')
+          : (characterName || t('common.characterFallback')),
         text: getMessagePromptText(message).replace(/\s+/g, ' ').trim().slice(0, 60),
       };
     }),
-    [scrubberMessages, characterName]
+    [scrubberMessages, characterName, t]
   );
 
   const onScrubberSeek = useCallback(index => {

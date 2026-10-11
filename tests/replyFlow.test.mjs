@@ -12,6 +12,10 @@ import {
   trimHistoryByBoundary,
 } from '../src/chat/replyFlow.js';
 import { SYSTEM_ERROR_ID } from '../src/chat/chatConstants.js';
+import { translate } from '../src/i18n/index.js';
+
+// 真实翻译器（真语言包，非替身）：等价于渲染层注入的 t。
+const t = (key, params) => translate('zh-CN', key, params);
 
 const pending = id => ({
   id,
@@ -72,7 +76,7 @@ test('replacePendingWithReply：分段替换占位符；空回复落「没有收
     { role: 'assistant', id: 'r1', text: '你好' },
     { role: 'assistant', id: 'r2', kind: 'sticker', text: '' },
   ];
-  const next = replacePendingWithReply(before, 'x', parts);
+  const next = replacePendingWithReply(before, 'x', parts, t);
   assert.equal(next.length, 4);
   assert.equal(next[1].id, 'r1');
   assert.equal(next[1].pending, false);
@@ -80,14 +84,14 @@ test('replacePendingWithReply：分段替换占位符；空回复落「没有收
   assert.equal(next[2].id, 'r2');
   assert.equal(next[3].text, 'earlier');
   // 空回复
-  const empty = replacePendingWithReply(before, 'x', []);
+  const empty = replacePendingWithReply(before, 'x', [], t);
   assert.equal(empty[1].text, '没有收到回复。');
   assert.equal(empty[1].pending, false);
   // replyParts 非数组按空处理
-  const nullParts = replacePendingWithReply(before, 'x', null);
+  const nullParts = replacePendingWithReply(before, 'x', null, t);
   assert.equal(nullParts[1].text, '没有收到回复。');
   // 未命中占位符：仍返回新数组（保持原重渲染节奏），内容不变
-  const miss = replacePendingWithReply(before, 'nope', parts);
+  const miss = replacePendingWithReply(before, 'nope', parts, t);
   assert.notEqual(miss, before);
   assert.deepEqual(miss.map(i => i.id), before.map(i => i.id));
 });
@@ -100,19 +104,19 @@ test('replacePendingWithReply：思考内容随分段保留（回归：完成后
     { role: 'assistant', id: 'r1', text: '你好' },
     { role: 'assistant', id: 'r2', kind: 'sticker', text: '' },
   ];
-  const next = replacePendingWithReply([base], 'x', parts);
+  const next = replacePendingWithReply([base], 'x', parts, t);
   assert.equal(next[0].reasoning, '先分析问题\n再组织回答', '正文分段应带上思考内容');
   assert.equal(next[1].reasoning, undefined, '仅正文分段携带，媒体分段不带');
   // 纯媒体回复（无正文分段）：思考挂首个分段，不能丢
-  const mediaOnly = replacePendingWithReply([base], 'x', [{ role: 'assistant', id: 'r1', kind: 'sticker', text: '' }]);
+  const mediaOnly = replacePendingWithReply([base], 'x', [{ role: 'assistant', id: 'r1', kind: 'sticker', text: '' }], t);
   assert.equal(mediaOnly[0].reasoning, '先分析问题\n再组织回答');
   // 思考为空/纯空白：不注入字段，保持原有形状
-  const noReasoning = replacePendingWithReply([{ ...pending('x'), reasoning: '' }], 'x', parts);
+  const noReasoning = replacePendingWithReply([{ ...pending('x'), reasoning: '' }], 'x', parts, t);
   assert.equal(noReasoning[0].reasoning, undefined);
-  const blankReasoning = replacePendingWithReply([{ ...pending('x'), reasoning: '   ' }], 'x', parts);
+  const blankReasoning = replacePendingWithReply([{ ...pending('x'), reasoning: '   ' }], 'x', parts, t);
   assert.equal(blankReasoning[0].reasoning, undefined);
   // 无正文且思考为空回复：走「没有收到回复。」分支，思考仍随该条保留
-  const fallback = replacePendingWithReply([base], 'x', []);
+  const fallback = replacePendingWithReply([base], 'x', [], t);
   assert.equal(fallback[0].text, '没有收到回复。');
   assert.equal(fallback[0].reasoning, '先分析问题\n再组织回答');
 });
@@ -133,7 +137,7 @@ test('classifyReplyError：配置变更 / 取消 / 真失败 三分类（判定�
 
 test('buildReplyErrorMessage：气泡 id/role/脱敏 detail 与 rawText 透传', () => {
   const err = new Error('密钥 sk-abc1234567890 已泄露');
-  const { message, rawText } = buildReplyErrorMessage('p1', err);
+  const { message, rawText } = buildReplyErrorMessage('p1', err, t);
   assert.equal(message.id, 'p1-error');
   assert.equal(message.role, SYSTEM_ERROR_ID);
   assert.equal(message.text, '请求失败，点击查看详情');
@@ -148,14 +152,14 @@ test('mergeErrorMessage：有部分内容则追加，否则整条替换', () => 
   const errBubble = { id: 'x-error', role: 'system_error', text: '请求失败，点击查看详情' };
   // 占位符仍被 settle 保留（有部分正文）→ 追加
   const partial = [{ id: 'u' }, { ...p, text: '已经生成的一半', waitingForResponse: false }];
-  const appended = mergeErrorMessage(partial, 'x', errBubble);
+  const appended = mergeErrorMessage(partial, 'x', errBubble, t);
   assert.equal(appended.length, 3);
   assert.equal(appended[1].id, 'x');
   assert.equal(appended[1].pending, false);
   assert.equal(appended[2].id, 'x-error');
   // 占位符无内容（settle 后被移除）→ 整条替换
   const bare = [{ id: 'u' }, p];
-  const replaced = mergeErrorMessage(bare, 'x', errBubble);
+  const replaced = mergeErrorMessage(bare, 'x', errBubble, t);
   assert.equal(replaced.length, 2);
   assert.equal(replaced[1].id, 'x-error');
   assert.equal(replaced[1].role, 'system_error');
