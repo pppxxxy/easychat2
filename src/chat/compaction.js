@@ -17,7 +17,14 @@
 import { expandHistoryWithTraces } from './toolTrace.js';
 import { messageTextOf } from './messageText.js';
 
-export const COMPACTION_THRESHOLD_BYTES = 4 * 1024 * 1024;
+// 触发压缩的序列化体积阈值。
+// **必须低于 Android 单值读取上限**：一个会话的消息是**单键整数组**存盘
+//（storage/sessionMessages/messages.js），而 Android 的 CursorWindow 单值读取上限约 2MB
+// ——超过之后 AsyncStorage.getItem 直接抛错，只能靠 readLargeAsyncStorageValue 的
+// SQLite 分块兜底；那条兜底一旦失败就是「聊天记录永久读不出」（数据还在，但读不回）。
+// 4MB 高于上限，等于把 2–4MB 区间整个交给兜底路径去兜——所以压到 1.5MB，留出余量让
+// 压缩在「还读得动」的时候就发生，兜底只作为最后一道防线而不是常规路径。
+export const COMPACTION_THRESHOLD_BYTES = Math.round(1.5 * 1024 * 1024);
 export const COMPACTION_KEEP_RECENT = 6;
 // P4（对齐 dsh retainRatio）：压缩后按「窗口的 16%」逐字保留尾部，带最少条数下限。
 export const COMPACTION_RETAIN_RATIO = 0.16;

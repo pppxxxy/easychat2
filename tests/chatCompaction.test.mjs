@@ -39,6 +39,21 @@ test('estimateMessagesBytes / compactionStatus：序列化体积口径 + 阈值'
   assert.equal(compactionStatus(small, 10).threshold, 10);
 });
 
+// 回归 2026-10-11 逐行审查 P1：阈值曾是 4MB，**高于 Android 单值读取上限**。
+// 一个会话的消息是单键整数组存盘，超过 CursorWindow 上限（约 2MB）后 getItem 直接抛错，
+// 只能靠 readLargeAsyncStorageValue 的 SQLite 分块兜底；兜底失败 = 聊天记录永久读不出。
+// 所以阈值必须留在「还读得动」的区间里，压缩要在撞上限之前发生。
+test('回归：压缩阈值必须低于 Android 单值读取上限（约 2MB）', () => {
+  const ANDROID_CURSOR_WINDOW_LIMIT = 2 * 1024 * 1024;
+  assert.ok(
+    COMPACTION_THRESHOLD_BYTES < ANDROID_CURSOR_WINDOW_LIMIT,
+    `压缩阈值 ${COMPACTION_THRESHOLD_BYTES} 必须低于单值读取上限 ${ANDROID_CURSOR_WINDOW_LIMIT}`
+  );
+  // 2MB 的会话必须已经「该压缩」——否则它会在压缩触发之前就撞上读取上限。
+  const twoMb = [msg('user', 'x'.repeat(ANDROID_CURSOR_WINDOW_LIMIT))];
+  assert.equal(compactionStatus(twoMb).due, true, '2MB 会话必须已触发压缩');
+});
+
 test('formatBytes：B / KB / MB', () => {
   assert.equal(formatBytes(0), '0B');
   assert.equal(formatBytes(999), '999B');

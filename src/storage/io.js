@@ -71,14 +71,27 @@ export function getSqliteModule() {
   return sqliteModule;
 }
 
+// 大值兜底读取：AsyncStorage 的 getItem 在 Android 上受 CursorWindow 单值读取上限（约 2MB）
+// 限制，超限会抛错。这里直接读底下的 SQLite（RKStorage）分块取回原始串，是「聊天记录
+// 永久读不出」的最后一道防线。
+//
+// 失败**必须留痕**：本函数返回 null 时，调用方（readJsonStatus）只能把键判成「真读不出」，
+// 用户看到的是「聊天记录读取失败」，而此前这里一路静默 return null——诊断里什么都没有，
+// 用户与开发者都无从判断是数据没了、还是兜底路径坏了。所以每个「不是没有这条数据，
+// 而是读失败了」的分支都记一条诊断。
 export async function readLargeAsyncStorageValue(key) {
   const SQLite = getSqliteModule();
-  if (!SQLite || typeof SQLite.openDatabase !== 'function') return null;
+  if (!SQLite || typeof SQLite.openDatabase !== 'function') {
+    recordDiagnostic('storage', new Error('expo-sqlite 不可用，大值兜底读取无法进行'), key);
+    return null;
+  }
   const source = `${FileSystem.documentDirectory || ''}../databases/RKStorage`;
   try {
     const info = await FileSystem.getInfoAsync(source);
+    // 文件不存在 = 这条键本就不在（AsyncStorage 在 Android 上就是这张表）：不算失败，不记诊断。
     if (!info || !info.exists) return null;
   } catch (error) {
+    recordDiagnostic('storage', error, `大值兜底读取：无法访问 ${source}（${key}）`);
     return null;
   }
   let database = null;
@@ -89,6 +102,7 @@ export async function readLargeAsyncStorageValue(key) {
       args: [key],
     }], true);
     const total = Number(lengthResult?.[0]?.rows?.[0]?.total);
+    // 没有这一行 = 键不存在（正常），不记诊断。
     if (!Number.isFinite(total) || total <= 0) return null;
     const chunkSize = 256 * 1024;
     let value = '';
@@ -98,11 +112,17 @@ export async function readLargeAsyncStorageValue(key) {
         args: [offset + 1, chunkSize, key],
       }], true);
       const chunk = result?.[0]?.rows?.[0]?.chunk;
-      if (chunk == null) return null;
+      if (chunk == null) {
+        // length 说有数据、substr 却拿不到：读**截断**了。静默返回 null 会让这条会话
+        // 看起来「数据没了」，而其实只是这一次读坏了——必须留痕。
+        recordDiagnostic('storage', new Error('大值兜底读取中途截断（substr 返回空）'), `${key} @${offset}/${total}`);
+        return null;
+      }
       value += String(chunk);
     }
     return value;
   } catch (error) {
+    recordDiagnostic('storage', error, `大值兜底读取失败：${key}`);
     return null;
   } finally {
     if (database && typeof database.closeAsync === 'function') {
