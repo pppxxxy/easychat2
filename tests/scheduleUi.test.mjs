@@ -27,13 +27,18 @@ test('拓展首页新增作息入口并注册路由', () => {
   assert.ok(STACK.includes('<Stack.Screen name="ext-schedule" component={SchedulePanel} />'));
 });
 
-test('作息面板：角色选择 + 启用开关 + 四时刻 + 保存', () => {
-  assert.ok(PANEL.includes("key: 'wake'") && PANEL.includes("key: 'sleep'"));
-  assert.ok(PANEL.includes('<Switch'));
-  assert.ok(PANEL.includes('saveCharacterSchedule(roleId, normalized)'));
+test('作息面板：角色选择 + 启用/分套开关 + 三个子编辑器 + 保存', () => {
   assert.ok(PANEL.includes('getCharacterSchedule(roleId)'));
-  assert.ok(PANEL.includes('describeSchedule(normalized)'));
-  assert.ok(PANEL.includes('resolveSchedulePeriod'));
+  assert.ok(PANEL.includes('saveCharacterSchedule(roleId, normalized)'));
+  assert.ok(PANEL.includes('<Switch'));
+  assert.ok(PANEL.includes("from './schedule/draftOps.js'"));
+  assert.ok(PANEL.includes("from './schedule/SegmentsEditor.js'"));
+  assert.ok(PANEL.includes("from './schedule/EventsEditor.js'"));
+  assert.ok(PANEL.includes("from './schedule/HolidaysEditor.js'"));
+  assert.ok(PANEL.includes("from './schedule/preview.js'"));
+  assert.ok(PANEL.includes('<SegmentsEditor'));
+  assert.ok(PANEL.includes('<EventsEditor'));
+  assert.ok(PANEL.includes('<HolidaysEditor'));
 });
 
 test('对话注入：读取角色作息并附带当前时间（同一时刻，保证同日）', () => {
@@ -60,13 +65,57 @@ test('作息词条中英齐备', () => {
     'schedule.title',
     'schedule.selectRole',
     'schedule.enable',
-    'schedule.wake',
-    'schedule.workStart',
-    'schedule.workEnd',
-    'schedule.sleep',
-    'schedule.save',
-    'schedule.hint',
+    'schedule.enableHint',
+    'schedule.splitWeekday',
+    'schedule.splitWeekdayHint',
+    'schedule.dayKind.workday',
+    'schedule.dayKind.restday',
+    'schedule.timePlaceholder',
+    'schedule.segmentFallback',
+    'schedule.builtin.sleep',
+    'schedule.builtin.work',
+    'schedule.segments.title',
+    'schedule.segments.empty',
+    'schedule.segments.add',
+    'schedule.segments.namePlaceholder',
+    'schedule.segments.start',
+    'schedule.segments.end',
+    'schedule.segments.moveUp',
+    'schedule.segments.moveDown',
+    'schedule.segments.remove',
+    'schedule.segments.orderHint',
+    'schedule.events.title',
+    'schedule.events.empty',
+    'schedule.events.add',
+    'schedule.events.namePlaceholder',
+    'schedule.events.kind.point',
+    'schedule.events.kind.range',
+    'schedule.events.probability',
+    'schedule.events.descriptionPlaceholder',
+    'schedule.events.remove',
+    'schedule.events.hint',
+    'schedule.events.emptyDescriptionHint',
+    'schedule.holidays.title',
+    'schedule.holidays.empty',
+    'schedule.holidays.add',
+    'schedule.holidays.placeholder',
+    'schedule.holidays.remove',
+    'schedule.holidays.invalid',
+    'schedule.holidays.hint',
+    'schedule.preview',
+    'schedule.preview.workday',
+    'schedule.preview.restday',
+    'schedule.preview.none',
+    'schedule.preview.events',
+    'schedule.preview.holidays',
+    'schedule.period.free',
     'schedule.currentPeriod',
+    'schedule.hint',
+    'schedule.disabledHint',
+    'schedule.save',
+    'schedule.saved',
+    'schedule.saveFailed',
+    'schedule.noRoles',
   ];
   keys.forEach(key => {
     assert.ok(ZH.includes(`'${key}'`), `zh-CN 缺 ${key}`);

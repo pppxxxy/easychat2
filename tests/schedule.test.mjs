@@ -216,6 +216,8 @@ test('normalizeSchedule：概率事件只收有描述且时间合法的行，概
   assert.equal(s.workday.events[0].probability, 30);
   assert.equal(s.workday.events[1].probability, 100, '超上限夹到 100');
   assert.equal(s.workday.events[2].probability, DEFAULT_EVENT_PROBABILITY, '缺省给默认概率');
+  // 面板的概率输入框被清空时传的是空串：Number('') === 0，不特判会让事件静默永不发生
+  assert.equal(normalizeSchedule({ schema: 2, workday: { events: [{ at: '12:00', description: 'x', probability: '' }] } }).workday.events[0].probability, DEFAULT_EVENT_PROBABILITY);
   assert.equal(normalizeSchedule({ schema: 2, workday: { events: [{ at: '12:00', description: 'x', probability: -5 }] } }).workday.events[0].probability, 0);
 });
 

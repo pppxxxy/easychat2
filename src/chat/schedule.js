@@ -128,6 +128,8 @@ function normalizeBuiltin(value) {
 }
 
 function normalizeProbability(value) {
+  // 空串是「用户把输入框清空了」，不是 0：Number('') === 0，不特判会让事件静默永不发生。
+  if (value === '' || value === null || value === undefined) return DEFAULT_EVENT_PROBABILITY;
   const number = Number(value);
   if (!Number.isFinite(number)) return DEFAULT_EVENT_PROBABILITY;
   return Math.min(100, Math.max(0, Math.round(number)));
