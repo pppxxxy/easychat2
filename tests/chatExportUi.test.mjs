@@ -12,6 +12,7 @@ const CHAT_SCREEN = read('src/ChatScreen.js');
 const MODAL = read('src/chat/ConversationExportModal.js');
 const CARD = read('src/chat/ShareCard.js');
 const STYLES = read('src/chat/exportStyles.js');
+const SHEET = read('src/ui/Sheet.js');
 const ZH = read('src/i18n/locales/zh-CN/chat.js');
 const EN = read('src/i18n/locales/en/chat.js');
 
@@ -77,18 +78,18 @@ test('三种格式都有预览：Markdown 渲染、HTML 内嵌 WebView、缺组�
   assert.ok(MODAL.includes("t('chat.export.preview.caption', { count: meta.header.count })"));
 });
 
-test('导出弹层不被 Touchable 包住：关闭层铺满整屏、弹层是同级 View', () => {
-  // Android 上 WebView 被 Touchable 包住会滚不动，HTML 预览就看不全。
-  assert.ok(MODAL.includes('styles.exportBackdrop'), '应使用自带背板');
-  assert.ok(MODAL.includes('StyleSheet.absoluteFill'), '关闭层应铺满整屏');
-  assert.equal(MODAL.includes('styles.modalBackdrop'), false, '不得复用把弹层包进 Touchable 的通用背板');
-  // 弹层是普通 View；限宽/居中走共享的 sheetWidth + box-none 的居中层
-  assert.ok(MODAL.includes('style={[styles.exportSheet, styles.sheetWidth]}'), '弹层应复用共享限宽样式');
+test('导出弹层走共享 Sheet，且卡片吞按压（WebView 滚动不被背景层吃掉）', () => {
+  // Android 上 HTML 预览是 WebView：若它被「点空白就关」的背景层包住，滚动会被背景层
+  // 吃掉（一滚就关/滚不动）。D 系统一外壳后由 Sheet 的 cardAbsorbPress 承担隔离——
+  // 卡片自己吞掉按压，滚动不冒泡到背景层；语义与改造前「关闭层铺满整屏 + box-none 层」等价。
+  assert.ok(MODAL.includes('<Sheet'), '走共享 Sheet 外壳（不再各写一份 Modal+背板）');
+  assert.ok(MODAL.includes('cardAbsorbPress'), '卡片必须吞掉按压');
+  assert.ok(MODAL.includes('backdropStyle={styles.modalBackdrop}'), '背板复用通用样式');
+  assert.ok(MODAL.includes('cardStyle={[styles.exportSheet, styles.sheetWidth]}'), '弹层复用共享限宽样式');
   assert.equal(/<TouchableOpacity[^>]*styles\.exportSheet/.test(MODAL), false, '弹层不得是 Touchable');
-  assert.ok(MODAL.includes('pointerEvents="box-none"'), '居中层要 box-none，否则 padding 环挡住关闭层');
-  assert.ok(MODAL.includes('accessibilityViewIsModal'), '弹层要标模态（D 线 a11y 口径）');
-  assert.ok(STYLES.includes('exportBackdrop'), 'exportStyles 应有 exportBackdrop');
-  assert.ok(STYLES.includes('exportSheetLayer'), 'exportStyles 应有居中/内缩层');
+  assert.equal(MODAL.includes('styles.exportBackdrop'), false, '自带背板已收进 Sheet，不得复活');
+  assert.ok(SHEET.includes('accessibilityViewIsModal'), '弹层模态标记收在 Sheet 一处（D 线 a11y 口径）');
+  assert.ok(SHEET.includes('importantForAccessibility="yes"'), 'Android 侧模态标记同样收在 Sheet');
 });
 
 test('导出词条中英齐备', () => {

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍服务声明（声明式，不含任何截屏能力）。
+
+  ⚠️ 本文件与 ScreenAccessibilityService.kt 一起，是「用户手动开启后系统常驻绑定」
+  这条更省事的授权路径的骨架。当前**只用于状态查询**（无障碍是否已开启），
+  不接管任何屏幕采集——采集仍走 OverlayService 的 MediaProjection 路径。
+
+  ⚠️ 未在本地核实（沙箱无 Android SDK / Java，无法编译或校验属性）：
+    - `android:canTakeScreenshot` 的可用 API level 与其在无障碍截屏 API 中的
+      必要性，均未能核实，故**有意不声明**（声明了却不用，等于在清单里说谎，
+      也会让系统/应用商店以为本服务具备截屏能力）。
+      将来若要接入无障碍截屏，需要真机验证后再补这一条属性并同步改本注释。
+    - `accessibilityEventTypes` / `accessibilityFeedbackType` 的具体取值语义
+      未逐项核实；这里取最常见的保守组合（窗口状态变化 + 通用反馈）。
+      取不到事件只影响将来「读屏文字」的扩展，不影响当前的状态查询。
+
+  android:description 走字符串资源（@string/screen_overlay_accessibility_description），
+  与用户可见文案同一纪律：不进本文件硬编码，改由 withScreenOverlay.js 注入两份
+  语言资源。当前先注入中文，英文留待 i18n 资源批次（见插件内注释）。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/screen_overlay_accessibility_description"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:notificationTimeout="100" />

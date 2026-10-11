@@ -216,7 +216,11 @@ export async function runAgentTask(task, { deps = null, now = new Date(), signal
   let scheduleText = '';
   try {
     const schedule = await d.getCharacterSchedule(roleId);
-    if (d.isScheduleActive(schedule)) scheduleText = d.buildSchedulePrompt(schedule);
+    // 传本次运行时刻：概率事件按「天」确定性解析（同一天内文本稳定），
+    // 工作日/休息日也按同一天判定（与 buildAgentTaskMessages 注入的时间行同一 now）。
+    if (d.isScheduleActive(schedule)) {
+      scheduleText = d.buildSchedulePrompt(schedule, { date: now, characterId: roleId });
+    }
   } catch (error) {
     scheduleText = '';
   }

@@ -33,7 +33,8 @@ import { EMPTY_ONLINE_REQUEST_CONTEXT, resolveOnlineRequestContext } from './onl
 // I1：Steering 队列（运行中补充指令）——纯函数工厂，队列本身只在「本轮会跑工具循环」时建。
 import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
-import { TOOL_BUBBLE_KIND } from './chatConstants.js';
+// 工具过程气泡：事件→状态映射、隐藏判定与状态变换都在 toolBubbleView.js（唯一来源）。
+import { createToolBubbleApplier, toolBubbleState } from './toolBubbleView.js';
 import { approveToolCall } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
 // O1 超限结果落盘（M 系）+ 工作区钩子事件面（D 系：注入/预置禁令，取代旧的 shellHookDenyRules）。
@@ -55,15 +56,18 @@ import {
   MAX_IMAGE_ATTACHMENTS,
   MAX_IMAGE_BASE64_BYTES,
   MAX_VIDEO_ATTACHMENTS,
-  MAX_VIDEO_BASE64_BYTES,
   MAX_VIDEO_BYTES,
   mergeTextAttachments,
   readImageDataUri,
-  readVideoDataUri,
   validateImageBatch,
-  validateVideoSize,
 } from './attachments.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
+// 图片识别（OCR）：带图片的消息先由 OCR 模型换成文字描述再喂主模型（接线见
+// chat/imageRecognitionSend.js，这里只用它的两个入口）。
+import { applyImageRecognitionToMessages } from './imageRecognitionSend.js';
+import { resolveImageRecognitionPlan } from '../imageRecognition/index.js';
+import { getCharacterApiConfigs, resolveCharacterOcrSettings } from '../character/runtimeConfig.js';
+import { prepareVideoMessages } from './videoSend.js';
 import { createVoiceMessage } from './voiceMessages.js';
 import { createRequestMeter, estimatePromptTokens, estimateReplyTokens } from './sessionStats.js';
 import { recordSessionRequest } from '../storage/sessionStats.js';
@@ -123,7 +127,7 @@ import {
   planMemoryBudget,
 } from '../memory/memorySummary.js';
 import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
-import { capabilitiesForModel, getApiConfigs, getActiveModel } from '../storage/apiConfigs.js';
+import { capabilitiesForModel, getActiveModel } from '../storage/apiConfigs.js';
 import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
 import { getEnabledPlugins } from '../storage/settings.js';
 import { getUserProfile } from '../storage/personas.js';
@@ -292,34 +296,18 @@ export default function useChatSend({
      abortRef.current = controller;
      if (controller.signal.aborted) return false;
      // 工具过程气泡：由 onToolEvent 驱动，临时消息（不落库、不进上下文）。
-     // 同一个气泡对象原地更新状态（running → done/error），不逐轮堆叠。
-     const toolStatusId = `${Date.now()}-tool-bubble`;
-     const clearToolBubble = () => {
-       if (!isCurrentSession()) return;
-       setMessages(current => (
-         isCurrentSession() ? current.filter(item => item.id !== toolStatusId) : current
-       ));
-     };
-     const setToolBubble = (name, status, error = '') => {
-       if (!isCurrentSession()) return;
-       setMessages(current => {
-         if (!isCurrentSession()) return current;
-         const without = current.filter(item => item.id !== toolStatusId);
-         if (!name || !status) return without;
-         return [...without, {
-           id: toolStatusId,
-           role: ASSISTANT_ID,
-           text: '',
-           kind: TOOL_BUBBLE_KIND,
-           toolName: name,
-           toolStatus: status,
-           toolError: error,
-           pending: true,
-           transient: true,
-           timestamp: Date.now(),
-         }];
-       });
-     };
+     // 挂出 / 原地更新 / 清除、以及**隐藏判定**都在 toolBubbleView.js 里（唯一实现）。
+     // 可见性直读 chatOptionsRef：设置页改完回到聊天页即生效，本轮已在跑的工具也跟随。
+     // **审批弹层不走这里**：需要确认时由下面的 onToolApproval → approveToolCall 独立弹出。
+     // 隐藏过程提示**绝不**隐藏审批，否则工具会在用户不知情时执行（安全问题，不是偏好）。
+     const toolBubble = createToolBubbleApplier({
+       id: `${Date.now()}-tool-bubble`,
+       isCurrentSession,
+       getVisibility: () => chatOptionsRef.current,
+       setMessages,
+     });
+     const clearToolBubble = toolBubble.clear;
+     const setToolBubble = toolBubble.set;
      // P0-7：降级链中途换了模型 → 记下「从谁换到谁」，由 ChatScreen 在输入栏上方
      // 如实提示（不弹框、不打断生成）。只记当前会话：切走后旧会话的提示不该跟过来。
      const noteModelFallback = info => {
@@ -460,10 +448,9 @@ export default function useChatSend({
           .find(item => item.id === sessionCharacterId) || character;
         const characterExists = (Array.isArray(characters) ? characters : [])
           .some(item => item.id === sessionCharacterId);
-        // 读取作用域：单会话角色继续带上已有世界书记忆（不做迁移/丢弃），
-        // 多会话角色只读本会话。写入侧的降级见 runSummarize，两者解耦。
-        // 内置助手一律按会话级（它卡上的「记忆总结」可能是兜底归属沉淀来的），
-        // 并把当前会话计入判定，避免新建的第二个会话被当成单会话角色。
+        // 读取作用域：单会话角色带上已有世界书记忆（不做迁移/丢弃），多会话角色只读本会话
+        //（写入侧降级见 runSummarize，两者解耦）。内置助手一律按会话级（它卡上的「记忆总结」
+        // 可能是兜底归属沉淀来的），并把当前会话计入判定，避免第二个会话被当成单会话角色。
         const scoped = isBuiltinAssistant(sessionCharacter)
           || !characterExists
           || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, sendSessionId);
@@ -477,10 +464,9 @@ export default function useChatSend({
       } catch (error) {
         summaryText = '';
       }
-       // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时，
-       // 注入「[当前位置] …」——内容就是当前选中的那条自写位置（点选即用，一次一个）。
-       // 任一关闭 = 空串——位置感知是独立 opt-in，不给「开地图即默认分享」留后门。
-       // maxAgeMs: null —— 手写位置没有「取点时间」，不该按定位时效判过期。
+       // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时注入
+       // 「[当前位置] …」（内容即当前选中的那条自写位置）；任一关闭 = 空串——位置感知是
+       // 独立 opt-in，不给「开地图即默认分享」留后门。手写位置没有取点时间，故 maxAgeMs: null。
        let locationLine = '';
        try {
          const locationSettings = await getLocationSettings();
@@ -494,21 +480,20 @@ export default function useChatSend({
        }
        // 角色作息：读取会话所属角色的作息；启用时注入静态作息规则，并附带当前时间
        // （规则要靠当前时间判断时段，故启用作息即附带时间，与全局 timeAware 解耦）。
+       // 「本次请求的时刻」只取一次：时间行与作息规则的工作日/休息日判定必须同一天，
+       // 否则跨零点的那一轮会出现「时间行已是次日、作息还按前一天」的错配。
+       // 传日期 → 概率事件按「天」确定性解析；同一天内文本逐字节一致（缓存契约）。
+       const requestNow = new Date();
+       const scheduleCharacterId = String((currentSession && currentSession.characterId) || character.id || '');
        let scheduleText = '';
        let scheduleActive = false;
        try {
-         const scheduleCharacterId = String(
-           (currentSession && currentSession.characterId) || character.id || ''
-         );
          const schedule = scheduleCharacterId ? await getCharacterSchedule(scheduleCharacterId) : null;
          if (isScheduleActive(schedule)) {
-           scheduleText = buildSchedulePrompt(schedule);
+           scheduleText = buildSchedulePrompt(schedule, { date: requestNow, characterId: scheduleCharacterId });
            scheduleActive = true;
          }
-       } catch (error) {
-         scheduleText = '';
-         scheduleActive = false;
-       }
+       } catch (error) { scheduleText = ''; scheduleActive = false; }
        const requestMessages = buildRequestMessages({
          character,
          historyMessages: trimmedHistory,
@@ -521,13 +506,15 @@ export default function useChatSend({
          pluginContext,
          images,
          quote,
-          stickerNames: resolveStickerNames(stickersRef.current),
-          stickerEnabled: chatOptionsRef.current.stickerEnabled === true,
-         // 时间感知开启（或角色作息启用）时附上当前时间（每次请求现算，保证准确）。
-         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive),
-          // 角色作息启用时附上作息规则（含「按当前时间判断状态」）。
-          scheduleText,
-          downloadImageEnabled: chatOptionsRef.current.downloadImage === true,
+         // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
+         stickerNames: resolveStickerNames(stickersRef.current),
+         stickerEnabled: chatOptionsRef.current.stickerEnabled === true,
+         // 时间感知开启（或角色作息启用）时附上当前时间（与作息规则取同一时刻，保证同日）。
+         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive, requestNow),
+         // 角色作息启用时附上作息规则（含「按当前时间判断状态」与今天的概率事件）。
+         scheduleText,
+         // 图片下载：角色可用 <download_image:URL> 让 App 取回网络图片（默认关）。
+         downloadImageEnabled: chatOptionsRef.current.downloadImage === true,
          // 真实位置开启且存在最近位置时附上位置行。
          locationText: locationLine,
          // P0-8：hooks.json 的注入类事件（session_start / after_turn / before_prompt）。
@@ -554,9 +541,11 @@ export default function useChatSend({
           : requestMessages;
         // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置单独裁剪媒体。
         let online = EMPTY_ONLINE_REQUEST_CONTEXT;
+        // 角色专属聊天 API 的唯一入口（解析层见 character/runtimeConfig.js）：activeId 已按
+        // 角色覆盖解析，专属模型也写进了该条配置的 activeModel，下面的能力/指纹自动跟随。
+        const charConfigs = await getCharacterApiConfigs(characterId).catch(() => ({ configs: [], activeId: '', chatRequestOptions: {} }));
         try {
-          const { configs, activeId } = await getApiConfigs();
-          online = resolveOnlineRequestContext(configs, activeId, expectedConfigId, {
+          online = resolveOnlineRequestContext(charConfigs.configs, charConfigs.activeId, expectedConfigId, {
             getModel: getActiveModel,
             getCapabilities: capabilitiesForModel,
           });
@@ -641,11 +630,10 @@ export default function useChatSend({
         // P5：本轮工具轨迹（onTranscript 回抛；挂到助手终稿上持久化）。
         let turnTrace = null;
         const meter = createRequestMeter();
-        // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
-        // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
-        // 本地模型/不返回 usage 的端点：count 恒为 0，走估算回退（零行为变化）。
-        // P0-7/P2-10：`lastModel` 记**真正产出内容**的模型（降级链可能换过模型）——
-        // 记账按主模型记会让「这条回复是谁产的」变成假话。
+        // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实计费，
+        // 累计才是真实成本；缓存命中率 = Σcached / Σprompt，不返回 usage 的端点 count 恒为 0
+        // 走估算回退。P0-7/P2-10：`lastModel` 记**真正产出内容**的模型（降级链可能换过模型），
+        // 按主模型记会让「这条回复是谁产的」变成假话。
         const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, lastModel: '' };
         recordStats = (completionText, extra = {}) => {
           try {
@@ -698,6 +686,8 @@ export default function useChatSend({
               requestOptions: {
                 expectedConfigId,
                 expectedConfigFingerprint,
+                // 专属配置生效时才有键（configId+model）；无覆盖时为 {} = 既有解析路径。
+                ...charConfigs.chatRequestOptions,
                 stream: chatOptions.stream,
                 // P0-7：换模型重试要能提示到用户（经 runAgentTurn 透传给 api.js）。
                 onModelFallback: noteModelFallback,
@@ -718,22 +708,18 @@ export default function useChatSend({
                 });
               },
               onToolEvent: event => {
-                // 可见的工具过程气泡：start 时挂出「正在…」，end 时原地改成「完成/失败」。
+                // 可见的工具过程气泡：start 挂出「正在…」，end 原地改成「完成/失败」。
+                // 事件→状态映射复用 toolBubbleState，不在这里重写一遍。
                 // 结束后不立刻清掉——用户要能看到「刚才搜过」，它随本轮结束一起消失
                 //（下面 clearToolBubble 在各收尾分支统一调用），且不落库。
-                if (!event) return;
-                if (event.phase === 'start') setToolBubble(event.name, 'running');
-                else if (event.phase === 'end') {
-                  setToolBubble(event.name, event.ok === false ? 'error' : 'done', event.error || '');
-                }
+                // 隐藏只掐「显示」：事件处理照旧，工具循环本身完全不受影响。
+                const state = toolBubbleState(event);
+                if (state) setToolBubble(state.name, state.status, state.error || '');
               },
-              // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，所以必须接上——
-              // 不接的话 registry 会把需要确认的工具一律拒绝。
-              //
-              // 钩子规则（hooks.json 的 before_shell / before_tool）**不走这里**：
-              // 它们改由 permissionRules 单独喂给 runTool（见下），因为审批钩子只在
-              // 「需要确认的工具」上被调用，而钩子的语义是拦下**任意**工具——
-              // 写工具按设计不逐条确认，只接这里等于规则永不生效（2026-10-11 P1）。
+              // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，不接的话 registry 会把需要
+              // 确认的工具一律拒绝。钩子规则（before_shell / before_tool）**不走这里**：它们
+              // 由 permissionRules 单独喂给 runTool（见下）——审批只在「需要确认的工具」上被
+              // 调用，而钩子要拦下**任意**工具，写工具按设计不逐条确认（2026-10-11 P1）。
               onToolApproval: call => approveToolCall({
                 name: call && call.name,
                 args: call && call.args,
@@ -768,6 +754,7 @@ export default function useChatSend({
           : sendChatMessage(onlineMessages, {
               expectedConfigId,
               expectedConfigFingerprint,
+              ...charConfigs.chatRequestOptions,
               signal: controller.signal,
            stream: chatOptions.stream,
            onModelFallback: noteModelFallback,
@@ -838,7 +825,7 @@ export default function useChatSend({
                   error,
                   deps: buildReactiveCompactDeps({
                     store: hookStore, characterId: character.id,
-                    summarize: request => sendChatMessage(request, { stream: false, expectedConfigId, expectedConfigFingerprint }),
+                    summarize: request => sendChatMessage(request, { stream: false, expectedConfigId, expectedConfigFingerprint, ...charConfigs.chatRequestOptions }),
                   }),
                 });
                 if (result.compacted) {
@@ -1027,16 +1014,13 @@ export default function useChatSend({
        setModelFallbackNotice({ from: String((info && info.from) || ''), to });
      };
      // 群聊同样计入本会话统计：配置名/模型名在这里读一次，供每组请求记账。
-     let groupConfigLabel = '';
-     let groupModelName = '';
-     try {
-       const { configs, activeId } = await getApiConfigs();
-       const currentConfig = configs.find(item => item.id === expectedConfigId)
-         || configs.find(item => item.id === activeId)
-         || configs[0];
-       groupConfigLabel = currentConfig ? String(currentConfig.name || currentConfig.id || '') : '';
-       groupModelName = currentConfig ? String(getActiveModel(currentConfig) || '') : '';
-     } catch (error) {}
+     const groupRuntime = await getCharacterApiConfigs(characterId)
+       .catch(() => ({ configs: [], activeId: '', chatRequestOptions: {} }));
+     const currentConfig = groupRuntime.configs.find(item => item.id === expectedConfigId)
+       || groupRuntime.configs.find(item => item.id === groupRuntime.activeId)
+       || groupRuntime.configs[0];
+     const groupConfigLabel = currentConfig ? String(currentConfig.name || currentConfig.id || '') : '';
+     const groupModelName = currentConfig ? String(getActiveModel(currentConfig) || '') : '';
      const recordGroupStats = (meter, replyText, extra = {}) => {
        try {
          const timing = meter.finish();
@@ -1175,6 +1159,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             const reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
              expectedConfigFingerprint,
+             ...groupRuntime.chatRequestOptions,
              signal: controller.signal,
               stream: chatOptions.stream,
               onModelFallback: noteGroupModelFallback,
@@ -1258,6 +1243,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
            reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
              expectedConfigFingerprint,
+             ...groupRuntime.chatRequestOptions,
              signal: controller.signal,
             stream: chatOptions.stream,
             onModelFallback: noteGroupModelFallback,
@@ -1394,10 +1380,14 @@ if (!isCurrent() || controller.signal.aborted) return false;
       let visionEnabled = false;
       let audioInputEnabled = false;
       let videoEnabled = false;
+      // 图片识别（OCR）这次能不能用（开关 + 配置 + 模型名 + 密钥四项都满足）。
+      // 在图片循环前解析：循环里的视觉门控需要它来决定「主模型没有识图能力时
+      // 是否放行到 OCR 通道」。
+      let imageRecognitionPlan = null;
      let expectedConfigId = '';
      let expectedConfigFingerprint = '';
     try {
-       const { configs, activeId } = await getApiConfigs();
+       const { configs, activeId } = await getCharacterApiConfigs(characterId);
        if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
       const current = configs.find(item => item.id === activeId) || configs[0];
        expectedConfigId = String(current?.id || '');
@@ -1418,6 +1408,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
       const localMedia = getLocalModelMediaCapabilities(localSettingsForMedia, localItemForMedia);
       visionEnabled = visionEnabled || localMedia.vision;
       audioInputEnabled = audioInputEnabled || localMedia.audio;
+      // 图片识别（OCR）配置：只在确实带图片时解析（纯文字消息不白读一次存储）。
+      // 用途有二：图片循环的视觉门控（主模型无识图能力时是否放行到 OCR 通道）、
+      // 循环之后的识别接线。设置取**角色生效值**（专属 OCR 配置优先，失效则回落全局）。
+      if (imageAttachments.length > 0) imageRecognitionPlan = await resolveImageRecognitionPlan(await resolveCharacterOcrSettings(characterId)).catch(() => null);
      let sizedImages = [];
      try {
        sizedImages = await Promise.all(imageAttachments.map(async item => {
@@ -1447,7 +1441,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     for (let index = 0; index < imageAttachments.length; index += 1) {
       const item = sizedImages[index];
       const kind = item.kind === STICKER_MESSAGE_KIND ? STICKER_MESSAGE_KIND : 'image';
-      if (kind === 'image' && !visionEnabled) {
+      if (kind === 'image' && !visionEnabled && !(imageRecognitionPlan && imageRecognitionPlan.ready)) {
          Alert.alert(tRef.current('chat.send.noVision.title'), tRef.current('chat.send.noVision.body'));
          return false;
        }
@@ -1501,65 +1495,53 @@ if (!isCurrent() || controller.signal.aborted) return false;
         includeImage: visionEnabled,
       });
     }
-    // 视频附件：能力/数量/大小三重校验后读成数据 URI。预算与图片分列——
-    // 视频请求体大得多，单独用 MAX_VIDEO_BASE64_BYTES 控住，避免一条视频
-    // 把图片的额度连带吃光。
+    // 图片识别（OCR）接线：先把图片交给 OCR 模型换成文字描述（描述由 chatMedia 的
+    // 上下文投影拼进该消息文本，让看不到图的模型也能理解画面），再决定是否附原图。
+    // 失败**绝不静默丢图**：主模型能看图 → 退回直发原图；看不到图 → 明确提示并中止
+    //（继续发就是发一条模型看不懂的请求，用户只会收到莫名其妙的回复）。
+    if (imageRecognitionPlan && imageRecognitionPlan.ready && imageMessages.length > 0) {
+      const recognized = await applyImageRecognitionToMessages(imageMessages, {
+        plan: imageRecognitionPlan,
+        mainModelVision: visionEnabled,
+        signal: abortRef.current ? abortRef.current.signal : null,
+      });
+      if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
+      if (recognized.decision === 'fail') {
+        Alert.alert(tRef.current('chat.send.imageRecognitionFailed.title'), tRef.current('chat.send.imageRecognitionFailed.body'));
+        return false;
+      }
+      if (recognized.ran) imageMessages.forEach(item => { item.includeImage = recognized.attachOriginal; });
+    }
+    // 视频附件：校验后读成数据 URI（编排已抽到 chat/videoSend.js）。预算与图片分列：
+    // 视频请求体大得多，共用一份额度会让一条视频把图片的额度吃光。
     if (videoAttachments.length > 0) {
       if (!videoEnabled) {
         Alert.alert(tRef.current('chat.send.noVideo.title'), tRef.current('chat.send.noVideo.body'));
         return false;
       }
-      let totalVideoBase64Bytes = 0;
-      for (let index = 0; index < videoAttachments.length; index += 1) {
-        const item = videoAttachments[index];
-        let size = Number(item.size || 0);
-        try {
-          const info = await getImageFileInfo(item.uri);
-           if (!info.exists) throw sendError(SEND_ERROR.VIDEO_MISSING);
-           size = info.size || size;
-           validateVideoSize({ size });
-         } catch (error) {
-           if (error && error.code === SEND_ERROR.VIDEO_MISSING) {
-             Alert.alert(tRef.current('chat.send.videoMissing.title'), tRef.current('chat.send.videoMissing.body'));
-           } else {
-             Alert.alert(tRef.current('chat.send.videoTooLarge.title'), tRef.current('chat.send.videoTooLarge.body', { max: Math.round(MAX_VIDEO_BYTES / (1024 * 1024)) }));
-           }
-          return false;
-        }
-        let dataUri = '';
-        try {
-          const estimatedBase64Bytes = Math.ceil(size * 4 / 3);
-          if (totalVideoBase64Bytes + estimatedBase64Bytes > MAX_VIDEO_BASE64_BYTES) {
-            throw sendError(SEND_ERROR.VIDEO_TOTAL_TOO_LARGE);
-          }
-          totalVideoBase64Bytes += estimatedBase64Bytes;
-          dataUri = await readVideoDataUri(item.uri, item.mime);
-          const separator = dataUri.indexOf(',');
-          const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
-          totalVideoBase64Bytes = Math.max(
-            totalVideoBase64Bytes,
-            totalVideoBase64Bytes - estimatedBase64Bytes + Math.ceil(base64Length * 3 / 4)
-          );
-          if (totalVideoBase64Bytes > MAX_VIDEO_BASE64_BYTES) throw sendError(SEND_ERROR.VIDEO_TOTAL_TOO_LARGE);
-          if (isCanceled()) return false;
-        } catch (error) {
+      const prepared = await prepareVideoMessages(videoAttachments, {
+        now,
+        indexOffset: imageAttachments.length,
+        maxVideoBytes: MAX_VIDEO_BYTES,
+        getFileInfo: getImageFileInfo,
+        isCanceled,
+        isGuardCurrent: () => isSessionGuardCurrent(sessionGuard),
+      });
+      if (!prepared.ok) {
+        if (prepared.reason === 'canceled' || prepared.reason === 'guard-changed') return false;
+        if (prepared.reason === 'missing') {
+          Alert.alert(tRef.current('chat.send.videoMissing.title'), tRef.current('chat.send.videoMissing.body'));
+        } else if (prepared.reason === 'read-failed') {
           Alert.alert(tRef.current('chat.send.videoReadFailed.title'), tRef.current('chat.send.videoReadFailed.body'));
-          return false;
+        } else {
+          Alert.alert(tRef.current('chat.send.videoTooLarge.title'), tRef.current('chat.send.videoTooLarge.body', { max: Math.round(MAX_VIDEO_BYTES / (1024 * 1024)) }));
         }
-        if (!isSessionGuardCurrent(sessionGuard)) return false;
-        const videoMessage = createMediaMessage({
-          id: `${now}-video-${index}`,
-          kind: 'video',
-          uri: item.uri,
-          mime: item.mime,
-          name: item.name,
-          width: item.width,
-          height: item.height,
-          timestamp: now + imageAttachments.length + index,
-        });
-        mediaMessages.push(videoMessage);
-        imageMessages.push({ ...videoMessage, dataUri, includeVideo: videoEnabled });
+        return false;
       }
+      prepared.messages.forEach(({ message, dataUri }) => {
+        mediaMessages.push(message);
+        imageMessages.push({ ...message, dataUri, includeVideo: videoEnabled });
+      });
     }
      const mergedText = mergeTextAttachments(text, textAttachments);
      if (!mergedText && mediaMessages.length === 0 && !voice) return false;
@@ -1619,7 +1601,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
      if (isCanceled() || !isSessionGuardCurrent(sessionGuard)
        || (abortRef.current && abortRef.current.signal.aborted)) return false;
      try {
-       const latest = await getApiConfigs();
+       const latest = await getCharacterApiConfigs(characterId);
        if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
        const latestConfig = latest.configs.find(item => item.id === latest.activeId) || latest.configs[0];
         const latestConfigId = String(latestConfig && latestConfig.id || '');
@@ -1737,7 +1719,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        let localMedia = { vision: false, audio: false };
       try {
         const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
-          getApiConfigs(),
+          getCharacterApiConfigs(characterId),
           getLocalModelSettings().catch(() => null),
           getActiveLocalModel().catch(() => null),
         ]);

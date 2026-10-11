@@ -110,7 +110,27 @@ export function archiveBranch(sessionId, forkMessageId, messages) {
   return enqueueSessionMutation(() => archiveBranchInternal(sessionId, forkMessageId, messages));
 }
 
-// 删除单条分支：先改索引、后删条目（索引是事实源，条目残留由清理兜底）。
+// 删除分支的**提交点**：先写索引、后删条目。
+//
+// 与归档方向相反是**刻意的**（两边都以「索引是事实源」为准，但提交点必然相反）：
+// - 归档 = 条目 → 索引：索引最后写。写索引失败 = 这次归档不存在，孤儿条目由前缀扫描兜底；
+// - 删除 = 索引 → 条目：索引先写。写索引失败 = 这次删除没发生（条目还在、索引还指着它，
+//   不会出现「索引指着一条已删条目」的悬空引用）；条目删不掉只是残留，由前缀扫描兜底。
+// 单条删除与清理过期分支共用本函数——两条删除路径各写一份提交顺序，迟早会写反。
+async function commitBranchRemoval(sessionId, keptBranches, removedIds) {
+  const sid = String(sessionId || '');
+  const ids = (Array.isArray(removedIds) ? removedIds : []).map(id => String(id || '')).filter(Boolean);
+  await AsyncStorage.setItem(sessionBranchIndexKey(sid), JSON.stringify(keptBranches));
+  if (ids.length === 0) return;
+  try {
+    await AsyncStorage.multiRemove(ids.map(id => sessionBranchItemKey(sid, id)));
+  } catch (error) {
+    // 索引已是事实源：条目删不掉只是残留（会话删除/回收按前缀扫掉），
+    // 不能因此回滚索引——回滚会把用户刚删掉的分支重新暴露出来。
+  }
+}
+
+// 删除单条分支：索引是事实源，条目残留由清理兜底。
 async function deleteBranchInternal(sessionId, branchId) {
   const sid = String(sessionId || '');
   const id = String(branchId || '');
@@ -118,10 +138,7 @@ async function deleteBranchInternal(sessionId, branchId) {
   const status = await readBranchIndex(sid);
   if (status.status === 'corrupt') return false;
   const next = status.branches.filter(item => String(item.id) !== id);
-  await AsyncStorage.setItem(sessionBranchIndexKey(sid), JSON.stringify(next));
-  try {
-    await AsyncStorage.removeItem(sessionBranchItemKey(sid, id));
-  } catch (error) {}
+  await commitBranchRemoval(sid, next, [id]);
   return true;
 }
 
@@ -149,8 +166,7 @@ async function pruneStaleBranchesInternal(sessionId, activeMessageIds) {
     kept.push(branch);
   }
   if (removed.length > 0) {
-    await AsyncStorage.setItem(sessionBranchIndexKey(sid), JSON.stringify(kept));
-    await AsyncStorage.multiRemove(removed.map(id => sessionBranchItemKey(sid, id))).catch(() => {});
+    await commitBranchRemoval(sid, kept, removed);
   }
   return { removed };
 }

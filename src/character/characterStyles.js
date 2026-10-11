@@ -766,4 +766,22 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   modalTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '800' },
   modalDone: { color: theme.colors.primaryMuted, fontWeight: '800' },
   modalBody: { flexGrow: 0 },
+
+  // ---- 角色专属配置折叠区（character/CharacterOverridesSection.js）----
+  // 每项：标题行（左标题 + 右「专属」标记）+ 选择器。组间距比组内控件间距大，
+  // 让「四组」在视觉上分得开（本区一行里最多两个选择器：配置 + 模型/音声）。
+  overrideItem: { marginBottom: tokens.spacing.md },
+  overrideItemHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  overrideItemTitle: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '700' },
+  overrideBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: theme.colors.primaryAlpha(0.16),
+    marginLeft: 6,
+  },
+  overrideBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  // 失效提示用醒目色：静默显示空白会让用户以为「跟随全局」，而实际配过的东西已没了。
+  overrideWarn: { color: theme.colors.danger || theme.colors.primarySoft, marginTop: 2 },
+  overrideSubSelect: { marginTop: tokens.spacing.xs + 2 },
 });

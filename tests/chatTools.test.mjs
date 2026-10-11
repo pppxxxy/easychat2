@@ -232,6 +232,9 @@ test('UI 接线：气泡组件、渲染分支、发送路径驱动三者齐备',
   const send = read('src/chat/useChatSend.js');
   const component = read('src/chat/ToolBubble.js');
   const constants = read('src/chat/chatConstants.js');
+  // 2026-10 起气泡的「什么该显示」判定与状态变换集中在 toolBubbleView.js
+  //（隐藏开关也走它，见 tests/toolBubbleVisibility.test.mjs），发送路径只负责驱动。
+  const view = read('src/chat/toolBubbleView.js');
 
   assert.ok(constants.includes("export const TOOL_BUBBLE_KIND = 'tool-bubble';"));
   assert.ok(list.includes("import ToolBubble from './ToolBubble.js';"));
@@ -239,13 +242,16 @@ test('UI 接线：气泡组件、渲染分支、发送路径驱动三者齐备',
   assert.ok(component.includes('toolBubbleView('));
   assert.ok(component.includes('ToolBubble'), '组件存在');
 
-  // 发送路径：start 挂出、end 改状态、收尾清除
-  assert.ok(send.includes("setToolBubble(event.name, 'running')"));
-  assert.ok(send.includes("event.ok === false ? 'error' : 'done'"));
+  // 发送路径：onToolEvent → toolBubbleState → setToolBubble → 接线器（含隐藏判定）；收尾清除
+  assert.ok(send.includes('const state = toolBubbleState(event);'), '事件必须经统一映射');
+  assert.ok(send.includes("if (state) setToolBubble(state.name, state.status, state.error || '');"));
+  assert.ok(send.includes('createToolBubbleApplier('), '气泡状态变换必须走唯一实现');
+  assert.ok(send.includes('getVisibility: () => chatOptionsRef.current'),
+    '可见性必须来自设置（否则开关拨了不生效）');
   assert.ok(send.includes('clearToolBubble()'));
-  assert.ok(send.includes('TOOL_BUBBLE_KIND'));
-  // 气泡必须是不落库的临时消息
-  assert.ok(send.includes('transient: true'), '气泡必须 transient（不落库）');
+  // 气泡必须是不落库的临时消息（构造点在 toolBubbleView.js）
+  assert.ok(view.includes('transient: true'), '气泡必须 transient（不落库）');
+  assert.ok(view.includes('TOOL_BUBBLE_KIND'));
 });
 
 test('聊天内工具词条中英齐备', () => {

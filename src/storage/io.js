@@ -11,25 +11,29 @@ import { tActive } from '../i18n/index.js';
 export const CORRUPT_BACKUP_SUFFIX = '__corrupt_backup';
 
 // 序列化后的 UTF-8 字节数。角色卡与制卡草稿都按「超过阈值则落文件」处理，共用此纯函数。
-export function utf8ByteLength(text) {
-  const value = String(text || '');
-  let bytes = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x7f) bytes += 1;
-    else if (code <= 0x7ff) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        index += 1;
-      } else {
-        bytes += 3;
-      }
-    } else {
-      bytes += 3;
-    }
-  }
+// 实现已抽到 utils/byteLength.js（此前在四处各写一份）；这里 import + re-export 保持既有引用面不变。
+import { utf8ByteLength } from '../utils/byteLength.js';
+
+export { utf8ByteLength };
+
+// 单值体积预算。Android 的 CursorWindow 单值读取上限约 2MB：超过之后 AsyncStorage.getItem
+// 直接抛错，只能靠 readLargeAsyncStorageValue 的 SQLite 分块兜底——那条兜底是「聊天记录
+// 永久读不出」的最后防线，不该被当成常规路径。所以任何一次**写入**越过预算都要留痕。
+//
+// 为什么只报警不抛：历史数据、一次性导入、用户自己写的大角色卡都可能本来就大；
+// 在这里抛出去会把「能存进去」变成「存不进去」，比超标本身更糟。
+// 这是**系统性防线**：它不修数据、不改行为，只保证「什么时候越过了预算」有据可查。
+export const VALUE_BUDGET_BYTES = Math.round(1.5 * 1024 * 1024);
+
+// 返回实际字节数（供调用方复用）；超预算时记一条诊断。
+export function assertValueBudget(key, json) {
+  const bytes = utf8ByteLength(json);
+  if (bytes <= VALUE_BUDGET_BYTES) return bytes;
+  recordDiagnostic(
+    'storage',
+    new Error(tActive('error.storage.valueBudgetExceeded')),
+    `${key}：${bytes} 字节 > 预算 ${VALUE_BUDGET_BYTES}`
+  );
   return bytes;
 }
 
@@ -46,7 +50,21 @@ export async function readJson(key, fallback) {
 // 读盘后把引用回填为明文。命名空间用存储键，保证同一字段位置稳定。
 export async function setJsonWithSecrets(key, payload) {
   const protectedPayload = await protectSecrets(key, payload);
-  await AsyncStorage.setItem(key, JSON.stringify(protectedPayload));
+  const json = JSON.stringify(protectedPayload);
+  assertValueBudget(key, json);
+  await AsyncStorage.setItem(key, json);
+}
+
+// 明确**不含密钥**的内部数据（如「图片识别」的结果缓存：只有模型产出的描述文本，
+// 没有任何凭据）。为什么需要单独一个入口：setJsonWithSecrets 会先跑一遍
+// protectSecrets（按字段名白名单找密钥）——对纯派生数据是白跑，而且一旦将来有人
+// 往缓存里塞了同名字段，会被悄悄搬进安全存储（那边有 2048 字节单值上限）。
+// 体积预算的登记保持一致：派生数据同样不该悄悄把存储键顶到 CursorWindow 上限。
+// 判据是「调用方保证无密钥」，所以只允许存储层内部/派生数据使用。
+export async function setJsonRaw(key, payload) {
+  const json = JSON.stringify(payload);
+  assertValueBudget(key, json);
+  await AsyncStorage.setItem(key, json);
 }
 
 export async function readJsonWithSecrets(key, fallback) {
@@ -71,14 +89,27 @@ export function getSqliteModule() {
   return sqliteModule;
 }
 
+// 大值兜底读取：AsyncStorage 的 getItem 在 Android 上受 CursorWindow 单值读取上限（约 2MB）
+// 限制，超限会抛错。这里直接读底下的 SQLite（RKStorage）分块取回原始串，是「聊天记录
+// 永久读不出」的最后一道防线。
+//
+// 失败**必须留痕**：本函数返回 null 时，调用方（readJsonStatus）只能把键判成「真读不出」，
+// 用户看到的是「聊天记录读取失败」，而此前这里一路静默 return null——诊断里什么都没有，
+// 用户与开发者都无从判断是数据没了、还是兜底路径坏了。所以每个「不是没有这条数据，
+// 而是读失败了」的分支都记一条诊断。
 export async function readLargeAsyncStorageValue(key) {
   const SQLite = getSqliteModule();
-  if (!SQLite || typeof SQLite.openDatabase !== 'function') return null;
+  if (!SQLite || typeof SQLite.openDatabase !== 'function') {
+    recordDiagnostic('storage', new Error(tActive('error.storage.largeValueFallbackUnavailable')), key);
+    return null;
+  }
   const source = `${FileSystem.documentDirectory || ''}../databases/RKStorage`;
   try {
     const info = await FileSystem.getInfoAsync(source);
+    // 文件不存在 = 这条键本就不在（AsyncStorage 在 Android 上就是这张表）：不算失败，不记诊断。
     if (!info || !info.exists) return null;
   } catch (error) {
+    recordDiagnostic('storage', error, `大值兜底读取：无法访问 ${source}（${key}）`);
     return null;
   }
   let database = null;
@@ -89,6 +120,7 @@ export async function readLargeAsyncStorageValue(key) {
       args: [key],
     }], true);
     const total = Number(lengthResult?.[0]?.rows?.[0]?.total);
+    // 没有这一行 = 键不存在（正常），不记诊断。
     if (!Number.isFinite(total) || total <= 0) return null;
     const chunkSize = 256 * 1024;
     let value = '';
@@ -98,11 +130,17 @@ export async function readLargeAsyncStorageValue(key) {
         args: [offset + 1, chunkSize, key],
       }], true);
       const chunk = result?.[0]?.rows?.[0]?.chunk;
-      if (chunk == null) return null;
+      if (chunk == null) {
+        // length 说有数据、substr 却拿不到：读**截断**了。静默返回 null 会让这条会话
+        // 看起来「数据没了」，而其实只是这一次读坏了——必须留痕。
+        recordDiagnostic('storage', new Error(tActive('error.storage.largeValueReadTruncated')), `${key} @${offset}/${total}`);
+        return null;
+      }
       value += String(chunk);
     }
     return value;
   } catch (error) {
+    recordDiagnostic('storage', error, `大值兜底读取失败：${key}`);
     return null;
   } finally {
     if (database && typeof database.closeAsync === 'function') {

@@ -4,7 +4,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -23,6 +22,7 @@ import { containsHtml, messageCopyText } from './plainText.js';
 import { clampMarkdownText } from './markdownGuard.js';
 import { shouldRenderRichHtml, splitFullHtmlDocument } from './richHtml.js';
 import RichHtmlMessage from './RichHtmlMessage.js';
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { USER_ID } from './chatConstants.js';
@@ -545,36 +545,31 @@ const fullWidthAssistant = !isUser && fullWidth;
       </View>
       {isUser ? avatarElement : null}
       {actionsOpen ? (
-        <Modal
+        // 条件挂载保持不变：RN 的 Modal 在 componentDidMount 里会注册一个全局的
+        // 'modalDismissed' 设备事件监听（Modal.js:242-256），而这条菜单在**每条消息**上
+        // 都有一份——常驻挂载会让挂载中的气泡各留一个监听。关掉即卸载，与改造前一致。
+        <Sheet
           visible
-          transparent
-          animationType="fade"
-          onRequestClose={() => setActionsOpen(false)}
+          onClose={() => setActionsOpen(false)}
+          backdropStyle={styles.messageActionsBackdrop}
+          cardStyle={styles.messageActionsSheet}
+          header={<Text style={styles.modalTitle}>{t('chat.bubble.actionsTitle')}</Text>}
         >
-          <TouchableOpacity
-            style={styles.messageActionsBackdrop}
-            activeOpacity={1}
-            onPress={() => setActionsOpen(false)}
-          >
-            <View style={styles.messageActionsSheet}>
-              <Text style={styles.modalTitle}>{t('chat.bubble.actionsTitle')}</Text>
-              {messageActionItems.map(item => (
-                <TouchableOpacity
-                  key={item.key}
-                  style={styles.moreRow}
-                  onPress={() => {
-                    if (item.key !== 'copy') setActionsOpen(false);
-                    if (typeof item.onPress === 'function') item.onPress();
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name={item.icon} size={16} color={theme.colors.primaryMuted} />
-                  <Text style={styles.moreRowText}>{item.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
+          {messageActionItems.map(item => (
+            <TouchableOpacity
+              key={item.key}
+              style={styles.moreRow}
+              onPress={() => {
+                if (item.key !== 'copy') setActionsOpen(false);
+                if (typeof item.onPress === 'function') item.onPress();
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name={item.icon} size={16} color={theme.colors.primaryMuted} />
+              <Text style={styles.moreRowText}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </Sheet>
       ) : null}
     </View>
   );

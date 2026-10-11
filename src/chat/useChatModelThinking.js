@@ -25,7 +25,7 @@ import { stopLocalApiServer } from '../localModel/localApiServer.js';
 import { describeModelError, recordModelLog } from '../localModel/modelLogs.js';
 import { applyActiveLocalModel } from '../localModel/modelState.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
-import { tryAcquireResource } from '../resourceMutex.js';
+import { tryAcquireResource } from '../utils/resourceMutex.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function useChatModelThinking({ isSending, sendLockRef }) {

@@ -10,12 +10,13 @@
 // - 上调阈值 = 棘轮失效，禁止；确需放宽必须在本文件说明理由并经用户确认。
 //
 // 2026-10-08 Stage 5：WorkspacePanel.js 迁至 workspace/screen/FilesPanel.js，33 → 32。
+// 2026-10-11：resourceMutex.js（纯工具）迁至 utils/resourceMutex.js，32 → 31。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const MAX_ROOT_FILES = 32;
+const MAX_ROOT_FILES = 31;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.join(here, '..', 'src');
@@ -96,12 +97,24 @@ console.log('[guard:structure] ok：工作区单屏装配（SettingsScreen → W
 // ---- 工作区面板禁止自套 Modal（2026-10-08 Stage 5）----
 // 四个领域面板（对话/文件/GitHub/设置）都是 WorkspaceScreen 内部的 View，
 // 唯一的一层 Modal 在 WorkspaceScreen。面板自己再包一层 Modal 就是 z 轴堆叠复发。
+//
+// 判据必须是「该文件里出现 `<Modal`」这种**形态**判据，不能钉某个具体属性拼法：
+// 原判据 `/<Modal\s+visible=\{visible\}/` 只认 `visible={visible}` 这一种写法，而
+// FilesPanel.js 的三处自套 Modal 写的是 `visible={characterPickerOpen}` /
+// `{catalogOpen}` / `{!!preview}`——一条都不命中，规则从上线起就一直在打印 ok
+//（门禁空转：它本该拦的问题一直存在）。见 tests/guardStructure.test.mjs。
+//
+// 已知残余（本判据是**文件级**的，不做传递闭包）：面板通过 <FileHistorySheet> /
+// <WorkspaceHistorySheet> 这类组件间接挂载的 Modal 外壳不在覆盖内。要覆盖它得先给这两个
+// 组件加 embedded 模式（照 WorkspaceSettingsSheet / WorkspaceGeneralSettings 的样子），
+// 属独立一批；在改完之前不要以为这条规则已经把 z 轴堆叠根除。
+const PANEL_MODAL_RE = /<Modal\b/;
 const screenDir = path.join(srcDir, 'workspace', 'screen');
 const panelFiles = readdirSync(screenDir).filter(name => name.endsWith('.js') && name !== 'WorkspaceScreen.js');
 const selfWrapped = [];
 for (const name of panelFiles) {
   const source = readFileSync(path.join(screenDir, name), 'utf8');
-  if (/<Modal\s+visible=\{visible\}/.test(source)) selfWrapped.push(name);
+  if (PANEL_MODAL_RE.test(source)) selfWrapped.push(name);
 }
 if (selfWrapped.length > 0) {
   console.error(

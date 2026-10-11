@@ -10,6 +10,7 @@
 // （由 tests/backupStream.test.mjs 以多种形状锁定）。
 
 import { tActive } from '../i18n/index.js';
+import { utf8ByteLength } from '../utils/byteLength.js';
 
 // 单个片段的字符上限：媒体 base64 可达数十 MB，再切一层保证写盘方
 // 每次写入量可控、片与片之间有机会检查取消。
@@ -86,26 +87,10 @@ export function createBackupChunks(payload) {
 }
 
 // 分片流的 UTF-8 字节数（与 utf8ByteLength(JSON.stringify(payload)) 等价）。
+// 逐片累加、**不拼接整串**——那正是分片流存在的理由（几十 MB 的包不该合成一个字符串）。
+// 字节计数复用 utils/byteLength.js 的唯一实现，不再手写第二份。
 export function utf8ByteLengthOfChunks(chunks) {
   let bytes = 0;
-  for (const chunk of chunks) {
-    const value = String(chunk || '');
-    for (let index = 0; index < value.length; index += 1) {
-      const code = value.charCodeAt(index);
-      if (code <= 0x7f) bytes += 1;
-      else if (code <= 0x7ff) bytes += 2;
-      else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-        const next = value.charCodeAt(index + 1);
-        if (next >= 0xdc00 && next <= 0xdfff) {
-          bytes += 4;
-          index += 1;
-        } else {
-          bytes += 3;
-        }
-      } else {
-        bytes += 3;
-      }
-    }
-  }
+  for (const chunk of chunks) bytes += utf8ByteLength(chunk);
   return bytes;
 }

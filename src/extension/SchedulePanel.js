@@ -1,14 +1,21 @@
-// 作息面板：为每个角色设定可选的作息（起床 / 上班 / 下班 / 睡觉 + 启用开关）。
-// 作息只写提示词（普通对话与主动消息共用静态规则），不新增原生模块。
-// 入口在拓展页；保存到 @easychat2_character_schedules（见 storage/schedule.js）。
+// 作息面板：为每个角色设定可选的作息。
+//
+// 模型（见 src/chat/schedule.js 的 v2 schema）：
+//   · 时间段可增删改：名称任意（上学 / 喝咖啡 …）+ 起止时间，支持跨零点；
+//     列表顺序 = 命中优先级（重叠取第一个命中，都不命中算空闲）。
+//   · 概率事件：某个时间点或某个时间段 + 概率（0–100%）+ 「要做的事」描述。
+//     判定用确定性种子（角色 id + 事件 id + 日期），同一天内恒定、跨天才变。
+//   · 「区分工作日/休息日」开关：开启后作息分两套，周末与自定义节假日走休息日那套。
+//   · 节假日 = 用户可编辑的日期列表（不内置法定假日表）。
+// 作息只写提示词（普通对话 / 定时任务 / 主动消息共用），不新增原生模块。
+// 存储 @easychat2_character_schedules（见 storage/schedule.js，旧四时刻数据读到时自动迁移）。
+// 子编辑器在 ./schedule/ 下（与设置卡片拆到 src/settings/sections/*.js 同一做法）。
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
-  StyleSheet,
   Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -19,49 +26,42 @@ import { useApp } from '../context/AppContext.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import PaneHeader from '../ui/PaneHeader.js';
-import {
-  DEFAULT_SCHEDULE,
-  describeSchedule,
-  normalizeSchedule,
-  resolveSchedulePeriod,
-} from '../chat/schedule.js';
+import { createDefaultSchedule, normalizeSchedule } from '../chat/schedule.js';
 import { getCharacterSchedule, saveCharacterSchedule } from '../storage/schedule.js';
+import EventsEditor from './schedule/EventsEditor.js';
+import HolidaysEditor from './schedule/HolidaysEditor.js';
+import SegmentsEditor from './schedule/SegmentsEditor.js';
+import { createScheduleStyles } from './schedule/styles.js';
+import { currentPeriodText, schedulePreviewLines } from './schedule/preview.js';
+import {
+  addEvent,
+  addHoliday,
+  addSegment,
+  moveSegment,
+  removeEvent,
+  removeHoliday,
+  removeSegment,
+  setEnabled,
+  setSplitWeekday,
+  updateEvent,
+  updateSegment,
+} from './schedule/draftOps.js';
 
-const TIME_FIELDS = [
-  { key: 'wake', labelKey: 'schedule.wake' },
-  { key: 'workStart', labelKey: 'schedule.workStart' },
-  { key: 'workEnd', labelKey: 'schedule.workEnd' },
-  { key: 'sleep', labelKey: 'schedule.sleep' },
-];
-
-function TimeField({ label, value, onChange, styles, theme }) {
-  return (
-    <View style={styles.timeRow}>
-      <Text style={styles.timeLabel}>{label}</Text>
-      <TextInput
-        style={styles.timeInput}
-        value={value}
-        onChangeText={onChange}
-        placeholder="HH:MM"
-        placeholderTextColor={theme.colors.textFaint}
-        keyboardType="numbers-and-punctuation"
-        maxLength={5}
-        autoCorrect={false}
-      />
-    </View>
-  );
-}
+const DAY_TABS = [['workday', 'schedule.dayKind.workday'], ['restday', 'schedule.dayKind.restday']];
 
 export default function SchedulePanel() {
   const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  const styles = useMemo(() => createScheduleStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const { characters, activeId } = useApp();
 
   const [roleId, setRoleId] = useState('');
-  const [draft, setDraft] = useState(DEFAULT_SCHEDULE);
+  const [draft, setDraft] = useState(createDefaultSchedule);
+  const [dayKind, setDayKind] = useState('workday');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [holidayDraft, setHolidayDraft] = useState('');
+  const [holidayInvalid, setHolidayInvalid] = useState(false);
   const [notice, setNotice] = useState('');
 
   // 默认选中当前活跃角色；角色列表变化时纠正失效选择。
@@ -74,17 +74,20 @@ export default function SchedulePanel() {
     setRoleId(current => (current && ids.includes(current) ? current : (ids.includes(String(activeId)) ? String(activeId) : ids[0])));
   }, [characters, activeId]);
 
-  // 切换角色时读取其作息（无则默认值）。
+  // 切换角色时读取其作息（无则默认值；旧四时刻数据由 normalizeSchedule 迁移）。
   useEffect(() => {
     let cancelled = false;
     if (!roleId) return undefined;
+    setDayKind('workday');
+    setHolidayDraft('');
+    setHolidayInvalid(false);
     getCharacterSchedule(roleId)
       .then(schedule => {
         if (cancelled) return;
-        setDraft(schedule ? normalizeSchedule(schedule) : { ...DEFAULT_SCHEDULE });
+        setDraft(schedule ? normalizeSchedule(schedule) : createDefaultSchedule());
       })
       .catch(() => {
-        if (!cancelled) setDraft({ ...DEFAULT_SCHEDULE });
+        if (!cancelled) setDraft(createDefaultSchedule());
       });
     return () => { cancelled = true; };
   }, [roleId]);
@@ -94,15 +97,13 @@ export default function SchedulePanel() {
     [characters, roleId]
   );
 
-  const setField = useCallback((key, value) => {
-    setDraft(current => ({ ...current, [key]: value }));
+  // 所有草稿改动都走 draftOps 的纯函数（不可变更新），并清掉上一次的提示。
+  const apply = useCallback(updater => {
+    setDraft(current => updater(current));
     setNotice('');
   }, []);
 
-  const toggleEnabled = useCallback(value => {
-    setDraft(current => ({ ...current, enabled: value }));
-    setNotice('');
-  }, []);
+  const day = dayKind === 'restday' ? draft.restday : draft.workday;
 
   const handleSave = useCallback(async () => {
     if (!roleId) return;
@@ -116,13 +117,19 @@ export default function SchedulePanel() {
     }
   }, [roleId, draft, t]);
 
+  const handleAddHoliday = useCallback(() => {
+    const result = addHoliday(draft, holidayDraft);
+    setHolidayInvalid(!result.ok);
+    if (result.ok) {
+      setDraft(result.draft);
+      setHolidayDraft('');
+      setNotice('');
+    }
+  }, [draft, holidayDraft]);
+
   const normalized = normalizeSchedule(draft);
-  const period = resolveSchedulePeriod(normalized, new Date());
-  const periodLabel = t(
-    period === 'sleep' ? 'schedule.period.sleep'
-      : period === 'work' ? 'schedule.period.work'
-        : 'schedule.period.free'
-  );
+  const previewLines = schedulePreviewLines(normalized, t);
+  const periodLabel = currentPeriodText(normalized, t, new Date());
 
   return (
     <View style={styles.container}>
@@ -161,26 +168,78 @@ export default function SchedulePanel() {
             ) : null}
 
             <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>{t('schedule.enable')}</Text>
-              <Switch value={draft.enabled === true} onValueChange={toggleEnabled} />
+              <View style={styles.switchLabel}>
+                <Text style={styles.switchTitle}>{t('schedule.enable')}</Text>
+                <Text style={styles.switchSubLabel}>{t('schedule.enableHint')}</Text>
+              </View>
+              <Switch value={draft.enabled === true} onValueChange={value => apply(current => setEnabled(current, value))} />
             </View>
 
-            <View style={styles.timeCard}>
-              {TIME_FIELDS.map(field => (
-                <TimeField
-                  key={field.key}
-                  label={t(field.labelKey)}
-                  value={String(draft[field.key] || '')}
-                  onChange={text => setField(field.key, text)}
-                  styles={styles}
-                  theme={theme}
-                />
-              ))}
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabel}>
+                <Text style={styles.switchTitle}>{t('schedule.splitWeekday')}</Text>
+                <Text style={styles.switchSubLabel}>{t('schedule.splitWeekdayHint')}</Text>
+              </View>
+              <Switch value={draft.splitWeekday === true} onValueChange={value => apply(current => setSplitWeekday(current, value))} />
             </View>
+
+            {draft.splitWeekday ? (
+              <View style={styles.tabs}>
+                {DAY_TABS.map(([kind, key]) => (
+                  <TouchableOpacity
+                    key={kind}
+                    style={[styles.tab, dayKind === kind && styles.tabActive]}
+                    onPress={() => setDayKind(kind)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: dayKind === kind }}
+                  >
+                    <Text style={[styles.tabText, dayKind === kind && styles.tabTextActive]}>{t(key)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            <SegmentsEditor
+              segments={day.segments}
+              onChange={(index, patch) => apply(current => updateSegment(current, dayKind, index, patch))}
+              onAdd={() => apply(current => addSegment(current, dayKind))}
+              onRemove={index => apply(current => removeSegment(current, dayKind, index))}
+              onMove={(index, delta) => apply(current => moveSegment(current, dayKind, index, delta))}
+              styles={styles}
+              theme={theme}
+              t={t}
+            />
+
+            <EventsEditor
+              events={day.events}
+              onChange={(index, patch) => apply(current => updateEvent(current, dayKind, index, patch))}
+              onAdd={() => apply(current => addEvent(current, dayKind))}
+              onRemove={index => apply(current => removeEvent(current, dayKind, index))}
+              styles={styles}
+              theme={theme}
+              t={t}
+            />
+
+            {draft.splitWeekday ? (
+              <HolidaysEditor
+                holidays={draft.holidays}
+                draftDate={holidayDraft}
+                onChangeDate={text => { setHolidayDraft(text); setHolidayInvalid(false); }}
+                onAdd={handleAddHoliday}
+                onRemove={key => apply(current => removeHoliday(current, key))}
+                invalid={holidayInvalid}
+                styles={styles}
+                theme={theme}
+                t={t}
+              />
+            ) : null}
 
             <View style={styles.previewCard}>
               <Text style={styles.previewTitle}>{t('schedule.preview')}</Text>
-              <Text style={styles.previewText}>{describeSchedule(normalized)}</Text>
+              {previewLines.map((line, index) => (
+                <Text key={`preview-${index}`} style={styles.previewText}>{line}</Text>
+              ))}
               {normalized.enabled ? (
                 <Text style={styles.previewPeriod}>{t('schedule.currentPeriod', { period: periodLabel })}</Text>
               ) : null}
@@ -200,83 +259,3 @@ export default function SchedulePanel() {
     </View>
   );
 }
-
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { paddingHorizontal: 16, paddingBottom: 40 },
-  select: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  selectLabel: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), marginRight: 10 },
-  selectValue: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '600' },
-  pickerBody: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.md,
-    marginTop: 6,
-    paddingVertical: 4,
-  },
-  pickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  pickerText: { flex: 1, color: theme.colors.textMuted, fontSize: fonts.scaled(14) },
-  pickerTextActive: { color: theme.colors.primary, fontWeight: '700' },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-  },
-  switchLabel: { color: theme.colors.text, fontSize: fonts.scaled(15) },
-  timeCard: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 4,
-    marginBottom: 14,
-  },
-  timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-  },
-  timeLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(15) },
-  timeInput: {
-    minWidth: 96,
-    textAlign: 'center',
-    color: theme.colors.text,
-    fontSize: fonts.scaled(15),
-    fontWeight: '600',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: tokens.radius.md,
-    backgroundColor: theme.colors.surface,
-  },
-  previewCard: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: tokens.radius.lg,
-    padding: 14,
-    marginBottom: 12,
-  },
-  previewTitle: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginBottom: 6 },
-  previewText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
-  previewPeriod: { color: theme.colors.primary, fontSize: fonts.scaled(13), marginTop: 6 },
-  hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 16 },
-  saveButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 13,
-    borderRadius: tokens.radius.md,
-    backgroundColor: theme.colors.primary,
-  },
-  saveButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
-  notice: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), textAlign: 'center', marginTop: 10 },
-});

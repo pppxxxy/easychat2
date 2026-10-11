@@ -155,19 +155,27 @@ export function createChatFetchToolDefinition() {
   };
 }
 
+// 聊天内工具定义的**唯一清单**：注册、摘除、以及设置页的「按工具隐藏」开关全部由它
+// 派生。新增一个聊天工具只需要在这里加一行——不必再去别处同步第二份名字清单
+//（本仓库被「同一份清单多处各写一份、其中一处漏同步」咬过六次以上，别制造第七次）。
+export function listChatToolDefinitions() {
+  return [createChatSearchToolDefinition(), createChatFetchToolDefinition()];
+}
+
+export function listChatToolNames() {
+  return listChatToolDefinitions().map(definition => definition.name);
+}
+
 // 注册/摘除。与工作区工具同样的「开关关掉必须真的摘掉」原则：
 // 只靠 UI 不勾选是不够的，注册表里留着就还能被执行路径调到。
 export function registerChatTools() {
-  const search = createChatSearchToolDefinition();
-  const fetch = createChatFetchToolDefinition();
-  registerTool(search);
-  registerTool(fetch);
-  return [search.name, fetch.name];
+  const definitions = listChatToolDefinitions();
+  definitions.forEach(definition => registerTool(definition));
+  return definitions.map(definition => definition.name);
 }
 
 export function unregisterChatTools() {
-  unregisterTool(CHAT_SEARCH_TOOL_NAME);
-  unregisterTool(CHAT_FETCH_TOOL_NAME);
+  listChatToolNames().forEach(name => unregisterTool(name));
 }
 
 export function isChatSearchTool(name) {

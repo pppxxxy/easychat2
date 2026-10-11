@@ -25,4 +25,17 @@ export const tts = {
   'tts.providerLabel': 'Voice engine',
   'tts.voices.default': 'Default',
   'tts.volcanoHint': 'Volcano Engine uses a Bearer authorization header; get the Access Token and AppID from the speech console.',
+
+  // Provider display names (providers.js labels are Chinese constants; the UI looks these
+  // up by id. Add one when adding a provider, otherwise it falls back to the constant label).
+  'tts.providerName.system': 'System engine',
+  'tts.providerName.xiaomiMimo': 'Xiaomi MiMo',
+  'tts.providerName.siliconflow': 'SiliconFlow',
+  'tts.providerName.iflytekSpark': 'iFlytek Spark',
+  'tts.providerName.stepfun': 'StepFun',
+  'tts.providerName.tencentCloud': 'Tencent Cloud',
+  'tts.providerName.aliyun': 'Aliyun Smart Speech',
+  'tts.providerName.baidu': 'Baidu Smart Cloud',
+  'tts.providerName.volcano': 'Volcano Engine',
+  'tts.providerName.minimax': 'MiniMax',
 };

@@ -1,0 +1,86 @@
+// Sheet（共享弹窗外壳）与它的外壳策略。
+//
+// 取舍说明：仓库没有组件渲染基建——react-native 在 Node 下 import 不进来（Flow 语法直接
+// SyntaxError），也没有 react-test-renderer。所以这里分两层：
+//   1. **行为**测试：Sheet 真正不同的两处决策（背景层模式 → 点空白是否关闭/是否键盘抬升；
+//      头部三态 → 自定义节点/共享 SheetHeader/无）抽成 src/ui/sheetLayout.js 的纯函数，
+//      用真断言覆盖全部取值与非法输入；
+//   2. **结构**断言：只钉已修复的回归——16 个弹窗曾 0/16 漏配模态无障碍标记，这层保证
+//      收进 Sheet.js 后不再漏；以及「不得用 visible 提前短路 Modal」这条会吃掉 iOS 关闭
+//      动画的写法。
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+import { resolveSheetBackdrop, resolveSheetHeaderKind, SHEET_BACKDROP_MODES } from '../src/ui/sheetLayout.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
+const SHEET = read('src/ui/Sheet.js');
+// 行注释里会引用反例写法（如 `visible ? <Modal/> : null`），判据只认代码：先剥掉整行注释。
+const SHEET_CODE = SHEET.split('\n').filter(line => !line.trim().startsWith('//')).join('\n');
+// 取 JSX 开标签文本（<Card ...>），属性判据只在标签内成立才算数。
+const openTag = source => {
+  const start = source.indexOf('<Card');
+  return start < 0 ? '' : source.slice(start, source.indexOf('>', start));
+};
+
+test('背景层模式：三种取值各自决定「点空白是否关闭」与「是否键盘抬升」', () => {
+  assert.deepEqual(resolveSheetBackdrop('dismiss'), { dismissOnPress: true, keyboardAvoiding: false });
+  assert.deepEqual(resolveSheetBackdrop('static'), { dismissOnPress: false, keyboardAvoiding: false });
+  assert.deepEqual(resolveSheetBackdrop('keyboard'), { dismissOnPress: false, keyboardAvoiding: true });
+  // 键盘模式也必须允许关闭（否则键盘弹窗只能靠系统返回键退出）
+  assert.equal(resolveSheetBackdrop('keyboard').dismissOnPress, false);
+});
+
+test('背景层模式：非法输入回落到 dismiss，不抛异常也不返回 undefined', () => {
+  for (const bad of [undefined, null, '', 'DISMISS', 'dismiss ', 'nope', 0, {}, []]) {
+    assert.deepEqual(
+      resolveSheetBackdrop(bad),
+      SHEET_BACKDROP_MODES.dismiss,
+      `非法模式 ${JSON.stringify(bad)} 应回落到 dismiss`
+    );
+  }
+});
+
+test('头部三态：显式 header 优先，其次 title 走共享 SheetHeader，都没有则无头部', () => {
+  assert.equal(resolveSheetHeaderKind({ header: 'x', title: 'y' }), 'custom', '自定义节点优先');
+  assert.equal(resolveSheetHeaderKind({ header: null, title: '标题' }), 'standard');
+  assert.equal(resolveSheetHeaderKind({ title: '标题' }), 'standard');
+  assert.equal(resolveSheetHeaderKind({ header: null, title: '' }), 'none');
+  assert.equal(resolveSheetHeaderKind({}), 'none');
+  assert.equal(resolveSheetHeaderKind(), 'none');
+  // 0 / false 这类「看起来像空」的节点仍是显式节点（React 允许渲染它们）
+  assert.equal(resolveSheetHeaderKind({ header: 0, title: '标题' }), 'custom');
+  assert.equal(resolveSheetHeaderKind({ header: false, title: '标题' }), 'custom');
+});
+
+test('回归：模态无障碍标记（曾 0/16 漏配）收在 Sheet 一处，两套平台标记都在', () => {
+  const cardTag = openTag(SHEET_CODE);
+  assert.ok(cardTag, 'Sheet 应有卡片容器 <Card ...>');
+  assert.ok(cardTag.includes('accessibilityViewIsModal'), '卡片缺 iOS 的模态标记（读屏会继续读背后内容）');
+  assert.ok(cardTag.includes('importantForAccessibility="yes"'), '卡片缺 Android 的模态标记');
+  assert.equal(SHEET_CODE.includes('accessibilityViewIsModal'), true);
+});
+
+test('回归：不得用 visible 提前短路 Modal（会吃掉 iOS 关闭动画）', () => {
+  assert.ok(SHEET_CODE.includes('<Modal'), 'Sheet 渲染 Modal 外壳');
+  assert.ok(SHEET_CODE.includes('visible={visible}'), 'visible 原样透传给 Modal');
+  assert.ok(SHEET_CODE.includes('transparent'), '背景透明（弹窗浮在内容之上）');
+  assert.ok(SHEET_CODE.includes('animationType={animationType}'), '动画类型可配（fade / slide）');
+  assert.ok(SHEET_CODE.includes('onRequestClose={onClose}'), 'Android 返回键必须能关闭');
+  // 反例：visible ? <Modal/> : null / visible && <Modal/> —— iOS 关闭动画期间
+  // Modal 靠 state.isRendered 继续渲染内容（Modal.js:278-284），提前短路会闪没。
+  assert.equal(/visible\s*(\?|&&)\s*\(?\s*<Modal/.test(SHEET_CODE), false, '不得按 visible 短路 Modal');
+});
+
+test('Sheet 复用共享 SheetHeader，且头部三态接线齐备', () => {
+  assert.ok(SHEET_CODE.includes("import SheetHeader from './SheetHeader.js';"), '走共享标题行');
+  assert.ok(SHEET_CODE.includes("headerKind === 'standard'"), 'title 路径渲染 SheetHeader');
+  assert.ok(SHEET_CODE.includes("headerKind === 'custom'"), 'header 路径渲染自定义节点');
+  assert.ok(SHEET_CODE.includes('<SheetHeader title={title} onClose={onClose} onBack={onBack} closeLabel={closeLabel} />'));
+  assert.ok(SHEET_CODE.includes('{children}'), '内容透传');
+});

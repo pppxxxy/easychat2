@@ -12,19 +12,30 @@ import { maskSecrets } from '../storage/secrets.js';
 import { toSpeechText } from './speechText.js';
 import { saveTtsSettings } from '../storage/settings.js';
 import { synthesize, speak as ttsSpeak, stop as ttsStop, isSystemProvider } from '../tts/index.js';
-import { getTtsProvider } from '../tts/providers.js';
+import { resolveCharacterTtsSpeak } from '../character/runtimeConfig.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
-export default function useChatTts() {
+export default function useChatTts({ characterId = '' } = {}) {
   const { t } = useTranslation();
   const [ttsSettings, setTtsSettings] = useState({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   const ttsRef = useRef({ autoBroadcast: false, activeProvider: 'system', providers: {} });
   // 当前播报是「自动」还是「手动」触发：关闭自动播报只停自动那次，不打断手动播报。
   const playbackSourceRef = useRef(null);
+  // 播报用的角色 id：每次调用时从 ref 取最新值（回调闭包不跟着 re-render 更新）。
+  const characterIdRef = useRef(String(characterId || ''));
+  characterIdRef.current = String(characterId || '');
 
   useEffect(() => {
     ttsRef.current = ttsSettings;
   }, [ttsSettings]);
+
+  // 生效的 TTS provider 与配置（含专属音声）：**唯一入口**是角色运行期解析层——
+  // 角色配了专属 TTS API / 音声就用专属的，没配或指向的 provider 已删则回落全局
+  //（见 character/runtimeConfig.js）。播报/合成两条路径都走这里，不再各自读全局设置。
+  const resolveSpeakParams = useCallback(async () => {
+    const runtime = await resolveCharacterTtsSpeak(characterIdRef.current);
+    return { provider: runtime.provider, config: runtime.config };
+  }, []);
 
   const toggleBroadcast = useCallback(async () => {
     const previous = ttsRef.current;
@@ -48,18 +59,16 @@ export default function useChatTts() {
 
   // 手动播报：点消息下方的「播报」始终可用，不受顶部自动播报开关限制。
   const broadcastMessage = useCallback(async (text, source = 'manual') => {
-    const settings = ttsRef.current || {};
     const content = toSpeechText(text);
     if (!content) return;
-    const provider = getTtsProvider(settings.activeProvider);
-    const config = (settings.providers && settings.providers[provider.id]) || {};
+    const { provider, config } = await resolveSpeakParams();
     playbackSourceRef.current = source;
     try {
       await ttsSpeak({ provider, config, text: content });
     } catch (error) {
       Alert.alert(t('chat.tts.broadcastFailed.title'), maskSecrets((error && error.message) || t('chat.tts.broadcastFailed.body')));
     }
-  }, [t]);
+  }, [resolveSpeakParams, t]);
 
   // 自动播报：仅当自动播报开关开启时才在回复完成后朗读。
   const autoBroadcastMessage = useCallback(async text => {
@@ -73,10 +82,8 @@ export default function useChatTts() {
   // 调用方静默降级为仅文字，不弹窗打断（需求 5.5）。
   const synthesizeVoice = useCallback(async (messageId, text) => {
     if (!messageId || !String(text || '').trim()) return null;
-    const settings = ttsRef.current || {};
-    const provider = getTtsProvider(settings.activeProvider);
+    const { provider, config } = await resolveSpeakParams();
     if (!provider || isSystemProvider(provider)) return null;
-    const config = (settings.providers && settings.providers[provider.id]) || {};
     try {
       const result = await synthesize({ provider, config, text });
       if (!result || result.mode !== 'audio' || !result.base64) return null;
@@ -93,7 +100,7 @@ export default function useChatTts() {
     } catch (error) {
       return null;
     }
-  }, []);
+  }, [resolveSpeakParams]);
 
   return {
     ttsSettings,

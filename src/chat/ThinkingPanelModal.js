@@ -1,8 +1,9 @@
 // 思考设置弹窗。从 src/ChatScreen.js 原样外提（无行为变化）。
 
 import React, { useMemo } from 'react';
-import { Modal, Pressable, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Switch, Text, TouchableOpacity, View } from 'react-native';
 
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { THINKING_DISPLAYS, THINKING_LEVELS } from '../storage/settings.js';
@@ -23,18 +24,14 @@ export default function ThinkingPanelModal({
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
-    <Modal
+    <Sheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      backdropStyle={styles.modelBackdrop}
+      cardStyle={[styles.modelSheet, styles.sheetWidth]}
+      cardAbsorbPress
+      header={<Text style={styles.modelTitle}>{t('chat.thinkingPanel.title')}</Text>}
     >
-      <Pressable
-        style={styles.modelBackdrop}
-        onPress={onClose}
-      >
-        <Pressable style={[styles.modelSheet, styles.sheetWidth]} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
-          <Text style={styles.modelTitle}>{t('chat.thinkingPanel.title')}</Text>
           {!thinkingSupported ? (
             <Text style={styles.modelEmpty}>
               {t('chat.thinkingPanel.unsupported')}
@@ -115,8 +112,6 @@ export default function ThinkingPanelModal({
           >
             <Text style={styles.modelCloseText}>{t('common.close')}</Text>
           </TouchableOpacity>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    </Sheet>
   );
 }

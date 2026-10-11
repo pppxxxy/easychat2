@@ -9,6 +9,11 @@
 // 写盘自动搬进系统安全存储（Keystore），盘上只留引用，读盘回填明文。
 // 任何日志/报错路径不得输出该字段。
 //
+// **headers 里的值也是密钥**（UI 明确让用户填 `Authorization: Bearer <token>`）：
+// 它走 secretStore 的 SECRET_OBJECT_FIELDS（按域键 @easychat2_mcp_servers 限定），
+// **逐个值**搬进安全存储、键名留在盘上。回归见 tests/mcpHeadersStorage.test.mjs。
+// 之所以不能只靠 SECRET_FIELDS：那里的判据是「值是字符串」，而 headers 是对象。
+//
 // GitHub 兼容：旧键 @easychat2_github_mcp 经 serverFromGithubSettings 映射为
 // 内置记录（id='github'），migrateGithubServer 幂等执行；**旧键不动**
 // （回滚安全，旧版本仍可跑），新键是唯一事实源。

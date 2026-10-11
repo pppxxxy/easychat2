@@ -12,9 +12,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   useWindowDimensions,
@@ -25,6 +23,7 @@ import { captureRef } from 'react-native-view-shot';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
@@ -186,32 +185,24 @@ export default function ConversationExportModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.exportBackdrop}>
-        {/* 关闭层铺满整屏、放在弹层之下（同级、先渲染）：弹层里的 WebView / ScrollView
-            就不会被 Touchable 包住，滚动不受影响；点弹层外的空白仍能关闭。 */}
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          activeOpacity={1}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.close')}
-        />
-        {/* box-none：本层自己不接触摸（否则它的 padding 环会挡住下面的关闭层），
-            但子元素（弹层）照常接。水平内缩与限宽由本层 padding + 共享的
-            styles.sheetWidth 提供（与其它聊天弹窗同口径）。 */}
-        <View style={styles.exportSheetLayer} pointerEvents="box-none">
-          <View
-            style={[styles.exportSheet, styles.sheetWidth]}
-            accessibilityViewIsModal
-            importantForAccessibility="yes"
-          >
-          <View style={styles.exportHeader}>
-            <Text style={styles.modalTitle}>{t('chat.export.title')}</Text>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')}>
-              <Ionicons name="close" size={20} color={theme.colors.textFaint} />
-            </TouchableOpacity>
-          </View>
+    // 外壳走共享 Sheet（D 系统一 16 份拷贝）：cardAbsorbPress 让卡片吞掉按压，
+    // 卡片里的 ScrollView / WebView 滚动时不会冒泡到背景层把弹窗关掉
+    //（等价于改造前「关闭层铺满整屏 + box-none 层」那套手势隔离）。
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      backdropStyle={styles.modalBackdrop}
+      cardStyle={[styles.exportSheet, styles.sheetWidth]}
+      cardAbsorbPress
+      header={(
+        <View style={styles.exportHeader}>
+          <Text style={styles.modalTitle}>{t('chat.export.title')}</Text>
+          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')}>
+            <Ionicons name="close" size={20} color={theme.colors.textFaint} />
+          </TouchableOpacity>
+        </View>
+      )}
+    >
 
           <View style={styles.exportSegments}>
             {FORMATS.map(key => (
@@ -312,9 +303,6 @@ export default function ConversationExportModal({
               </Text>
             )}
           </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
+    </Sheet>
   );
 }

@@ -27,6 +27,8 @@ import { maskSecrets } from '../storage/secrets.js';
 
 import { useTranslation } from '../i18n/I18nContext.js';
 
+import AccessibilityCard from './AccessibilityCard.js';
+import FrameRecognitionCard from './FrameRecognitionCard.js';
 import { captureAppScreen } from './capture.js';
 import {
   addCaptureFailedListener,
@@ -138,7 +140,7 @@ export default function ScreenWatchScreen() {
     overlayBusyRef.current = true;
     setOverlayBusy(true);
     try {
-      const caps = await resolveScreenWatchCapabilities();
+      const caps = await resolveScreenWatchCapabilities(characterId);
       if (!caps.vision) {
         await updateOverlayText(t('screenWatch.error.noVision'));
         return;
@@ -396,6 +398,10 @@ export default function ScreenWatchScreen() {
           <Text style={styles.hint}>{t('screenWatch.overlay.unsupported')}</Text>
         </Card>
       )}
+
+      {/* accessibility status card + frame recognition source picker */}
+      <AccessibilityCard />
+      <FrameRecognitionCard />
 
       <Card style={styles.captureCard}>
         <Text style={styles.sectionTitle}>{t('screenWatch.characterLabel')}</Text>

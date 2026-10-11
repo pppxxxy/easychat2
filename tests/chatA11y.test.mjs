@@ -16,21 +16,55 @@ import path from 'node:path';
 
 const read = relPath => fs.readFileSync(path.resolve(relPath), 'utf8');
 
+// 两个**全屏**弹窗不套 Sheet，理由要写在这里（避免下一个人「顺手统一」把全屏改成
+// 居中卡片）：Sheet 的外壳是「透明 Modal + 背景层 + 卡片」——transparent 会把
+// presentationStyle 从 fullScreen 改成 overFullScreen（Modal.js:300-306），
+// 而这两个弹窗是全屏容器（flex:1、paddingTop、无背景层、无卡片、本地样式表），
+// 硬套等于改设计。它们因此必须自带两套模态标记。
+const FULLSCREEN_MODALS = ['ConversationCardModal.js', 'FullScreenInputModal.js'];
+
 test('16 个聊天弹窗的内层容器都声明了「模态」（iOS + Android 两套）', () => {
   const dir = path.resolve('src/chat');
   const modals = fs.readdirSync(dir).filter(name => name.endsWith('Modal.js'));
   assert.equal(modals.length, 16, `弹窗数量变了（期望 16，实际 ${modals.length}）：新增弹窗请一并补模态标记`);
+  // 模态标记有两个合法载体：共享外壳 src/ui/Sheet.js（弹窗统一到 Sheet 之后的默认路径），
+  // 或弹窗自己的内层容器（上面两个全屏弹窗）。两个载体都必须真的带标记——
+  // 标记漏了是「界面看着完全正常、读屏却把背后聊天内容一起念」的静默失效。
+  // 标记必须落在 Sheet 的**卡片开标签**里：只查「文件里出现过这个字符串」会被注释满足
+  //（Sheet.js 的说明注释里就写着 accessibilityViewIsModal），那是空转的判据。
+  const sheet = fs.readFileSync(path.resolve('src/ui/Sheet.js'), 'utf8');
+  const sheetCardStart = sheet.indexOf('<Card');
+  const sheetCardTag = sheetCardStart < 0 ? '' : sheet.slice(sheetCardStart, sheet.indexOf('>', sheetCardStart));
+  assert.ok(sheetCardTag.includes('accessibilityViewIsModal'), 'Sheet.js 的卡片缺 iOS 的模态标记');
+  assert.ok(sheetCardTag.includes('importantForAccessibility="yes"'), 'Sheet.js 的卡片缺 Android 的模态标记');
   for (const name of modals) {
     const source = fs.readFileSync(path.join(dir, name), 'utf8');
-    assert.ok(
-      source.includes('accessibilityViewIsModal'),
-      `${name}: 内层容器缺 iOS 的 accessibilityViewIsModal（读屏会继续读背后内容）`
-    );
-    assert.ok(
-      source.includes('importantForAccessibility="yes"'),
-      `${name}: 内层容器缺 Android 的 importantForAccessibility="yes"`
-    );
+    if (FULLSCREEN_MODALS.includes(name)) {
+      assert.ok(source.includes('<Modal'), `${name} 是全屏弹窗，应保留自己的 Modal 外壳`);
+      assert.ok(
+        source.includes('accessibilityViewIsModal') && source.includes('importantForAccessibility="yes"'),
+        `${name}: 全屏弹窗必须自带两套模态标记（读屏会继续读背后内容）`
+      );
+      continue;
+    }
+    // 其余 14 个：一律走共享 Sheet，且不得再手写 Modal 外壳（外壳统一是这批改造的目的，
+    // 手写外壳会把「模态标记靠自觉」的老问题带回来）。
+    assert.ok(source.includes('<Sheet'), `${name}: 应走共享 Sheet`);
+    assert.equal(source.includes('<Modal'), false, `${name}: 不得再手写 Modal 外壳`);
   }
+});
+
+test('消息气泡的三点菜单走共享 Sheet（同一套外壳的第 17 份拷贝）', () => {
+  // 它不在上面的 *Modal.js 清单里（是 MessageBubble 内联渲染的），但外壳形状完全一样：
+  // 透明 Modal + fade + TouchableOpacity 背景 + 卡片 + modalTitle。改造前它**没有**任何
+  // 模态标记——读屏会把菜单和背后整屏聊天内容一起念，正是上面那条回归的同一类失效。
+  const bubble = read('src/chat/MessageBubble.js');
+  assert.ok(bubble.includes('<Sheet'), 'MessageBubble 的操作菜单应走共享 Sheet');
+  assert.equal(bubble.includes('<Modal'), false, 'MessageBubble 不得再手写 Modal 外壳');
+  // 菜单是「每条消息一份」，必须保持**关闭即卸载**：RN 的 Modal 在 componentDidMount 里
+  // 注册全局 'modalDismissed' 监听（Modal.js:242-256），常驻挂载会让每个气泡各留一个。
+  assert.ok(bubble.includes('{actionsOpen ? ('), '菜单仍按 actionsOpen 条件挂载');
+  assert.ok(bubble.includes('visible\n'), '条件挂载下 visible 直接给真值（与改造前的 <Modal visible> 一致）');
 });
 
 test('折叠头：role=button + accessibilityState.expanded + 明确 label', () => {

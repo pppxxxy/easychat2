@@ -269,6 +269,10 @@ export const chat = {
   'chat.send.imageTooLarge.regenTotalBody': '重新生成所需的图片总大小过大。',
   'chat.send.noVision.title': '不支持识图',
   'chat.send.noVision.body': '当前来源未标记为支持识图，请在设置中确认模型能力。',
+  // 图片识别（OCR）失败：主模型本身也看不到图，所以**不能**继续发——继续发就是发一条
+  // 模型看不懂的请求。文案要同时说清「哪一步失败了」与「怎么补救」。
+  'chat.send.imageRecognitionFailed.title': '图片识别失败',
+  'chat.send.imageRecognitionFailed.body': '当前模型不支持识图，而图片识别也没能读出这张图。请检查「设置 → 扩展 → 图片识别（OCR）模型」里的接口、模型名与密钥，或改用支持识图的模型后重发。',
   'chat.send.noVideo.title': '不支持看视频',
   'chat.send.noVideo.body': '当前来源未标记为支持看视频（且需 OpenAI 兼容协议），请在设置中确认模型能力。',
   'chat.send.videoMissing.title': '视频已失效',

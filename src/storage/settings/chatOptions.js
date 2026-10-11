@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeImagePosition } from '../../imageGen/inlineImagePrompt.js';
 import { normalizeStickerChance, normalizeStickerPosition } from '../../chat/stickerPolicy.js';
+import { normalizeHiddenToolNotices } from '../../chat/toolNoticeVisibility.js';
 import { BUBBLE_STYLES, THEMES, normalizeCustomColors } from '../../theme/themes.js';
 import { readJson } from '../io.js';
 import { normalizeImageProviderId } from './imageProvider.js';
@@ -44,6 +45,12 @@ function normalizeChatOptions(raw) {
     stickerChance: normalizeStickerChance(source.stickerChance),
     // 表情包相对文字的位置：文字下方（默认，与旧行为一致）/ 文字上方。
     stickerPosition: normalizeStickerPosition(source.stickerPosition),
+    // 工具使用提示（聊天页的「工具过程气泡」）可见性：总开关 + 按工具隐藏。
+    // 与 chatTools 同域是因为它们是同一件事的两面：那条决定工具能不能用，
+    // 这两条只决定「用了工具」要不要说出来。判定唯一来源见
+    // chat/toolNoticeVisibility.js——失败与审批永远不受这两条影响。
+    hideAllToolNotices: source.hideAllToolNotices === true,
+    hiddenToolNotices: normalizeHiddenToolNotices(source.hiddenToolNotices),
   };
 }
 

@@ -1,11 +1,8 @@
 // 角色详情页（原「角色库 + 编辑表单」同页结构的表单半边）。
-// 从 src/CharacterScreen.js 原样搬出「Card ② 基本信息 / Card ③ 人设设定 / Card ④ 角色数据」
-// 三块及其全部表单 state / ref / effect / handler，只搬运不重写：
-// 表单 seed、外部冲突检测、编辑草稿防抖、Tab 拦截信箱、图片三重守卫、保存闸门、
-// 多选删除级联都保持原有顺序与文案。
-//
-// 结构性新增只有三处：顶部返回入口、route.params.characterId 取不到时的兜底、
-// 以及「放弃并切换」分支里清草稿用的 activeId（原为同页 state，现在是 useApp 的 activeId）。
+// 从 src/CharacterScreen.js 原样搬出「Card ② 基本信息 / Card ③ 人设设定 / Card ④ 角色数据」三块
+// 及其全部表单 state / ref / effect / handler，只搬运不重写：表单 seed、外部冲突检测、编辑草稿
+// 防抖、Tab 拦截信箱、图片三重守卫、保存闸门、多选删除级联都保持原有顺序与文案。
+// 结构性新增只有三处：顶部返回入口、route.params.characterId 取不到时的兜底、「放弃并切换」分支里清草稿用的 activeId。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ROUTE_NAMES } from '../navigation/routeNames.js';
@@ -59,6 +56,7 @@ import {
 } from '../storage/characters.js';
 import { isRecentMediaUri } from '../storage/mediaProtection.js';
 import { useTranslation } from '../i18n/I18nContext.js';
+import CharacterOverridesSection from './CharacterOverridesSection.js';
 import { createForgeState, draftFromCharacter } from '../cardForge/forge.js';
 import { isFormDirty, setCharacterEditGuard } from './characterEditGuard.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -1466,6 +1464,8 @@ setWorldInfo(next.worldInfo);
             ) : null}
           </Card>
         ) : null}
+
+        <CharacterOverridesSection characterId={String((character && character.id) || '')} />
           </>
         ) : null}
 

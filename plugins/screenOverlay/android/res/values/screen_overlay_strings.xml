@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍服务在系统「设置 → 无障碍」里显示的说明文案（android:description）。
+
+  为什么走字符串资源而不是直接写在 accessibility_service_config.xml 里：
+  android:description 只接受资源引用，不接受字面量。资源名固定为
+  screen_overlay_accessibility_description，改名要同步改那份 XML。
+
+  文案口径：只承诺「已开启时能少一次录屏授权」，不承诺无障碍截屏能力
+  （该能力未在本地核实，当前未接入）。中文写在这里而不是 i18n 词条表，是因为
+  它由预构建插件注入原生资源，运行时 i18n 取不到；两份语言资源属独立一批。
+-->
+<resources>
+    <string name="screen_overlay_accessibility_description">开启后可少一次录屏授权（看屏幕的备选路径；画面采集仍由悬浮窗完成）</string>
+</resources>

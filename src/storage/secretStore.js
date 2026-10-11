@@ -9,6 +9,8 @@
 //   功能行为与改造前一致；
 // - 兼容旧数据：读取时遇到明文（非引用）原样返回，下次保存自动转为引用；
 // - 字段白名单精确匹配键名，避免误伤 `apiKeyUrl` 这类同前缀字段。
+// - 值不是字符串的敏感字段（`headers` 这类「键名用户自定、值才是密钥」的映射）走
+//   SECRET_OBJECT_FIELDS：**逐个值**保护、键名留在盘上（见那里的注释）。
 //
 // 脱敏双保险：本模块是密钥进出内存的存储边界，遍历到 SECRET_FIELDS 的明文时顺手登记到
 // secrets 模块的登记表，供诊断日志脱敏。使用点（api/imageGen/tts/webSearch/vector）仍各自登记，
@@ -17,7 +19,18 @@
 import { registerSecretValues } from './secrets.js';
 import { recordDiagnostic } from './diagnostics.js';
 
-const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'githubToken', 'githubAccessToken', 'githubRefreshToken', 'mcpToken']);
+// 导出给 dataBackup.js：备份脱敏的字段集必须**包含**保险箱保护的字段集，否则备份会成为
+// 绕过保险箱的旁路（见那里的 SECRET_FIELD_NAMES）。
+export const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'githubToken', 'githubAccessToken', 'githubRefreshToken', 'mcpToken']);
+// 需要按「对象」保护的字段：**键名由用户自定、值才是密钥**的映射（当前只有 MCP 自定义请求头）。
+// 为什么不能只加进 SECRET_FIELDS：那里的判据是「值是字符串」，而 headers 是 `{名: 值}` 对象，
+// 逐个值保护才是对的——整对象 JSON 化会撞 expo-secure-store 的 **2048 字节单值上限**
+//（node_modules/expo-secure-store/build/byteCounter.js: VALUE_BYTES_LIMIT = 2048），
+// 而 normalizeHeaders 允许每个值到 512 字符，几个头就能越界，越界后写入「可能不成功」。
+// 为什么按**域键前缀**限定而不是全局按键名匹配：`headers` 太通用，将来别的域出现同名对象时
+// 不该被无声搬进安全存储（那边有大小上限，语义上又未必是密钥）。与 SECRET_FIELDS 的
+//「精确匹配键名、不做子串匹配」是同一条纪律。
+export const SECRET_OBJECT_FIELDS = new Map([['headers', ['@easychat2_mcp_servers']]]);
 const REF_PREFIX = 'secure:v1:';
 const SECURE_STORE_PREFIX = 'easychat2_secret_';
 
@@ -67,6 +80,66 @@ function makeSecretId(namespace, path) {
 
 function refId(value) {
   return value.slice(REF_PREFIX.length);
+}
+
+// 该字段在本命名空间下是否需要「按对象保护」。命名空间就是存储键（如
+// `@easychat2_mcp_servers`），同域的分键形式（`@easychat2_mcp_servers::x`）也算命中。
+function isScopedSecretObject(key, namespace) {
+  const scopes = SECRET_OBJECT_FIELDS.get(key);
+  if (!scopes) return false;
+  const ns = String(namespace || '');
+  return scopes.some(prefix => ns === prefix || ns.startsWith(`${prefix}::`));
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+// 按对象保护的写侧：**每个值单独一条安全存储记录**，键名留在盘上。
+// 键名留在盘上是有意的——排查「配了哪些头」不需要密钥，而值一个都不能留。
+async function protectSecretObject(source, namespace, path) {
+  const out = {};
+  for (const [name, value] of Object.entries(source)) {
+    const text = typeof value === 'string' ? value : '';
+    if (!text) {
+      out[name] = value;
+      continue;
+    }
+    registerSecretValues([text]);
+    const id = makeSecretId(namespace, childPath(path, name));
+    try {
+      await writeSecret(id, text);
+      out[name] = `${REF_PREFIX}${id}`;
+    } catch (error) {
+      // 与标量字段同一条降级纪律：写入失败保持明文（不丢配置），但必须可查。
+      recordDiagnostic('secrets', error, `secure-store 写入失败，请求头降级明文：${namespace}/${childPath(path, name)}`);
+      out[name] = text;
+    }
+  }
+  return out;
+}
+
+// 按对象保护的读侧。读不回的那一条**不还原**：宁可少一个头（连不上、报错可见），
+// 也绝不把 `secure:v1:...` 这个引用串当成真头发出去——那既连不上，又把引用泄漏给服务端。
+async function hydrateSecretObject(source, namespace, path) {
+  const out = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (!isSecretRef(value)) {
+      // legacy 明文（改造前整块存盘）同样是密钥：登记进脱敏表，否则升级后第一次
+      // 读盘拿到的旧 token 不会被日志脱敏。
+      registerSecretValues([value]);
+      out[name] = value;
+      continue;
+    }
+    const text = await readSecret(refId(value));
+    if (text) {
+      registerSecretValues([text]);
+      out[name] = text;
+    } else {
+      recordDiagnostic('secrets', new Error('secure-store 引用无法还原'), `请求头丢失：${namespace}/${childPath(path, name)}`);
+    }
+  }
+  return out;
 }
 
 export function isSecretStoreAvailable() {
@@ -155,6 +228,8 @@ async function protectValue(value, namespace, path) {
           recordDiagnostic('secrets', error, `secure-store 写入失败，密钥降级明文：${namespace}/${childPath(path, key)}`);
           out[key] = item;
         }
+      } else if (isScopedSecretObject(key, namespace) && isPlainObject(item)) {
+        out[key] = await protectSecretObject(item, namespace, childPath(path, key));
       } else {
         out[key] = await protectValue(item, namespace, childPath(path, key));
       }
@@ -179,6 +254,8 @@ async function hydrateValue(value, namespace, path) {
       if (SECRET_FIELDS.has(key) && isSecretRef(item)) {
         out[key] = await readSecret(refId(item));
         registerSecretValues([out[key]]);
+      } else if (isScopedSecretObject(key, namespace) && isPlainObject(item)) {
+        out[key] = await hydrateSecretObject(item, namespace, childPath(path, key));
       } else {
         // legacy 明文（非引用）也要登记：否则密钥进入内存却未登记，错误文本里
         // 一旦带出就只能靠最佳努力的正则兜底，对 sk-ant- 等形态会漏。

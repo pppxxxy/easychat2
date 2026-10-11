@@ -36,6 +36,10 @@ const ioStub = {
     };
   },
   backupCorruptValue: async () => {},
+  // vector.js 的写盘路径会调 io.assertValueBudget（单值体积预算，只报警不抛）。
+  // 本文件用部分桩隔离 IO，桩必须跟着被测模块的依赖面走——漏一个就是
+  // 「TypeError: ... is not a function」这种和被测行为无关的假失败。
+  assertValueBudget: () => 0,
   readJson: async key => readStored(key),
   readJsonStatus: async key => {
     const raw = store.get(key);

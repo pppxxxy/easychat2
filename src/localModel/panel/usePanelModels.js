@@ -15,7 +15,7 @@ import { cleanupOrphanLocalModelFiles, getLocalModelFileInfo } from '../modelMan
 import { loadLocalModel, unloadLocalModel } from '../adapter.js';
 import { getRuntimeState, subscribeRuntime } from '../runtime.js';
 import { stopLocalApiServer } from '../localApiServer.js';
-import { tryAcquireResource } from '../../resourceMutex.js';
+import { tryAcquireResource } from '../../utils/resourceMutex.js';
 import { applyActiveLocalModel } from '../modelState.js';
 import { getDeviceMemoryInfo } from '../deviceMemory.js';
 import { selectFeaturedModels } from '../featured.js';

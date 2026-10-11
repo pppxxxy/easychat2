@@ -1,17 +1,12 @@
 // 工作区面板：浏览当前「工作区角色」沙盒内的文本/Markdown 与导出的 .docx。
-// - 文本文件：预览、复制、分享、删除；
-// - 可改模式：新建文本、把一段文本导出为 Word（.docx），并分享；
-// - 工作区角色：面板顶部选择（默认落到「EasyChat2 工作助手」，不存在时自动建卡）；
-//   文件按角色分沙盒，与该角色在聊天里用工具读写的是同一个目录；
-// - 查看文件：独立入口（文件夹按钮），分「已创建的文件 / 历史改动」两段；
-//   历史改动 = 经后端写入/编辑/删除的记录（面板与聊天工具共用同一条记录路径）。
-// 入口在「设置 → 工作区」卡片。
+// - 文本文件：预览、复制、分享、删除；可改模式：新建文本、导出一段文本为 Word（.docx）；
+// - 工作区角色：面板顶部选择（默认落到「EasyChat2 工作助手」，不存在时自动建卡），文件按角色
+//   分沙盒，与该角色在聊天里用工具读写的是同一个目录；入口在「设置 → 工作区」。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -827,8 +822,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     );
   };
 
-  // 查看文件（已创建的文件 / 历史改动）：面板**内部**的层，不再是一个独立 Modal——
-  // 全局弹窗嵌套到此为止（v2 §3 交互规则 3：面板内二级层深度 ≤ 2）。
+  // 查看文件（已创建的文件 / 历史改动）：面板**内部**的层（v2 §3：面板内二级层深度 ≤ 2）。
   const renderViewerBody = () => (
     <>
       <SheetHeader title={t('workspace.panel.viewer.title')} onClose={() => setViewerOpen(false)} />
@@ -920,10 +914,11 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     </>
   );
 
-  // 文件面板（工作区单屏内的「文件」领域）：不再自套 Modal、不再自带顶部标题栏——
-  // 那是单屏的职责。面板内的二级层（预览/表单/环境模板/角色切换）仍是本组件内部的层。
+  // 文件面板（工作区单屏内的「文件」领域）：不自套 Modal、不自带顶栏——那是单屏的职责。
+  // 面板内二级层是铺满面板的 View（styles.layer）：全局唯一 Modal 在 WorkspaceScreen（守卫钉着）。
   return (
-    <View style={styles.container}>
+    <View style={styles.root}>
+      <View style={styles.container}>
 
         <ScrollView contentContainerStyle={styles.body}>
           {viewerOpen ? renderViewerBody() : (
@@ -1111,14 +1106,16 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
 
           {renderFileBrowser()}
 
-          {/* 此前的「调参」折叠卡（思考强度 + 上下文占用）已删除：这两项在对话面板的 ⚙
-              设置里各有一行**同款可交互控件**，是同一份数据的两处显示；而且它们是 agent
-              参数，放在「文件」领域本身就是范畴错误。收敛到单一来源（P4-2）。 */}
+          {/* 「调参」折叠卡已删除：思考强度 + 上下文占用在对话面板的 ⚙ 设置里各有一行同款
+              可交互控件（同一份数据两处显示必然漂移），且它们是 agent 参数，放在「文件」
+              领域本身是范畴错误。收敛到单一来源（P4-2）。 */}
           </>
           )}
         </ScrollView>
-        <Modal visible={characterPickerOpen} animationType="slide" onRequestClose={() => setCharacterPickerOpen(false)}>
-          <View style={styles.container}>
+      </View>
+
+        {characterPickerOpen ? (
+          <View style={styles.layer}>
             <SheetHeader title={t('workspace.panel.character.title')} onClose={() => setCharacterPickerOpen(false)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{t('workspace.panel.character.pickerHint')}</FieldHint>
@@ -1135,10 +1132,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               ))}
             </ScrollView>
           </View>
-        </Modal>
+        ) : null}
 
-        <Modal visible={catalogOpen} animationType="slide" onRequestClose={() => setCatalogOpen(false)}>
-          <View style={styles.container}>
+        {catalogOpen ? (
+          <View style={styles.layer}>
             <SheetHeader title={t('workspace.panel.catalog.title')} onClose={() => setCatalogOpen(false)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{t('workspace.panel.catalog.hint')}</FieldHint>
@@ -1253,10 +1250,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               </View>
             </ScrollView>
           </View>
-        </Modal>
+        ) : null}
 
-        <Modal visible={!!preview} animationType="slide" onRequestClose={() => setPreview(null)}>
-          <View style={styles.container}>
+        {preview ? (
+          <View style={styles.layer}>
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
@@ -1293,7 +1290,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
               </View>
             </ScrollView>
           </View>
-        </Modal>
+        ) : null}
 
         <FileHistorySheet
           visible={historyOpen}
@@ -1314,7 +1311,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  // root 不留内边距（否则绝对定位的二级层会被垫下去、露出下层正文）；layer = 面板内二级层。
+  root: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
+  layer: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.background },
   body: { paddingHorizontal: 20, paddingBottom: 40 },
   statusBar: {
     flexDirection: 'row',

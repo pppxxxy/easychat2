@@ -25,6 +25,8 @@ import { markMediaWrite } from '../mediaProtection.js';
 import { collectChatImageFiles, collectVoiceFiles } from '../sessionFiles.js';
 import { getMessagesBySessionStatus } from '../sessionMessages.js';
 import { deleteAllBranchesInternal } from '../sessionBranches.js';
+import { clearSessionStats } from '../sessionStats.js';
+import { clearStreamDraft } from '../../chat/streamDraft.js';
 import {
   ACTIVE_SESSION_KEY,
   LEGACY_MESSAGES_KEY,
@@ -38,9 +40,34 @@ import {
   saveSessionsInternal,
   sessionDraftKey,
   sessionMessagesKey,
+  sessionPlanKey,
   sessionSummariesKey,
   setActiveSessionIdInternal,
 } from '../sessionCore.js';
+
+// 删会话要清掉的**按会话分键**的旁路键。这份清单是「会话拥有的全部键」的事实源：
+// 每新增一个按会话 id 分键的存储域，都必须在这里（和下面的批量删除）补上，否则
+// 用户删了会话，那份数据会永久留在设备上（本函数历史上就漏了计划与流式草稿）。
+// 单键多会话的域（session_stats）不在此列——它们要读-改-写删自己那一条，见调用点。
+function sessionScopedKeys(sessionId) {
+  return [
+    sessionMessagesKey(sessionId),
+    sessionSummariesKey(sessionId),
+    sessionDraftKey(sessionId),
+    // O0.3 计划：useChatSend 的 onPlan 每次更新都会写，是**持续写**的键。
+    sessionPlanKey(sessionId),
+  ];
+}
+
+// 删除一个会话**不经过 multiRemove** 的旁路数据。两处各有理由：
+// - 统计是单键多会话（@easychat2_session_stats 按会话 id 分区），整键删会连别的会话一起清，
+//   必须走它自己的读-改-写入口（内部在队列里，避免与并发的 recordSessionRequest 互相覆盖）；
+// - 流式草稿有自己的 storage 句柄与清空入口（useSessionMessages 也用同一个），复用它而不是
+//   在这里直接拼键，避免两处各写一份键格式。
+async function clearSessionSidecarData(sessionId) {
+  await clearSessionStats(sessionId).catch(() => {});
+  await clearStreamDraft(sessionId).catch(() => {});
+}
 
 export async function readLegacyMessages(characterId) {
   let stored = await readJson(messagesKey(characterId), null);
@@ -203,12 +230,9 @@ async function deleteSessionInternal(sessionId) {
   }
   deletedSessionIds.add(String(sessionId));
   try {
-    await AsyncStorage.multiRemove([
-      sessionMessagesKey(sessionId),
-      sessionSummariesKey(sessionId),
-      sessionDraftKey(sessionId),
-    ]);
+    await AsyncStorage.multiRemove(sessionScopedKeys(sessionId));
   } catch (error) {}
+  await clearSessionSidecarData(sessionId);
   await deleteAllBranchesInternal(sessionId);
   await collectChatImageFiles();
   await collectVoiceFiles();
@@ -273,12 +297,9 @@ async function deleteSessionsInternal(sessionIds) {
   }
   ids.forEach(id => deletedSessionIds.add(String(id)));
   try {
-    await AsyncStorage.multiRemove(ids.flatMap(id => [
-      sessionMessagesKey(id),
-      sessionSummariesKey(id),
-      sessionDraftKey(id),
-    ]));
+    await AsyncStorage.multiRemove(ids.flatMap(id => sessionScopedKeys(id)));
   } catch (error) {}
+  for (const id of ids) await clearSessionSidecarData(id);
   for (const id of ids) await deleteAllBranchesInternal(id);
   await collectChatImageFiles();
   await collectVoiceFiles();

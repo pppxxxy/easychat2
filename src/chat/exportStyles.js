@@ -8,20 +8,9 @@ import { StyleSheet } from 'react-native';
 import { hexToRgba } from '../theme/themes.js';
 
 export const createExportStyles = (theme, fonts, tokens) => StyleSheet.create({
-  // 导出面板自带一层背板（不复用 modalBackdrop）：关闭层要铺满整屏、且弹层不能被
-  // Touchable 包住——HTML 预览是 WebView，被 Touchable 包着在 Android 上会滚不动。
-  // 因此水平内缩改由 exportSheet 的 marginHorizontal 提供。
-  exportBackdrop: {
-    flex: 1,
-    backgroundColor: theme.colors.overlay,
-  },
-  // 居中 + 水平内缩层。调用方给这一层挂 pointerEvents="box-none"：本层自己不接触摸
-  // （否则它的 padding 环会挡住下面铺满整屏的关闭层），子元素（弹层）照常接。
-  exportSheetLayer: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: tokens.spacing.xl,
-  },
+  // 背板与居中层已随外壳统一收进 ui/Sheet（导出面板走 backdropStyle={styles.modalBackdrop}
+  // + cardAbsorbPress）：卡片自己吞掉按压，HTML 预览的 WebView 滚动不会冒泡到背景层
+  // 把弹窗关掉——与改造前「关闭层铺满整屏 + box-none 层」等价，但只有一处实现。
   exportSheet: {
     backgroundColor: theme.colors.surfaceAlt,
     borderRadius: tokens.radius.lg,

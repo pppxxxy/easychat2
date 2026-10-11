@@ -6,6 +6,13 @@
 //
 // 为什么不把中文写进组件：项目有 no-hardcoded-chinese 门禁，用户可见文案必须
 // 走 i18n。所以这里只产出 **i18n key 与参数**，组件再 t() 一次。
+//
+// 本模块同时持有气泡的**纯状态变换**（updateToolBubbles）：把一次工具事件折进消息
+// 数组。放在这里而不是组件里，是因为「什么该显示」的判定必须只有一份（含隐藏判定，
+// 见 chat/toolNoticeVisibility.js）。
+
+import { ASSISTANT_ID, TOOL_BUBBLE_KIND } from './chatConstants.js';
+import { isToolNoticeHidden } from './toolNoticeVisibility.js';
 
 // 工具名 → 展示用的 i18n key 后缀。没登记的工具有兜底文案（显示原始工具名），
 // 这样将来新增工具不会因为忘记登记而整块不显示。
@@ -90,4 +97,69 @@ export function reduceToolEvents(events) {
 export function shouldShowToolBubble({ enabled = false, state = null } = {}) {
   if (enabled !== true) return false;
   return !!state && !!state.status;
+}
+
+// 工具过程气泡的**纯状态变换**：把一次工具事件折进消息数组，返回新数组。
+//
+// 契约（每一条都有 tests/toolBubbleVisibility.test.mjs 的行为测试）：
+// - name/status 任一为空 = 清除该 id 的气泡（本轮收尾用）；
+// - 该工具被隐藏（总开关或单项开关）= **不挂出、也不保留**。判定发生在**追加之前**，
+//   所以不存在「先闪一下再消失」——这正是需求里点名要避免的形态；
+// - 失败（status === 'error'）永不被隐藏：判定在 isToolNoticeHidden 内部短路；
+// - 隐藏判定**每次调用都重新求值**，读的是调用方传进来的最新 visibility：
+//   已挂出的气泡在开关被改后，会在下一次工具事件时立即消失/出现（不需要等下一轮）；
+// - 只动 id 等于本条气泡的消息，其余消息原样保留（不改原数组）。
+export function updateToolBubbles(current, {
+  id,
+  name = '',
+  status = '',
+  error = '',
+  visibility = null,
+  now = 0,
+} = {}) {
+  const list = Array.isArray(current) ? current : [];
+  const without = list.filter(item => item.id !== id);
+  if (!name || !status) return without;
+  if (isToolNoticeHidden(name, visibility, status)) return without;
+  return [...without, {
+    id,
+    role: ASSISTANT_ID,
+    text: '',
+    kind: TOOL_BUBBLE_KIND,
+    toolName: name,
+    toolStatus: status,
+    toolError: error,
+    pending: true,
+    transient: true,
+    timestamp: now,
+  }];
+}
+
+// 气泡的**接线器**：把一次工具事件接到宿主的状态上（React setMessages）。
+//
+// 单独抽出来的理由：这三件事必须可被行为测试钉住，而不是靠「源码里出现了某行」——
+//   1. 可见性**每次事件都从 getVisibility() 现取**（不是本轮开始时快照），
+//      所以用户在设置页拨完开关回到聊天页，正在跑的这一轮也会立即跟随；
+//   2. 会话守卫（isCurrentSession）在调用点与状态更新回调里各查一次：
+//      切走会话后落地的气泡不能串场；
+//   3. 隐藏只影响「挂不挂气泡」，不吞事件、不抛错——工具循环照跑。
+export function createToolBubbleApplier({ id, isCurrentSession, getVisibility, setMessages }) {
+  const apply = update => {
+    if (!isCurrentSession()) return;
+    setMessages(current => (
+      isCurrentSession()
+        ? updateToolBubbles(current, {
+          ...update,
+          id,
+          visibility: getVisibility(),
+          now: Date.now(),
+        })
+        : current
+    ));
+  };
+  return {
+    apply,
+    clear: () => apply({}),
+    set: (name, status, error = '') => apply({ name, status, error }),
+  };
 }

@@ -1,5 +1,6 @@
 import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
 import { getMessagePromptText } from '../chat/chatMedia.js';
+import { imageDescriptionFailed, imageDescriptionPrefix } from '../chat/imageDescriptionPrompt.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 import { buildSystemChunks, buildSystemSections, composeSystemText, planSystemCache } from './systemSections.js';
 import { expandHistoryWithTraces } from '../chat/toolTrace.js';
@@ -85,9 +86,15 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   // P5：展开历史里的工具轨迹（toolTrace → tool 消息），让 agent 看到跨轮的工具结果。
   const history = buildHistory(expandHistoryWithTraces(historyMessages), scripts);
+  // 图片识别（OCR）描述的两段固定文本：注入后**看不到图的模型**也能从文本理解画面。
+  // 走参数注入而不是让 chatMedia 反向 import 引擎，避免长链依赖。
+  const imageDescriptionPrompts = {
+    prefix: imageDescriptionPrefix(),
+    failed: imageDescriptionFailed(),
+  };
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
     .map(item => applyForPrompt(
-      getMessagePromptText(item),
+      getMessagePromptText(item, imageDescriptionPrompts),
       scripts,
       REGEX_PLACEMENT.USER_INPUT,
       0
@@ -237,7 +244,7 @@ export function buildRequestMessages({ character, historyMessages, userText, use
     .filter(item => item && (item.dataUri || item.image))
     .map(item => {
       const text = applyForPrompt(
-        getMessagePromptText(item),
+        getMessagePromptText(item, imageDescriptionPrompts),
         scripts,
         REGEX_PLACEMENT.USER_INPUT,
         0
