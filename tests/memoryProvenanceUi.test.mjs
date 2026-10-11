@@ -12,6 +12,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 
 const CHAT_SCREEN = read('src/ChatScreen.js');
+// 「其他」分组的条目构造已外提到 chat/moreMenuItems.js（ChatScreen 行数基线只许收紧）。
+const MENU_ITEMS = read('src/chat/moreMenuItems.js');
 const MODAL = read('src/memory/MemoryProvenanceModal.js');
 const ZH_MEMORY = read('src/i18n/locales/zh-CN/memory.js');
 const EN_MEMORY = read('src/i18n/locales/en/memory.js');
@@ -20,10 +22,11 @@ const EN_CHAT = read('src/i18n/locales/en/chat.js');
 
 test('ChatScreen：⋯ 菜单「其他」区挂记忆溯源入口并渲染面板', () => {
   assert.ok(CHAT_SCREEN.includes("import MemoryProvenanceModal from './memory/MemoryProvenanceModal.js';"));
-  assert.ok(CHAT_SCREEN.includes("key: 'memory-provenance'"));
-  assert.ok(CHAT_SCREEN.includes("label: t('chat.menu.memoryProvenance')"));
-  assert.ok(CHAT_SCREEN.includes("section: t('chat.menu.section.other')"));
-  assert.ok(CHAT_SCREEN.includes('onPress: () => setMemoryProvenanceOpen(true)'));
+  assert.ok(MENU_ITEMS.includes("key: 'memory-provenance'"));
+  assert.ok(MENU_ITEMS.includes("label: t('chat.menu.memoryProvenance')"));
+  assert.ok(MENU_ITEMS.includes("t('chat.menu.section.other')"));
+  assert.ok(MENU_ITEMS.includes('onPress: () => setMemoryProvenanceOpen(true)'));
+  assert.ok(CHAT_SCREEN.includes('...buildMoreMenuSystemItems({'), '这组条目仍拼进聊天页菜单');
   assert.ok(CHAT_SCREEN.includes('<MemoryProvenanceModal'));
   assert.ok(CHAT_SCREEN.includes('characterId={characterId}'));
   assert.ok(CHAT_SCREEN.includes('characterName={String(character.name || \'\')}'));

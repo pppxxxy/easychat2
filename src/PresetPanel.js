@@ -24,7 +24,7 @@ import {
   saveGlobalPresets,
 } from './storage/globalPresets.js';
 import { getApiConfigs } from './storage/apiConfigs.js';
-import { getMemorySummarySettings, saveMemorySummarySettings } from './storage/settings.js';
+import { getMemorySummarySettings, patchMemorySummarySettings } from './storage/settings.js';
 import { useTranslation } from './i18n/I18nContext.js';
 
 const THRESHOLD_FALLBACK = 40;
@@ -238,7 +238,9 @@ export default function PresetPanel({
   const persistMemory = async (enabledValue, thresholdValue, configIdValue, maxEntriesValue) => {
     busyRef.current = true;
     try {
-      const saved = await saveMemorySummarySettings({
+      // patch 而非整体写：本面板只编辑开关与阈值，记忆长度由聊天页「总结」面板编辑，
+      // 整体写会把记忆长度归一回默认值（对照 patchAppearanceSettings 的同款理由）。
+      const saved = await patchMemorySummarySettings({
         enabled: enabledValue,
         threshold: thresholdValue,
         configId: configIdValue,

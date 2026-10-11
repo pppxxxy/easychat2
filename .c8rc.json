@@ -86,6 +86,7 @@
     "src/chat/AttachmentMenuModal.js",
     "src/chat/MoreMenuModal.js",
     "src/chat/ChatSettingsModal.js",
+    "src/chat/MemorySummarySheet.js",
     "src/chat/FullScreenInputModal.js",
     "src/chat/ChatSearchBar.js",
     "src/chat/ChatTopBar.js",

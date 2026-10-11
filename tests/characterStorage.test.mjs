@@ -456,9 +456,14 @@ test('健康索引首次读取会写入迁移标记，避免旧整库后续复�
 
 test('记忆总结设置独立保存并可读取', async () => {
   const storage = loadStorage();
+  // 记忆长度（historyRounds）是后加的字段：整体写不传它就归一回默认 30（详见
+  // tests/memorySummarySettings.test.mjs 里 patch 与整体写的对比）。
   const saved = await storage.saveMemorySummarySettings({ enabled: true, threshold: 8 });
-  assert.deepEqual(saved, { enabled: true, threshold: 8, configId: '', maxEntries: 100 });
-  assert.deepEqual(await storage.getMemorySummarySettings(), { enabled: true, threshold: 8, configId: '', maxEntries: 100 });
+  // 五个字段一起断言（M 系加了 configId/maxEntries，Z 系加了 historyRounds）
+  assert.deepEqual(saved, { enabled: true, threshold: 8, configId: '', maxEntries: 100, historyRounds: 30 });
+  assert.deepEqual(await storage.getMemorySummarySettings(), { enabled: true, threshold: 8, configId: '', maxEntries: 100, historyRounds: 30 });
+  const withLength = await storage.saveMemorySummarySettings({ enabled: false, threshold: 8, historyRounds: 12 });
+  assert.deepEqual(withLength, { enabled: false, threshold: 8, configId: '', maxEntries: 100, historyRounds: 12 });
 });
 
 test('新建会话可写入已选择的开场白消息', async () => {
