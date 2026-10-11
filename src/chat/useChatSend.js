@@ -497,23 +497,18 @@ export default function useChatSend({
        // （规则要靠当前时间判断时段，故启用作息即附带时间，与全局 timeAware 解耦）。
        // 「本次请求的时刻」只取一次：时间行与作息规则的工作日/休息日判定必须同一天，
        // 否则跨零点的那一轮会出现「时间行已是次日、作息还按前一天」的错配。
+       // 传日期 → 概率事件按「天」确定性解析；同一天内文本逐字节一致（缓存契约）。
        const requestNow = new Date();
+       const scheduleCharacterId = String((currentSession && currentSession.characterId) || character.id || '');
        let scheduleText = '';
        let scheduleActive = false;
        try {
-         const scheduleCharacterId = String(
-           (currentSession && currentSession.characterId) || character.id || ''
-         );
          const schedule = scheduleCharacterId ? await getCharacterSchedule(scheduleCharacterId) : null;
          if (isScheduleActive(schedule)) {
-           // 传日期 → 概率事件按「天」确定性解析；同一天内文本逐字节一致（缓存契约）。
            scheduleText = buildSchedulePrompt(schedule, { date: requestNow, characterId: scheduleCharacterId });
            scheduleActive = true;
          }
-       } catch (error) {
-         scheduleText = '';
-         scheduleActive = false;
-       }
+       } catch (error) { scheduleText = ''; scheduleActive = false; }
        const requestMessages = buildRequestMessages({
          character,
          historyMessages: trimmedHistory,
