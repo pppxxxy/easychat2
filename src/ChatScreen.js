@@ -84,9 +84,10 @@ import {
   getInlineImageSettings,
   getMemorySummarySettings,
   getThinkingSettings,
-  getTranscriptionSettings,
   getTtsSettings,
 } from './storage/settings.js';
+// 角色专属配置的唯一解析层（聊天 API / OCR / TTS+音声 / 转写）。
+import { resolveCharacterTranscription } from './character/runtimeConfig.js';
 import { getStickers, saveSticker, deleteStickers, reorderStickers } from './storage/stickers.js';
 import { getUserProfile } from './storage/personas.js';
 import { setProtectedChatImageUris, setSessionGreetingSelected } from './storage/sessions.js';
@@ -194,7 +195,6 @@ import useChatRecorder from './chat/useChatRecorder.js';
 import AttachmentMenuModal from './chat/AttachmentMenuModal.js';
 import {
   isUnsupportedTranscriptionError,
-  resolveTranscription,
   transcribeAudio,
 } from './transcription.js';
 // 「compact」/「/compact」= 压缩指令：把当前会话按手动路径总结入记忆
@@ -529,7 +529,7 @@ export default function ChatScreen() {
     broadcastMessage,
     autoBroadcastMessage,
     synthesizeVoice,
-  } = useChatTts();
+  } = useChatTts({ characterId });
   // 语音录制：仅在单聊且非群聊时提供入口。转录判定按会话缓存（见 transcriptionSupportedRef）。
   const recorder = useChatRecorder();
   const transcriptionSupportedRef = useRef({}); // sessionId -> false 表示该来源已确认不支持转写
@@ -2403,15 +2403,10 @@ export default function ChatScreen() {
     const guard = captureSessionGuard();
     let text = '';
     try {
-      const [{ configs, activeId }, transcriptionSettings] = await Promise.all([
-        getApiConfigs(),
-        getTranscriptionSettings().catch(() => ({ activeId: '', configs: [] })),
-      ]);
-      const activeChat = configs.find(item => item.id === activeId) || configs[0] || null;
-      const dedicated = transcriptionSettings.configs.find(
-        item => item.id === transcriptionSettings.activeId
-      ) || null;
-      const target = resolveTranscription({ chatConfig: activeChat, dedicated });
+      // 语音转文字来源：走角色运行期解析层的单一入口（专属转写配置优先，失效回落全局）。
+      // 「复用聊天来源」这一档也跟着角色的专属聊天 API —— 不会出现「聊天走 A 配置、
+      // 转写偷偷走全局 B 配置」。characterId 取 ref，避免回调闭包里的旧角色 id。
+      const target = await resolveCharacterTranscription(activeCharacterIdRef.current);
       // 无任何可用的转写来源：明确提示引导补配，本条仍按占位发送（不阻断）。
       if (target.source === 'none') {
         Alert.alert(

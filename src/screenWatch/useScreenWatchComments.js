@@ -9,7 +9,8 @@ import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessag
 import { buildRequestMessages } from '../prompt/chatPipeline.js';
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
-import { capabilitiesForModel, getApiConfigs, getActiveModel } from '../storage/apiConfigs.js';
+import { capabilitiesForModel, getActiveModel } from '../storage/apiConfigs.js';
+import { getCharacterApiConfigs, resolveCharacterOcrSettings } from '../character/runtimeConfig.js';
 import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
 import { getUserProfile } from '../storage/personas.js';
 
@@ -36,9 +37,11 @@ const THREAD_HISTORY_MAX = 12;
 
 // 解析当前模型能力：在线来源 supportsVision/supportsVideo 或本地多模态。
 // 供「生成前门控」与悬浮窗「视频帧序列」判定复用；读盘失败按不支持处理。
-export async function resolveScreenWatchCapabilities() {
+// characterId 非空时走角色专属解析层：角色的专属聊天 API/模型会改变主模型是谁，
+// 能力口径必须跟着变（否则会出现「门控按全局模型判、请求按专属模型发」的错配）。
+export async function resolveScreenWatchCapabilities(characterId = '') {
   const [apiConfig, localSettings, localItem] = await Promise.all([
-    getApiConfigs(),
+    getCharacterApiConfigs(characterId).catch(() => ({ configs: [], activeId: '' })),
     getLocalModelSettings().catch(() => null),
     getActiveLocalModel().catch(() => null),
   ]);
@@ -119,7 +122,7 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       const [profile, presets, caps, threadState] = await Promise.all([
         getUserProfile().catch(() => null),
         getEnabledGlobalPresetPrompts().catch(() => []),
-        resolveScreenWatchCapabilities(),
+        resolveScreenWatchCapabilities(character.id),
         // 对话线程（同角色 + 未超空闲阈值即续用）：连续截屏/说话算同一场对话。
         getOrCreateActiveThread(character.id, character.name).catch(() => null),
       ]);
@@ -147,11 +150,13 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       }
       if (controller.signal.aborted) return false;
       // 按来源决定这次请求放什么：'ocr' 时先把画面交给图片识别模型换文字描述。
+      // 识别设置取**角色生效值**（专属 OCR 配置优先，失效回落全局）。
       const shape = await resolveScreenWatchRequest({
         source,
         dataUris,
         signal: controller.signal,
         mainModelVision,
+        settings: await resolveCharacterOcrSettings(character.id).catch(() => null),
       });
       if (controller.signal.aborted) return false;
       if (shape.error === 'ocr-unavailable') {

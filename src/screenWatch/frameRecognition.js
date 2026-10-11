@@ -53,11 +53,13 @@ export function buildScreenWatchRequestShape({ source, dataUris = [], recognitio
 }
 
 // 编排：按来源决定要不要先识别，并给出请求形态。
-export async function resolveScreenWatchRequest({ source, dataUris, signal = null, mainModelVision = false }) {
+// settings = **角色生效**的图片识别设置（调用方从 character/runtimeConfig.js 的解析层
+// 取好后传进来）；不传时引擎按全局设置解析（既有行为）。识别本身不许在这里自己读盘。
+export async function resolveScreenWatchRequest({ source, dataUris, signal = null, mainModelVision = false, settings = null }) {
   if (source !== 'ocr') {
     return buildScreenWatchRequestShape({ source, dataUris, mainModelVision });
   }
-  const recognition = await describeImages(dataUris, { signal, mainModelVision });
+  const recognition = await describeImages(dataUris, { signal, mainModelVision, settings });
   return buildScreenWatchRequestShape({ source, dataUris, recognition, mainModelVision });
 }
 

@@ -65,6 +65,7 @@ import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from '
 // chat/imageRecognitionSend.js，这里只用它的两个入口）。
 import { applyImageRecognitionToMessages } from './imageRecognitionSend.js';
 import { resolveImageRecognitionPlan } from '../imageRecognition/index.js';
+import { getCharacterApiConfigs, resolveCharacterOcrSettings } from '../character/runtimeConfig.js';
 import { prepareVideoMessages } from './videoSend.js';
 import { createVoiceMessage } from './voiceMessages.js';
 import { createRequestMeter, estimatePromptTokens, estimateReplyTokens } from './sessionStats.js';
@@ -125,7 +126,7 @@ import {
   planMemoryBudget,
 } from '../memory/memorySummary.js';
 import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
-import { capabilitiesForModel, getApiConfigs, getActiveModel } from '../storage/apiConfigs.js';
+import { capabilitiesForModel, getActiveModel } from '../storage/apiConfigs.js';
 import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
 import { getEnabledPlugins } from '../storage/settings.js';
 import { getUserProfile } from '../storage/personas.js';
@@ -463,10 +464,9 @@ export default function useChatSend({
           .find(item => item.id === sessionCharacterId) || character;
         const characterExists = (Array.isArray(characters) ? characters : [])
           .some(item => item.id === sessionCharacterId);
-        // 读取作用域：单会话角色继续带上已有世界书记忆（不做迁移/丢弃），
-        // 多会话角色只读本会话。写入侧的降级见 runSummarize，两者解耦。
-        // 内置助手一律按会话级（它卡上的「记忆总结」可能是兜底归属沉淀来的），
-        // 并把当前会话计入判定，避免新建的第二个会话被当成单会话角色。
+        // 读取作用域：单会话角色带上已有世界书记忆（不做迁移/丢弃），多会话角色只读本会话
+        //（写入侧降级见 runSummarize，两者解耦）。内置助手一律按会话级（它卡上的「记忆总结」
+        // 可能是兜底归属沉淀来的），并把当前会话计入判定，避免第二个会话被当成单会话角色。
         const scoped = isBuiltinAssistant(sessionCharacter)
           || !characterExists
           || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, undefined, sendSessionId);
@@ -480,10 +480,9 @@ export default function useChatSend({
       } catch (error) {
         summaryText = '';
       }
-       // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时，
-       // 注入「[当前位置] …」——内容就是当前选中的那条自写位置（点选即用，一次一个）。
-       // 任一关闭 = 空串——位置感知是独立 opt-in，不给「开地图即默认分享」留后门。
-       // maxAgeMs: null —— 手写位置没有「取点时间」，不该按定位时效判过期。
+       // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时注入
+       // 「[当前位置] …」（内容即当前选中的那条自写位置）；任一关闭 = 空串——位置感知是
+       // 独立 opt-in，不给「开地图即默认分享」留后门。手写位置没有取点时间，故 maxAgeMs: null。
        let locationLine = '';
        try {
          const locationSettings = await getLocationSettings();
@@ -555,9 +554,11 @@ export default function useChatSend({
           : requestMessages;
         // 本地模型可以拥有独立的 mmproj 能力；本地失败回退在线时，必须按在线配置单独裁剪媒体。
         let online = EMPTY_ONLINE_REQUEST_CONTEXT;
+        // 角色专属聊天 API 的唯一入口（解析层见 character/runtimeConfig.js）：activeId 已按
+        // 角色覆盖解析，专属模型也写进了该条配置的 activeModel，下面的能力/指纹自动跟随。
+        const charConfigs = await getCharacterApiConfigs(characterId).catch(() => ({ configs: [], activeId: '', chatRequestOptions: {} }));
         try {
-          const { configs, activeId } = await getApiConfigs();
-          online = resolveOnlineRequestContext(configs, activeId, expectedConfigId, {
+          online = resolveOnlineRequestContext(charConfigs.configs, charConfigs.activeId, expectedConfigId, {
             getModel: getActiveModel,
             getCapabilities: capabilitiesForModel,
           });
@@ -642,11 +643,10 @@ export default function useChatSend({
         // P5：本轮工具轨迹（onTranscript 回抛；挂到助手终稿上持久化）。
         let turnTrace = null;
         const meter = createRequestMeter();
-        // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实
-        // 计费，累计才是这次发送的真实成本；缓存命中率 = Σcached / Σprompt。
-        // 本地模型/不返回 usage 的端点：count 恒为 0，走估算回退（零行为变化）。
-        // P0-7/P2-10：`lastModel` 记**真正产出内容**的模型（降级链可能换过模型）——
-        // 记账按主模型记会让「这条回复是谁产的」变成假话。
+        // E1：本次发送内多次 API 调用（工具轮）的 usage 累加器——每次调用都是真实计费，
+        // 累计才是真实成本；缓存命中率 = Σcached / Σprompt，不返回 usage 的端点 count 恒为 0
+        // 走估算回退。P0-7/P2-10：`lastModel` 记**真正产出内容**的模型（降级链可能换过模型），
+        // 按主模型记会让「这条回复是谁产的」变成假话。
         const usageAcc = { count: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, lastModel: '' };
         recordStats = (completionText, extra = {}) => {
           try {
@@ -699,6 +699,8 @@ export default function useChatSend({
               requestOptions: {
                 expectedConfigId,
                 expectedConfigFingerprint,
+                // 专属配置生效时才有键（configId+model）；无覆盖时为 {} = 既有解析路径。
+                ...charConfigs.chatRequestOptions,
                 stream: chatOptions.stream,
                 // P0-7：换模型重试要能提示到用户（经 runAgentTurn 透传给 api.js）。
                 onModelFallback: noteModelFallback,
@@ -728,13 +730,10 @@ export default function useChatSend({
                   setToolBubble(event.name, event.ok === false ? 'error' : 'done', event.error || '');
                 }
               },
-              // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，所以必须接上——
-              // 不接的话 registry 会把需要确认的工具一律拒绝。
-              //
-              // 钩子规则（hooks.json 的 before_shell / before_tool）**不走这里**：
-              // 它们改由 permissionRules 单独喂给 runTool（见下），因为审批钩子只在
-              // 「需要确认的工具」上被调用，而钩子的语义是拦下**任意**工具——
-              // 写工具按设计不逐条确认，只接这里等于规则永不生效（2026-10-11 P1）。
+              // 逐条确认 + 权限规则：这里是唯一能问到用户的出口，不接的话 registry 会把需要
+              // 确认的工具一律拒绝。钩子规则（before_shell / before_tool）**不走这里**：它们
+              // 由 permissionRules 单独喂给 runTool（见下）——审批只在「需要确认的工具」上被
+              // 调用，而钩子要拦下**任意**工具，写工具按设计不逐条确认（2026-10-11 P1）。
               onToolApproval: call => approveToolCall({
                 name: call && call.name,
                 args: call && call.args,
@@ -769,6 +768,7 @@ export default function useChatSend({
           : sendChatMessage(onlineMessages, {
               expectedConfigId,
               expectedConfigFingerprint,
+              ...charConfigs.chatRequestOptions,
               signal: controller.signal,
            stream: chatOptions.stream,
            onModelFallback: noteModelFallback,
@@ -839,7 +839,7 @@ export default function useChatSend({
                   error,
                   deps: buildReactiveCompactDeps({
                     store: hookStore, characterId: character.id,
-                    summarize: request => sendChatMessage(request, { stream: false, expectedConfigId, expectedConfigFingerprint }),
+                    summarize: request => sendChatMessage(request, { stream: false, expectedConfigId, expectedConfigFingerprint, ...charConfigs.chatRequestOptions }),
                   }),
                 });
                 if (result.compacted) {
@@ -1022,16 +1022,13 @@ export default function useChatSend({
        setModelFallbackNotice({ from: String((info && info.from) || ''), to });
      };
      // 群聊同样计入本会话统计：配置名/模型名在这里读一次，供每组请求记账。
-     let groupConfigLabel = '';
-     let groupModelName = '';
-     try {
-       const { configs, activeId } = await getApiConfigs();
-       const currentConfig = configs.find(item => item.id === expectedConfigId)
-         || configs.find(item => item.id === activeId)
-         || configs[0];
-       groupConfigLabel = currentConfig ? String(currentConfig.name || currentConfig.id || '') : '';
-       groupModelName = currentConfig ? String(getActiveModel(currentConfig) || '') : '';
-     } catch (error) {}
+     const groupRuntime = await getCharacterApiConfigs(characterId)
+       .catch(() => ({ configs: [], activeId: '', chatRequestOptions: {} }));
+     const currentConfig = groupRuntime.configs.find(item => item.id === expectedConfigId)
+       || groupRuntime.configs.find(item => item.id === groupRuntime.activeId)
+       || groupRuntime.configs[0];
+     const groupConfigLabel = currentConfig ? String(currentConfig.name || currentConfig.id || '') : '';
+     const groupModelName = currentConfig ? String(getActiveModel(currentConfig) || '') : '';
      const recordGroupStats = (meter, replyText, extra = {}) => {
        try {
          const timing = meter.finish();
@@ -1170,6 +1167,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             const reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
              expectedConfigFingerprint,
+             ...groupRuntime.chatRequestOptions,
              signal: controller.signal,
               stream: chatOptions.stream,
               onModelFallback: noteGroupModelFallback,
@@ -1253,6 +1251,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
            reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
              expectedConfigFingerprint,
+             ...groupRuntime.chatRequestOptions,
              signal: controller.signal,
             stream: chatOptions.stream,
             onModelFallback: noteGroupModelFallback,
@@ -1396,7 +1395,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
      let expectedConfigId = '';
      let expectedConfigFingerprint = '';
     try {
-       const { configs, activeId } = await getApiConfigs();
+       const { configs, activeId } = await getCharacterApiConfigs(characterId);
        if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
       const current = configs.find(item => item.id === activeId) || configs[0];
        expectedConfigId = String(current?.id || '');
@@ -1419,8 +1418,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
       audioInputEnabled = audioInputEnabled || localMedia.audio;
       // 图片识别（OCR）配置：只在确实带图片时解析（纯文字消息不白读一次存储）。
       // 用途有二：图片循环的视觉门控（主模型无识图能力时是否放行到 OCR 通道）、
-      // 循环之后的识别接线。
-      if (imageAttachments.length > 0) imageRecognitionPlan = await resolveImageRecognitionPlan().catch(() => null);
+      // 循环之后的识别接线。设置取**角色生效值**（专属 OCR 配置优先，失效则回落全局）。
+      if (imageAttachments.length > 0) imageRecognitionPlan = await resolveImageRecognitionPlan(await resolveCharacterOcrSettings(characterId)).catch(() => null);
      let sizedImages = [];
      try {
        sizedImages = await Promise.all(imageAttachments.map(async item => {
@@ -1610,7 +1609,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
      if (isCanceled() || !isSessionGuardCurrent(sessionGuard)
        || (abortRef.current && abortRef.current.signal.aborted)) return false;
      try {
-       const latest = await getApiConfigs();
+       const latest = await getCharacterApiConfigs(characterId);
        if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
        const latestConfig = latest.configs.find(item => item.id === latest.activeId) || latest.configs[0];
         const latestConfigId = String(latestConfig && latestConfig.id || '');
@@ -1728,7 +1727,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
        let localMedia = { vision: false, audio: false };
       try {
         const [{ configs, activeId }, localSettings, localItem] = await Promise.all([
-          getApiConfigs(),
+          getCharacterApiConfigs(characterId),
           getLocalModelSettings().catch(() => null),
           getActiveLocalModel().catch(() => null),
         ]);

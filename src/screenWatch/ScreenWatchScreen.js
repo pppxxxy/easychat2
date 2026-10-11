@@ -140,7 +140,7 @@ export default function ScreenWatchScreen() {
     overlayBusyRef.current = true;
     setOverlayBusy(true);
     try {
-      const caps = await resolveScreenWatchCapabilities();
+      const caps = await resolveScreenWatchCapabilities(characterId);
       if (!caps.vision) {
         await updateOverlayText(t('screenWatch.error.noVision'));
         return;

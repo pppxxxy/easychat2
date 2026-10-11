@@ -53,9 +53,10 @@ import { getActiveLocalModel } from '../../storage/localModels.js';
 import { getCharacterLibrary } from '../../storage/characters.js';
 import {
   getThinkingSettings,
-  getTranscriptionSettings,
   saveThinkingSettings,
 } from '../../storage/settings.js';
+// 角色专属配置的唯一解析层（聊天 API / OCR / TTS+音声 / 转写）。
+import { getCharacterApiConfigs, resolveCharacterTranscription } from '../../character/runtimeConfig.js';
 import { AUTO_COMPACT_RATIO, resolveContextWindow } from '../../chat/contextUsage.js';
 import { resolveAutoCompactPolicy } from '../../chat/compactionPolicy.js';
 import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
@@ -69,7 +70,7 @@ import { promptUserChoice } from '../../chat/askUserPrompt.js';
 import createStyles from './chatPanelStyles.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
-import { resolveTranscription, transcribeAudio } from '../../transcription.js';
+import { transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
 import { approveToolCall } from '../../chat/toolApprovalFlow.js';
@@ -1063,13 +1064,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     try {
       const audio = await recorder.stop();
       if (!audio || !audio.uri) return;
-      const [{ configs, activeId }, transcriptionSettings] = await Promise.all([
-        getApiConfigs(),
-        getTranscriptionSettings().catch(() => ({ activeId: '', configs: [] })),
-      ]);
-      const activeChat = configs.find(item => item.id === activeId) || configs[0] || null;
-      const dedicated = (transcriptionSettings.configs || []).find(item => item.id === transcriptionSettings.activeId) || null;
-      const target = resolveTranscription({ chatConfig: activeChat, dedicated });
+      // 语音转文字来源：走角色运行期解析层的单一入口（专属转写配置优先，失效回落全局；
+      // 「复用聊天来源」这一档也跟着角色的专属聊天 API）。
+      const target = await resolveCharacterTranscription(characterIdRef.current);
       if (target.source === 'none') {
         Alert.alert(t('workspace.chat.voice.none.title'), t('workspace.chat.voice.none.body'));
         return;
@@ -1258,11 +1255,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       userText: outgoingText,
       images,
     });
-    try {
-      const { configs, activeId } = await getApiConfigs();
-      const cfg = configs.find(item => item.id === activeId) || configs[0] || null;
-      request = filterRequestMedia(request, { allowVision: Boolean(cfg && cfg.supportsVision), allowAudio: false });
-    } catch (error) {}
+    // 工作区对话同样走角色专属聊天 API：activeId 已按角色覆盖解析，专属模型也写进了
+    // 该条配置的 activeModel，故下面的媒体裁剪按专属口径。chatRequestOptions 只在
+    // 专属配置生效时非空（无覆盖时 = 既有「按全局激活项解析」路径）。
+    const chatRuntime = await getCharacterApiConfigs(characterId).catch(() => ({ configs: [], activeId: '', chatRequestOptions: {} }));
+    const cfg = chatRuntime.configs.find(item => item.id === chatRuntime.activeId) || chatRuntime.configs[0] || null;
+    request = filterRequestMedia(request, { allowVision: Boolean(cfg && cfg.supportsVision), allowAudio: false });
 
     try {
       let overflowRetried = false;
@@ -1276,7 +1274,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
         // I1：Steering 队列（用户中途补充指令，每轮请求前注入）。
         steering: steeringRef.current,
         signal: controller.signal,
-        requestOptions: { stream: true },
+        requestOptions: { stream: true, ...chatRuntime.chatRequestOptions },
         onToken: fullText => {
           assistantFinal = { ...assistantFinal, content: fullText, isError: false };
           if (!mountedRef.current || controller.signal.aborted) return;

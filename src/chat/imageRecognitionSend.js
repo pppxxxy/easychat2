@@ -27,7 +27,7 @@ export async function applyImageRecognitionToMessages(messages, options = {}) {
   if (targets.length === 0) {
     return { ran: false, decision: 'continue', attachOriginal: false, failureCount: 0, skipped: true, reason: 'no-image' };
   }
-  const plan = options.plan || await resolveImageRecognitionPlan().catch(() => null);
+  const plan = options.plan || await resolveImageRecognitionPlan(options.settings || null).catch(() => null);
   if (!plan || !plan.ready) {
     return {
       ran: false,
@@ -43,6 +43,9 @@ export async function applyImageRecognitionToMessages(messages, options = {}) {
     {
       mainModelVision: options.mainModelVision === true,
       signal: options.signal || null,
+      // 角色专属 OCR 配置：由调用方从 character/runtimeConfig.js 的解析层取好后传进来
+      //（**不在本模块自己读盘**——override ?? global 只能有一处实现）。
+      settings: options.settings || null,
     }
   );
   // 按**来源 URI** 把描述配回对应消息：调用方持有 file:// 路径，识别用的是 data URI。
