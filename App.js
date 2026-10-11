@@ -59,7 +59,7 @@ import {
   stopLocalApiServer,
 } from './src/localModel/localApiServer.js';
 import { runHeadlessAgent } from './src/workspace/headlessAgent.js';
-import { tryAcquireResource } from './src/resourceMutex.js';
+import { tryAcquireResource } from './src/utils/resourceMutex.js';
 import SecurityGate from './src/security/SecurityGate.js';
 import { useTabIconScale } from './src/ui/animations.js';
 

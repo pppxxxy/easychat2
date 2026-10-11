@@ -152,7 +152,6 @@ export const error = {
   'error.location.servicesDisabled': 'System location services are turned off.',
   'error.location.invalidResult': 'Invalid location result.',
   'error.location.reverseGeocodeTimeout': 'Reverse geocoding timed out.',
-  'error.resourceMutex.busy': 'Resource busy: {owner}',
   'error.books.shelfReadFailed': 'Failed to read the bookshelf. Please try again later.',
   'error.books.infoIncomplete': 'Incomplete book information.',
   'error.books.binaryNotText': 'The file is in a binary format, not plain text.',

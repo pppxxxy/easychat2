@@ -152,7 +152,6 @@ export const error = {
   'error.location.servicesDisabled': '系统定位服务未开启',
   'error.location.invalidResult': '定位结果无效',
   'error.location.reverseGeocodeTimeout': '反地理编码超时',
-  'error.resourceMutex.busy': '资源忙：{owner}',
   'error.books.shelfReadFailed': '书架记录读取失败，请稍后重试',
   'error.books.infoIncomplete': '书籍信息不完整',
   'error.books.binaryNotText': '文件是二进制格式，不是纯文本',

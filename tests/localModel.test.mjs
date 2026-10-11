@@ -33,11 +33,9 @@ import {
   LOCAL_MODEL_PARAM_PRESETS,
 } from '../src/localModel/modelParams.js';
 import {
-  getResourceOwner,
   resetResourceMutexForTests,
   tryAcquireResource,
-  withResource,
-} from '../src/resourceMutex.js';
+} from '../src/utils/resourceMutex.js';
 import { canUseLocalModel, resolveLocalModelReadiness, sendWithModelProvider } from '../src/network/modelProvider.js';
 
 test('normalizeLocalModelSettings：非法值回退安全默认值', () => {
@@ -74,15 +72,25 @@ test('localModelPath：模型 id 被限制为安全文件名', () => {
   assert.match(localModelPath('Qwen/Model:v1'), /Qwen_Model_v1\.gguf$/);
 });
 
-test('resourceMutex：同一时刻只允许一个资源持有者', async () => {
+// 只按**可观察行为**断言互斥语义（不再依赖已删除的 getResourceOwner 去读内部状态）：
+// 谁能拿到、谁拿不到、释放后能否再拿、重复/迟到的释放会不会误清别人的锁。
+test('resourceMutex：同一时刻只允许一个资源持有者', () => {
   resetResourceMutexForTests();
   const release = tryAcquireResource('local-model');
-  assert.equal(getResourceOwner(), 'local-model');
-  assert.equal(tryAcquireResource('tts'), null);
+  assert.equal(typeof release, 'function', '空锁时能拿到释放函数');
+  assert.equal(tryAcquireResource('tts'), null, '已被占用 → 后来者拿不到');
+  assert.equal(tryAcquireResource(''), null, '空名字不占锁');
+
   release();
-  assert.equal(getResourceOwner(), '');
-  await withResource('recording', async () => assert.equal(getResourceOwner(), 'recording'));
-  assert.equal(getResourceOwner(), '');
+  const releaseTts = tryAcquireResource('tts');
+  assert.equal(typeof releaseTts, 'function', '释放后别人能拿到');
+
+  // 重复释放幂等；且迟到的释放不会清掉后来者的锁
+  release();
+  assert.equal(tryAcquireResource('recording'), null, '迟到的释放不得误清当前持有者的锁');
+  releaseTts();
+  assert.equal(typeof tryAcquireResource('recording'), 'function', '真正释放后恢复可用');
+  resetResourceMutexForTests();
 });
 
 test('modelProvider：本地不可用时走在线，本地异常时只回退一次', async () => {

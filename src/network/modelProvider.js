@@ -5,7 +5,7 @@ import { isLocalModelModuleAvailable, runLocalModel } from '../localModel/adapte
 import { classifyLocalModelError, recordModelLog } from '../localModel/modelLogs.js';
 import { isLocalModelItemReady, normalizeLocalModelSettings } from '../localModel/modelState.js';
 import { setRuntimeFallback } from '../localModel/runtime.js';
-import { tryAcquireResource } from '../resourceMutex.js';
+import { tryAcquireResource } from '../utils/resourceMutex.js';
 
 // 就绪判定（纯函数，便于单测）：v5 Stage A 起只认活动条目（单一事实源），
 // 不再回退旧单模型设置。moduleAvailable 为假或未启用时分级返回原因。

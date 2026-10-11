@@ -10,12 +10,13 @@
 // - 上调阈值 = 棘轮失效，禁止；确需放宽必须在本文件说明理由并经用户确认。
 //
 // 2026-10-08 Stage 5：WorkspacePanel.js 迁至 workspace/screen/FilesPanel.js，33 → 32。
+// 2026-10-11：resourceMutex.js（纯工具）迁至 utils/resourceMutex.js，32 → 31。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const MAX_ROOT_FILES = 32;
+const MAX_ROOT_FILES = 31;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.join(here, '..', 'src');
