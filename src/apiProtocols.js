@@ -19,7 +19,7 @@
 //
 // api.js 只做 XHR 传输、超时与配置守卫，协议细节全部收敛在这组模块里。
 
-export { API_PROTOCOLS, isKnownProtocol, normalizeProtocol } from './apiProtocols/constants.js';
+export { API_PROTOCOLS, normalizeProtocol } from './apiProtocols/constants.js';
 export { buildRequestHeaders, normalizeProtocolUrl } from './apiProtocols/urls.js';
 export { parseDataUri } from './apiProtocols/multimodal.js';
 export { toAnthropicRequest, toResponsesRequest } from './apiProtocols/messages.js';

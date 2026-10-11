@@ -7,7 +7,3 @@ export function normalizeProtocol(value) {
   if (value === 'openai-responses' || value === 'responses') return 'openai-responses';
   return 'openai';
 }
-
-export function isKnownProtocol(value) {
-  return API_PROTOCOLS.includes(normalizeProtocol(value));
-}
