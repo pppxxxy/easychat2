@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { tActive } from '../../i18n/index.js';
 import { recordDiagnostic } from '../diagnostics.js';
+import { onCharacterDeleted } from '../characterLifecycle.js';
 import { readJsonStatus } from '../io.js';
 import {
   DEFAULT_CHARACTER,
@@ -451,3 +452,13 @@ export async function clearCharacterEditDraft(characterId) {
     // 清理失败可忽略：草稿下次被读取或覆盖时自然处理
   }
 }
+
+// 角色编辑草稿是**按角色分键**的（@easychat2_character_edit_draft::<id>）：删角色时不清
+// 就是永久孤儿（formState 可能不小），而此前它只由两个界面的删除流程顺手清一次——
+// 换条删除路径就漏。按「谁的数据谁负责」注册到角色生命周期（见 characterLifecycle.js）。
+onCharacterDeleted('characterEditDraft', async characterIds => {
+  const ids = (Array.isArray(characterIds) ? characterIds : [])
+    .map(id => String(id || ''))
+    .filter(Boolean);
+  await Promise.all(ids.map(id => clearCharacterEditDraft(id)));
+});
