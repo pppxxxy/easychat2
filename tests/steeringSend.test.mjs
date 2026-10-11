@@ -67,7 +67,7 @@ test('坏输入安全：undefined / null / 非字符串文本都不抛', () => {
 
 test('工作区发送回归：onPress={handleSend} 传的 press 事件不得被当正文（[object Object]）', () => {
   const src = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(src.includes("typeof overrideText === 'string'"), 'overrideText 只认字符串（事件对象一律当无覆盖，用输入框内容）');
+  assert.ok(src.includes('resolveSendText(overrideText, input)'), 'overrideText 经 resolveSendText 只认字符串（事件对象一律当无覆盖，用输入框内容）');
   assert.equal(
     /overrideText === undefined \? input : overrideText/.test(src),
     false,

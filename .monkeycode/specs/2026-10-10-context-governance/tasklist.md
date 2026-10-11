@@ -158,3 +158,97 @@ P0 独立立项（E2 已覆盖）/ 时间阈值触发 / 压缩后自动重读文
 两条独立线都撞到同一架构问题。
 
 门禁：lint 无输出、guard（棘轮/循环）通过、2447/2447、行覆盖 80.12%。
+
+## Z 系并入 D 线（2026-10-10，分支 `d1010d2`）
+
+以 `m1010m7` 为基座并入 `origin/z1010z4`，形成新的 D 线。
+
+**先核对再动手**：逐条用 `git merge-base --is-ancestor` 验过——M 线（`m1010m7`）**已经吸收了 Z 线全部
+实质提交**（K1 `resultClearing` / N1 reactive / N2 四档 / O0-O2 落盘 / P1-P5 dsh 对齐 / Q 批）；
+`m1010m7..z1010z4` 只剩 2 个提交。所以本次真正带进来的只有 `f322448`「Z/M/D 三条线去重（整合第 1 阶段）」，
+**没有想象中那种大规模取长补短**。
+
+**`f322448` 带来的语义**（已核实真的落地，不是被静默丢掉）：
+- `compactionPolicy.js` 成为全仓唯一阈值来源：余量取 M 系 65536（Z 旧值 13000 在同窗口下会晚压约
+  50k token），并入 D 系三个具名比例（0.8 记忆总结 / 0.85 会话压缩 / 0.7 提示条，注明不是笔误）；
+  M 系 `resolveCompactionThreshold` 改为委托。
+- **微压缩只留一套**：删 Z 系 `microcompact.js`（就地截断、中段丢失），保留 M 系 K1。
+- 触发统一：`useAutoCompact` 走 policy，ChatScreen 传 maxOutput/字节阈值。
+
+**冲突裁决（6 文件）**：
+- `prompt/chatPipeline.js`：纯 import 顺序差异，取其一。
+- `agent/loop.js`：turn 状态机 import 与 `machine.startModelRequest()` 在两侧位置不同，各保留一处；
+  顺序取 HEAD（进入请求阶段 → K1 清理 → 发请求）。
+- `chat/contextUsage.js`：两侧各加了一个**互不冲突**的函数（HEAD 的 `estimateTextTokens` /
+  Z 的 `COMPACTION_HEADROOM_TOKENS` + `resolveCompactionThreshold` + `shouldAutoCompactTokens`）→ 取并集；
+  git 把 `shouldAutoCompactTokens` 判成「Z 侧未采纳」，已补回。
+- `chat/useChatSend.js`：同一功能两种写法，取 Z 的原子版（一次 `setMessages` 内先 replace 再 attach），
+  消掉两次状态更新之间的中间态。
+- `tests/contextUsage.test.mjs`：两块测试各测一件事（D 系三档阈值具名 / Z 系阈值公式），都保留；import 取并集。
+- `architecture-baseline.json`：按守卫口径（`wc -l`）逐个复核，18 个文件全部与 HEAD 基线持平 → 取 HEAD 块。
+
+**未并入（如实登记）**：D 线 `d1010d1` 的 **P2-8（较早轮次工具结果换占位标记）没有进本分支**。
+它与 K1 是同一块地，且**每个维度都更弱**——K1：unseen 保护 + 最近 3 条工作台 + 按大小驱逐 + **落盘可读回** +
+落盘失败保原文 + 配对自检；P2-8：不落盘、阈值 24KB、按轮保护。本项目自己的整合原则也正是「微压缩只留一套」
+（`f322448` 删 Z 系 microcompact 用的就是这条）。P2-8 的代码仍在 `d1010d1`，需要时一条
+`git cherry-pick 76ebe0e` 可取回。
+
+门禁：lint 0、`node --test` 2442/2442、guard:structure ok（棘轮/循环）、i18n 缺失键 0。
+
+## ✅ 已修：K1 的触发预算生产从不注入（2026-10-10 实测发现 → 同日按 **A 方案**接通）
+
+**现象**：K1（`agent/resultClearing.js`）是「已在上下文里的旧工具结果逐步退役」的唯一机制，
+但它在生产里**从不触发**。
+
+**证据**：
+- `contextBudgetBytes` 全仓只有三处引用：`src/agent/loop.js:116`（读该 option）、
+  `tests/agentLoop.test.mjs:509` 与 `:541`（测试传 200）。**没有任何生产调用方注入它**，
+  所以实际用的永远是 `RESULT_CLEARING_BUDGET_BYTES = 2 * 1024 * 1024`。
+- `planResultClearing` 拿 `estimateContextBytes(history)`（= `JSON.stringify(history).length`，
+  **字符数**）与预算比。用本项目自己的 `estimateMessagesTokens` 同口径实测：
+
+  | 场景 | tokens≈ | 上下文 | 占 2MB 预算 | K1 清除 |
+  |---|---|---|---|---|
+  | 小会话 + 12 轮工具（各 16KB） | 216,788 | 214 KB | 10.5% | **0 条** |
+  | 满 200k 窗口（纯中文）+ 12 轮工具 | 396,788 | 390 KB | 19.1% | **0 条** |
+  | 满 200k 窗口 + 40 轮工具 | 855,764 | 843 KB | 41.2% | **0 条** |
+
+  要碰到 2MB 需要约 200 万中文字符 ≈ 200 万 token——是任何真实窗口的 10 倍。
+
+**根因**：2MB 是照「D3 会话压缩阈值 4MB 的一半」定的（见 `resultClearing.js:16` 注释），
+但那个 4MB 量的是**落库会话**（`chat/compaction.js:17` 的 `COMPACTION_THRESHOLD_BYTES`），
+而 K1 量的是**本次请求**的 history——两个不同的量。请求上下文的上限是模型窗口
+（200k token ≈ 0.4MB 中文）。
+
+**影响**：本分支**没有任何在生效的轮内工具结果退役**。O1（单条超 16KB 落盘 + 指针）照常生效，
+但 K1 的「旧结果按预算逐步退役」完全没跑。
+
+**修法（两条，需裁决）**：
+- **A. 接通预算（推荐）**：宿主按模型声明的窗口算 `contextBudgetBytes` 传入，口径复用
+  `compactionPolicy`（唯一阈值来源）；未声明窗口时保持 2MB 默认 = 行为不变。
+  需定 tokens→字符换算：`localContext.estimateTextTokens` 的口径是「CJK 1 token/字、
+  其它 1/4 token/字」，最稳妥是在本次 history 上**实测该比值**再换算，不写死常数。
+- **B. 把 D 线 `d1010d1` 的 P2-8 cherry-pick 回来当兜底**（`git cherry-pick 76ebe0e`）。
+  缺点：与 K1 同一块地、且**不落盘**（与 O1/K1 的「信息只移不丢」相抵触）；
+  K1 一旦接通它就成了重复机制。
+
+**用户裁决：选 A。已落地**（`d1010d2`）：
+- `src/chat/agentContextBudget.js`（纯、可直测）：`resolveAgentContextBudget(messages, contextWindow)`
+  = 模型窗口 → `compactionPolicy` 的 token 阈值 → 字符。
+- 单位换算**不写死常数**：`resultClearing.resolveContextBudgetBytes` 用**本次消息自己**的
+  字符/token 比自比（分子就是 K1 判定用的那个 JSON 串）。写死任一个都会让另一种内容偏 4 倍
+  ——按中文写死，英文会话会早压 4 倍；按英文写死，中文会话永不触发。
+- **未声明窗口 → 算出 0 → 不传该选项**，回落到 2MB 默认 = 行为与接通前逐字一致。
+- 顺手把 `useChatSend` 里「在线配置侧上下文」（媒体能力/模型名/标签/窗口）抽成
+  `src/chat/onlineRequestContext.js`（两个查询函数注入，保持纯、可直测）：该文件已超架构
+  棘轮基线（只许减不许增），抽出后 1991 → 1990 行，棘轮反而收紧一格。
+- 测试：`tests/onlineRequestContext.test.mjs`（含「同一段上下文：不传预算清 0 条、
+  按 200k 窗口算出的预算真的开始清除」）+ `resultClearing.test.mjs` 的换算与坏输入；
+  接线钉在 `tests/chatAgentWiring.test.mjs` 的「调用参数齐全」里。
+- 门禁：lint 0、`node --test` 2449/2449、guard:structure ok（棘轮/循环）、i18n 缺失键 0。
+
+**边界（如实登记）**：**不可清除的散文**（系统提示 + 长消息）本身就可能超预算，K1 驱逐到
+没有候选也回不到预算内——这是设计边界（它只退役工具结果），剩下的压力交给 N2/D3 压缩。
+
+**P2-8（B 方案）未采纳**：K1 接通后它就是重复机制，且不落盘（与「信息只移不丢」抵触）。
+代码仍在 `d1010d1`，需要时一条 `git cherry-pick 76ebe0e` 可取回。

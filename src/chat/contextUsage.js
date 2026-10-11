@@ -7,6 +7,12 @@
 //   保守默认 32000（未声明时按最小常见窗口保守处理，宁可早压缩不溢出）。
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
+import {
+  DEFAULT_AUTOCOMPACT_RATIO,
+  DEFAULT_HEADROOM_TOKENS,
+  MEMORY_SUMMARY_RATIO,
+  resolveAutoCompactPolicy,
+} from './compactionPolicy.js';
 import { modelContextWindow } from '../network/modelProfiles.js';
 
 // 未声明窗口时的兜底（tokens）。取 200000：主流在线模型（DeepSeek / GPT / Claude / Gemini
@@ -15,13 +21,14 @@ import { modelContextWindow } from '../network/modelProfiles.js';
 export const DEFAULT_CONTEXT_WINDOW = 200000;
 // 「上下文偏高」的通用口径：**记忆总结**在占用达到它时绕过条数阈值（memorySummary.js），
 // 工作区占用条也用它决定是否转警示色（FilesPanel）。它不是会话压缩阈值——见下面两个。
-export const AUTO_COMPACT_RATIO = 0.8;
+// **定义只有一份**：`compactionPolicy.js`（全仓唯一阈值来源）；这里转发，保持既有导入名不变。
+export const AUTO_COMPACT_RATIO = MEMORY_SUMMARY_RATIO;
 // 会话压缩（E2）的两条线：≥85% 空闲时静默自动压缩；≥70% 出「建议压缩」提示条。
 // 与 AUTO_COMPACT_RATIO 是**两件事**，历史上 ChatScreen 把 0.85/0.7 硬编码在渲染里、
 // 常量却是 0.8，看着像笔误（2026-10-10 核实：确为不同语义，不是笔误）。
 // 命名清楚以免下次有人「顺手统一」——统一会让记忆总结的触发点或会话压缩的触发点跑偏。
-export const SESSION_AUTO_COMPACT_RATIO = 0.85;
-export const SESSION_COMPACT_HINT_RATIO = 0.7;
+// 同样只在 `compactionPolicy.js` 定义一份，这里转发。
+export { SESSION_AUTO_COMPACT_RATIO, SESSION_COMPACT_HINT_RATIO } from './compactionPolicy.js';
 
 // 会话消息（{ role, text }）→ 估算 token。
 export function estimateHistoryTokens(messages) {
@@ -32,8 +39,7 @@ export function estimateHistoryTokens(messages) {
   })));
 }
 
-// 窗口解析：声明的 contextWindow 优先，其次本地模型 n_ctx，再按模型家族建议（modelProfiles），
-// 最后保守默认。model 只作兜底——用户声明了窗口就永远以声明为准。
+// 窗口解析：声明的 contextWindow 优先，其次本地模型 n_ctx，最后保守默认。
 export function resolveContextWindow({ declared = 0, localContextSize = 0, model = '' } = {}) {
   const values = [Number(declared), Number(localContextSize), modelContextWindow(model)];
   for (const value of values) {
@@ -64,6 +70,31 @@ export function estimateTextTokens(text) {
   const value = String(text === undefined || text === null ? '' : text).trim();
   if (!value) return 0;
   return estimateMessagesTokens([{ role: 'system', content: value }]);
+}
+
+// 触发阈值 = floor(min(W × ratio, W − O − headroom))。
+// **Z/M/D 整合后：唯一来源是 chat/compactionPolicy.js**，这里只做委托，保留 M 系调用点不动
+//（M 系原值 ratio 0.8 / headroom 65536 已成为 policy 的默认余量）。
+export const COMPACTION_HEADROOM_TOKENS = DEFAULT_HEADROOM_TOKENS;
+export function resolveCompactionThreshold(windowSize, {
+  ratio = DEFAULT_AUTOCOMPACT_RATIO,
+  outputCap = 0,
+  headroomTokens = DEFAULT_HEADROOM_TOKENS,
+} = {}) {
+  // 用 outputReserveTokens（而非 maxOutputTokens）传：M 口径里 outputCap=0 表示**不预留**，
+  // 而 policy 的 maxOutputTokens=0 表示「未声明 → 用默认预留」，语义不同，不能混。
+  return resolveAutoCompactPolicy({
+    contextWindow: windowSize,
+    outputReserveTokens: Math.max(0, Number(outputCap) || 0),
+    ratio,
+    headroomTokens,
+  }).thresholdTokens;
+}
+
+// token 口径的自动压缩判据（配合 resolveCompactionThreshold）。
+export function shouldAutoCompactTokens(tokens, windowSize, options) {
+  const threshold = resolveCompactionThreshold(windowSize, options);
+  return threshold > 0 && Number(tokens) >= threshold;
 }
 
 // P2-7：上下文占用明细——把「谁在吃窗口」拆开给用户看。

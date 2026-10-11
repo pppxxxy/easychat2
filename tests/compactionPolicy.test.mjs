@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
-  AUTOCOMPACT_BUFFER_TOKENS,
+  DEFAULT_HEADROOM_TOKENS,
   DEFAULT_OUTPUT_RESERVE_TOKENS,
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   resolveAutoCompactPolicy,
@@ -15,13 +15,13 @@ import {
   shouldStopAutoCompact,
 } from '../src/chat/compactionPolicy.js';
 
-test('大窗口：阈值取 min(窗口×比例, 窗口−预留−缓冲)', () => {
+test('大窗口：阈值取 min(窗口×比例, 窗口−预留−余量)', () => {
   const policy = resolveAutoCompactPolicy({ contextWindow: 200000 });
   assert.equal(policy.outputReserveTokens, DEFAULT_OUTPUT_RESERVE_TOKENS);
-  assert.equal(policy.bufferTokens, AUTOCOMPACT_BUFFER_TOKENS);
-  // min(170000, 200000-32000-13000=155000) = 155000
-  assert.equal(policy.thresholdTokens, 155000);
-  assert.equal(policy.budgetTokens, 155000);
+  assert.equal(policy.headroomTokens, DEFAULT_HEADROOM_TOKENS);
+  // min(170000, 200000-32000-65536=102464) = 102464（余量取 M 系 65536）
+  assert.equal(policy.thresholdTokens, 102464);
+  assert.equal(policy.budgetTokens, 102464);
 });
 
 test('小窗口：预算非正时退回比例上限（阈值仍 > 0，不会每轮都压）', () => {
@@ -33,7 +33,7 @@ test('小窗口：预算非正时退回比例上限（阈值仍 > 0，不会每�
 test('模型声明了输出上限时用它做预留', () => {
   const policy = resolveAutoCompactPolicy({ contextWindow: 100000, maxOutputTokens: 8000 });
   assert.equal(policy.outputReserveTokens, 8000);
-  assert.equal(policy.thresholdTokens, Math.min(85000, 100000 - 8000 - 13000));
+  assert.equal(policy.thresholdTokens, Math.min(85000, 100000 - 8000 - DEFAULT_HEADROOM_TOKENS));
 });
 
 test('窗口未知：阈值 0，不触发', () => {
@@ -44,8 +44,16 @@ test('窗口未知：阈值 0，不触发', () => {
 
 test('shouldAutoCompactByBudget：达到阈值才触发', () => {
   const policy = resolveAutoCompactPolicy({ contextWindow: 200000 });
-  assert.equal(shouldAutoCompactByBudget(154999, policy), false);
-  assert.equal(shouldAutoCompactByBudget(155000, policy), true);
+  assert.equal(shouldAutoCompactByBudget(102463, policy), false);
+  assert.equal(shouldAutoCompactByBudget(102464, policy), true);
+});
+
+test('单一来源：M 系 resolveCompactionThreshold 委托到本模块', () => {
+  // 委托后两处口径必然一致（此前 Z 0.85/13k 与 M 0.8/65.5k 各算各的）。
+  const viaPolicy = resolveAutoCompactPolicy({ contextWindow: 200000 }).thresholdTokens;
+  const src = readFileSync(path.resolve('src/chat/contextUsage.js'), 'utf8');
+  assert.ok(src.includes('resolveAutoCompactPolicy({'), 'contextUsage 委托到 compactionPolicy');
+  assert.equal(viaPolicy, 102464);
 });
 
 test('shouldCompactAnyRule：字节与 token 两条规则取更严者', () => {
@@ -63,12 +71,15 @@ test('shouldStopAutoCompact：连续失败达上限即停', () => {
   assert.equal(shouldStopAutoCompact(MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES), true);
 });
 
-test('接线：聊天页经 useAutoCompact 走预算口径 + 先本地微压缩', () => {
+test('接线：聊天页经 useAutoCompact 走唯一阈值来源 + 双规则', () => {
   const hook = readFileSync(path.resolve('src/chat/useAutoCompact.js'), 'utf8');
-  assert.ok(hook.includes('shouldAutoCompactByBudget(contextUsage.tokens, policy)'), '预算口径触发');
-  assert.ok(hook.includes('resolveAutoCompactPolicy({ contextWindow: contextUsage.window })'), '按窗口解析策略');
-  assert.ok(hook.includes('microcompactMessages(messagesRef.current)'), '先试本地微压缩');
+  assert.ok(hook.includes('shouldCompactAnyRule('), '双规则取严触发');
+  assert.ok(hook.includes('maxOutputTokens: modelOutputCap'), '按模型输出上限预留');
+  assert.ok(hook.includes('shouldStopAutoCompact(failuresRef.current)'), '失败上限');
+  // 微压缩只留 loop 的 K1（Z 系就地截断版已删）。
+  assert.equal(hook.includes('microcompactMessages'), false);
   const screen = readFileSync(path.resolve('src/ChatScreen.js'), 'utf8');
   assert.ok(screen.includes("import useAutoCompact from './chat/useAutoCompact.js';"), '聊天页接线');
-  assert.ok(screen.includes('useAutoCompact({'), '调用 hook');
+  assert.ok(screen.includes('modelOutputCap: contextUsage.maxOutput'), '传模型输出上限');
+  assert.ok(screen.includes('byteThreshold: compactInfo.threshold'), '传字节阈值（第二条规则）');
 });

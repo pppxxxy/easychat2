@@ -40,8 +40,10 @@ test('对话面板：紧凑动作行 + 气泡主体 + 直连 agent', () => {
 
 test('底部一栏：加号 / 语音 / 输入框 / 设置 / 发送', () => {
   const start = CHAT.indexOf('styles.inputBar');
-  const end = CHAT.indexOf('\nconst createStyles =');
-  assert.ok(start > 0 && end > start, '必须能截出底部输入栏');
+  // 样式表已抽到 chatPanelStyles.js（P2-1 的前置拆件），文件里不再有 `const createStyles =`，
+  // 所以截到文件末尾即可——截出来的仍然是「输入栏及其之后」这一段。
+  const end = CHAT.length;
+  assert.ok(start > 0, '必须能截出底部输入栏');
   const bar = CHAT.slice(start, end);
   assert.ok(bar.includes('add-circle-outline'), '加号（文件添加）');
   assert.ok(bar.includes('mic-outline'), '语音');
@@ -131,10 +133,11 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   assert.ok(SCREEN.includes('GithubPanel'), 'GitHub 面板');
   assert.ok(SCREEN.includes('TerminalPanel'), '终端面板');
   assert.ok(SCREEN.includes('WorkspaceSettingsPanel'), '设置面板');
-  assert.ok(SCREEN.includes("id === 'chat'") && SCREEN.includes("id === 'files'"), '面板互斥渲染');
-  // P1-5：宽屏左右分栏（对话常驻 + 选中领域并排），窄屏单屏切换。
-  assert.ok(SCREEN.includes('resolveWorkspaceLayout'), '按宽度决定分栏 / 单屏');
-  assert.ok(SCREEN.includes("renderPanel('chat')") && SCREEN.includes('splitSecondary'), '宽屏分栏渲染');
+  // 面板分发：单屏按 panel 分发。P1 起抽成 renderChatPanel / renderDomainPanel 两个函数
+  //（宽屏两栏复用同一对函数，避免两套分发各写一遍）——契约没变，只是从内联条件变成具名分发。
+  assert.ok(SCREEN.includes("panel === 'chat'"), '对话与其他领域互斥');
+  assert.ok(SCREEN.includes("id === 'files'") && SCREEN.includes("id === 'github'"), '领域面板由单屏分发');
+  assert.ok(SCREEN.includes('renderDomainPanel') && SCREEN.includes('renderChatPanel'), '分发函数存在');
 
   assert.ok(PANEL.includes('initialSection = '), '文件面板接受 initialSection');
   assert.ok(PANEL.includes("if (section === 'viewer')"), 'viewer 定位');

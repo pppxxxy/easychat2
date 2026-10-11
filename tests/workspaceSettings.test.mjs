@@ -85,6 +85,7 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
     allowPythonExecution: false,
     assistantCharacterId: '',
     retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
+    splitLayout: null,
   };
   assert.deepEqual(normalizeWorkspaceSettings({ mode: 'write' }), { mode: 'write', ...restDefaults });
   assert.deepEqual(normalizeWorkspaceSettings(null), { mode: 'ask', ...restDefaults });
@@ -93,6 +94,11 @@ test('normalizeWorkspaceSettings 只认三模式，其余回默认', () => {
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: '  abc  ' }).assistantCharacterId, 'abc');
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: 42 }).assistantCharacterId, '42');
   assert.equal(normalizeWorkspaceSettings({ assistantCharacterId: null }).assistantCharacterId, '');
+  // P1-3：宽屏两栏的分隔条比例——合法值原样通过，非法值整份丢弃（回 null，界面用默认 0.5）。
+  // 这一条钉的是「白名单确实放行了这个字段」，而不只是「默认值里有这个键」。
+  assert.equal(normalizeWorkspaceSettings({ splitLayout: { ratio: 0.6 } }).splitLayout.ratio, 0.6);
+  assert.equal(normalizeWorkspaceSettings({ splitLayout: { ratio: 0.99 } }).splitLayout, null);
+  assert.equal(normalizeWorkspaceSettings({ splitLayout: { ratio: 0.6, side: 'files' } }).splitLayout.side, undefined);
 });
 
 test('命令执行开关只在可改模式下成立（其余模式一律归零）', () => {
@@ -167,6 +173,7 @@ test('getWorkspaceSettings 默认 ask，save 后往返一致', async () => {
     allowPythonExecution: false,
     assistantCharacterId: '',
     retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
+    splitLayout: null,
   };
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);
   const saved = await saveWorkspaceSettings({ mode: 'write' });
@@ -184,6 +191,7 @@ test('损坏或非法值回落默认模式', async () => {
     allowPythonExecution: false,
     assistantCharacterId: '',
     retention: { historyKeep: 200, rollbackKeep: 3, sessionEventsMaxKb: 512 },
+    splitLayout: null,
   };
   store.set('@easychat2_workspace', '{not json');
   assert.deepEqual(await getWorkspaceSettings(), defaultSettings);

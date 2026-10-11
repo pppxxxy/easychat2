@@ -13,7 +13,6 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -27,9 +26,13 @@ import { COMMANDS_DIR } from './commands.js';
 import { HOOKS_FILE, HOOK_EVENTS, parseWorkspaceHooks, validateWorkspaceHooks } from './hooks.js';
 import { SKILLS_DIR } from './skills.js';
 import { TEAMS_DIR } from './teams.js';
+import { AGENTS_DIR, AGENT_LIST_MAX } from './agents.js';
+import { summarizeSessionEvents } from './sessionEventView.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
+// 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
+import createStyles from './settingsSheetStyles.js';
 
 const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];
 const MODE_CHOICES = ['ask', 'read', 'write'];
@@ -103,6 +106,10 @@ export default function WorkspaceSettingsSheet({
   // 团队记忆（跨会话黑板）：宿主读好的主题快照 + 清空动作。
   boardTopics = [],
   onClearBoard,
+  // P3-1：分身档案（`.easychat/agents/`）。与技能同为「文件即配置」，但此前**界面零入口**——
+  // 用户写了档案，既看不到有没有被读到、也没有计数（技能至少还能装示例并计数）。
+  // 只读展示，没有「安装示例」：仓库里没有样例档案可装。
+  agents = [],
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
   onInstallSampleCommands,
@@ -110,6 +117,11 @@ export default function WorkspaceSettingsSheet({
   onInstallTemplate,
   // E4：会话事件流导出（读/写/分享全在 ChatPanel——本面板只转发动作）。
   onExportSessionEvents,
+  // P3-4：会话事件流原文（宿主读好传进来），本面板用纯函数归一成可读行再画。
+  sessionEvents = [],
+  // P3-3：MCP 服务器清单（宿主读好传进来）。配置入口在主设置页，本面板只读展示——
+  // 不在这里做配置，避免同一份设置两处各存一份后不同步（沿用文件头的「纯展示」约定）。
+  mcpServers = [],
   // P0-8：hooks.json 原文（宿主读好传进来，本面板用纯函数校验与统计）与安装示例回调。
   hooksText = '',
   onInstallSampleHooks,
@@ -123,6 +135,16 @@ export default function WorkspaceSettingsSheet({
   const activeCharacter = (Array.isArray(characters) ? characters : [])
     .find(item => item && item.id === characterId) || null;
   const retentionEffective = normalizeRetention(retention);
+  // P3-4：事件流只归一一次——行摘要与展开体都要用（各算一遍会白跑，且两处可能不一致）。
+  const sessionEventView = useMemo(() => summarizeSessionEvents(sessionEvents), [sessionEvents]);
+  // P3-3：MCP 只读统计——行摘要与展开体共用一份，避免两处各算一遍。
+  const mcpView = useMemo(() => {
+    const list = Array.isArray(mcpServers) ? mcpServers : [];
+    return {
+      total: list.length,
+      enabled: list.filter(item => item && item.enabled === true).length,
+    };
+  }, [mcpServers]);
 
   // P0-6：手写规则的草稿。只是输入态（不落盘、不进设置）——落盘由宿主的
   // onAddPermissionRule 走 addPermissionRule，与弹框「永远允许」同一条链路。
@@ -233,6 +255,30 @@ export default function WorkspaceSettingsSheet({
       value: boardTopics.length > 0
         ? t('workspace.settings.board.count', { count: boardTopics.length })
         : t('workspace.settings.board.emptyShort'),
+    },
+    {
+      id: 'agents',
+      icon: 'people-outline',
+      label: t('workspace.settings.agents'),
+      value: agents.length > 0
+        ? t('workspace.settings.agents.count', { count: agents.length })
+        : t('workspace.settings.agents.emptyShort'),
+    },
+    {
+      id: 'sessionLog',
+      icon: 'pulse-outline',
+      label: t('workspace.settings.events'),
+      value: sessionEventView.total > 0
+        ? t('workspace.settings.events.count', { count: sessionEventView.total })
+        : t('workspace.settings.events.emptyShort'),
+    },
+    {
+      id: 'mcp',
+      icon: 'apps-outline',
+      label: t('workspace.settings.mcp'),
+      value: mcpView.enabled > 0
+        ? t('workspace.settings.mcp.count', { enabled: mcpView.enabled, total: mcpView.total })
+        : (mcpView.total > 0 ? t('workspace.settings.mcp.allOff') : t('workspace.settings.mcp.emptyShort')),
     },
     {
       id: 'commands',
@@ -489,6 +535,95 @@ export default function WorkspaceSettingsSheet({
         </View>
       );
     }
+    if (id === 'agents') {
+      // P3-1：分身档案清单。`run_subagent` 会把这里**按名字排序的前 N 个**注入系统提示词
+      //（`workspaceAgentsSection`），所以「有几个、叫什么、有没有描述」直接决定模型能派谁——
+      // 这些信息此前只存在于文件系统里，界面上一个字都看不到。
+      return (
+        <View>
+          <Text style={styles.bodyHint}>
+            {t('workspace.settings.agents.hint', { dir: AGENTS_DIR, max: AGENT_LIST_MAX })}
+          </Text>
+          {agents.length === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.agents.empty', { dir: AGENTS_DIR })}</Text>
+          ) : agents.map((item, index) => (
+            <Text key={`${String(item && item.name)}-${index}`} style={styles.bodyHint} selectable>
+              {String(item && item.name || '')}
+              {'：'}
+              {String(item && item.description || '') || t('workspace.settings.agents.noDescription')}
+            </Text>
+          ))}
+        </View>
+      );
+    }
+    if (id === 'sessionLog') {
+      // P3-4：会话事件流**只读回看**。这一行此前是**动作行**——点一下就导出成文件并关闭面板，
+      // 用户想知道「这一轮发生了什么」必须先落一个文件。现在改成可展开：先看，再决定要不要导出。
+      // 事件类型目前实际只有 user / assistant / tool_call（见 sessionEventView.js 文件头），
+      // 其余声明类型走兜底文案，不假装它们存在。
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.events.hint')}</Text>
+          {sessionEventView.total === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.events.empty')}</Text>
+          ) : (
+            <>
+              {sessionEventView.rows.map(row => (
+                <Text key={row.id} style={styles.bodyHint} selectable>
+                  {row.timeLabel ? `${row.timeLabel}  ` : ''}
+                  {t(row.key, row.params)}
+                </Text>
+              ))}
+              {sessionEventView.truncated ? (
+                <Text style={styles.bodyHint}>
+                  {t('workspace.settings.events.more', { count: sessionEventView.total - sessionEventView.rows.length })}
+                </Text>
+              ) : null}
+            </>
+          )}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onExportSessionEvents && onExportSessionEvents()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="share-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.events.export')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (id === 'mcp') {
+      // P3-3：MCP 只读状态。工作区此前对 MCP **零信号**——用户不知道自己的 MCP 工具在不在、
+      // 有几个。配置入口归主设置页（工作区本来就是设置页打开的 Modal，关掉即回到设置），
+      // 所以这里只展示 + 指路，**不在这里做配置**（同一份设置两处各存一份必然漂移）。
+      return (
+        <View>
+          <Text style={styles.bodyHint}>{t('workspace.settings.mcp.hint')}</Text>
+          {mcpView.total === 0 ? (
+            <Text style={styles.bodyHint}>{t('workspace.settings.mcp.empty')}</Text>
+          ) : (
+            mcpServers.map(item => (
+              <Text key={String(item && item.id)} style={styles.bodyHint} selectable>
+                {item && item.enabled === true
+                  ? t('workspace.settings.mcp.serverOn', {
+                    name: String(item.name || ''),
+                    tools: Array.isArray(item.toolCatalog) ? item.toolCatalog.length : 0,
+                  })
+                  : t('workspace.settings.mcp.serverOff', { name: String(item && item.name || '') })}
+              </Text>
+            ))
+          )}
+          <TouchableOpacity
+            style={styles.skillsInstall}
+            onPress={() => onClose && onClose()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="settings-outline" size={15} color={theme.colors.primary} />
+            <Text style={styles.skillsInstallText}>{t('workspace.settings.mcp.openSettings')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     if (id === 'templates') {
       return (
         <View>
@@ -667,17 +802,6 @@ export default function WorkspaceSettingsSheet({
       },
     },
     {
-      // E4：会话事件流导出（旁路审计线索——消息/工具调用事实，事后排查用）。
-      id: 'events',
-      icon: 'pulse-outline',
-      label: t('workspace.settings.events'),
-      hint: t('workspace.settings.events.hint'),
-      onPress: () => {
-        if (onClose) onClose();
-        if (onExportSessionEvents) onExportSessionEvents();
-      },
-    },
-    {
       id: 'history',
       icon: 'folder-open-outline',
       label: t('workspace.settings.files'),
@@ -770,219 +894,3 @@ export default function WorkspaceSettingsSheet({
     </Modal>
   );
 }
-
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  // embedded：作为对话面板内的设置层，不再有遮罩与底部弹层外壳。
-  embeddedRoot: { paddingHorizontal: 4 },
-  backdrop: {
-    flex: 1,
-    backgroundColor: theme.colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderTopLeftRadius: tokens.radius.lg,
-    borderTopRightRadius: tokens.radius.lg,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.divider,
-    maxHeight: '78%',
-    paddingBottom: 8,
-    ...tokens.elevation(2, theme),
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  sheetTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800' },
-  sheetBody: { flexGrow: 0 },
-  sheetBodyContent: { paddingHorizontal: 12, paddingBottom: 12 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 4,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  rowLabel: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 10 },
-  rowValue: {
-    flex: 1,
-    textAlign: 'right',
-    color: theme.colors.textMuted,
-    fontSize: fonts.scaled(12),
-    marginHorizontal: 10,
-  },
-  actionTextBlock: { flex: 1, marginLeft: 10, marginRight: 8 },
-  actionHint: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(11),
-    lineHeight: fonts.scaled(16),
-    marginTop: 2,
-  },
-  rowBody: {
-    paddingHorizontal: 4,
-    paddingBottom: 12,
-    paddingTop: 2,
-  },
-  bodyHint: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(11),
-    lineHeight: fonts.scaled(16),
-    marginTop: 8,
-  },
-  boardTopic: { marginTop: 10 },
-  boardTopicTitle: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(12),
-    fontWeight: '700',
-  },
-  // 「清除全部授权」：危险动作给危险色 + 描边，但不填满（防误点视觉权重过大）。
-  permissionClear: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.danger,
-  },
-  permissionClearText: {
-    marginLeft: 6,
-    color: theme.colors.danger,
-    fontSize: fonts.scaled(12),
-  },
-  // P0-6：手写规则的输入区（工具名 / 匹配内容）。
-  permissionAddTitle: {
-    marginTop: 14,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-    fontWeight: '600',
-  },
-  // 手写规则 / 保留口径共用的输入框（两处都是「草稿 → 宿主落盘」）。
-  sheetInput: {
-    marginTop: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(12),
-  },
-  retentionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  retentionLabel: {
-    flex: 1,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(12),
-  },
-  retentionRange: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(10),
-  },
-  permissionAdd: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primary,
-  },
-  permissionAddDisabled: {
-    opacity: 0.4,
-  },
-  permissionAddText: {
-    marginLeft: 6,
-    color: theme.colors.primary,
-    fontSize: fonts.scaled(12),
-  },
-  // 「安装示例技能」：中性动作（主题色描边），与上面那个危险色的清除按钮区分开。
-  skillsInstall: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primary,
-  },
-  skillsInstallText: {
-    marginLeft: 6,
-    color: theme.colors.primary,
-    fontSize: fonts.scaled(12),
-  },
-  // 工作区模板行：左信息右按钮（每行一个模板，各带「创建」）。
-  templateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  templateInfo: {
-    flex: 1,
-    marginRight: 10,
-  },
-  templateName: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-  },
-  templateDescription: {
-    marginTop: 2,
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(11),
-    lineHeight: fonts.scaled(15),
-  },
-  templateCreate: {
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primary,
-  },
-  templateCreateText: {
-    color: theme.colors.primary,
-    fontSize: fonts.scaled(12),
-  },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
-  chip: {
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    borderRadius: tokens.radius.sm,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  chipActive: {
-    backgroundColor: theme.colors.primaryAlpha(0.2),
-    borderColor: theme.colors.primary,
-  },
-  chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
-  chipTextActive: { color: theme.colors.primarySoft },
-  usageTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: theme.colors.surface,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    overflow: 'hidden',
-    marginTop: 6,
-  },
-  usageFill: { height: '100%', backgroundColor: theme.colors.primary },
-  usageFillWarn: { backgroundColor: theme.colors.danger || theme.colors.primary },
-  divider: { height: tokens.border.thin, backgroundColor: theme.colors.surfaceBorder, marginVertical: 4 },
-});

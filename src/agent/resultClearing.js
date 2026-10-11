@@ -1,7 +1,9 @@
 // K1：上下文里的工具结果清除（O1 落盘管道的消费方）。
 //
 // 定位：O1 管「进上下文前落盘」，K1 管「已在上下文里的逐步退役」，N2 管「整段历史重建」。
-// 纯逻辑（零依赖，Node 可直测）；落盘与钩子由宿主注入。
+// 纯逻辑（只依赖纯 token 估算器，无原生依赖；Node 可直测）；落盘与钩子由宿主注入。
+
+import { estimateTextTokens } from '../localModel/localContext.js';
 //
 // 纪律：
 // - **unseen 保护**：某工具结果之后还没有 assistant 回复（模型还没消费它）→ 永不清除。
@@ -25,6 +27,39 @@ export function estimateContextBytes(messages) {
   } catch (error) {
     return 0;
   }
+}
+
+// 把「token 阈值」换算成 K1 判定的**字符**预算。
+//
+// 为什么需要它：`RESULT_CLEARING_BUDGET_BYTES` 默认 2MB，那是照「D3 会话压缩阈值 4MB 的一半」
+// 定的——可那个 4MB 量的是**落库会话**，K1 量的是**本次请求**的 history。请求上下文的上限是
+// 模型窗口（200k token 的中文上下文 ≈ 0.4MB 字符），**2MB 永远够不到**，于是 K1 在生产里
+// 一次都不触发。宿主按模型窗口算出真实预算传进来，这个函数负责单位换算。
+//
+// 为什么不写死换算常数：本项目的估算口径是「CJK 1 token/字、其余 1/4 token/字」
+//（`localModel/localContext.js`）。写死任一个都会让另一种内容偏 4 倍——按中文写死，
+// 英文会话会早压 4 倍；按英文写死，中文会话永远不触发。所以用**本次消息自己**的
+// 字符/token 比换算：分子与 K1 判定用的是同一个字符串，自比无偏。
+//
+// 估不出（空消息 / 非正阈值 / 0 token / 不可序列化）返回 0，调用方据此**不传**该选项，
+// 于是回落到默认 2MB——即「拿不到窗口就保持旧行为」。
+export function resolveContextBudgetBytes(messages, { thresholdTokens = 0 } = {}) {
+  const limit = Number(thresholdTokens);
+  if (!Number.isFinite(limit) || limit <= 0) return 0;
+  const list = Array.isArray(messages) ? messages : [];
+  // 空数组也要挡住：`JSON.stringify([])` 是 `'[]'`（2 字符、估出 1 token），
+  // 不挡会算出一个凭空的非零预算。
+  if (!list.length) return 0;
+  let serialized = '';
+  try {
+    serialized = JSON.stringify(list);
+  } catch (error) {
+    return 0;
+  }
+  if (!serialized) return 0;
+  const tokens = estimateTextTokens(serialized);
+  if (tokens <= 0) return 0;
+  return Math.max(1, Math.floor((serialized.length / tokens) * limit));
 }
 
 function isToolMessage(item) {

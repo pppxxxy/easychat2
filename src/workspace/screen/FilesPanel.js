@@ -15,6 +15,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -26,20 +27,14 @@ import { EmptyState, FieldHint, FieldLabel, GhostButton, PrimaryButton, SheetHea
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { useApp } from '../../context/AppContext.js';
-import { capabilitiesForModel, getActiveModel, getApiConfigs } from '../../storage/apiConfigs.js';
 import {
   clearWorkspaceChanges,
   getWorkspaceChanges,
   getWorkspaceSettings,
   patchWorkspaceSettings,
 } from '../../storage/workspace.js';
-import { getActiveLocalModel } from '../../storage/localModels.js';
 import { getCharacterLibrary } from '../../storage/characters.js';
-import { getMessagesBySession, getSessions } from '../../storage/sessions.js';
-import { getThinkingSettings, saveThinkingSettings } from '../../storage/settings.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
-import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
-import { normalizeLocalModelParams } from '../../localModel/modelParams.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from '../docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from '../native.js';
 import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.js';
@@ -49,6 +44,8 @@ import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
+import { searchWorkspaceFiles } from '../fileSearch.js';
+import ConfirmBar from './ConfirmBar.js';
 import FileHistorySheet from '../FileHistorySheet.js';
 import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 
@@ -68,17 +65,6 @@ const CHANGE_OP_META = {
   delete: { icon: 'trash-outline', labelKey: 'workspace.panel.history.op.delete' },
   import: { icon: 'cloud-download-outline', labelKey: 'workspace.panel.history.op.import' },
 };
-
-// 思考强度四档；off = 关闭思考（enabled: false），其余对应 level。
-const THINKING_CHOICES = ['off', 'low', 'medium', 'high'];
-
-// token 数的紧凑显示（估算值，K 足够）。
-function formatTokens(value) {
-  const tokens = Number(value) || 0;
-  if (tokens >= 10000) return `${Math.round(tokens / 1000)}K`;
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
-  return String(tokens);
-}
 
 export default function FilesPanel({ visible, characterId: initialCharacterId = 'default', initialSection = '' }) {
   const { theme, fonts, tokens } = useTheme();
@@ -112,6 +98,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 文件区当前所在目录（'' = 根层，按项目分组）。进入项目/目录后逐层下钻，
   // 路径只在面包屑里出现，不再把「repos/x/main/src/…」整条挤在文件行里被截断（诉求④）。
   const [subdir, setSubdir] = useState('');
+  // P2-3：文件搜索（**跨目录**——逐层下钻时找已知名字的文件只能靠记忆点进去）。
+  // 空查询时照旧显示目录树，不显示「全部文件」的平铺。
+  const [fileQuery, setFileQuery] = useState('');
   // D1：把文本文件导入**当前浏览的目录**（根层沿用 imports/ 旧落点）——技能生态
   // 的关键通路：在 .easychat/skills/<名字>/ 里点「导入文件」即建技能资源文件。
   const [fileImportBusy, setFileImportBusy] = useState(false);
@@ -123,16 +112,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 套餐：写入进度 {id, done, total}；条目状态 'absent' | 'same' | 'diff'（弹层打开时比对）。
   const [bundleBusy, setBundleBusy] = useState(null);
   const [catalogStatuses, setCatalogStatuses] = useState({});
-  // 对话调优（思考强度/上下文占用）折叠卡：默认收起，把主操作让给文件与导入。
-  const [tuningOpen, setTuningOpen] = useState(false);
   const [catalogInputs, setCatalogInputs] = useState({});
   const [catalogBusyId, setCatalogBusyId] = useState('');
   const [customUrl, setCustomUrl] = useState('');
   const [customBusy, setCustomBusy] = useState(false);
-  // 思考强度（全局设置，作用于聊天；含工作区角色的会话）。
-  const [thinking, setThinking] = useState({ enabled: false, level: 'medium' });
-  // 上下文占用（工作区角色的最近一个会话；null = 无会话）。
-  const [usage, setUsage] = useState(null);
   // 打开面板那一刻的后端。中途用户在设置里改根时，面板内的操作仍按打开时的根走，
   // 避免「列出来的是 A 文件夹的文件、删的却是 B 文件夹」。
   const storeRef = useRef(null);
@@ -162,59 +145,6 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       if (mountedRef.current) setLoading(false);
     }
   }, [characterId, t]);
-
-  // 上下文占用：取该工作区角色最近的一个单聊会话，按当前后端声明的窗口估算。
-  // 与 ChatScreen.maybeAutoSummarize 同一口径（chat/contextUsage.js），到 80% 自动压缩。
-  const loadContextUsage = useCallback(async ownerId => {
-    try {
-      const [sessions, { configs, activeId }, localItem] = await Promise.all([
-        getSessions(),
-        getApiConfigs(),
-        getActiveLocalModel().catch(() => null),
-      ]);
-      const session = (Array.isArray(sessions) ? sessions : [])
-        .filter(item => item && item.type !== 'group'
-          && String(item.characterId || '') === String(ownerId || ''))
-        .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0];
-      if (!session) {
-        if (mountedRef.current) setUsage(null);
-        return;
-      }
-      const messages = await getMessagesBySession(session.id).catch(() => []);
-      const current = configs.find(item => item.id === activeId) || configs[0];
-      const model = current ? getActiveModel(current) : '';
-      const caps = capabilitiesForModel(current, model);
-      const localContextSize = localItem ? normalizeLocalModelParams(localItem).contextSize : 0;
-      const computed = computeContextUsage(messages, resolveContextWindow({
-        declared: caps.contextWindow,
-        localContextSize,
-        model,
-      }));
-      if (mountedRef.current) setUsage(computed);
-    } catch (error) {
-      if (mountedRef.current) setUsage(null);
-    }
-  }, []);
-
-  // 思考强度：off = 关闭思考；其余档位对应 low/medium/high（全局设置，保存即生效）。
-  const updateThinking = useCallback(async choice => {
-    if (!THINKING_CHOICES.includes(choice)) return;
-    const next = {
-      enabled: choice !== 'off',
-      level: choice === 'off' ? thinking.level : choice,
-      display: thinking.display || 'fold',
-    };
-    setThinking(next);
-    try {
-      const saved = await saveThinkingSettings(next);
-      if (mountedRef.current) setThinking(saved);
-    } catch (error) {
-      // 保存失败时回读兜底，避免界面与存储漂移。
-      getThinkingSettings()
-        .then(current => { if (mountedRef.current && current) setThinking(current); })
-        .catch(() => {});
-    }
-  }, [thinking]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -259,18 +189,13 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             refreshAppData().catch(() => {});
           }
         }
-        // 思考强度（全局设置）+ 上下文占用（工作区角色的最近会话）。
-        const thinkingSettings = await getThinkingSettings().catch(() => null);
-        if (!mountedRef.current) return;
-        if (thinkingSettings) setThinking(thinkingSettings);
-        loadContextUsage(resolved.id || undefined);
         refresh(resolved.id || undefined);
       } catch (caught) {
         if (!mountedRef.current) return;
         setError(t('workspace.panel.err.read'));
       }
     })();
-  }, [visible, refresh, t, refreshAppData, loadContextUsage]);
+  }, [visible, refresh, t, refreshAppData]);
 
   const fileUri = useCallback(async name => {
     const store = storeRef.current;
@@ -326,26 +251,29 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     }
   }, [characterId, shareFile, t]);
 
+  // P4-4：删除改成**面板内确认条**（此前是系统弹框——它盖住的是整个工作区，用户还得先读完
+  // 两行字才知道删的是哪个文件）。这里只记下「在等哪一次确认」，真正的删除在 confirmDelete。
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [pendingClear, setPendingClear] = useState(false);
+  const [pendingDirDelete, setPendingDirDelete] = useState(null);
+
   const handleDelete = useCallback(name => {
-    Alert.alert(t('workspace.panel.delete.title'), t('workspace.panel.delete.body', { name }), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: () => {
-          const store = storeRef.current;
-          if (!store) return;
-          store.deleteFile({ characterId, path: name })
-            .then(() => {
-              if (!mountedRef.current) return;
-              setFiles(list => list.filter(entry => entry !== name));
-              if (preview && preview.path === name) setPreview(null);
-            })
-            .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
-        },
-      },
-    ]);
-  }, [characterId, preview, t]);
+    setPendingDelete({ name });
+  }, []);
+
+  const confirmDelete = useCallback(() => {
+    const target = pendingDelete && pendingDelete.name;
+    setPendingDelete(null);
+    const store = storeRef.current;
+    if (!target || !store) return;
+    store.deleteFile({ characterId, path: target })
+      .then(() => {
+        if (!mountedRef.current) return;
+        setFiles(list => list.filter(entry => entry !== target));
+        if (preview && preview.path === target) setPreview(null);
+      })
+      .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
+  }, [characterId, pendingDelete, preview, t]);
 
   // F2：目录删除——只允许删**空目录**（删前用当前文件清单再确认一次；
   // store 层还有第二道校验）。空目录多为导入残留（旧格式 / 上次没跑完），
@@ -364,26 +292,23 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       return;
     }
     const label = String(path).split('/').filter(Boolean).slice(-1)[0] || String(path);
-    Alert.alert(
-      t('workspace.panel.delete.dirTitle'),
-      t('workspace.panel.delete.dirBody', { name: label }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            store.deleteWorkspaceDirectory({ characterId, path })
-              .then(() => {
-                if (!mountedRef.current) return;
-                setFiles(list => list.filter(entry => entry !== path));
-              })
-              .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
-          },
-        },
-      ]
-    );
+    // P4-4：删除确认改用面板内确认条（与删除文件、清空改动同一形状）。
+    // 上面「非空目录」那处**保持系统 Alert**——那是「用户没预期的拒绝」，属于必须打断的场景。
+    setPendingDirDelete({ path, label });
   }, [characterId, files, t]);
+
+  const confirmDirDelete = useCallback(() => {
+    const target = pendingDirDelete && pendingDirDelete.path;
+    setPendingDirDelete(null);
+    const store = storeRef.current;
+    if (!target || !store || typeof store.deleteWorkspaceDirectory !== 'function') return;
+    store.deleteWorkspaceDirectory({ characterId, path: target })
+      .then(() => {
+        if (!mountedRef.current) return;
+        setFiles(list => list.filter(entry => entry !== target));
+      })
+      .catch(() => Alert.alert(t('workspace.panel.err.delete'), t('workspace.panel.err.delete')));
+  }, [characterId, pendingDirDelete, t]);
 
   // D1：导入文本文件到**当前浏览的目录**（根层沿用 imports/ 旧落点）——技能生态的
   // 关键通路：在 .easychat/skills/<名字>/ 里导入即建资源文件（scripts、templates）。
@@ -538,20 +463,17 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     if (tab === 'history') loadChanges();
   }, [loadChanges]);
 
+  // P4-4：清空改动也走面板内确认条（此前是系统弹框）。只记下「在等哪一次确认」。
   const clearHistory = useCallback(() => {
-    Alert.alert(t('workspace.panel.viewer.clear.title'), t('workspace.panel.viewer.clear.body'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: () => {
-          clearWorkspaceChanges(characterId)
-            .then(() => { if (mountedRef.current) setChanges([]); })
-            .catch(() => {});
-        },
-      },
-    ]);
-  }, [characterId, t]);
+    setPendingClear(true);
+  }, []);
+
+  const confirmClear = useCallback(() => {
+    setPendingClear(false);
+    clearWorkspaceChanges(characterId)
+      .then(() => { if (mountedRef.current) setChanges([]); })
+      .catch(() => {});
+  }, [characterId]);
 
   // —— 环境与配置下载 ——
   // 写入走 store.writeWorkspaceFile：与面板手写同一条路径，自动进历史改动。
@@ -697,6 +619,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 路径只在面包屑里出现，不再把 repos/x/main/src/… 整条挤进文件行被截断。
   const { rootEntries, groups } = useMemo(() => groupWorkspaceFiles(files), [files]);
   const children = useMemo(() => directoryChildren(files, subdir), [files, subdir]);
+  // P2-3：命中结果与总数（界面要说「还有 N 条未显示」，所以不能只拿截断后的数组）。
+  const fileSearch = useMemo(() => searchWorkspaceFiles(files, fileQuery), [files, fileQuery]);
   const crumbs = useMemo(
     () => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')),
     [subdir, t]
@@ -788,6 +712,52 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     </TouchableOpacity>
   );
 
+  // P2-3：搜索结果（平铺、跨目录）。每行带出所在目录——搜索的意义就是「不用知道在哪」，
+  // 但看到结果得知道它在哪儿，否则点开前没有判断依据。
+  const renderSearchResults = () => {
+    if (fileSearch.matches.length === 0) {
+      return (
+        <EmptyState
+          icon="search-outline"
+          title={t('workspace.panel.search.empty')}
+          description={t('workspace.panel.search.emptyHint', { query: fileQuery.trim() })}
+        />
+      );
+    }
+    return (
+      <>
+        {fileSearch.matches.map(item => (
+          <TouchableOpacity
+            key={item.path}
+            style={styles.fileRow}
+            onPress={() => openFile(item.path)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.fileMain}>
+              <Ionicons
+                name={isDocxName(item.path) ? 'document-outline' : 'document-text-outline'}
+                size={16}
+                color={theme.colors.primaryMuted}
+              />
+              <View style={styles.searchTextBlock}>
+                <Text style={styles.fileName} numberOfLines={1}>{item.name}</Text>
+                {item.dir ? (
+                  <Text style={styles.searchDir} numberOfLines={1}>{item.dir}</Text>
+                ) : null}
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))}
+        {/* 截断了就说清楚还有多少——静默截断会让用户以为「就这些」。 */}
+        {fileSearch.truncated ? (
+          <Text style={styles.searchMore}>
+            {t('workspace.panel.search.more', { count: fileSearch.total - fileSearch.matches.length })}
+          </Text>
+        ) : null}
+      </>
+    );
+  };
+
   const renderFileBrowser = () => {
     if (loading) return <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>;
     if (error) return null;
@@ -800,6 +770,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         />
       );
     }
+    // P2-3：有搜索词就用平铺结果替代目录树（搜索的价值就在跨目录）。
+    if (fileQuery.trim()) return renderSearchResults();
     if (subdir) {
       return (
         <>
@@ -1068,72 +1040,80 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             </View>
           ) : null}
 
+          {/* P2-3：文件搜索框。空查询时下方仍是目录树，输入后才切成跨目录的平铺结果。 */}
+          {files.length > 0 ? (
+            <View style={styles.searchRow}>
+              <Ionicons name="search" size={14} color={theme.colors.textFaint} />
+              <TextInput
+                style={styles.searchInput}
+                value={fileQuery}
+                onChangeText={setFileQuery}
+                placeholder={t('workspace.panel.search.placeholder')}
+                placeholderTextColor={theme.colors.textFaint}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {fileQuery ? (
+                <TouchableOpacity
+                  onPress={() => setFileQuery('')}
+                  hitSlop={8}
+                  accessibilityLabel={t('workspace.panel.search.clear')}
+                >
+                  <Ionicons name="close-circle" size={15} color={theme.colors.textFaint} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* P4-4：破坏性操作的面板内确认条（第一个接入的流程是删除文件）。 */}
+          {pendingDelete ? (
+            <ConfirmBar
+              title={t('workspace.panel.delete.title')}
+              body={t('workspace.panel.delete.body', { name: pendingDelete.name })}
+              confirmLabel={t('common.delete')}
+              cancelLabel={t('common.cancel')}
+              onConfirm={confirmDelete}
+              onCancel={() => setPendingDelete(null)}
+              theme={theme}
+              fonts={fonts}
+              tokens={tokens}
+            />
+          ) : null}
+
+          {pendingClear ? (
+            <ConfirmBar
+              title={t('workspace.panel.viewer.clear.title')}
+              body={t('workspace.panel.viewer.clear.body')}
+              confirmLabel={t('common.delete')}
+              cancelLabel={t('common.cancel')}
+              onConfirm={confirmClear}
+              onCancel={() => setPendingClear(false)}
+              theme={theme}
+              fonts={fonts}
+              tokens={tokens}
+            />
+          ) : null}
+
+          {pendingDirDelete ? (
+            <ConfirmBar
+              title={t('workspace.panel.delete.dirTitle')}
+              body={t('workspace.panel.delete.dirBody', { name: pendingDirDelete.label })}
+              confirmLabel={t('common.delete')}
+              cancelLabel={t('common.cancel')}
+              onConfirm={confirmDirDelete}
+              onCancel={() => setPendingDirDelete(null)}
+              theme={theme}
+              fonts={fonts}
+              tokens={tokens}
+            />
+          ) : null}
+
           {renderFileBrowser()}
 
-          <View style={styles.collapsedSection}>
-            <TouchableOpacity
-              style={styles.collapsedHeader}
-              onPress={() => setTuningOpen(current => !current)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.collapsedHeaderText}>{t('workspace.panel.tuning.title')}</Text>
-              <Ionicons name={tuningOpen ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textFaint} />
-            </TouchableOpacity>
-            {tuningOpen ? (
-              <>
-                <View style={styles.controlCard}>
-                  <FieldLabel>{t('workspace.panel.thinking.label')}</FieldLabel>
-                  <View style={styles.thinkingChips}>
-                    {THINKING_CHOICES.map(choice => {
-                      const active = choice === 'off'
-                        ? thinking.enabled !== true
-                        : thinking.enabled === true && thinking.level === choice;
-                      return (
-                        <TouchableOpacity
-                          key={choice}
-                          style={[styles.thinkingChip, active && styles.thinkingChipActive]}
-                          onPress={() => updateThinking(choice)}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.thinkingChipText, active && styles.thinkingChipTextActive]}>
-                            {t(`workspace.panel.thinking.${choice}`)}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  <FieldHint>{t('workspace.panel.thinking.hint')}</FieldHint>
-                </View>
-
-                <View style={styles.controlCard}>
-                  <FieldLabel>{t('workspace.panel.context.label')}</FieldLabel>
-                  {usage ? (
-                    <>
-                      <View style={styles.contextBar}>
-                        <View
-                          style={[
-                            styles.contextFill,
-                            usage.ratio >= AUTO_COMPACT_RATIO && styles.contextFillWarn,
-                            { width: `${Math.min(100, Math.max(2, Math.round(usage.ratio * 100)))}%` },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.contextText}>
-                        {t('workspace.panel.context.usage', {
-                          tokens: formatTokens(usage.tokens),
-                          window: formatTokens(usage.window),
-                          percent: Math.round(usage.ratio * 100),
-                        })}
-                      </Text>
-                    </>
-                  ) : (
-                    <Text style={styles.contextText}>{t('workspace.panel.context.empty')}</Text>
-                  )}
-                  <FieldHint>{t('workspace.panel.context.hint')}</FieldHint>
-                </View>
-              </>
-            ) : null}
-          </View>
+          {/* 此前的「调参」折叠卡（思考强度 + 上下文占用）已删除：这两项在对话面板的 ⚙
+              设置里各有一行**同款可交互控件**，是同一份数据的两处显示；而且它们是 agent
+              参数，放在「文件」领域本身就是范畴错误。收敛到单一来源（P4-2）。 */}
           </>
           )}
         </ScrollView>
@@ -1280,7 +1260,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
-              {/* Markdown/HTML 默认按聊天同款渲染；「查看原文」切回纯文本。 */}
+              {/* Markdown/HTML 默认按聊天同款渲染；「查看原文」切回纯文本。取色传 theme.colors.text，
+                  预览底是 background（深），不能用聊天默认的 bubbleAssistantText（深字）。 */}
               {preview && isRichPreview(preview.path) && !previewRaw ? (
                 <AssistantMessageBody text={preview.content} fullWidth textColor={theme.colors.text} />
               ) : (
@@ -1380,17 +1361,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: 10,
   },
   importButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
-  collapsedSection: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-  },
-  collapsedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
-  collapsedHeaderText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12.5), fontWeight: '600' },
   // flexWrap 是止血：四个按钮横排不换行时，窄屏末位会被裁成「📂 查...」（真机截图）。
   fileToolsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 },
   fileToolButton: {
@@ -1412,39 +1382,22 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   fileToolGhostText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 4 },
   sandboxHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 12 },
-  controlCard: {
+  // P2-3：文件搜索框与结果行
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: tokens.radius.md,
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     marginBottom: 12,
   },
-  thinkingChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
-  thinkingChip: {
-    borderRadius: tokens.radius.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-    marginBottom: 6,
-  },
-  thinkingChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  thinkingChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
-  thinkingChipTextActive: { color: theme.colors.primaryContrast },
-  contextBar: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: theme.colors.divider,
-    overflow: 'hidden',
-    marginTop: 6,
-    marginBottom: 6,
-  },
-  contextFill: { height: '100%', borderRadius: 3, backgroundColor: theme.colors.primary },
-  contextFillWarn: { backgroundColor: theme.colors.danger || theme.colors.primary },
-  contextText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12) },
+  searchInput: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, padding: 0 },
+  searchTextBlock: { flex: 1, marginLeft: 8 },
+  searchDir: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
+  searchMore: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 10, paddingHorizontal: 4 },
   viewerTabs: {
     flexDirection: 'row',
     marginHorizontal: 20,
