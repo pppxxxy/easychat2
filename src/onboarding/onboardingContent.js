@@ -60,6 +60,9 @@ export const ONBOARDING_CHAPTERS = [
       ...chatVendorItems,
     ],
     note: `第三方中转站风险提示：${THIRD_PARTY_RELAY_RISK.join(' ')}`,
+    outro: {
+      body: '配置好 API 后，有任何疑问都可以直接在「聊天」标签问「EasyChat2 助手」——她熟悉 App 的每个功能在哪、怎么用。',
+    },
   },
   {
     id: 'local-model',

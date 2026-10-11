@@ -7,6 +7,7 @@
 export {
   CHARACTER_ITEM_PREFIX,
   DEFAULT_CHARACTER,
+  DEFAULT_ASSISTANT_LEGACY_PROMPTS,
   sortCharacters,
   isCharacterLibraryWriteBlocked,
   hasShownDefaultGreeting,

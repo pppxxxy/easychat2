@@ -91,6 +91,30 @@ export function describeDefaultArtwork({ id, avatarUri, bgUri, defaultId }) {
   return { avatar: blank(avatarUri), bg: blank(bgUri) };
 }
 
+// 判断内置助手的系统提示是否该刷新为最新内置文案：只认「本机显式标记的 builtin 卡」
+// 且当前系统提示仍等于某个历史种子（说明用户没改过）。用户改过的不动，非内置卡不动。
+// 返回补丁对象（null 表示不改），由调用方合并落盘。
+export function describeDefaultAssistantRefresh({
+  id,
+  builtin,
+  systemPrompt,
+  defaultId,
+  legacyPrompts,
+  nextPrompt,
+}) {
+  const target = String(id === undefined || id === null ? '' : id);
+  const expected = String(defaultId === undefined || defaultId === null ? '' : defaultId);
+  if (!expected || target !== expected) return null;
+  if (builtin !== true) return null;
+  const next = String(nextPrompt === undefined || nextPrompt === null ? '' : nextPrompt);
+  if (!next) return null;
+  const current = String(systemPrompt === undefined || systemPrompt === null ? '' : systemPrompt);
+  if (current === next) return null;
+  const legacy = Array.isArray(legacyPrompts) ? legacyPrompts : [];
+  if (!legacy.some(item => String(item) === current)) return null;
+  return { systemPrompt: next };
+}
+
 export async function runWithRollback(snapshot, restore, persist) {
   try {
     await persist();

@@ -10,6 +10,7 @@ import React, {
 
 import {
   DEFAULT_CHARACTER,
+  DEFAULT_ASSISTANT_LEGACY_PROMPTS,
   getActiveCharacterId,
   getCharacterLibrary,
   isCharacterLibraryWriteBlocked,
@@ -37,6 +38,7 @@ import { collectOrphanImageFiles } from '../storage/orphanMedia.js';
 
 import {
   describeDefaultArtwork,
+  describeDefaultAssistantRefresh,
   resolveActiveId,
   runWithRollback,
   withAddedCharacter,
@@ -123,6 +125,21 @@ export function AppProvider({ children }) {
               });
               await saveCharacterLibrary(resolvedList).catch(() => {});
             }
+          }
+          // 内置助手：系统提示仍是历史内置文案时刷新为最新版（用户改过的不动，非内置卡不动）。
+          const assistantRefresh = describeDefaultAssistantRefresh({
+            id: DEFAULT_CHARACTER.id,
+            builtin: defaultCharacter && defaultCharacter.builtin,
+            systemPrompt: defaultCharacter && defaultCharacter.systemPrompt,
+            defaultId: DEFAULT_CHARACTER.id,
+            legacyPrompts: DEFAULT_ASSISTANT_LEGACY_PROMPTS,
+            nextPrompt: DEFAULT_CHARACTER.systemPrompt,
+          });
+          if (assistantRefresh) {
+            resolvedList = resolvedList.map(item => (
+              item.id === DEFAULT_CHARACTER.id ? { ...item, ...assistantRefresh } : item
+            ));
+            await saveCharacterLibrary(resolvedList).catch(() => {});
           }
         }
         const resolved = resolveActiveId(resolvedList, storedActiveId);

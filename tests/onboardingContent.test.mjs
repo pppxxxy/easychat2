@@ -64,3 +64,9 @@ test('新手教程包含世界书、正则脚本与预设章节', () => {
   assert.match(getOnboardingChapter('lorebook').intro, /关键词/);
   assert.match(getOnboardingChapter('presets').intro, /系统提示词/);
 });
+
+test('聊天 API 章节结尾提示：配置后可直接问内置助手', () => {
+  const chapter = getOnboardingChapter('chat-api');
+  assert.ok(chapter.outro && chapter.outro.body, 'chat-api 章节应有章末提示');
+  assert.match(chapter.outro.body, /EasyChat2 助手/);
+});

@@ -504,6 +504,17 @@ test('默认角色带内置教学开场白（获取 API / 导入角色卡 / 开�
   assert.ok(builtin.firstMes.includes('角色'), '开场白应引导导入角色卡');
 });
 
+test('默认角色系统提示包含 App 结构与功能位置，旧内置提示登记为可刷新种子', async () => {
+  const storage = loadStorage();
+  const builtin = storage.DEFAULT_CHARACTER;
+  for (const where of ['设置', '聊天', '角色', '记忆', '扩展', '工作区']) {
+    assert.ok(builtin.systemPrompt.includes(where), `系统提示应包含「${where}」入口`);
+  }
+  // 旧内置提示必须在种子表里，存量卡才能被 AppContext 刷新为新版；新版本身不在种子表里。
+  assert.ok(storage.DEFAULT_ASSISTANT_LEGACY_PROMPTS.includes('你是 EasyChat2 的智能助手，回答简洁清晰。'));
+  assert.equal(storage.DEFAULT_ASSISTANT_LEGACY_PROMPTS.includes(builtin.systemPrompt), false);
+});
+
 test('存量默认角色首启动播种教学开场白，且仅播种一次', async () => {
   const storage = loadStorage();
   // 存量数据：默认角色 firstMes 为空（会覆盖 DEFAULT_CHARACTER 的新默认值）
