@@ -19,7 +19,7 @@ export default function SessionSidePanels({
 }) {
   return (
     <>
-      <TurnSummaryPanel characterId={characterId} messages={messages} />
+      <TurnSummaryPanel characterId={characterId} messages={messages} sending={sending} />
       <AgentPlanPanel plan={plan} canApprove={canApprove} sending={sending} onApprove={onApprove} />
     </>
   );

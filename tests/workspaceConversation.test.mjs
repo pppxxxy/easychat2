@@ -126,7 +126,7 @@ test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () =
   const card = fs.readFileSync(path.resolve('src/workspace/screen/ToolCallRow.js'), 'utf8');
   assert.match(card, /workspace\.chat\.tool\.history/, '卡片里的入口文案走 i18n');
   // W3①：助手正文走与角色聊天同一个渲染器（不再把 Markdown 当纯文本）
-  assert.match(panel, /<AssistantMessageBody text=\{item\.content\} \/>/, '助手正文用 Markdown 渲染器');
+  assert.match(panel, /<AssistantMessageBody text=\{item\.content\} textColor=\{theme\.colors\.text\} \/>/, '助手正文用 Markdown 渲染器（并传正文取色，防深底深字）');
   assert.match(panel, /row\.kind === 'compaction' \? styles\.bubbleCompaction/, '压缩行有独立样式');
   // 会话侧栏面板（回合小结 + 计划进度）已外提，ChatPanel 只传数据
   assert.match(panel, /<SessionSidePanels/, '侧栏面板外提');

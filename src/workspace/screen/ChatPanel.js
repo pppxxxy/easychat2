@@ -1416,8 +1416,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                       <ActivityIndicator size="small" color={theme.colors.primary} />
                     ) : (item.role === 'assistant' && row.kind === 'assistant' ? (
                       /* W3①：助手正文走与角色聊天同一个渲染器（Markdown/代码块/富 HTML），
-                         不再把 Markdown 当纯文本显示。用户消息与压缩行仍是纯文本。 */
-                      <AssistantMessageBody text={item.content} />
+                         不再把 Markdown 当纯文本显示。用户消息与压缩行仍是纯文本。
+                         取色传 theme.colors.text——气泡底色是 surface（深底），不能用
+                         聊天默认的 bubbleAssistantText（深色主题下是深字，深底不可见）。 */
+                      <AssistantMessageBody text={item.content} textColor={theme.colors.text} />
                     ) : (
                       <Text style={styles.bubbleText} selectable>{item.content}</Text>
                     ))}

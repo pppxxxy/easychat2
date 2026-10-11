@@ -32,7 +32,7 @@ const OP_KEYS = Object.freeze({
   delete: 'workspace.chat.summary.op.delete',
 });
 
-export default function TurnSummaryPanel({ characterId = 'default', messages = null }) {
+export default function TurnSummaryPanel({ characterId = 'default', messages = null, sending = false }) {
   const { theme, fonts } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts), [theme, fonts]);
@@ -54,10 +54,14 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
   // 改的文件，而工具轨迹看不见（轨迹里只有写类工具）。git 关着/没仓库时退回工具轨迹推导。
   const [gitFiles, setGitFiles] = useState(null);
   useEffect(() => {
+    // **流式进行中不读 git**：messages 每个 token 都变，而读一次 git（log + 树并走）
+    // 很重——此前依赖 messages，等于每 token 打一次 git。改为只在回合结束（sending
+    // 由 true 转 false）读一次，拿到本轮检查点；流式期间沿用上一轮的结果。
     if (!gitOn) {
       setGitFiles(null);
       return undefined;
     }
+    if (sending) return undefined;
     let alive = true;
     (async () => {
       try {
@@ -77,7 +81,7 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
       }
     })();
     return () => { alive = false; };
-  }, [characterId, gitOn, messages]);
+  }, [characterId, gitOn, sending]);
 
   const traced = (changes && Array.isArray(changes.files)) ? changes.files : [];
   const files = (gitFiles && gitFiles.length > 0) ? gitFiles : traced;
