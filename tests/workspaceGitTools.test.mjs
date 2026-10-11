@@ -68,7 +68,7 @@ test('注册表：给了 git runner 才多出 git 工具（读三 + 写二）；
   const store = { listWorkspaceFiles: async () => [] };
   const without = createWorkspaceToolDefinitions({ store });
   assert.equal(without.some(item => GIT_TOOL_NAMES.includes(item.name)), false, '没 runner → 一个都不注册');
-  assert.equal(without.length, 19, '基础清单不受影响（git 是条件加）');
+  assert.equal(without.length, 20, '基础清单不受影响（git 是条件加）');
 
   const withGit = byName(createWorkspaceToolDefinitions({ store, git: makeGitRunner(createMemoryFileSystem()) }));
   for (const name of GIT_TOOL_NAMES) {

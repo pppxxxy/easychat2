@@ -32,7 +32,7 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'list_workspace_files',
     'read_workspace_file',
     'search_workspace',
-    'list_symbols',
+    'list_symbols', 'find_references',
     'ask_user',
     'skill',
     'update_plan',
@@ -50,11 +50,11 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'install_extension_pack',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 19);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 20);
   // 只读模式只放开只读工具（含子代理/工作流）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'ask_user', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack'],
   );
 });
 
@@ -121,7 +121,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'list_workspace_files',
     'read_workspace_file',
     'search_workspace',
-    'list_symbols',
+    'list_symbols', 'find_references',
     'ask_user',
     'skill',
     'update_plan',
@@ -205,7 +205,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'list_workspace_files',
     'read_workspace_file',
     'search_workspace',
-    'list_symbols',
+    'list_symbols', 'find_references',
     'ask_user',
     'skill',
     'update_plan',

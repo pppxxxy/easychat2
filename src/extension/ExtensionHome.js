@@ -38,6 +38,7 @@ const GROUPS = [
       { id: 'schedule', route: 'ext-schedule', icon: 'time-outline', labelKey: 'ext.home.schedule', descKey: 'ext.home.schedule.desc' },
       { id: 'diary', route: 'ext-diary', icon: 'book-outline', labelKey: 'ext.home.diary', descKey: 'ext.home.diary.desc' },
       { id: 'screen', route: 'ext-screen', icon: 'eye-outline', labelKey: 'ext.home.screen', descKey: 'ext.home.screen.desc' },
+      { id: 'plugins', route: 'ext-plugins', icon: 'extension-puzzle-outline', labelKey: 'ext.home.plugins', descKey: 'ext.home.plugins.desc' },
     ],
   },
   {

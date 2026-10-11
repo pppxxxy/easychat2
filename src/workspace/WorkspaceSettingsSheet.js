@@ -105,6 +105,8 @@ export default function WorkspaceSettingsSheet({
   onInstallSampleTeams,
   // 团队记忆（跨会话黑板）：宿主读好的主题快照 + 清空动作。
   boardTopics = [],
+  // 任务看板快照（board_task 的分工清单）：与 boardTopics 同一份黑板，展示用。
+  boardTasks = [],
   onClearBoard,
   // P3-1：分身档案（`.easychat/agents/`）。与技能同为「文件即配置」，但此前**界面零入口**——
   // 用户写了档案，既看不到有没有被读到、也没有计数（技能至少还能装示例并计数）。
@@ -508,7 +510,19 @@ export default function WorkspaceSettingsSheet({
       return (
         <View>
           <Text style={styles.bodyHint}>{t('workspace.settings.board.hint')}</Text>
-          {boardTopics.length === 0 ? (
+          {boardTasks.length > 0 ? (
+            <View style={styles.boardTopic}>
+              <Text style={styles.boardTopicTitle}>
+                {t('workspace.settings.board.tasks', { count: boardTasks.length })}
+              </Text>
+              {boardTasks.map(task => (
+                <Text key={task.id} style={styles.bodyHint} selectable>
+                  {`#${task.id} [${task.status}] ${task.title}${task.owner ? `（@${task.owner}）` : ''}`}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {(boardTopics.length === 0 && boardTasks.length === 0) ? (
             <Text style={styles.bodyHint}>{t('workspace.settings.board.empty')}</Text>
           ) : boardTopics.map(topic => (
             <View key={topic.topic} style={styles.boardTopic}>
@@ -522,7 +536,7 @@ export default function WorkspaceSettingsSheet({
               ))}
             </View>
           ))}
-          {boardTopics.length > 0 ? (
+          {(boardTopics.length > 0 || boardTasks.length > 0) ? (
             <TouchableOpacity
               style={styles.skillsInstall}
               onPress={() => onClearBoard && onClearBoard()}

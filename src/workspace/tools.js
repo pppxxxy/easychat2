@@ -18,6 +18,7 @@ import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 import { READ_ONLY_TOOL_DEFINITIONS, formatWorkspaceReadResult } from './toolDefs/readTools.js';
 import { SEARCH_TOOL_DEFINITION } from './toolDefs/searchTool.js';
 import { LIST_SYMBOLS_TOOL_DEFINITION } from './toolDefs/symbolsTool.js';
+import { FIND_REFERENCES_TOOL_DEFINITION } from './toolDefs/referencesTool.js';
 import { ASK_USER_TOOL_DEFINITION } from './toolDefs/askUserTool.js';
 import { SKILL_TOOL_DEFINITION } from './toolDefs/skillTool.js';
 import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
@@ -47,6 +48,7 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
   SEARCH_TOOL_DEFINITION,
   LIST_SYMBOLS_TOOL_DEFINITION,
+  FIND_REFERENCES_TOOL_DEFINITION,
   ASK_USER_TOOL_DEFINITION,
   SKILL_TOOL_DEFINITION,
   PLAN_TOOL_DEFINITION,

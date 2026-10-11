@@ -141,6 +141,7 @@
     "src/extension/ExtensionStack.js",
     "src/extension/SchedulePanel.js",
     "src/extension/AgentTaskPanel.js",
+    "src/extension/WorkspacePluginsPanel.js",
     "src/ui/PaneHeader.js"
   ],
   "reporter": ["text-summary", "lcov"],
