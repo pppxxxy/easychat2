@@ -1478,11 +1478,12 @@ export default function ChatScreen() {
     );
   }, [character, characterId, characters, isSending, persistDraftNow, ready, refreshSessions, removeVectorIndexForMessages, removeVectorIndexForSession, selectedMessageIds, setSessionGreetingSelected, t, updateCharacter]);
 
-  // 生成配图用的场景描述：取回复对应位置的段落，交给模型转写成一句画面描述。
-  // 转写失败（无配置 / 请求错误 / 空结果）时回退用该段原文，保证配图流程不中断。
-  const resolveInlineImageScene = useCallback(async ({ messageId, replyText, position, signal }) => {
-    const segment = selectReplySegment(replyText, position);
-    if (!segment) return '';
+  // 生成配图用的场景描述：智能增强开启时取回复对应位置的段落交给模型转写成画面描述；
+  // 关闭时直接用该段原文。转写失败（无配置 / 请求错误 / 空结果）同样回退原文，不中断配图。
+  const resolveInlineImageScene = useCallback(async ({ messageId, replyText, settings, signal }) => {
+    const segment = selectReplySegment(replyText, settings.imagePosition);
+    // 智能增强关闭：不做模型转写，直接用回复段落原文（保持原样）。
+    if (!segment || !settings.enhance) return segment;
     const sceneCharacter = charactersRef.current.find(
       item => String(item && item.id || '') === activeCharacterIdRef.current
     );
@@ -1502,7 +1503,9 @@ export default function ChatScreen() {
     }
     try {
       const { configs, activeId } = await getApiConfigs();
-      const config = configs.find(item => item.id === activeId) || configs[0];
+      const config = configs.find(item => item.id === settings.enhanceConfigId)
+        || configs.find(item => item.id === activeId)
+        || configs[0];
       if (!config) return segment;
       const raw = await sendChatMessage([
         { role: 'system', content: '你负责把一段角色对话转写成一句画面描述，只输出描述本身。' },
@@ -1678,13 +1681,8 @@ export default function ChatScreen() {
       item.id === messageId ? { ...item, inlineImage: { status: 'loading' } } : item
     )));
     try {
-      // 先把「角色说完这段话后所处的画面」转写成生图提示词；失败回退用回复段落本身。
-      const sceneText = await resolveInlineImageScene({
-        messageId,
-        replyText: sourceText,
-        position: settings.imagePosition,
-        signal: controller.signal,
-      });
+      // 智能增强开启时先转写画面描述，关闭时直接用回复段落原文（见 resolveInlineImageScene）。
+      const sceneText = await resolveInlineImageScene({ messageId, replyText: sourceText, settings, signal: controller.signal });
       if (controller.signal.aborted || activeSessionIdRef.current !== sessionId) return;
       const prompt = buildInlineImagePrompt(
         sceneText,

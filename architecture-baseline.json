@@ -5,7 +5,7 @@
     "src/games/html/"
   ],
   "fileLineBaseline": {
-    "src/ChatScreen.js": 3190,
+    "src/ChatScreen.js": 3188,
     "src/SettingsScreen.js": 2328,
     "src/chat/useChatSend.js": 2001,
     "src/workspace/screen/GithubPanel.js": 1984,

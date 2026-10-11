@@ -258,6 +258,29 @@ test('聊天选项 bubbleStyle：白名单归一，非法回退圆润', async ()
   store.delete('@easychat2_chat_options');
 });
 
+test('自动配图设置：智能增强默认关、润色接口默认空，读写往返与非法值归一', async () => {
+  store.delete('@easychat2_inline_image');
+  const def = await settings.getInlineImageSettings();
+  assert.equal(def.enhance, false, '智能增强缺省关闭');
+  assert.equal(def.enhanceConfigId, '', '润色接口缺省为空（用当前默认接口）');
+
+  const saved = await settings.saveInlineImageSettings({ ...def, enhance: true, enhanceConfigId: 'cfg-2' });
+  assert.equal(saved.enhance, true);
+  assert.equal(saved.enhanceConfigId, 'cfg-2');
+  const loaded = await settings.getInlineImageSettings();
+  assert.equal(loaded.enhance, true);
+  assert.equal(loaded.enhanceConfigId, 'cfg-2');
+
+  // 非布尔 enhance 归一为关；enhanceConfigId 一律转字符串
+  const bad = await settings.saveInlineImageSettings({ ...def, enhance: 'yes', enhanceConfigId: 42 });
+  assert.equal(bad.enhance, false, '非 true 一律归一为关');
+  assert.equal(bad.enhanceConfigId, '42');
+
+  store.set('@easychat2_inline_image', '{ not json');
+  assert.equal((await settings.getInlineImageSettings()).enhance, false, '损坏回退默认');
+  store.delete('@easychat2_inline_image');
+});
+
 test('折叠卡状态：只接受显式布尔，忽略未知/非法值，损坏回退空对象', async () => {
   store.delete('@easychat2_ui_sections');
   assert.deepEqual(await settings.getUiSections(), {}, '缺失时返回空对象');

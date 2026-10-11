@@ -35,6 +35,7 @@ export default function ExtensionsSection(props) {
     styles,
     theme,
     t,
+    configs,
     inlineImage,
     updateInlineImage,
     inlineImageProviders,
@@ -133,6 +134,36 @@ export default function ExtensionsSection(props) {
                 <FieldHint style={styles.hint}>{activeImageProvider.networkNote}</FieldHint>
               ) : null}
             </View>
+          ) : null}
+          <View style={styles.capabilityRow}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="sparkles" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('settings.inlineImage.enhance')}</Text>
+            </View>
+            <Switch
+              value={inlineImage.enhance === true}
+              onValueChange={value => updateInlineImage({ enhance: value })}
+              trackColor={{ false: theme.colors.surface, true: theme.colors.primary }}
+              thumbColor={theme.colors.primaryContrast}
+            />
+          </View>
+          <FieldHint style={styles.hint}>{t('settings.inlineImage.enhanceHint')}</FieldHint>
+          {inlineImage.enhance === true ? (
+            <>
+              <FieldLabel style={styles.label}>{t('settings.inlineImage.enhanceApi')}</FieldLabel>
+              <CollapsibleSelect
+                label={t('settings.inlineImage.enhanceApiLabel')}
+                value={String(inlineImage.enhanceConfigId || '')}
+                options={configs.map(item => ({
+                  value: item.id,
+                  label: item.name || t('settings.api.unnamed'),
+                  meta: `${item.baseUrl || ''} · ${item.activeModel || ''}`,
+                }))}
+                onSelect={value => updateInlineImage({ enhanceConfigId: value })}
+                placeholder={t('settings.inlineImage.enhanceApiDefault')}
+                emptyHint={t('settings.api.emptyHint')}
+              />
+            </>
           ) : null}
           <FieldLabel style={styles.label}>{t('settings.inlineImage.position')}</FieldLabel>
           <CollapsibleSelect
