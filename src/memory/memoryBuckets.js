@@ -8,9 +8,10 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 export const PINNED_GROUP_ID = 'pinned';
 
 // maxAge 为开区间上界：age < maxAge 落入该档；最后一档不设上界。
+// label 是中文兜底（纯逻辑测试与非 React 消费方用），labelKey 供界面取词。
 export const MEMORY_BUCKETS = [
-  { id: 'recent', label: '最近 7 天', maxAge: 7 * DAY_MS },
-  { id: 'older', label: '更早' },
+  { id: 'recent', label: '最近 7 天', labelKey: 'memory.bucket.recent7', maxAge: 7 * DAY_MS },
+  { id: 'older', label: '更早', labelKey: 'memory.bucket.older' },
 ];
 
 // 列表筛选 chips（记忆页头部下方）：全部 / 置顶 / 群聊。
@@ -18,16 +19,16 @@ export const MEMORY_BUCKETS = [
 // 由界面在存在本地会话时把 LOCAL_FILTER 追加进来——旧数据全是无字段的
 // 'api' 会话，常驻一个永远筛不出东西的 chip 只会误导。
 export const MEMORY_FILTERS = Object.freeze([
-  { id: 'all', label: '全部' },
-  { id: 'pinned', label: '置顶' },
-  { id: 'group', label: '群聊' },
+  { id: 'all', label: '全部', labelKey: 'memory.filter.all' },
+  { id: 'pinned', label: '置顶', labelKey: 'memory.bucket.pinned' },
+  { id: 'group', label: '群聊', labelKey: 'memory.groupChat' },
 ]);
 
-export const LOCAL_FILTER = Object.freeze({ id: 'local', label: '本地' });
+export const LOCAL_FILTER = Object.freeze({ id: 'local', label: '本地', labelKey: 'memory.filter.local' });
 
 // 「屏幕对话」chip：看屏幕 threads 与普通会话分属两套存储（screenWatch/threads.js），
 // 不进「全部」视图，只有选中该 chip 时才以行形式展示（见 MemoryScreen）。
-export const SCREEN_WATCH_FILTER = Object.freeze({ id: 'screenwatch', label: '屏幕对话' });
+export const SCREEN_WATCH_FILTER = Object.freeze({ id: 'screenwatch', label: '屏幕对话', labelKey: 'memory.filter.screenWatch' });
 
 export function hasLocalSessions(sessions) {
   return (Array.isArray(sessions) ? sessions : [])
@@ -89,12 +90,12 @@ export function groupSessionsByAge(sessions, now = Date.now()) {
   const groups = [];
   const pinned = list.filter(item => item.pinned === true);
   if (pinned.length > 0) {
-    groups.push({ id: PINNED_GROUP_ID, label: '置顶', sessions: pinned });
+    groups.push({ id: PINNED_GROUP_ID, label: '置顶', labelKey: 'memory.bucket.pinned', sessions: pinned });
   }
   const rest = list.filter(item => item.pinned !== true);
   MEMORY_BUCKETS.forEach(bucket => {
     const items = rest.filter(item => bucketIdForTimestamp(item.updatedAt, now) === bucket.id);
-    if (items.length > 0) groups.push({ id: bucket.id, label: bucket.label, sessions: items });
+    if (items.length > 0) groups.push({ id: bucket.id, label: bucket.label, labelKey: bucket.labelKey, sessions: items });
   });
   return groups;
 }
@@ -104,9 +105,9 @@ export function groupSessionsByAge(sessions, now = Date.now()) {
 // （它是图标不是文字 badge），这里不重复。最多渲染 2 个由行组件截断。
 export function buildSessionBadges(session) {
   const badges = [];
-  if (session && session.clonedFrom) badges.push({ text: '副本' });
+  if (session && session.clonedFrom) badges.push({ text: '副本', labelKey: 'memory.cloneBadge' });
   if (session && session.modelKind === 'local') {
-    badges.push({ icon: 'hardware-chip-outline', text: '本地' });
+    badges.push({ icon: 'hardware-chip-outline', text: '本地', labelKey: 'memory.filter.local' });
   }
   return badges;
 }
@@ -121,6 +122,7 @@ export function buildMemoryListData(groups, expandedIds) {
       id: `header:${group.id}`,
       groupId: group.id,
       label: group.label,
+      labelKey: group.labelKey,
       count: group.sessions.length,
     });
     if (expanded.has(group.id)) {

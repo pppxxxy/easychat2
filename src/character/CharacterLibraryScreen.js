@@ -110,7 +110,7 @@ export default function CharacterLibraryScreen() {
     const names = (session.members || [])
       .map(id => (characterMap.get(id) || {}).name)
       .filter(Boolean);
-    return String(session.name || '').trim() || names.join('、') || t('common.groupChat');
+    return String(session.name || '').trim() || names.join(t('character.library.group.nameJoin')) || t('common.groupChat');
   }, [characterMap, t]);
 
   const visibleGroups = useMemo(() => {
@@ -405,7 +405,7 @@ export default function CharacterLibraryScreen() {
   const onNewCharacter = async () => {
     if (!loaded) return;
     try {
-      const created = await addCharacter({ name: '新角色' });
+      const created = await addCharacter({ name: t('character.library.newCharacterName') });
       // 同上：新角色要有自己的会话，聊天页才不会留着上一个角色的对话
       await ensureCharacterSession(created.id).catch(() => {});
     } catch (error) {
@@ -436,8 +436,8 @@ export default function CharacterLibraryScreen() {
       const members = groupSelected.slice();
       const fallbackName = characters
         .filter(item => members.includes(item.id))
-        .map(item => item.name || '未命名角色')
-        .join('、');
+        .map(item => item.name || t('common.unnamedCharacter'))
+        .join(t('character.library.group.nameJoin'));
        await createGroupSession(members, groupName.trim() || fallbackName, {
          avatarUri: groupAvatarUri,
          bgUri: groupBgUri,
@@ -543,7 +543,7 @@ export default function CharacterLibraryScreen() {
           onPress={() => onOpenGroup(group)}
           activeOpacity={0.85}
           accessibilityRole="button"
-          accessibilityLabel={`进入群聊 ${groupNameOf(group)}`}
+          accessibilityLabel={t('character.library.a11y.openGroup', { name: groupNameOf(group) })}
           accessibilityState={{ selected }}
         >
           <View style={styles.characterCardImageWrap}>
@@ -579,7 +579,7 @@ export default function CharacterLibraryScreen() {
         onPress={() => (editMode ? (item.id === 'default' ? null : toggleSelect(item.id)) : openCharacterDetail(item.id))}
         activeOpacity={0.85}
         accessibilityRole="button"
-        accessibilityLabel={`切换到角色 ${item.name || '未命名角色'}`}
+        accessibilityLabel={t('character.library.a11y.switchCharacter', { name: item.name || t('common.unnamedCharacter') })}
         accessibilityState={{ selected }}
       >
         <View style={styles.characterCardImageWrap}>
@@ -605,7 +605,7 @@ export default function CharacterLibraryScreen() {
                 onPress={() => onTogglePin(item)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel={item.pinned ? '取消置顶' : '置顶角色'}
+                accessibilityLabel={item.pinned ? t('character.library.a11y.unpinCharacter') : t('character.library.a11y.pinCharacter')}
               >
                 <Ionicons
                   name={item.pinned ? 'star' : 'star-outline'}
@@ -629,7 +629,7 @@ export default function CharacterLibraryScreen() {
           <View style={styles.characterCardNameOverlay} pointerEvents="none">
             {selected ? <View style={styles.characterCardCurrentDot} /> : null}
             <Text style={styles.characterCardName} numberOfLines={1}>
-              {item.name || '未命名角色'}
+              {item.name || t('common.unnamedCharacter')}
             </Text>
           </View>
         </View>
@@ -669,13 +669,15 @@ export default function CharacterLibraryScreen() {
           <View style={styles.currentPill}>
             <View style={styles.currentPillDot} />
             <Text style={styles.currentPillText} numberOfLines={1}>
-              {`当前：${activeIsGroup
-                ? groupNameOf(activeGroupSession || {})
-                : ((activeCharacter && activeCharacter.name) || '未命名角色')}`}
+              {t('character.library.currentLabel', {
+                name: activeIsGroup
+                  ? groupNameOf(activeGroupSession || {})
+                  : ((activeCharacter && activeCharacter.name) || t('common.unnamedCharacter')),
+              })}
             </Text>
           </View>
           {isValidAigcMeta(activeCharacterAigcMeta) ? (
-            <Text style={styles.aigcBadge}>{`本卡由 AI 生成 · 内容编号 ${activeCharacterAigcMeta.contentCode || ''}`}</Text>
+            <Text style={styles.aigcBadge}>{t('character.library.aigcBadge', { code: activeCharacterAigcMeta.contentCode || '' })}</Text>
           ) : null}
         </View>
 
@@ -688,42 +690,44 @@ export default function CharacterLibraryScreen() {
                 <Text style={styles.countBadgeText}>{characters.length}</Text>
               </View>
             </View>
-            <TouchableOpacity
-              style={[styles.pillButton, !loaded && styles.buttonDisabled]}
-              onPress={onNewCharacter}
-              disabled={!loaded}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.pillButtonText}>{t('character.library.new')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.pillButton, (!loaded || characters.length < 2) && styles.buttonDisabled]}
-              onPress={() => setGroupPanelOpen(true)}
-              disabled={!loaded || characters.length < 2}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="people" size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.pillButtonText}>{t('common.groupChat')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.pillButton, !loaded && styles.buttonDisabled]}
-              onPress={toggleEditMode}
-              disabled={!loaded}
-              activeOpacity={0.8}
-            >
-              <Ionicons name={editMode ? 'close' : 'checkmark-circle-outline'} size={15} color={theme.colors.primarySoft} />
-              <Text style={styles.pillButtonText}>{editMode ? '完成' : '多选'}</Text>
-            </TouchableOpacity>
+            <View style={styles.cardActions}>
+              <TouchableOpacity
+                style={[styles.pillButton, !loaded && styles.buttonDisabled]}
+                onPress={onNewCharacter}
+                disabled={!loaded}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+                <Text style={styles.pillButtonText}>{t('character.library.new')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pillButton, (!loaded || characters.length < 2) && styles.buttonDisabled]}
+                onPress={() => setGroupPanelOpen(true)}
+                disabled={!loaded || characters.length < 2}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="people" size={15} color={theme.colors.primarySoft} />
+                <Text style={styles.pillButtonText}>{t('common.groupChat')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pillButton, !loaded && styles.buttonDisabled]}
+                onPress={toggleEditMode}
+                disabled={!loaded}
+                activeOpacity={0.8}
+              >
+                <Ionicons name={editMode ? 'close' : 'checkmark-circle-outline'} size={15} color={theme.colors.primarySoft} />
+                <Text style={styles.pillButtonText}>{editMode ? t('common.done') : t('character.library.select')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           {editMode ? (
             <View style={styles.selectBar}>
                  <TouchableOpacity style={styles.selectBarAction} onPress={selectAll} activeOpacity={0.8}>
 
-                 <Text style={styles.selectBarText}>{allVisibleSelected ? '取消全选' : '全选'}</Text>
+                 <Text style={styles.selectBarText}>{allVisibleSelected ? t('common.deselectAll') : t('common.selectAll')}</Text>
 
               </TouchableOpacity>
-              <Text style={styles.selectBarCount}>{`已选 ${selectedIds.length}`}</Text>
+              <Text style={styles.selectBarCount}>{t('character.library.selectedCount', { count: selectedIds.length })}</Text>
               <TouchableOpacity
                 style={[styles.selectBarDelete, selectedIds.length === 0 && styles.buttonDisabled]}
                 onPress={onDeleteSelected}
@@ -756,8 +760,8 @@ export default function CharacterLibraryScreen() {
                 />
                 <Text style={styles.characterListToggleText}>
                   {characterListExpanded
-                    ? '折叠角色列表'
-                    : `展开全部角色（${characterDisplayItems.length}）`}
+                    ? t('character.library.collapseList')
+                    : t('character.library.expandAll', { count: characterDisplayItems.length })}
                 </Text>
               </TouchableOpacity>
               {characterListExpanded ? (
@@ -800,7 +804,7 @@ export default function CharacterLibraryScreen() {
               placeholder={t('group.namePlaceholder')}
               editable={!creatingGroup}
             />
-            <FieldLabel style={styles.label}>{`选择成员（已选 ${groupSelected.length} / 2-8）`}</FieldLabel>
+            <FieldLabel style={styles.label}>{t('character.library.group.selectMembers', { count: groupSelected.length })}</FieldLabel>
             <ScrollView style={styles.groupList} keyboardShouldPersistTaps="handled">
               {characters.map(item => {
                 const selected = groupSelected.includes(item.id);
@@ -826,7 +830,7 @@ export default function CharacterLibraryScreen() {
                       </View>
                     )}
                     <Text style={styles.groupName} numberOfLines={1}>
-                      {item.name || '未命名角色'}
+                      {item.name || t('common.unnamedCharacter')}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -861,7 +865,7 @@ export default function CharacterLibraryScreen() {
                           </View>
                         )}
                         <Text style={[styles.groupPickText, active && styles.groupPickTextActive]} numberOfLines={1}>
-                          {item.name || '未命名'}
+                          {item.name || t('common.unnamedCharacter')}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -896,7 +900,7 @@ export default function CharacterLibraryScreen() {
                         activeOpacity={0.8}
                       >
                         <Text style={[styles.groupPickText, active && styles.groupPickTextActive]} numberOfLines={1}>
-                          {item.name || '未命名'}
+                          {item.name || t('common.unnamedCharacter')}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -920,7 +924,7 @@ export default function CharacterLibraryScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={styles.selectButtonText}>
-                  {creatingGroup ? '创建中...' : '创建'}
+                  {creatingGroup ? t('character.library.group.creating') : t('character.library.group.create')}
                 </Text>
               </TouchableOpacity>
             </View>

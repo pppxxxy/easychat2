@@ -99,7 +99,8 @@ test('AI 生成卡的角色页徽标与导出注入', () => {
   // 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
   // （列表页，页头徽标在这里）与 character/CharacterDetailScreen.js（编辑表单），
   // 断言目标随之改指列表页，约束不变。
-  assert.ok(CHARACTER_SCREEN.includes('本卡由 AI 生成'));
+  assert.ok(CHARACTER_SCREEN.includes("t('character.library.aigcBadge'"), '页头徽标应引用 i18n 键');
+  assert.ok(zhCN['character.library.aigcBadge'].includes('本卡由 AI 生成'), '语言包中文值正确');
   // 导出：显式标识进 creator_notes，隐式标识进 extensions.easychat2.aigc_meta
   assert.ok(CARD_EXPORTER.includes('appendExportNotice(String(source.creatorNotes || \'\')'));
   assert.ok(CARD_EXPORTER.includes('aigc_meta: aigcMeta'));

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { en } from '../src/i18n/locales/en.js';
 
 import {
   bucketIdForTimestamp,
@@ -29,6 +30,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'MemoryScreen.js'), 'utf8');
 const SEARCH_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'SearchScreen.js'), 'utf8');
 const SWITCHER_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'SwitcherModal.js'), 'utf8');
+const SESSION_ROW_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'memory', 'SessionRow.js'), 'utf8');
 
 const NOW = new Date(2026, 8, 27, 12, 0, 0).getTime();
 
@@ -106,6 +108,44 @@ test('筛选 chips：置顶/群聊/本地 按谓词过滤，全部原样返回',
   assert.deepEqual(MEMORY_FILTERS.map(item => item.id), ['all', 'pinned', 'group']);
 });
 
+test('筛选 chips 与档位都带 labelKey，界面据此取词（英文不再漏译）', () => {
+  assert.deepEqual(MEMORY_FILTERS.map(item => item.labelKey), ['memory.filter.all', 'memory.bucket.pinned', 'memory.groupChat']);
+  assert.deepEqual(MEMORY_BUCKETS.map(item => item.labelKey), ['memory.bucket.recent7', 'memory.bucket.older']);
+  assert.equal(LOCAL_FILTER.labelKey, 'memory.filter.local');
+  assert.equal(SCREEN_WATCH_FILTER.labelKey, 'memory.filter.screenWatch');
+  // 分组头也带 labelKey（置顶组 + 两个时间档）
+  const groups = groupSessionsByAge([
+    session('p', 1, { pinned: true }),
+    session('a', 0.2),
+    session('o', 30),
+  ], NOW);
+  assert.deepEqual(groups.map(g => g.labelKey), ['memory.bucket.pinned', 'memory.bucket.recent7', 'memory.bucket.older']);
+  const data = buildMemoryListData(groups, new Set());
+  assert.deepEqual(data.map(item => item.labelKey), ['memory.bucket.pinned', 'memory.bucket.recent7', 'memory.bucket.older']);
+  // 界面用 t(labelKey) 取词，不再直出中文 label
+  assert.ok(SCREEN_SOURCE.includes('t(chip.labelKey)'), 'chip 文案应经 t(labelKey)');
+  assert.ok(SCREEN_SOURCE.includes('t(item.labelKey)'), '分组头文案应经 t(labelKey)');
+  // 两种语言的词条都在（漏译会被 i18n 一致性测试兜住，这里钉住语义）
+  assert.equal(zhCN['memory.filter.all'], '全部');
+  assert.equal(en['memory.filter.all'], 'All');
+  assert.equal(en['memory.filter.screenWatch'], 'Screen chats');
+  assert.equal(en['memory.bucket.recent7'], 'Last 7 days');
+  assert.equal(en['memory.bucket.older'], 'Earlier');
+});
+
+test('会话时间文案走 i18n：昨天 / M月D日 不再硬编码', () => {
+  assert.ok(SESSION_ROW_SOURCE.includes("tr('memory.date.yesterday')"), '昨天应走词条');
+  assert.ok(SESSION_ROW_SOURCE.includes("tr('memory.date.md'"), '月日应走词条');
+  // 只否定代码形态（文件头注释里仍会提到这两个文案，不算回归）
+  assert.ok(!SESSION_ROW_SOURCE.includes("return '昨天'"), '不得再硬编码昨天');
+  assert.ok(!SESSION_ROW_SOURCE.includes('getMonth() + 1}月'), '不得再硬编码「M月D日」');
+  assert.equal(en['memory.date.yesterday'], 'Yesterday');
+  assert.equal(en['memory.date.md'], '{m}/{d}');
+  // 调用方把 t 传进来（否则回落中文基准）
+  assert.ok(SCREEN_SOURCE.includes('formatSessionTime(session.updatedAt, t)'));
+  assert.ok(SWITCHER_SOURCE.includes('formatSessionTime(item.updatedAt, t)'));
+});
+
 test('记忆界面接入分组折叠与展开全部', () => {
   assert.ok(SCREEN_SOURCE.includes("from './memory/memoryBuckets.js'"));
   assert.ok(SCREEN_SOURCE.includes('groupSessionsByAge'));
@@ -178,11 +218,15 @@ test('会话行三处统一：同一 SessionRow 组件，常驻操作按钮已�
 });
 
 test('buildSessionBadges：克隆副本与本地模型 badge', () => {
-  assert.deepEqual(buildSessionBadges({ clonedFrom: 'abc' }), [{ text: '副本' }]);
-  assert.deepEqual(buildSessionBadges({ modelKind: 'local' }), [{ icon: 'hardware-chip-outline', text: '本地' }]);
+  // text 是中文兜底，labelKey 供界面取词（MemoryScreen 用 t(labelKey) 覆盖 text）。
+  assert.deepEqual(buildSessionBadges({ clonedFrom: 'abc' }), [{ text: '副本', labelKey: 'memory.cloneBadge' }]);
+  assert.deepEqual(buildSessionBadges({ modelKind: 'local' }), [{ icon: 'hardware-chip-outline', text: '本地', labelKey: 'memory.filter.local' }]);
   assert.deepEqual(
     buildSessionBadges({ clonedFrom: 'abc', modelKind: 'local' }),
-    [{ text: '副本' }, { icon: 'hardware-chip-outline', text: '本地' }]
+    [
+      { text: '副本', labelKey: 'memory.cloneBadge' },
+      { icon: 'hardware-chip-outline', text: '本地', labelKey: 'memory.filter.local' },
+    ]
   );
   // api 与旧数据（无字段）都没有本地 badge
   assert.deepEqual(buildSessionBadges({ modelKind: 'api' }), []);

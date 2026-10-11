@@ -99,6 +99,12 @@ export const memory = {
   'memory.tutorial.title': '教学',
   'memory.bucket.pinned': '置顶',
   'memory.bucket.recent': '最近',
+  'memory.bucket.recent7': '最近 7 天',
+  'memory.bucket.older': '更早',
+  // 筛选 chips 与行徽章的文案（memoryBuckets.js 只给 key，界面取词）。
+  'memory.filter.all': '全部',
+  'memory.filter.local': '本地',
+  'memory.filter.screenWatch': '屏幕对话',
   'memory.bucket.day': '一天前',
   'memory.bucket.week': '一周前',
   'memory.bucket.month': '一个月前',

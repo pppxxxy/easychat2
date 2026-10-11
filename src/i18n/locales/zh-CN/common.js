@@ -21,6 +21,8 @@ export const common = {
   'common.notSet': '未填写',
   'common.error.retry': '请重试。',
   'common.groupChat': '群聊',
+  'common.selectAll': '全选',
+  'common.deselectAll': '取消全选',
   'common.error.saveFailed': '保存失败',
   'common.error.deleteFailed': '删除失败',
   'common.error.storageOrPermission': '请检查存储空间或权限。',
