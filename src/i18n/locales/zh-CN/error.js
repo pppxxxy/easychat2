@@ -214,4 +214,9 @@ export const error = {
   'error.imageGen.pngInvalidSize': '图片尺寸无效',
   'error.imageGen.pngUnsupportedChannels': '不支持的通道数：{channels}',
   'error.imageGen.pngPixelsInsufficient': '像素数据不足：需要 {expected} 字节，实际 {actual}',
+  'error.workspace.importQueryEmpty': '搜索关键词不能为空。',
+  'error.workspace.importSourceEmpty': '导入来源不能为空。',
+  'error.workspace.importUnsupported': '当前环境不支持扩展导入（缺少网络或工作区模块）。',
+  'error.workspace.importNoRepo': '没有搜到匹配的仓库。',
+  'error.workspace.importFailed': '导入失败',
 };

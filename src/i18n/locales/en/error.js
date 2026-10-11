@@ -214,4 +214,9 @@ export const error = {
   'error.imageGen.pngInvalidSize': 'Invalid image dimensions.',
   'error.imageGen.pngUnsupportedChannels': 'Unsupported channel count: {channels}',
   'error.imageGen.pngPixelsInsufficient': 'Insufficient pixel data: expected {expected} bytes, got {actual}.',
+  'error.workspace.importQueryEmpty': 'The search keyword cannot be empty.',
+  'error.workspace.importSourceEmpty': 'The import source cannot be empty.',
+  'error.workspace.importUnsupported': 'Extension import is unavailable in this environment (missing network or workspace module).',
+  'error.workspace.importNoRepo': 'No matching repository was found.',
+  'error.workspace.importFailed': 'Import failed',
 };

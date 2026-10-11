@@ -61,6 +61,7 @@ test('activeWorkspaceTools：按模式给出真实工具集', () => {
     'run_workflow',
     'run_team',
     'export_extension_pack',
+    'search_extension_repos',
   ]);
   assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [
     'list_workspace_files',
@@ -77,12 +78,14 @@ test('activeWorkspaceTools：按模式给出真实工具集', () => {
     'run_workflow',
     'run_team',
     'export_extension_pack',
+    'search_extension_repos',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
+    'import_extension',
   ]);
 });
 
