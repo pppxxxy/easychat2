@@ -20,7 +20,6 @@ import {
   estimateTextTokens,
   resolveCompactionThreshold,
   resolveContextWindow,
-  shouldAutoCompact,
   shouldAutoCompactTokens,
 } from '../src/chat/contextUsage.js';
 
@@ -71,14 +70,16 @@ test('computeContextUsage：ratio = tokens / window，窗口非法时落到默�
   assert.equal(fallback.window, DEFAULT_CONTEXT_WINDOW);
 });
 
-test('shouldAutoCompact：0.8 触发、0.79 不触发、非法占用不触发', () => {
+test('shouldAutoCompactTokens：到线触发、差一点不触发、非法窗口不触发', () => {
   assert.equal(AUTO_COMPACT_RATIO, 0.8);
-  assert.equal(shouldAutoCompact({ tokens: 8000, window: 10000, ratio: 0.8 }), true);
-  assert.equal(shouldAutoCompact({ tokens: 7900, window: 10000, ratio: 0.79 }), false);
-  assert.equal(shouldAutoCompact(null), false);
-  assert.equal(shouldAutoCompact({ ratio: Number.NaN }), false);
-  // 自定义线仍可用（面板/测试之外的扩展点）。
-  assert.equal(shouldAutoCompact({ ratio: 0.5 }, { ratio: 0.5 }), true);
+  // W=10000 时缓冲（65536）远大于窗口 → 退回比例口径：floor(10000 × 0.8) = 8000
+  assert.equal(resolveCompactionThreshold(10000, { ratio: 0.8 }), 8000);
+  assert.equal(shouldAutoCompactTokens(8000, 10000, { ratio: 0.8 }), true);
+  assert.equal(shouldAutoCompactTokens(7999, 10000, { ratio: 0.8 }), false);
+  // 非法/缺失窗口 → 阈值 0 → 不触发（宁可不压，也不按假窗口压）
+  assert.equal(shouldAutoCompactTokens(999999, 0), false);
+  assert.equal(shouldAutoCompactTokens(999999, Number.NaN), false);
+  assert.equal(shouldAutoCompactTokens(0, 200000), false);
 });
 
 test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / 提示条 0.7', () => {
@@ -90,9 +91,14 @@ test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / �
   assert.equal(SESSION_COMPACT_HINT_RATIO, 0.7, '提示条出现线');
   assert.ok(SESSION_COMPACT_HINT_RATIO < AUTO_COMPACT_RATIO, '提示条早于记忆总结线');
   assert.ok(AUTO_COMPACT_RATIO < SESSION_AUTO_COMPACT_RATIO, '记忆总结线早于会话压缩线');
-  // 会话压缩线仍用同一判定函数，只是阈值不同。
-  assert.equal(shouldAutoCompact({ ratio: 0.85 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), true);
-  assert.equal(shouldAutoCompact({ ratio: 0.84 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
+  // 会话压缩线仍用同一套 token 判定，只是阈值不同：同一个窗口下两条线的边界必须差开。
+  const sessionLine = resolveCompactionThreshold(10000, { ratio: SESSION_AUTO_COMPACT_RATIO });
+  const memoryLine = resolveCompactionThreshold(10000, { ratio: AUTO_COMPACT_RATIO });
+  assert.equal(sessionLine, 8500, 'W=10000 时会话压缩线 = floor(10000 × 0.85)');
+  assert.equal(memoryLine, 8000, 'W=10000 时记忆总结线 = floor(10000 × 0.8)');
+  assert.ok(sessionLine > memoryLine, '会话压缩线晚于记忆总结线');
+  assert.equal(shouldAutoCompactTokens(sessionLine, 10000, { ratio: SESSION_AUTO_COMPACT_RATIO }), true);
+  assert.equal(shouldAutoCompactTokens(sessionLine - 1, 10000, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
 });
 
 test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))（对齐 dsh）', () => {
@@ -124,6 +130,36 @@ test('阈值只定义一次：contextUsage 的三个比例全部转发自 compac
   const source = readSource('src/chat/contextUsage.js');
   // 断言「赋值形式」的字面量，而不是文件里出现的数字（注释里会提到这三个值）。
   assert.equal(/=\s*0\.(?:7|85|8)\s*;/.test(source), false, '不得再出现第二份字面量');
+});
+
+// 回归 P2：`shouldAutoCompact(contextUsage, { ratio })`（按占用比例直判）在生产里已无调用点，
+// 作为死导出删除。删它的理由正是「两套阈值口径并存」——所以这条不只钉「删了」，
+// 还钉「不许再长出第二套」：模块不得重新导出，src/ 里也不得有人再调它。
+test('回归 P2：contextUsage 不再导出按比例直判的 shouldAutoCompact（阈值只留一条路径）', async () => {
+  const module = await import('../src/chat/contextUsage.js');
+  assert.equal('shouldAutoCompact' in module, false, '死导出必须已删除');
+  assert.equal(typeof module.shouldAutoCompactTokens, 'function', '真实路径（token 口径）仍在');
+  const source = readSource('src/chat/contextUsage.js');
+  assert.equal(/export function shouldAutoCompact\b/.test(source), false, '不得重新定义');
+  // 全 src/ 扫描：裸 `shouldAutoCompact(` 只可能是这个已删函数
+  //（`shouldAutoCompactTokens(` / `shouldAutoCompactByBudget(` 后面跟的是字母，不会命中）。
+  const offenders = [];
+  const walk = dir => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) {
+        // 先剥行注释再扫：说明「这个函数被删了」的注释里会写到它的名字（本文件上方就是），
+        // 不剥的话扫描会命中注释、把断言变成永远失败。
+        const code = fs.readFileSync(full, 'utf8').replace(/\/\/[^\n]*/g, '');
+        if (/shouldAutoCompact\s*\(/.test(code)) {
+          offenders.push(path.relative(process.cwd(), full).split(path.sep).join('/'));
+        }
+      }
+    }
+  };
+  walk(path.resolve('src'));
+  assert.deepEqual(offenders, [], `以下文件仍在调用已删除的 shouldAutoCompact：${offenders.join('、')}`);
 });
 
 test('ChatScreen：compact 指令拦截（可带关注点）与记忆总结的 80% 占用接线钉死在源码', () => {
