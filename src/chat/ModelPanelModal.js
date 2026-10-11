@@ -3,9 +3,10 @@
 // 加载/卸载/删除/参数等写操作统一收进「模型中心」（底部「管理本地模型…」入口）。
 
 import React, { useMemo } from 'react';
-import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { formatBytes } from '../utils/format.js';
@@ -29,18 +30,14 @@ export default function ModelPanelModal({
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   return (
-    <Modal
+    <Sheet
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      backdropStyle={styles.modelBackdrop}
+      cardStyle={[styles.modelSheet, styles.sheetWidth]}
+      cardAbsorbPress
+      header={<Text style={styles.modelTitle}>{t('chat.modelPanel.title')}</Text>}
     >
-      <Pressable
-        style={styles.modelBackdrop}
-        onPress={onClose}
-      >
-        <Pressable style={[styles.modelSheet, styles.sheetWidth]} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
-          <Text style={styles.modelTitle}>{t('chat.modelPanel.title')}</Text>
           <Text style={styles.modelLabel}>{t('chat.modelPanel.source')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.modelSourceRow}>
@@ -146,8 +143,6 @@ export default function ModelPanelModal({
           >
             <Text style={styles.modelCloseText}>{t('common.close')}</Text>
           </TouchableOpacity>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    </Sheet>
   );
 }
