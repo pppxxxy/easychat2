@@ -13,7 +13,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 
 import { TOOL_BUBBLE_KIND, ASSISTANT_ID } from '../src/chat/chatConstants.js';
 import { createToolBubbleApplier, toolBubbleState, updateToolBubbles } from '../src/chat/toolBubbleView.js';
@@ -25,9 +24,6 @@ import { en } from '../src/i18n/locales/en.js';
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const read = rel => fs.readFileSync(path.join(HERE, '..', rel), 'utf8');
 
 // chatTools.js 会 import 存储层（AsyncStorage）与网络层，纯逻辑测试里按需打桩；
 // 注册表**不打桩**——下面注入的是真注册表，用来证明「注册的」与「界面列出的」同源。
