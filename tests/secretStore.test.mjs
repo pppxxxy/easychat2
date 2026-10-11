@@ -160,3 +160,82 @@ test('读取引用但安全存储无值时回填空串（不抛错）', async ()
   });
   assert.equal(hydrated.configs[0].apiKey, '');
 });
+
+// ---- 对象字段（MCP 自定义请求头）----
+// 回归 2026-10-11 逐行审查：headers 是 UI 明确让用户填的（提示就是 `Authorization: Bearer <token>`），
+// 却不在 SECRET_FIELDS 里——token 明文写进 AsyncStorage。这里钉住「逐个值走保险箱」。
+
+test('对象字段：请求头逐个值走保险箱，盘上不留明文、键名留在盘上', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const ns = '@easychat2_mcp_servers';
+  const token = 'zQ7plaincustomheadersecret9x'; // 无 sk-/Bearer 前缀，正则兜不住，只能靠登记表
+  const protectedPayload = await protectSecrets(ns, [{
+    id: 'notes',
+    mcpToken: 'zQ7mcptokenplain9x',
+    headers: { Authorization: `Bearer ${token}`, 'X-Api-Key': token },
+  }]);
+  const serialized = JSON.stringify(protectedPayload);
+  assert.equal(serialized.includes(token), false, '盘上不得出现请求头明文');
+  assert.equal(serialized.includes('zQ7mcptokenplain9x'), false, 'mcpToken 同样不得明文');
+  // 键名留在盘上：排查「配了哪些头」不需要密钥，值一个都不能留。
+  assert.deepEqual(Object.keys(protectedPayload[0].headers).sort(), ['Authorization', 'X-Api-Key']);
+  assert.ok(isSecretRef(protectedPayload[0].headers.Authorization));
+  assert.ok(isSecretRef(protectedPayload[0].headers['X-Api-Key']));
+  // **逐个值**各一条记录：整对象 JSON 化会撞 expo-secure-store 的 2048 字节单值上限
+  //（每个头的值单独看远小于上限）。
+  assert.deepEqual(
+    [...secureValues.values()].sort(),
+    ['Bearer zQ7plaincustomheadersecret9x', 'zQ7mcptokenplain9x', token].sort()
+  );
+  // 读回：headers 完整还原
+  const hydrated = await hydrateSecrets(ns, protectedPayload);
+  assert.deepEqual(hydrated[0].headers, { Authorization: `Bearer ${token}`, 'X-Api-Key': token });
+  assert.equal(hydrated[0].mcpToken, 'zQ7mcptokenplain9x');
+});
+
+test('对象字段按域键限定：别的域的同名 headers 不动（不误搬进安全存储）', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const payload = await protectSecrets('@easychat2_web_search', {
+    headers: { Authorization: 'Bearer other-domain-value' },
+  });
+  assert.equal(payload.headers.Authorization, 'Bearer other-domain-value');
+  assert.equal(isSecretRef(payload.headers.Authorization), false);
+  assert.equal(secureValues.size, 0);
+});
+
+test('请求头引用读不回时不还原（宁可少一个头，也不把引用串当真头发出去）', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const hydrated = await hydrateSecrets('@easychat2_mcp_servers', [{
+    id: 'notes',
+    headers: { Authorization: 'secure:v1:missing_header_id', 'X-Ok': 'plain-value' },
+  }]);
+  assert.deepEqual(hydrated[0].headers, { 'X-Ok': 'plain-value' });
+});
+
+test('legacy 明文请求头原样读回 + 登记脱敏，下次保存自动转引用', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const plain = 'zQ7legacyheaderplainsecret9x';
+  const hydrated = await hydrateSecrets('@easychat2_mcp_servers', [
+    { id: 'notes', headers: { Authorization: plain } },
+  ]);
+  assert.equal(hydrated[0].headers.Authorization, plain);
+  assert.equal(maskSecrets(`连不上: ${plain}`).includes(plain), false, '旧数据的头值也必须脱敏');
+  const protectedPayload = await protectSecrets('@easychat2_mcp_servers', hydrated);
+  assert.ok(isSecretRef(protectedPayload[0].headers.Authorization));
+});
+
+test('对象字段重复保存覆盖同一条记录，不产生孤儿密钥', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const ns = '@easychat2_mcp_servers';
+  const first = await protectSecrets(ns, [{ id: 'notes', headers: { Authorization: 'Bearer one' } }]);
+  const second = await protectSecrets(ns, [{ id: 'notes', headers: { Authorization: 'Bearer two' } }]);
+  assert.equal(first[0].headers.Authorization, second[0].headers.Authorization);
+  assert.equal(secureValues.size, 1);
+  const hydrated = await hydrateSecrets(ns, second);
+  assert.equal(hydrated[0].headers.Authorization, 'Bearer two');
+});

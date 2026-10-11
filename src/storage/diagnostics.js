@@ -15,8 +15,11 @@ const MAX_FIELD_CHARS = 2000;
 const DEDUP_WINDOW_MS = 3000;
 
 // kind：storage（存储损坏/读写失败）、api（接口失败）、webview（卡片渲染异常）、
-// unhandled（未捕获异常）、startup（启动异常）、log（分级日志，见 src/logging/）。
-const VALID_KINDS = ['storage', 'api', 'webview', 'unhandled', 'startup', 'log'];
+// unhandled（未捕获异常）、startup（启动异常）、log（分级日志，见 src/logging/）、
+// secrets（密钥保险箱降级/引用还原失败，见 storage/secretStore.js）。
+// 注意 'secrets' 必须在这里登记：normalizeKind 对未知 kind 会归到 'unhandled'，
+// 那样「密钥降级明文」这条最需要被看见的记录会被埋在未捕获异常里。
+const VALID_KINDS = ['storage', 'api', 'webview', 'unhandled', 'startup', 'log', 'secrets'];
 
 let asyncStorage;
 let asyncStorageLoaded = false;
