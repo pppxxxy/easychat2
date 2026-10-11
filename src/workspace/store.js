@@ -4,13 +4,12 @@
 import {
   assertAllowedWorkspaceFile,
   assertAllowedWorkspaceOutputFile,
+  isHiddenListEntry,
   isListableWorkspaceFile,
   normalizeWorkspacePath,
   sandboxDirectory,
 } from './paths.js';
 import { applyWorkspaceEdit } from './edit.js';
-import { FILE_HISTORY_DIR } from './fileHistory.js';
-import { BOARD_DIR } from './boardStore.js';
 import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
@@ -99,12 +98,11 @@ export async function listWorkspaceFilesDetailed({ root, characterId, fileSystem
   const results = [];
   const state = { truncated: false };
   await walk(fileSystem, start, relBase, results, 0, fileFilter, state);
-  // J1：file-history 是隐形历史——不进列表枚举（恢复走专用入口），也不刷文件面板。
-  // 注意 listWorkspaceFiles 的调用方（agent 的 list 工具 / 文件面板 / 压缩扫描）都
-  // 不应该看到这批内部文件；fileHistory 模块自己用直读（readIndex），不依赖列表。
-  // 跨会话黑板（.easychat/board/）同款隐形：模型走 board_read 读，不看原始 JSON。
-  const hiddenPrefixes = [`${FILE_HISTORY_DIR}/`, `${BOARD_DIR}/`];
-  const files = results.filter(entry => !hiddenPrefixes.some(prefix => String(entry).startsWith(prefix))).sort();
+  // 内部目录隐形（J1 写前快照 / 跨会话黑板 / E4 事件流 / H3 回滚基线 / O1 落盘结果）：
+  // 不进列表枚举，也不刷文件面板。判据集中在 paths.js 的 HIDDEN_LIST_PREFIXES——
+  // 此前这里与 safStore.js 各有一份，且已经不一致（SAF 侧漏了 board）。
+  // fileHistory / boardStore / sessionEvents 等内部模块用直读（readIndex），不依赖列表。
+  const files = results.filter(entry => !isHiddenListEntry(entry)).sort();
   return { files, truncated: state.truncated };
 }
 

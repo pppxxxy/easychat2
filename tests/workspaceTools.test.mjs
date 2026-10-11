@@ -517,3 +517,51 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
     assert.equal(allowed.isError, false, `${path} 应仍可写`);
   }
 });
+
+// P1 回归（2026-10-11）：**所有**带 path 的写类工具都必须守住受保护路径。
+//
+// 事故形态：守卫此前只加在 write_workspace_file / edit_workspace_file 上——
+// create_workspace_dir（能造出 .easychat/sessions/ 这类目录）与 export_workspace_docx
+// 是漏的。这类漏法靠「逐个手抄要检查的工具名」永远补不干净，所以这里**从真实定义表
+// 派生**待检查集合：凡 readOnly !== true 且参数里有 path 的工具，一律拿受保护路径打一遍。
+// 新增写工具只要声明了 path 就自动进入这条守卫，忘了加 assertWritableWorkspacePath 会红。
+test('P1 回归：所有带 path 的写类工具都守住审计/快照路径（从真实定义表派生）', async () => {
+  const definitions = createWorkspaceToolDefinitions({ root, fileSystem });
+  const writeTools = definitions.filter(item => (
+    item.readOnly !== true
+    && item.parameters
+    && item.parameters.properties
+    && item.parameters.properties.path
+  ));
+  // 覆盖非空才有意义：至少要盖住这四个已知的「写文件/建目录/导出」
+  const names = writeTools.map(item => item.name);
+  for (const expected of [
+    'create_workspace_dir',
+    'write_workspace_file',
+    'edit_workspace_file',
+    'export_workspace_docx',
+  ]) {
+    assert.ok(names.includes(expected), `${expected} 应在待检查集合里（实际：${names.join(', ')}）`);
+  }
+
+  const protectedPath = '.easychat/sessions/tamper.jsonl';
+  for (const tool of writeTools) {
+    const protectedPathForTool = tool.name === 'export_workspace_docx'
+      ? '.easychat/sessions/tamper.docx'
+      : protectedPath;
+    await assert.rejects(
+      () => tool.execute({ path: protectedPathForTool, content: 'x', find: 'a', replace: 'b', title: 't' }, { characterId: 'c1' }),
+      /不允许改写/,
+      `${tool.name} 必须拒绝受保护路径（否则审计流可被写工具改写）`
+    );
+  }
+
+  // 行为断言：整轮下来沙盒里不得留下任何 .easychat 文件（守卫缺失时这里会先红）
+  const listTool = definitions.find(item => item.name === 'list_workspace_files');
+  const listing = await listTool.execute({}, { characterId: 'c1' });
+  assert.equal(
+    String(listing.content).includes('.easychat'),
+    false,
+    '受保护路径不得被写类工具落盘'
+  );
+});

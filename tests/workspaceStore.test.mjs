@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   listTruncationNotice,
@@ -110,6 +112,59 @@ test('list 指定 subdir 只列该子树', async () => {
   await writeWorkspaceFile({ root, characterId: 'c1', path: 'sub/b.md', content: 'b', fileSystem });
   const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem, subdir: 'sub' });
   assert.deepEqual(files, ['sub/b.md']);
+});
+
+// P1 回归（2026-10-11）：模型不得从列表里看到内部审计/快照/中间产物。
+//
+// 事故形态：listWorkspaceFiles 只藏了 file-history 与 board，`.easychat/sessions/`
+//（E4 会话事件流）、`.easychat/rollback/`（H3 推送基线）、`.task_outputs/`（O1 落盘结果）
+// 全在列表里——模型读得到审计流与回滚基线，把它们当项目内容分析。
+test('P1 回归：内部审计/快照/落盘目录不进列表（file-history / board / sessions / rollback / .task_outputs）', async () => {
+  const fileSystem = createMemoryFs();
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'README.md', content: '# hi', fileSystem });
+  const hidden = [
+    '.easychat/sessions/s1.jsonl',
+    '.easychat/file-history/index.json',
+    '.easychat/rollback/1700000000000.json',
+    '.easychat/board/board.json',
+    '.task_outputs/index.json',
+    '.task_outputs/tool-results/r1.txt',
+  ];
+  for (const path of hidden) {
+    await writeWorkspaceFile({ root, characterId: 'c1', path, content: '{"secret":1}', fileSystem });
+  }
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  // `.easychat/` 目录条目本身仍在（里面有 hooks/skills/agents 这些**可见**的 agent 资产，
+  // 藏掉目录会让模型找不到它们）；隐形的是内部子目录里的文件。
+  assert.deepEqual(files, ['.easychat/', 'README.md'], `内部文件必须隐形，实际列出：${files.join(', ')}`);
+  assert.equal(files.some(entry => entry.startsWith('.task_outputs')), false,
+    '只装内部文件的 .task_outputs/ 连目录条目都不出现');
+  // 仍然不误伤相邻的 agent 资产
+  await writeWorkspaceFile({ root, characterId: 'c1', path: '.easychat/hooks.json', content: '{}', fileSystem });
+  await writeWorkspaceFile({ root, characterId: 'c1', path: '.easychat/skills/x/SKILL.md', content: 's', fileSystem });
+  const after = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.deepEqual(after, [
+    '.easychat/',
+    '.easychat/hooks.json',
+    '.easychat/skills/',
+    '.easychat/skills/x/',
+    '.easychat/skills/x/SKILL.md',
+    'README.md',
+  ], 'agent 自己的资产照旧可见（只有内部审计/快照目录隐形）');
+  // 隐形的是**枚举**不是读取：.task_outputs 的指针契约要求模型能按路径精读
+  const persisted = await readWorkspaceFile({
+    root, characterId: 'c1', path: '.task_outputs/tool-results/r1.txt', fileSystem,
+  });
+  assert.equal(persisted.content, '{"secret":1}', '按路径仍可读取（O1 指针契约）');
+});
+
+test('P1 回归：SAF 后端与 legacy 后端共用同一份隐形判据（不再各写一份）', () => {
+  const safSource = fs.readFileSync(path.resolve('src/workspace/safStore.js'), 'utf8');
+  const legacySource = fs.readFileSync(path.resolve('src/workspace/store.js'), 'utf8');
+  for (const [name, source] of [['safStore.js', safSource], ['store.js', legacySource]]) {
+    assert.ok(source.includes('isHiddenListEntry'), `${name} 必须用共享判据 isHiddenListEntry`);
+    assert.equal(source.includes('hiddenPrefix'), false, `${name} 不得再自带一份隐形清单`);
+  }
 });
 
 test('list 不存在的沙盒返回空数组', async () => {

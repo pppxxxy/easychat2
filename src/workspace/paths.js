@@ -165,6 +165,37 @@ export function assertWritableWorkspacePath(path) {
   return path;
 }
 
+// ---- 列表隐形前缀（2026-10-11 P1）----
+//
+// 内部审计/快照/中间产物目录：**不进任何列表枚举**。这不是「保密」而是「口径」——
+// 列表是模型用来理解工作区结构的视图，把内部账本混进去会让它把审计流当成项目内容
+//（读一堆 JSONL 事件、回滚基线当源码分析），也让文件面板噪声化。
+//
+//  · .easychat/sessions/     —— E4 会话事件流（审计线索）
+//  · .easychat/file-history/ —— J1 写前快照（恢复依据）
+//  · .easychat/rollback/     —— H3 推送前基线（回滚依据）
+//  · .easychat/board/        —— 跨会话黑板（模型走 board_read 读，不看原始 JSON）
+//  · .task_outputs/          —— O1 超限工具结果落盘（模型拿指针按 offset 精读）
+//
+// **仍然可按路径读取**：`.task_outputs` 的指针契约就是「用 read_workspace_file 按
+// offset 取回」，隐藏的是枚举，不是读取。要连读取一起禁是另一件事（会破坏 O1）。
+//
+// 为什么放这里（而不是各后端各写一份）：store.js 与 safStore.js 此前各有一份隐形清单，
+// 且**已经不一致**（safStore 漏了 board）。判据集中一处，两个后端共用。
+export const HIDDEN_LIST_PREFIXES = Object.freeze([
+  '.easychat/sessions/',
+  '.easychat/file-history/',
+  '.easychat/rollback/',
+  '.easychat/board/',
+  '.task_outputs/',
+]);
+
+// 列表条目是否属于内部目录（纯函数：两个后端共用同一口径）。
+export function isHiddenListEntry(entry) {
+  const clean = String(entry === undefined || entry === null ? '' : entry).replace(/\\/g, '/');
+  return HIDDEN_LIST_PREFIXES.some(prefix => clean.startsWith(prefix));
+}
+
 export function sandboxDirectory(root, characterId) {
   const base = String(root || '');
   const separator = base.endsWith('/') ? '' : '/';

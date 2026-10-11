@@ -17,12 +17,12 @@
 import {
   assertAllowedWorkspaceFile,
   assertAllowedWorkspaceOutputFile,
+  isHiddenListEntry,
   isListableWorkspaceFile,
   normalizeWorkspacePath,
   sanitizeSandboxId,
 } from './paths.js';
 import { applyWorkspaceEdit } from './edit.js';
-import { FILE_HISTORY_DIR } from './fileHistory.js';
 import { tActive } from '../i18n/index.js';
 
 const MAX_FILES = 2000;
@@ -164,9 +164,9 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       const results = [];
       const state = { truncated: false };
       await walk(adapter, start, relBase, results, 0, fileFilter, state);
-      // J1：file-history 隐形（同 store.js 的口径）——不进任何列表枚举。
-      const hiddenPrefix = `${FILE_HISTORY_DIR}/`;
-      const files = results.filter(entry => !String(entry).startsWith(hiddenPrefix)).sort();
+      // 内部目录隐形（与 store.js 同一份判据，见 paths.js 的 HIDDEN_LIST_PREFIXES）——
+      // 此前这里只藏了 file-history，漏了 board / sessions / rollback / .task_outputs。
+      const files = results.filter(entry => !isHiddenListEntry(entry)).sort();
       return { files, truncated: state.truncated };
     },
 
