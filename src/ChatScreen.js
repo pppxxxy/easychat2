@@ -166,6 +166,8 @@ import ThinkingPanelModal from './chat/ThinkingPanelModal.js';
 import StickerPanelModal from './chat/StickerPanelModal.js';
 import StickerNamePromptModal from './chat/StickerNamePromptModal.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
+import { buildMoreMenuSystemItems } from './chat/moreMenuItems.js';
+import MemorySummarySheet from './chat/MemorySummarySheet.js';
 import SessionStatsModal from './chat/SessionStatsModal.js';
 import MemoryProvenanceModal from './memory/MemoryProvenanceModal.js';
 import { summarizeStats } from './chat/sessionStats.js';
@@ -356,6 +358,8 @@ export default function ChatScreen() {
   const userNameRef = useRef('');
   const [selectionText, setSelectionText] = useState('');
   const [summarizing, setSummarizing] = useState(false);
+  // 三点菜单「总结」：点开的是记忆总结面板（设置 + 顺手总结一次），见 chat/MemorySummarySheet.js。
+  const [summarySheetOpen, setSummarySheetOpen] = useState(false);
   const {
     modelPanelOpen,
     setModelPanelOpen,
@@ -2939,7 +2943,7 @@ export default function ChatScreen() {
             label: summarizing ? t('chat.menu.summarizing') : t('chat.menu.summary'),
             icon: 'book-outline',
             disabled: summarizing || !ready,
-            onPress: onSummarize,
+            onPress: () => setSummarySheetOpen(true),
           },
           {
             key: 'scrubber',
@@ -2994,44 +2998,25 @@ export default function ChatScreen() {
             icon: 'volume-high-outline',
             onPress: () => setVoiceSettingsOpen(true),
           },
-          // 其他：低频与系统入口
-          {
-            key: 'memory-provenance',
-            section: t('chat.menu.section.other'),
-            label: t('chat.menu.memoryProvenance'),
-            icon: 'git-network-outline',
-            disabled: !characterId,
-            onPress: () => setMemoryProvenanceOpen(true),
-          },
-          {
-            key: 'session-stats',
-            section: t('chat.menu.section.other'),
-            label: t('chat.menu.sessionStats'),
-            icon: 'stats-chart-outline',
-            onPress: openSessionStats,
-          },
-          {
-            key: 'notice',
-            section: t('chat.menu.section.other'),
-            label: t('chat.menu.notice'),
-            icon: 'megaphone-outline',
-            onPress: () => setNoticeOpen(true),
-          },
-          {
-            key: 'local-logs',
-            section: t('chat.menu.section.other'),
-            label: t('chat.menu.localLogs'),
-            icon: 'document-text-outline',
-            onPress: () => setHubOpen(true),
-          },
-          {
-            key: 'settings',
-            section: t('chat.menu.section.other'),
-            label: t('chat.menu.settings'),
-            icon: 'settings-outline',
-            onPress: () => setChatSettingsOpen(true),
-          },
+          // 其他：低频与系统入口（条目构造已外提到 chat/moreMenuItems.js）
+          ...buildMoreMenuSystemItems({
+            t,
+            characterId,
+            openSessionStats,
+            setMemoryProvenanceOpen,
+            setNoticeOpen,
+            setHubOpen,
+            setChatSettingsOpen,
+          }),
         ]}
+      />
+
+      <MemorySummarySheet
+        visible={summarySheetOpen}
+        onClose={() => setSummarySheetOpen(false)}
+        onSummarize={onSummarize}
+        summarizing={summarizing}
+        canSummarize={ready}
       />
 
       <SessionStatsModal

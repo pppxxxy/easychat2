@@ -8,10 +8,12 @@ import {
   mergeErrorMessage,
   mergeStreamedReasoning,
   mergeStreamedText,
+  planHistoryWindow,
   replacePendingWithReply,
   trimHistoryByBoundary,
+  trimHistoryToRounds,
 } from '../src/chat/replyFlow.js';
-import { SYSTEM_ERROR_ID } from '../src/chat/chatConstants.js';
+import { SYSTEM_ERROR_ID, USER_ID } from '../src/chat/chatConstants.js';
 import { translate } from '../src/i18n/index.js';
 
 // 真实翻译器（真语言包，非替身）：等价于渲染层注入的 t。
@@ -42,6 +44,78 @@ test('trimHistoryByBoundary：boundary 之后为已发送原文，sentIds 与裁
   assert.equal(missing.trimmedHistory.length, 4);
   // 非数组入参兜底
   assert.deepEqual(trimHistoryByBoundary(null, 'b').trimmedHistory, []);
+});
+
+// 一轮 = 一条 user 消息及其后续回复（直到下一条 user 消息）。
+const rounds = (count, repliesPerRound = 1) => {
+  const list = [];
+  for (let i = 0; i < count; i += 1) {
+    list.push({ id: `u${i}`, role: USER_ID });
+    for (let j = 0; j < repliesPerRound; j += 1) list.push({ id: `a${i}-${j}`, role: 'assistant' });
+  }
+  return list;
+};
+
+test('trimHistoryToRounds：从倒数第 N 条 user 消息处切，保留其后的全部回复', () => {
+  const history = rounds(4, 2);
+  const kept = trimHistoryToRounds(history, 2);
+  assert.deepEqual(kept.map(item => item.id), ['u2', 'a2-0', 'a2-1', 'u3', 'a3-0', 'a3-1']);
+  // 第 1 轮：只留最后一条 user 及其回复
+  assert.deepEqual(trimHistoryToRounds(history, 1).map(item => item.id), ['u3', 'a3-0', 'a3-1']);
+  // 轮数够多 / 恰好相等：原数组引用返回（不制造新数组）
+  assert.strictEqual(trimHistoryToRounds(history, 4), history);
+  assert.strictEqual(trimHistoryToRounds(history, 99), history);
+});
+
+test('trimHistoryToRounds：非法轮数与非数组入参原样返回', () => {
+  const history = rounds(3);
+  for (const bad of [0, -1, NaN, null, undefined, 'abc', {}]) {
+    assert.strictEqual(trimHistoryToRounds(history, bad), history, `轮数 ${String(bad)} 不裁剪`);
+  }
+  assert.deepEqual(trimHistoryToRounds(null, 2), []);
+  // 全是 assistant（例如只有问候语）：没有 user 锚点，不裁剪
+  const greeting = [{ id: 'g', role: 'assistant' }];
+  assert.strictEqual(trimHistoryToRounds(greeting, 2), greeting);
+});
+
+test('planHistoryWindow：总结开启（或读不到设置）时只按边界裁剪，行为不变', () => {
+  const history = rounds(5);
+  const on = planHistoryWindow({ historyMessages: history, boundary: null, memorySummary: { enabled: true, historyRounds: 2 } });
+  assert.strictEqual(on.trimmedHistory, history, '开启态不按记忆长度裁剪');
+  assert.equal(on.appliedRounds, 0);
+  // 读设置失败 → 传 null：同样保持原状（发送内容不因一次存储读失败而改变）
+  const fallback = planHistoryWindow({ historyMessages: history, boundary: null, memorySummary: null });
+  assert.strictEqual(fallback.trimmedHistory, history);
+  assert.equal(fallback.appliedRounds, 0);
+});
+
+test('planHistoryWindow：总结关闭时按记忆长度只留最近 N 轮，sentIds 随之收窄', () => {
+  const history = rounds(5);
+  const off = planHistoryWindow({
+    historyMessages: history,
+    boundary: null,
+    memorySummary: { enabled: false, historyRounds: 2 },
+  });
+  assert.deepEqual(off.trimmedHistory.map(item => item.id), ['u3', 'a3-0', 'u4', 'a4-0']);
+  assert.equal(off.appliedRounds, 2);
+  // 被裁掉的老消息不再算「原文已发送」→ 可以重新走向量召回（否则关闭总结后会静默丢内容）
+  assert.deepEqual([...off.sentIds].sort(), ['a3-0', 'a4-0', 'u3', 'u4']);
+  // 轮数非法（0 / 缺失）：关闭态也不裁剪
+  const bad = planHistoryWindow({ historyMessages: history, boundary: null, memorySummary: { enabled: false, historyRounds: 0 } });
+  assert.strictEqual(bad.trimmedHistory, history);
+  assert.equal(bad.appliedRounds, 0);
+});
+
+test('planHistoryWindow：先按摘要边界裁剪，再按记忆长度收窄（两步串联）', () => {
+  const history = rounds(6);
+  const planned = planHistoryWindow({
+    historyMessages: history,
+    boundary: 'u1',
+    memorySummary: { enabled: false, historyRounds: 2 },
+  });
+  // 边界之后是 u2..u5（4 轮），再取最近 2 轮 → u4、u5
+  assert.deepEqual(planned.trimmedHistory.map(item => item.id), ['u4', 'a4-0', 'u5', 'a5-0']);
+  assert.equal(planned.appliedRounds, 2);
 });
 
 test('mergeStreamedText：只更新 pending 占位符并落地 waitingForResponse', () => {

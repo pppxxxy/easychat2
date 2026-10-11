@@ -1,7 +1,7 @@
 // 从 ChatScreen.js 原样外提（无行为变化）：回复编排中的纯逻辑。
 // 供 requestReply / requestGroupReply（useChatSend，后续外提）与 Node 测试共用。
 
-import { SYSTEM_ERROR_ID } from './chatConstants.js';
+import { SYSTEM_ERROR_ID, USER_ID } from './chatConstants.js';
 import {
   buildErrorRawText,
   settlePendingMessage,
@@ -23,6 +23,48 @@ export function trimHistoryByBoundary(historyMessages, boundary) {
     trimmedHistory.map(item => String((item && item.id) || ''))
   );
   return { trimmedHistory, sentIds };
+}
+
+// 记忆长度裁剪：只保留最近 rounds 轮（一轮 = 一条 user 消息及其后续回复）。
+// 从倒数第 rounds 条 user 消息处开始切；不足 rounds 轮时原样返回（返回原数组引用）。
+export function trimHistoryToRounds(historyMessages, rounds) {
+  const list = Array.isArray(historyMessages) ? historyMessages : [];
+  const limit = Math.trunc(Number(rounds));
+  if (!Number.isFinite(limit) || limit <= 0) return list;
+  let seen = 0;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i] && list[i].role === USER_ID) {
+      seen += 1;
+      // 命中下标 0 = 整段都在窗口内：返回原引用，让调用方（planHistoryWindow）能判断
+      // 「其实没裁掉任何东西」，也避免白造一个新数组让上层 memo 失效。
+      if (seen === limit) return i === 0 ? list : list.slice(i);
+    }
+  }
+  return list;
+}
+
+// 历史窗口规划：先按摘要边界裁剪，再在「记忆总结关闭」时按记忆长度只留最近 N 轮。
+//
+// 口径由用户指定：总结**开启**时保持原状（摘要内容 + 边界之后的全部历史），
+// 记忆长度只对**关闭**态生效——那时没有摘要兜底，靠限制原文轮数控制请求体量。
+// 被裁掉的老消息不再算「原文已发送」，因此可以重新走向量召回（见 useChatSend 的
+// sentIds 过滤）：关掉总结后，这些内容只剩向量这一条通道，不该被静默丢弃。
+export function planHistoryWindow({ historyMessages, boundary, memorySummary }) {
+  const byBoundary = trimHistoryByBoundary(historyMessages, boundary);
+  const settings = memorySummary && typeof memorySummary === 'object' ? memorySummary : null;
+  const rounds = settings ? Math.trunc(Number(settings.historyRounds)) : 0;
+  if (!settings || settings.enabled !== false || !Number.isFinite(rounds) || rounds <= 0) {
+    return { ...byBoundary, appliedRounds: 0 };
+  }
+  const trimmedHistory = trimHistoryToRounds(byBoundary.trimmedHistory, rounds);
+  if (trimmedHistory === byBoundary.trimmedHistory) {
+    return { ...byBoundary, appliedRounds: 0 };
+  }
+  return {
+    trimmedHistory,
+    sentIds: new Set(trimmedHistory.map(item => String((item && item.id) || ''))),
+    appliedRounds: rounds,
+  };
 }
 
 // 流式增量合并：文本 token 只更新仍处于 pending 的占位符（waitingForResponse 随首个 token 落地）。

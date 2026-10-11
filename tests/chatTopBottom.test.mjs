@@ -15,6 +15,8 @@ function readSource(relativePath) {
 const TOP_BAR = readSource('src/chat/ChatTopBar.js');
 const COMPOSER = readSource('src/chat/ChatComposer.js');
 const MORE_MENU = readSource('src/chat/MoreMenuModal.js');
+// 「其他」分组的条目构造已外提到 chat/moreMenuItems.js（ChatScreen 行数基线只许收紧）。
+const MENU_ITEMS = readSource('src/chat/moreMenuItems.js');
 const VOICE_MODAL = readSource('src/chat/VoiceSettingsModal.js');
 const CONTEXT_BAR = readSource('src/chat/ContextBar.js');
 const CHAT_SCREEN = readSource('src/ChatScreen.js');
@@ -98,7 +100,8 @@ test('⋯ 菜单分组：会话 / 角色与模型 / 其他，编辑角色一等�
   }
   assert.ok(CHAT_SCREEN.includes("section: t('chat.menu.section.chat')"), '会话分组');
   assert.ok(CHAT_SCREEN.includes("section: t('chat.menu.section.roleModel')"), '角色与模型分组');
-  assert.ok(CHAT_SCREEN.includes("section: t('chat.menu.section.other')"), '其他分组');
+  assert.ok(MENU_ITEMS.includes("t('chat.menu.section.other')"), '其他分组');
+  assert.ok(CHAT_SCREEN.includes('...buildMoreMenuSystemItems({'), '其他分组仍拼进同一个菜单');
   assert.ok(CHAT_SCREEN.includes("key: 'edit-role'"), '编辑角色提为菜单一等公民');
   assert.ok(CHAT_SCREEN.includes("label: isGroup ? t('chat.editGroup') : t('chat.editCharacter')"), '按会话类型出对应文案');
 });

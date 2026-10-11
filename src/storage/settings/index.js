@@ -44,8 +44,11 @@ export {
   saveTranscriptionSettings,
 } from './tts.js';
 export {
+  DEFAULT_MEMORY_LENGTH,
+  MEMORY_LENGTH_MAX,
   getMemorySummarySettings,
   saveMemorySummarySettings,
+  patchMemorySummarySettings,
 } from './memorySummary.js';
 export {
   getPlugins,

@@ -99,8 +99,8 @@ import {
   mergeStreamedReasoning,
   mergeStreamedText,
   replacePendingWithReply,
-  trimHistoryByBoundary,
 } from './replyFlow.js';
+import { resolveHistoryWindow } from './historyWindow.js';
 import { createTextStreamThrottle } from './streamThrottle.js';
 import {
   buildEnsemblePrompt,
@@ -411,9 +411,9 @@ export default function useChatSend({
         session => session.id === sendSessionId
       );
       const boundary = currentSession && currentSession.summarizedUpTo;
-      // 已经作为原文发送的历史（boundary 之后）不再由向量重复召回；被摘要裁剪掉
-      // 的更早区间和其它会话才交给向量，避免同一内容既当原文又当“相关记忆”。
-      const { trimmedHistory, sentIds } = trimHistoryByBoundary(historyMessages, boundary);
+      // 已经作为原文发送的历史（boundary 之后）不再由向量重复召回，被摘要裁剪掉的更早
+      // 区间与其它会话才交给向量；总结关闭时再按记忆长度只留最近 N 轮（planHistoryWindow）。
+      const { trimmedHistory, sentIds } = await resolveHistoryWindow({ historyMessages, boundary });
       let vectorConfig = null;
       let vectorIndex = [];
       try {

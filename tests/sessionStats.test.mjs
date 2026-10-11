@@ -179,9 +179,12 @@ test('展示格式化：token / 延迟 / 速度 / 占比', () => {
 
 test('菜单与面板接线：⋯ 菜单有「本会话统计」，面板挂在聊天页', () => {
   const screen = read('src/ChatScreen.js');
-  assert.ok(screen.includes("key: 'session-stats'"), '菜单项存在');
-  assert.ok(screen.includes("t('chat.menu.sessionStats')"), '菜单文案走 i18n');
-  assert.ok(screen.includes("section: t('chat.menu.section.other')"), '归入「其他」分组');
+  // 「其他」分组的条目构造已外提到 chat/moreMenuItems.js（ChatScreen 行数基线只许收紧）。
+  const menuItems = read('src/chat/moreMenuItems.js');
+  assert.ok(menuItems.includes("key: 'session-stats'"), '菜单项存在');
+  assert.ok(menuItems.includes("t('chat.menu.sessionStats')"), '菜单文案走 i18n');
+  assert.ok(menuItems.includes("t('chat.menu.section.other')"), '归入「其他」分组');
+  assert.ok(screen.includes('...buildMoreMenuSystemItems({'), '这组条目仍拼进聊天页菜单');
   assert.ok(screen.includes('openSessionStats'), '有打开处理');
   assert.ok(screen.includes('getSessionStats(') && screen.includes('summarizeStats('), '打开时读并汇总');
   assert.ok(screen.includes('<SessionStatsModal'), '面板已挂载');
