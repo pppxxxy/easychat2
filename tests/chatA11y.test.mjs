@@ -54,6 +54,19 @@ test('16 个聊天弹窗的内层容器都声明了「模态」（iOS + Android 
   }
 });
 
+test('消息气泡的三点菜单走共享 Sheet（同一套外壳的第 17 份拷贝）', () => {
+  // 它不在上面的 *Modal.js 清单里（是 MessageBubble 内联渲染的），但外壳形状完全一样：
+  // 透明 Modal + fade + TouchableOpacity 背景 + 卡片 + modalTitle。改造前它**没有**任何
+  // 模态标记——读屏会把菜单和背后整屏聊天内容一起念，正是上面那条回归的同一类失效。
+  const bubble = read('src/chat/MessageBubble.js');
+  assert.ok(bubble.includes('<Sheet'), 'MessageBubble 的操作菜单应走共享 Sheet');
+  assert.equal(bubble.includes('<Modal'), false, 'MessageBubble 不得再手写 Modal 外壳');
+  // 菜单是「每条消息一份」，必须保持**关闭即卸载**：RN 的 Modal 在 componentDidMount 里
+  // 注册全局 'modalDismissed' 监听（Modal.js:242-256），常驻挂载会让每个气泡各留一个。
+  assert.ok(bubble.includes('{actionsOpen ? ('), '菜单仍按 actionsOpen 条件挂载');
+  assert.ok(bubble.includes('visible\n'), '条件挂载下 visible 直接给真值（与改造前的 <Modal visible> 一致）');
+});
+
 test('折叠头：role=button + accessibilityState.expanded + 明确 label', () => {
   const cases = [
     ['src/workspace/screen/AgentPlanPanel.js', "t('workspace.chat.plan.title'"],
