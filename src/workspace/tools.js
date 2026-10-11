@@ -55,6 +55,16 @@ export const WORKSPACE_TOOL_NAMES = Object.freeze(WORKSPACE_TOOL_DEFINITIONS.map
 export const SHELL_TOOL_NAME = SHELL_TOOL_DEFINITION.name;
 export const PYTHON_TOOL_NAME = PYTHON_TOOL_DEFINITION.name;
 
+// 「write 专属」工具名（read 模式不提供的那些）。**从定义派生，不手抄**：
+// 判据与注册表的模式门控完全同一条——`canRunTool` 在 READ 模式下只放行 `readOnly === true`。
+// 之所以放在这里（而不是让能力卡自己声明一份）：能力卡要如实回答「现在到底开了哪些」，
+// 它的清单必须与真正的门控同源，否则用户看到的清单与实际可用的工具会分叉。
+// 2026-10-11 逐行审查 P1-4：能力卡此前手抄了一份清单，本次合并新增的 list_symbols 与
+// run_workflow 就没同步——卡上说「没开」，实际开着。
+export const WRITE_ONLY_WORKSPACE_TOOL_NAMES = Object.freeze(
+  WORKSPACE_TOOL_DEFINITIONS.filter(item => item.readOnly !== true).map(item => item.name)
+);
+
 // 需要长超时的执行类工具（用户确认 + 执行本身都慢）。其余工具用注册表的默认超时。
 // **这是兜底表**：只用于「定义里没写 timeoutMs」的工具（当前是 run_shell / run_python——
 // 它们的超时由原生看门狗常数派生，写在各自域里）。定义里写了 timeoutMs 的以定义为准。

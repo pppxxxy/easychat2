@@ -1,4 +1,7 @@
-// 工作区能力的如实说明（纯数据 + 渲染键，零依赖，可 Node 直测）。
+// 工作区能力的如实说明（纯数据 + 渲染键，可 Node 直测）。
+//
+// 依赖说明：本模块只 import workspace/tools.js 的**名字清单**（WORKSPACE_TOOL_NAMES 等），
+// 目的是让「现在到底开了哪些」与真正的模式门控同源（P1-4）；除它之外零依赖、无副作用。
 //
 // 这段文案的存在理由：用户看到的「工作区」很容易被理解成「AI 能在我手机上随便
 // 操作文件」。实际能力是有边界的，边界不说清楚就等于误导。
@@ -11,8 +14,8 @@
 //   5. 模型据此继续判断（可能多轮），直到给出最终回答
 //
 // 边界（必须逐条写明，且与代码实际行为一致）：
-// - 工具集 = list / read / write / edit / export_docx（可改模式），外加可选的 run_shell
-//   与 run_python；
+// - 工具集 = WORKSPACE_TOOL_NAMES 派生的那张表（见 activeWorkspaceTools：read 模式去掉
+//   write 专属，write 模式全给），外加可选的 run_shell 与 run_python；
 // - run_shell 需要**单独开关**，且每条命令**逐条确认**，拒绝则不执行；
 // - run_python 是**另一个开关**（与命令执行分开），同样逐条确认；
 // - run_shell 只在应用内默认根生效：没有 root 权限的 shell 访问不到你选的
@@ -22,6 +25,13 @@
 //   Chaquopy 自身没有中断机制，这是唯一能停掉跑飞脚本的办法，主进程不受影响；
 // - Python 没有运行时 pip，只能用已打进 APK 的库；
 // - 本地模型 v1 不参与工具循环（降级为普通对话）。
+
+import {
+  SHELL_TOOL_NAME,
+  PYTHON_TOOL_NAME,
+  WORKSPACE_TOOL_NAMES,
+  WRITE_ONLY_WORKSPACE_TOOL_NAMES,
+} from './tools.js';
 
 export const CAPABILITY_STEPS = Object.freeze([
   { id: 'receive', labelKey: 'workspace.capability.step.receive' },
@@ -54,23 +64,33 @@ export const CAPABILITY_LIMITS_TITLE_KEY = 'workspace.capability.limitsTitle';
 
 // 当前生效的工具清单（用于界面如实列出「现在到底开了哪些」）。
 // settings 为归一化后的工作区设置；shellAvailable / pythonAvailable 表示原生模块是否可用。
+//
+// **清单从工具注册的唯一事实源派生**（2026-10-11 逐行审查 P1-4）：
+//   全部工具 = WORKSPACE_TOOL_NAMES（tools.js 的定义聚合，顺序即模型看到的顺序）；
+//   read 模式 = 去掉 WRITE_ONLY_WORKSPACE_TOOL_NAMES（同一份定义按 readOnly 派生，
+//               与注册表 canRunTool 的门控判据完全一致）；
+//   run_shell / run_python 不在这张表里（按开关单独注册），故在下面按开关追加。
+// 此前这里手抄了一份清单，本次合并新增的 list_symbols（LSP-lite）与 run_workflow
+// （依赖式工作流）没同步——能力卡对用户说谎：说「没开」而实际开着。派生之后，
+// 新工具只要进 WORKSPACE_TOOL_NAMES 就自动出现在卡上，不会再漏。
 export function activeWorkspaceTools(settings, { shellAvailable = false, pythonAvailable = false } = {}) {
   const source = settings && typeof settings === 'object' ? settings : {};
   const mode = source.mode;
   if (mode !== 'write' && mode !== 'read') return [];
-  // update_plan（A3）/ materialize_repo（C2）/ get_build_log（H1）/ run_subagent（T8）
-  // 都是只读工具：read 与 write 模式都提供——规划、下载缓存、看构建日志与
-  // 「翻很多文件找答案」都与能否改文件无关。run_remote_build 有远端副作用：仅 write。
-  // 顺序与工具定义聚合一致。
-  const tools = mode === 'write'
-    ? ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'run_remote_build', 'export_workspace_docx']
-    : ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent'];
+  const writeMode = mode === 'write';
+  // 注释里保留这段语义说明（曾经手抄的那份清单里逐条解释过，别丢）：
+  // update_plan（A3）/ materialize_repo（C2）/ get_build_log（H1）/ run_subagent（T8）/
+  // list_symbols（LSP-lite）/ run_workflow（依赖式编排）都是只读工具：read 与 write 模式
+  // 都提供——规划、下载缓存、看构建日志、「翻很多文件找答案」都与能否改文件无关。
+  // run_remote_build 有远端副作用、export_workspace_docx 会写盘、三个写工具会改文件：仅 write。
+  const tools = WORKSPACE_TOOL_NAMES
+    .filter(name => writeMode || !WRITE_ONLY_WORKSPACE_TOOL_NAMES.includes(name));
   const appRoot = !source.location || source.location.kind !== 'saf';
-  if (mode === 'write' && appRoot && source.allowCommandExecution === true && shellAvailable) {
-    tools.push('run_shell');
+  if (writeMode && appRoot && source.allowCommandExecution === true && shellAvailable) {
+    tools.push(SHELL_TOOL_NAME);
   }
-  if (mode === 'write' && appRoot && source.allowPythonExecution === true && pythonAvailable) {
-    tools.push('run_python');
+  if (writeMode && appRoot && source.allowPythonExecution === true && pythonAvailable) {
+    tools.push(PYTHON_TOOL_NAME);
   }
   return tools;
 }
