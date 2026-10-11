@@ -7,9 +7,10 @@
 // 不返回时回退估算器——同一估算器下不同服务商可比，但不是精确计费。
 
 import React, { useMemo } from 'react';
-import { Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { Sheet } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
@@ -31,98 +32,99 @@ export default function SessionStatsModal({ visible, onClose, summary, messageCo
   );
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
-          <Text style={styles.modalTitle}>{t('chat.stats.title')}</Text>
-          <ScrollView>
-            {row('messages', t('chat.stats.messages'), String(messageCount || 0))}
-            {row(
-              'requests',
-              t('chat.stats.requests'),
-              hasData
-                ? (summary.failedRequests > 0
-                  ? t('chat.stats.requestsWithFailed', { count: summary.requests, failed: summary.failedRequests })
-                  : String(summary.requests))
-                : '0'
-            )}
-            {row(
-              'tokens',
-              t('chat.stats.tokens'),
-              hasData
-                ? t('chat.stats.tokensDetail', {
-                  total: formatTokenCount(summary.totalTokens),
-                  prompt: formatTokenCount(summary.promptTokens),
-                  completion: formatTokenCount(summary.completionTokens),
-                })
-                : '—'
-            )}
-            {row('latency', t('chat.stats.firstToken'), hasData ? formatLatency(summary.avgFirstTokenMs) : '—')}
-            {row('speed', t('chat.stats.speed'), hasData ? formatSpeed(summary.tokensPerSec) : '—')}
-            {/* E1：缓存命中——端点返回 usage 且确实有命中时才出现这一行
-                （老会话/不返回 usage 的端点看不到它，不硬凑数字）。 */}
-            {hasData && summary.cachedTokens > 0
-              ? row(
-                'cache',
-                t('chat.stats.cache'),
-                t('chat.stats.cacheDetail', {
-                  cached: formatTokenCount(summary.cachedTokens),
-                  prompt: formatTokenCount(summary.promptTokens),
-                  percent: formatPercent(summary.cacheHitRate),
-                })
-              )
-              : null}
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      backdropStyle={styles.modalBackdrop}
+      cardStyle={[styles.modalSheet, styles.sheetWidth]}
+      header={<Text style={styles.modalTitle}>{t('chat.stats.title')}</Text>}
+    >
+      <ScrollView>
+        {row('messages', t('chat.stats.messages'), String(messageCount || 0))}
+        {row(
+          'requests',
+          t('chat.stats.requests'),
+          hasData
+            ? (summary.failedRequests > 0
+              ? t('chat.stats.requestsWithFailed', { count: summary.requests, failed: summary.failedRequests })
+              : String(summary.requests))
+            : '0'
+        )}
+        {row(
+          'tokens',
+          t('chat.stats.tokens'),
+          hasData
+            ? t('chat.stats.tokensDetail', {
+              total: formatTokenCount(summary.totalTokens),
+              prompt: formatTokenCount(summary.promptTokens),
+              completion: formatTokenCount(summary.completionTokens),
+            })
+            : '—'
+        )}
+        {row('latency', t('chat.stats.firstToken'), hasData ? formatLatency(summary.avgFirstTokenMs) : '—')}
+        {row('speed', t('chat.stats.speed'), hasData ? formatSpeed(summary.tokensPerSec) : '—')}
+        {/* E1：缓存命中——端点返回 usage 且确实有命中时才出现这一行
+            （老会话/不返回 usage 的端点看不到它，不硬凑数字）。 */}
+        {hasData && summary.cachedTokens > 0
+          ? row(
+            'cache',
+            t('chat.stats.cache'),
+            t('chat.stats.cacheDetail', {
+              cached: formatTokenCount(summary.cachedTokens),
+              prompt: formatTokenCount(summary.promptTokens),
+              percent: formatPercent(summary.cacheHitRate),
+            })
+          )
+          : null}
 
-            <Text style={styles.statSection}>{t('chat.stats.byConfig')}</Text>
-            {!hasData ? (
-              <Text style={styles.statEmpty}>{t('chat.stats.empty')}</Text>
-            ) : null}
-            {groups.map(group => (
-              <View key={group.key} style={styles.statGroupCard}>
-                <View style={styles.statGroupHead}>
-                  <Text style={styles.statGroupTitle} numberOfLines={1}>
-                    {group.label || group.key}
-                    {group.model ? ` · ${group.model}` : ''}
-                  </Text>
-                  <Text style={styles.statGroupShare}>{formatPercent(group.share)}</Text>
-                </View>
-                <View style={styles.statBarTrack}>
-                  <View style={[styles.statBarFill, { width: `${Math.max(2, Math.round(group.share * 100))}%` }]} />
-                </View>
-                <Text style={styles.statGroupMeta} numberOfLines={2}>
-                  {t('chat.stats.groupMeta', {
-                    count: group.requests,
-                    tokens: formatTokenCount(group.totalTokens),
-                    latency: formatLatency(group.avgFirstTokenMs),
-                    speed: formatSpeed(group.tokensPerSec),
-                  })}
-                  {group.failedRequests > 0 ? ` · ${t('chat.stats.groupFailed', { failed: group.failedRequests })}` : ''}
-                  {group.cachedTokens > 0 ? ` · ${t('chat.stats.groupCache', { percent: formatPercent(group.cacheHitRate) })}` : ''}
-                </Text>
-              </View>
-            ))}
-
-            <Text style={styles.statNote}>{t('chat.stats.note')}</Text>
-          </ScrollView>
-
-          <View style={styles.statFooter}>
-            {hasData && typeof onClear === 'function' ? (
-              <TouchableOpacity
-                style={styles.linkRow}
-                onPress={() => { onClose(); onClear(); }}
-                activeOpacity={0.8}
-              >
-                <View style={styles.linkLeft}>
-                  <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-                  <Text style={[styles.chatSettingsText, { color: theme.colors.danger }]}>
-                    {t('chat.stats.clear')}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ) : null}
+        <Text style={styles.statSection}>{t('chat.stats.byConfig')}</Text>
+        {!hasData ? (
+          <Text style={styles.statEmpty}>{t('chat.stats.empty')}</Text>
+        ) : null}
+        {groups.map(group => (
+          <View key={group.key} style={styles.statGroupCard}>
+            <View style={styles.statGroupHead}>
+              <Text style={styles.statGroupTitle} numberOfLines={1}>
+                {group.label || group.key}
+                {group.model ? ` · ${group.model}` : ''}
+              </Text>
+              <Text style={styles.statGroupShare}>{formatPercent(group.share)}</Text>
+            </View>
+            <View style={styles.statBarTrack}>
+              <View style={[styles.statBarFill, { width: `${Math.max(2, Math.round(group.share * 100))}%` }]} />
+            </View>
+            <Text style={styles.statGroupMeta} numberOfLines={2}>
+              {t('chat.stats.groupMeta', {
+                count: group.requests,
+                tokens: formatTokenCount(group.totalTokens),
+                latency: formatLatency(group.avgFirstTokenMs),
+                speed: formatSpeed(group.tokensPerSec),
+              })}
+              {group.failedRequests > 0 ? ` · ${t('chat.stats.groupFailed', { failed: group.failedRequests })}` : ''}
+              {group.cachedTokens > 0 ? ` · ${t('chat.stats.groupCache', { percent: formatPercent(group.cacheHitRate) })}` : ''}
+            </Text>
           </View>
-        </View>
-      </TouchableOpacity>
-    </Modal>
+        ))}
+
+        <Text style={styles.statNote}>{t('chat.stats.note')}</Text>
+      </ScrollView>
+
+      <View style={styles.statFooter}>
+        {hasData && typeof onClear === 'function' ? (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => { onClose(); onClear(); }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.linkLeft}>
+              <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+              <Text style={[styles.chatSettingsText, { color: theme.colors.danger }]}>
+                {t('chat.stats.clear')}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </Sheet>
   );
 }
