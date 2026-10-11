@@ -12,7 +12,7 @@
 // 纯展示组件：不持有待确认状态，宿主决定「现在在等哪一次确认」（不同面板的确认对象不同，
 // 收进组件反而要把宿主的业务状态搬进来）。
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ConfirmBar({
@@ -28,7 +28,7 @@ export default function ConfirmBar({
   fonts,
   tokens,
 }) {
-  const styles = createStyles(theme, fonts, tokens);
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={styles.bar}>
       <View style={styles.textBlock}>
@@ -82,7 +82,7 @@ function createStyles(theme, fonts, tokens) {
     },
     confirmDanger: { backgroundColor: theme.colors.danger },
     confirmText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(12), fontWeight: '700' },
-    confirmTextDanger: { color: '#fff' },
+    confirmTextDanger: { color: theme.colors.primaryContrast },
     disabled: { opacity: 0.5 },
   });
 }
