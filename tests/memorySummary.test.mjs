@@ -5,6 +5,8 @@ import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
 
+import { capMemoryEntries } from '../src/memory/memoryConstants.js';
+
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
@@ -38,7 +40,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
   // 按文件名匹配，兼容源码搬迁后 `./x.js` → `../x.js` 的相对路径变化。
   const base = String(request).split('/').pop();
   if (base === 'api.js') {
-    return { sendChatMessage: async () => summaryText };
+    return { sendChatMessage: async () => summaryText, getConfigFingerprint: () => 'fingerprint' };
+  }
+  if (base === 'apiConfigs.js') {
+    return { getApiConfigs: async () => ({ configs: [], activeId: '' }) };
   }
   // 快赢1 后 memorySummary.js 直达 storage/sessions.js（原经 storage.js 门面），
   // 两个基名映射到同一份 mock，覆盖面不变。
@@ -67,18 +72,19 @@ function makeMessages(turns) {
   }));
 }
 
-test('总结提示词只记剧情与关键对话，排除习惯/口头禅且不重复已有记忆', () => {
-  const prompt = memorySummary.buildSummaryPrompt(
-    [{ role: 'user', text: '你好' }, { role: 'assistant', text: '你好呀' }],
-    '用户',
-    '- 之前发生过的事'
-  );
-  const system = prompt[0].content;
-  assert.ok(system.includes('重要对话'));
-  assert.ok(system.includes('不要重复'));
-  assert.ok(system.includes('口头禅'));
-  assert.ok(system.includes('习惯'));
-  assert.ok(system.includes('之前发生过的事'));
+test('两套总结提示词：世界书版侧重长期事实、会话版侧重剧情推进，且都不重复已有记忆', () => {
+  const messages = [{ role: 'user', text: '你好' }, { role: 'assistant', text: '你好呀' }];
+  const world = memorySummary.buildSummaryPrompt(messages, '用户', '- 之前发生过的事', '', 'world')[0].content;
+  const session = memorySummary.buildSummaryPrompt(messages, '用户', '- 之前发生过的事', '', 'session')[0].content;
+  assert.notEqual(world, session, '两套提示词必须不同');
+  for (const system of [world, session]) {
+    assert.ok(system.includes('不要重复'), '两套都要求不重复已有记忆');
+    assert.ok(system.includes('之前发生过的事'), '两套都带上已知记忆');
+  }
+  assert.ok(world.includes('长期'), '世界书版强调长期生效');
+  assert.ok(world.includes('关系变化'), '世界书版侧重人物事实与关系');
+  assert.ok(session.includes('重要对话'), '会话版记录重要对话要点');
+  assert.ok(session.includes('口头禅') && session.includes('习惯'), '会话版排除习惯/口头禅');
 });
 
 test('总结提示词：关注点追加为额外要求；无关注点时逐字节不变', () => {
@@ -530,6 +536,39 @@ test('边界写失败时精确补偿世界书摘要条目', async () => {
   assert.equal(patches[0].worldInfo.length, 1);
   assert.equal(patches[1].worldInfo.length, 0);
   storageMock.setSessionSummarizedUpTo = async () => {};
+});
+
+test('长记忆保留上限：世界书条目按序号淘汰最旧，非记忆条目保留', () => {
+  const worldInfo = [
+    { id: 'a', comment: '普通条目', content: '不是记忆' },
+    { id: 'm1', comment: '记忆总结 1', content: '一' },
+    { id: 'm2', comment: '记忆总结 2', content: '二' },
+    { id: 'm3', comment: '记忆总结 3', content: '三' },
+  ];
+  assert.deepEqual(
+    memorySummary.pruneWorldMemoryEntries(worldInfo, 2).map(entry => entry.id),
+    ['a', 'm2', 'm3'],
+    '保留非记忆条目 + 最近 2 条记忆'
+  );
+  assert.equal(memorySummary.pruneWorldMemoryEntries(worldInfo, 0).length, 4, '上限 0 不淘汰');
+  assert.equal(memorySummary.pruneWorldMemoryEntries(worldInfo, undefined).length, 4, '上限缺省不淘汰');
+});
+
+test('注入长记忆按条数上限截断（超出只保留最近 maxEntries 条）', () => {
+  const worldInfo = Array.from({ length: 5 }, (_, index) => ({
+    comment: `记忆总结 ${index + 1}`,
+    content: `记忆内容 ${index + 1}`,
+  }));
+  const text = memorySummary.buildMemorySummaryText({ worldInfo }, [], false, undefined, 2);
+  assert.ok(text.includes('记忆内容 5') && text.includes('记忆内容 4'), '保留最新的两条');
+  assert.equal(text.includes('记忆内容 1'), false, '超出的最旧条被截断');
+});
+
+test('capMemoryEntries：只保留最近 N 条，非法上限原样返回', () => {
+  assert.deepEqual(capMemoryEntries([1, 2, 3, 4, 5], 2), [4, 5]);
+  assert.deepEqual(capMemoryEntries([1, 2, 3], 5), [1, 2, 3]);
+  assert.deepEqual(capMemoryEntries([1, 2, 3], 0), [1, 2, 3]);
+  assert.equal(capMemoryEntries([1, 2, 3], undefined).length, 3);
 });
 
 test('摘要失效补偿会恢复世界书条目原来的开关状态', async () => {

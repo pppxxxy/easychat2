@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FieldLabel, SecondaryButton, TextField } from './ui/index.js';
+import { CollapsibleSelect, FieldLabel, SecondaryButton, TextField } from './ui/index.js';
 import { makeCharacterPresetId } from './character/characterPresets.js';
 import { useTheme } from './theme/ThemeContext.js';
 import {
@@ -23,10 +23,12 @@ import {
   saveGlobalPresetSettings,
   saveGlobalPresets,
 } from './storage/globalPresets.js';
+import { getApiConfigs } from './storage/apiConfigs.js';
 import { getMemorySummarySettings, saveMemorySummarySettings } from './storage/settings.js';
 import { useTranslation } from './i18n/I18nContext.js';
 
 const THRESHOLD_FALLBACK = 40;
+const MAX_ENTRIES_FALLBACK = 100;
 const EMPTY_CHARACTER_PRESETS = [];
 
 export default function PresetPanel({
@@ -40,6 +42,9 @@ export default function PresetPanel({
   const [enabled, setEnabled] = useState({});
   const [memoryEnabled, setMemoryEnabled] = useState(false);
   const [threshold, setThreshold] = useState(String(THRESHOLD_FALLBACK));
+  const [memoryConfigId, setMemoryConfigId] = useState('');
+  const [memoryMaxEntries, setMemoryMaxEntries] = useState(String(MAX_ENTRIES_FALLBACK));
+  const [configs, setConfigs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPreset, setEditingPreset] = useState(null);
@@ -52,6 +57,8 @@ export default function PresetPanel({
   const busyRef = useRef(false);
   const savedThresholdRef = useRef(THRESHOLD_FALLBACK);
   const thresholdCommitRef = useRef(false);
+  const savedMaxEntriesRef = useRef(MAX_ENTRIES_FALLBACK);
+  const maxEntriesCommitRef = useRef(false);
 
   useEffect(() => {
     if (!visible) {
@@ -80,14 +87,19 @@ export default function PresetPanel({
       getGlobalPresets(),
       getGlobalPresetSettings(),
       getMemorySummarySettings(),
+      getApiConfigs().catch(() => ({ configs: [] })),
     ])
-      .then(([list, map, memory]) => {
+      .then(([list, map, memory, api]) => {
         if (cancelled) return;
         setPresets(list);
         setEnabled(map);
-setMemoryEnabled(memory.enabled === true);
-         setThreshold(String(memory.threshold));
-         savedThresholdRef.current = Number(memory.threshold) || THRESHOLD_FALLBACK;
+        setMemoryEnabled(memory.enabled === true);
+        setThreshold(String(memory.threshold));
+        setMemoryConfigId(memory.configId || '');
+        setMemoryMaxEntries(String(memory.maxEntries));
+        setConfigs(Array.isArray(api && api.configs) ? api.configs : []);
+        savedThresholdRef.current = Number(memory.threshold) || THRESHOLD_FALLBACK;
+        savedMaxEntriesRef.current = Number(memory.maxEntries) || MAX_ENTRIES_FALLBACK;
         setLoaded(true);
       })
       .catch(() => {
@@ -223,16 +235,21 @@ setMemoryEnabled(memory.enabled === true);
     ]);
   };
 
-  const persistMemory = async (enabledValue, thresholdValue) => {
+  const persistMemory = async (enabledValue, thresholdValue, configIdValue, maxEntriesValue) => {
     busyRef.current = true;
     try {
       const saved = await saveMemorySummarySettings({
         enabled: enabledValue,
         threshold: thresholdValue,
+        configId: configIdValue,
+        maxEntries: maxEntriesValue,
       });
       setMemoryEnabled(saved.enabled);
       setThreshold(String(saved.threshold));
+      setMemoryConfigId(saved.configId || '');
+      setMemoryMaxEntries(String(saved.maxEntries));
       savedThresholdRef.current = Number(saved.threshold) || THRESHOLD_FALLBACK;
+      savedMaxEntriesRef.current = Number(saved.maxEntries) || MAX_ENTRIES_FALLBACK;
       return true;
     } catch (error) {
       Alert.alert(t('preset.alert.saveFailed.title'), t('preset.alert.saveFailed.body'));
@@ -248,7 +265,34 @@ setMemoryEnabled(memory.enabled === true);
       Alert.alert(t('preset.alert.busy.title'), t('preset.alert.busy.body'));
       return;
     }
-    persistMemory(value, threshold);
+    persistMemory(value, threshold, memoryConfigId, memoryMaxEntries);
+  };
+
+  // 总结接口：从现有接口配置里选一个专用于记忆总结；空串 = 用当前默认接口。
+  const selectMemoryConfig = id => {
+    if (!loaded || busyRef.current) return;
+    persistMemory(memoryEnabled, threshold, id, memoryMaxEntries);
+  };
+
+  const normalizeMaxEntries = () => {
+    const parsed = Math.trunc(Number(String(memoryMaxEntries).trim()));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : MAX_ENTRIES_FALLBACK;
+  };
+
+  const commitMaxEntries = async () => {
+    if (maxEntriesCommitRef.current) return false;
+    if (busyRef.current || !loaded) return false;
+    maxEntriesCommitRef.current = true;
+    const value = normalizeMaxEntries();
+    setMemoryMaxEntries(String(value));
+    try {
+      if (value !== savedMaxEntriesRef.current) {
+        return await persistMemory(memoryEnabled, threshold, memoryConfigId, value);
+      }
+      return true;
+    } finally {
+      maxEntriesCommitRef.current = false;
+    }
   };
 
   const normalizeThreshold = () => {
@@ -273,7 +317,7 @@ setMemoryEnabled(memory.enabled === true);
     setThreshold(String(value));
     try {
       if (value !== savedThresholdRef.current) {
-        return await persistMemory(memoryEnabled, value);
+        return await persistMemory(memoryEnabled, value, memoryConfigId, memoryMaxEntries);
       }
       return true;
     } finally {
@@ -289,7 +333,7 @@ setMemoryEnabled(memory.enabled === true);
     if (!loaded) return;
     const value = normalizeThreshold();
     setThreshold(String(value));
-    const saved = await persistMemory(memoryEnabled, value);
+    const saved = await persistMemory(memoryEnabled, value, memoryConfigId, memoryMaxEntries);
     if (saved) Alert.alert(t('preset.alert.thresholdSaved.title'), t('preset.alert.thresholdSaved.body', { value }));
   };
 
@@ -301,8 +345,10 @@ setMemoryEnabled(memory.enabled === true);
       return;
     }
     if (!isCharacterScope) {
-      const saved = await commitThreshold();
-      if (!saved) return;
+      const savedThreshold = await commitThreshold();
+      if (!savedThreshold) return;
+      const savedMaxEntries = await commitMaxEntries();
+      if (!savedMaxEntries) return;
     }
     onClose();
   };
@@ -414,6 +460,31 @@ setMemoryEnabled(memory.enabled === true);
                     <Ionicons name="checkmark" size={16} color={theme.colors.primaryContrast} />
                     <Text style={styles.thresholdConfirmText}>{t('common.confirm')}</Text>
                   </TouchableOpacity>
+                </View>
+                <FieldLabel style={styles.label}>{t('preset.memory.configLabel')}</FieldLabel>
+                <CollapsibleSelect
+                  label={t('preset.memory.config')}
+                  value={memoryConfigId}
+                  options={configs.map(item => ({
+                    value: item.id,
+                    label: item.name || t('settings.api.unnamed'),
+                    meta: `${item.baseUrl || ''} · ${item.activeModel || ''}`,
+                  }))}
+                  onSelect={selectMemoryConfig}
+                  placeholder={t('preset.memory.configDefault')}
+                  emptyHint={t('settings.api.emptyHint')}
+                />
+                <FieldLabel style={styles.label}>{t('preset.memory.maxEntriesLabel')}</FieldLabel>
+                <View style={styles.thresholdRow}>
+                  <TextField
+                    style={styles.thresholdInput}
+                    value={memoryMaxEntries}
+                    editable={loaded && !saving}
+                    onChangeText={setMemoryMaxEntries}
+                    onEndEditing={commitMaxEntries}
+                    keyboardType="number-pad"
+                    placeholder={String(MAX_ENTRIES_FALLBACK)}
+                  />
                 </View>
               </>
             ) : null}

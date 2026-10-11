@@ -59,6 +59,7 @@ import {
   invalidateHistorySummaries,
   isBuiltinAssistant,
   isSessionScopedMemory,
+  resolveSummaryRequestConfig,
   selectManualSummarizable,
   selectSummarizable,
   shouldSummarize,
@@ -928,14 +929,9 @@ export default function ChatScreen() {
        const scoped = isBuiltinAssistant(sessionCharacter)
          || !characterExists
          || isSessionScopedMemory(sessionsRef.current, sessionCharacterId, scopeOverride, session.id);
-       let expectedConfigId = '';
-       let expectedConfigFingerprint = '';
-       try {
-         const { configs, activeId } = await getApiConfigs();
-         const current = configs.find(item => item.id === activeId) || configs[0];
-         expectedConfigId = String(current?.id || '');
-         expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
-       } catch (error) {}
+       // 总结接口：设置里指定了就用它，否则当前默认接口（见 resolveSummaryRequestConfig）。
+       const memorySettings = await getMemorySummarySettings().catch(() => null);
+       const summaryConfig = await resolveSummaryRequestConfig(memorySettings && memorySettings.configId);
        const result = await applySummary({
         session,
         character: sessionCharacter,
@@ -944,8 +940,9 @@ export default function ChatScreen() {
          userName: userProfile.userName,
          scoped,
          focus,
-         expectedConfigId,
-          expectedConfigFingerprint,
+         maxEntries: memorySettings && memorySettings.maxEntries,
+         expectedConfigId: summaryConfig.id,
+          expectedConfigFingerprint: summaryConfig.fingerprint,
           getCurrentCharacter: () => charactersRef.current.find(
             item => item.id === sessionCharacterId
           ) || sessionCharacter,
