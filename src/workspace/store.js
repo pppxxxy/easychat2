@@ -53,7 +53,11 @@ async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter
     state.truncated = true;
     return;
   }
-  if (depth > MAX_DEPTH) return;
+  // 触深度上限也置 truncated：与文件数上限一样，静默截断会被当成完整事实（G1.7）。
+  if (depth > MAX_DEPTH) {
+    state.truncated = true;
+    return;
+  }
   let entries = [];
   try {
     entries = await fileSystem.readDirectoryAsync(directoryUri);

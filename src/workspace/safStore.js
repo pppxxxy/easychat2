@@ -92,7 +92,12 @@ async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, s
     state.truncated = true;
     return;
   }
-  if (depth > MAX_DEPTH) return;
+  // 触深度上限也要置 truncated：否则 SAF 根（MAX_DEPTH 比 legacy 小）在深处静默停止下钻，
+  // 清单被当成完整事实（G1.7 要防的正是这个）。
+  if (depth > MAX_DEPTH) {
+    state.truncated = true;
+    return;
+  }
   const children = await listChildren(adapter, directoryUri);
   for (const child of children) {
     if (results.length >= MAX_FILES) {

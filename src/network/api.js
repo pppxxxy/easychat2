@@ -642,6 +642,9 @@ async function requestOnce(messages, options, attempt) {
       }
       if (trimmed.startsWith(':')) return;
       if (!trimmed.startsWith('data:')) return;
+      // 只有真正的内容（data: 行）才把「等首字节」降级为「空闲」：注释/保活行（`: ping`）
+      // 不算，否则服务端先发保活会让长思考请求的阈值从 120s 掉到 30s、被误判超时并进降级链。
+      sawFirstByte = true;
       tryDispatch();
       dataLines.push(trimmed.slice(5).trim());
     };
@@ -649,7 +652,6 @@ async function requestOnce(messages, options, attempt) {
     const drainIncremental = () => {
       const incoming = (xhr.responseText || '').slice(consumed);
       if (!incoming) return;
-      sawFirstByte = true;
       consumed = (xhr.responseText || '').length;
       lineBuffer += incoming;
       const lines = lineBuffer.split('\n');

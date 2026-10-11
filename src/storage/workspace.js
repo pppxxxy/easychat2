@@ -37,6 +37,8 @@ const WORKSPACE_CHAT_CHARACTER_LIMIT = 50;
 
 const workspaceChangesMutation = createMutationQueue();
 const workspaceChatsMutation = createMutationQueue();
+// 工作区设置键（模式/根位置/命令开关）由多个界面分别修改：入队串行化，避免并发丢更新。
+const workspaceSettingsMutation = createMutationQueue();
 
 export async function getWorkspaceSettings() {
   const raw = await readJson(WORKSPACE_KEY, null);
@@ -56,11 +58,15 @@ export async function saveWorkspaceSettings(settings) {
 // 且只带自己的字段，归一化会把其余字段打回默认——表现为「改模式把已选文件夹
 // 和 bash 开关静默清掉了」。所有写入方都应走这个函数。
 export async function patchWorkspaceSettings(patch) {
-  const current = await getWorkspaceSettings();
-  const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
-  const normalized = normalizeWorkspaceSettings(merged);
-  await AsyncStorage.setItem(WORKSPACE_KEY, JSON.stringify(normalized));
-  return normalized;
+  // 串行化读-改-写：模式、根位置与命令开关由不同界面修改，并发时各自读同一份现值再
+  // 整表覆盖会互相打回默认（表现为「改模式把已选文件夹清掉」）。入队后每次合并基于最新值。
+  return workspaceSettingsMutation.enqueue(async () => {
+    const current = await getWorkspaceSettings();
+    const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
+    const normalized = normalizeWorkspaceSettings(merged);
+    await AsyncStorage.setItem(WORKSPACE_KEY, JSON.stringify(normalized));
+    return normalized;
+  });
 }
 
 // ---- 工作区改动历史 ----

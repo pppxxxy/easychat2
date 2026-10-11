@@ -88,6 +88,16 @@ export function buildGroupRequest({
   pluginContext,
   profiles,
   imageMessages,
+  // 与单聊同一套系统注入：此前群聊全缺，导致同一角色在群聊里没有时间感知/作息/位置/
+  // 表情包教学/图片下载/钩子注入，行为与单聊分叉。
+  currentTimeText,
+  scheduleText,
+  locationText,
+  stickerNames,
+  stickerEnabled,
+  downloadImageEnabled,
+  extraSystemPrompt,
+  voiceAudio,
 }) {
   const groupContext = buildGroupContext({
     speaker,
@@ -106,5 +116,13 @@ export function buildGroupRequest({
     pluginContext,
     groupContext,
     imageMessages,
+    currentTimeText,
+    scheduleText,
+    locationText,
+    stickerNames,
+    stickerEnabled,
+    downloadImageEnabled,
+    extraSystemPrompt,
+    voiceAudio,
   });
 }

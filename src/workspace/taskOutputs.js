@@ -128,6 +128,9 @@ export async function pruneToolResults({ store, characterId, max = TASK_OUTPUT_M
       const countOk = !Number.isInteger(max) || count <= max;
       const bytesOk = !Number.isFinite(maxBytes) || maxBytes < 0 || bytes <= maxBytes;
       if (countOk && bytesOk) break;
+      // 必须先取字节数再删清单条目：sizeOf 读的就是 idx[nameOf(rel)]，
+      // 先 delete 会让 sizeOf 恒返回 0，bytes 永不下降，循环会把结果全删光。
+      const size = sizeOf(rel);
       if (canDelete) {
         try {
           await store.deleteFile({ characterId, path: rel });
@@ -138,7 +141,7 @@ export async function pruneToolResults({ store, characterId, max = TASK_OUTPUT_M
       }
       delete idx[nameOf(rel)];
       count -= 1;
-      bytes -= sizeOf(rel);
+      bytes -= size;
     }
   }
   await writeIndex(store, characterId, idx);

@@ -51,6 +51,15 @@ const ioStub = {
     const raw = await AsyncStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
   },
+  readJsonStatusWithSecrets: async key => {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
+    }
+  },
 };
 
 const originalLoad = Module._load;

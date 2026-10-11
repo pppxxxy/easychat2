@@ -93,11 +93,18 @@ function parseResponsesStream(payload) {
     const reason = payload.response && payload.response.status;
     return { finishReason: reason === 'incomplete' ? 'length' : 'stop' };
   }
-  if (type === 'response.failed' || type === 'response.incomplete') {
+  if (type === 'response.failed') {
     const response = payload.response || {};
     const errorMessage = parseProtocolError('openai-responses', { error: response.error })
       || '接口返回失败状态。';
     return { error: errorMessage };
+  }
+  if (type === 'response.incomplete') {
+    // 截断是正常终止（如 max_output_tokens），不是错误：与非流式 final.js 同一口径映射成
+    // length/stop，保留已产出内容交给上层结算。此前与 response.failed 合并会把截断当失败抛错。
+    const response = payload.response || {};
+    const reason = response.incomplete_details && response.incomplete_details.reason;
+    return { finishReason: reason === 'max_output_tokens' ? 'length' : 'stop' };
   }
   if (type === 'error') {
     return { error: parseProtocolError('openai-responses', payload) || '接口返回错误。' };

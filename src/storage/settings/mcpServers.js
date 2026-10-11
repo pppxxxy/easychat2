@@ -20,7 +20,7 @@
 
 import { DEFAULT_GITHUB_MCP_ENDPOINT, GITHUB_SERVER_ID } from '../../mcp/constants.js';
 import { filterMcpToolsForRegistration } from '../../mcp/riskGate.js';
-import { createMutationQueue, readJsonWithSecrets, setJsonWithSecrets } from '../io.js';
+import { backupCorruptValue, createMutationQueue, readJsonStatusWithSecrets, setJsonWithSecrets } from '../io.js';
 
 export const MCP_SERVERS_KEY = '@easychat2_mcp_servers';
 // 常量已抽到 mcp/constants.js（与 mcpTools / client 共用一份，不再靠注释同步）；
@@ -177,8 +177,10 @@ export function normalizeMcpServers(raw) {
 }
 
 export async function getMcpServers() {
-  const raw = await readJsonWithSecrets(MCP_SERVERS_KEY, null).catch(() => null);
-  return normalizeMcpServers(raw);
+  // 损坏时先备份原始值再按缺失处理：否则下次保存会把整表 MCP 服务器静默覆盖为空。
+  const stored = await readJsonStatusWithSecrets(MCP_SERVERS_KEY);
+  if (stored.status === 'corrupt') await backupCorruptValue(MCP_SERVERS_KEY);
+  return normalizeMcpServers(stored.status === 'ok' ? stored.value : null);
 }
 
 export function saveMcpServers(list) {

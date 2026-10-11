@@ -5,7 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { backupCorruptValue, readJson, readJsonStatus, readJsonWithSecrets, setJsonWithSecrets } from './io.js';
+import { backupCorruptValue, readJson, readJsonStatus, readJsonStatusWithSecrets, setJsonWithSecrets } from './io.js';
 import {
   LOCAL_MODEL_INDEX_KEY,
   LOCAL_MODEL_ITEM_PREFIX,
@@ -25,13 +25,16 @@ export function localModelItemKey(id) {
 
 export async function getLocalModelSettings() {
   // 设置键的 apiServer.apiKey 是密钥：与其他配置一致走保险箱读写，避免明文落盘。
-  const raw = await readJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, null);
-  const normalized = normalizeLocalModelSettings(raw);
+  // 损坏时先备份原始值再按缺失处理：否则下次保存会静默清空 activeModelId。
+  const stored = await readJsonStatusWithSecrets(LOCAL_MODEL_SETTINGS_KEY);
+  if (stored.status === 'corrupt') await backupCorruptValue(LOCAL_MODEL_SETTINGS_KEY);
+  const normalized = normalizeLocalModelSettings(stored.status === 'ok' ? stored.value : null);
   if (normalized.schema >= LOCAL_MODEL_SETTINGS_SCHEMA) return normalized;
   // 旧结构（无 schema 或 schema<2）：一次性迁移——写条目/索引 + 清空 legacy 字段 +
   // 记 schema:2。迁移后设置键只剩单一事实源字段，读路径不再见 legacy。
   await migrateLegacyLocalModel();
-  return normalizeLocalModelSettings(await readJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, null));
+  const reread = await readJsonStatusWithSecrets(LOCAL_MODEL_SETTINGS_KEY);
+  return normalizeLocalModelSettings(reread.status === 'ok' ? reread.value : null);
 }
 
 export async function saveLocalModelSettings(settings) {

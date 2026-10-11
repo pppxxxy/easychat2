@@ -29,13 +29,19 @@ function fullWindowHistory() {
 
 test('resolveOnlineRequestContext：期望配置 > 活动配置 > 第一个；取不到给安全默认', () => {
   const configs = [
-    { id: 'a', name: 'A', supportsVision: false, model: 'm-a' },
-    { id: 'b', name: 'B', supportsVision: true, supportsAudio: true, model: 'm-b' },
+    { id: 'a', name: 'A', model: 'm-a' },
+    // 配置级 supports* 刻意留空：媒体能力必须来自逐模型 getCapabilities，
+    // 读配置级会漏掉用户在能力弹层里为某模型新开的识图/音频。
+    { id: 'b', name: 'B', model: 'm-b' },
   ];
   // 注入假查询：真实现来自 storage/apiConfigs.js（那条链 Node 里加载不了）。
   const helpers = {
     getModel: config => config.model,
-    getCapabilities: (config, modelName) => ({ contextWindow: modelName === 'm-b' ? 200000 : 0 }),
+    getCapabilities: (config, modelName) => ({
+      contextWindow: modelName === 'm-b' ? 200000 : 0,
+      supportsVision: modelName === 'm-b',
+      supportsAudio: modelName === 'm-b',
+    }),
   };
 
   const byExpected = resolveOnlineRequestContext(configs, 'a', 'b', helpers);

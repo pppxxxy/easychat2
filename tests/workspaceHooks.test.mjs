@@ -243,14 +243,18 @@ test('接线契约：两页把钩子规则接进 runTool；工具层追加通知
 
   // P1（2026-10-11）：钩子规则的求值入口从「审批钩子」改成 runTool 的 permissionRules。
   // 原因：审批只在需要确认的工具上被调用，写工具按设计不逐条确认——只接审批等于
-  // 挂在写工具上的 deny 永不生效。两页都必须走 readHookPermissionRules。
+  // 挂在写工具上的 deny 永不生效。两页都必须把钩子规则 + 存储规则一起接进 runTool。
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('permissionRules: () => readHookPermissionRules(storeRef.current, characterId)'),
-    '工作区页把钩子规则接进 runTool（每次调用直读）');
+  assert.ok(panel.includes('permissionRules: async () => [')
+    && panel.includes('readHookPermissionRules(storeRef.current, characterId)')
+    && panel.includes('getEffectivePermissionRules()'),
+    '工作区页把钩子规则 + 设置面板存储规则都接进 runTool（每次调用直读）');
 
   const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
-  assert.ok(chat.includes('permissionRules: () => readHookPermissionRules(hookStore, character.id)'),
-    '聊天页同样把钩子规则接进 runTool');
+  assert.ok(chat.includes('permissionRules: async () => [')
+    && chat.includes('readHookPermissionRules(hookStore, character.id)')
+    && chat.includes('getEffectivePermissionRules()'),
+    '聊天页同样把钩子规则 + 存储规则都接进 runTool');
 
   const hooks = fs.readFileSync(path.resolve('src/workspace/hooks.js'), 'utf8');
   assert.ok(hooks.includes('export async function readHookPermissionRules'), '共享的「读+翻译」入口');

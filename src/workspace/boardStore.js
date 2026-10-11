@@ -44,8 +44,14 @@ export async function savePersistentBlackboard(store, characterId, board) {
   if (!store || typeof store.writeWorkspaceFile !== 'function') return false;
   if (!board || typeof board.serialize !== 'function') return false;
   const data = board.serialize();
-  const topics = (data && data.topics) || {};
-  if (Object.keys(topics).length === 0) return false;
+  // 空判定必须与 blackboard.hasContent() 同口径：topics / messages / tasks 三者都算内容。
+  // 此前只判 topics，导致只用 board_send / board_task 的团队静默不落盘。
+  if (typeof board.hasContent === 'function') {
+    if (!board.hasContent()) return false;
+  } else {
+    const topics = (data && data.topics) || {};
+    if (Object.keys(topics).length === 0) return false;
+  }
   try {
     await store.writeWorkspaceFile({ characterId, path: BOARD_FILE, content: JSON.stringify(data, null, 2) });
     return true;

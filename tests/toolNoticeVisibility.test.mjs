@@ -156,6 +156,17 @@ const ioStub = {
       return fallback;
     }
   },
+  // chatOptions 现在用队列串行化读改写；测试桩给一个等价的串行队列。
+  createMutationQueue: () => {
+    let single = Promise.resolve();
+    return {
+      enqueue(task) {
+        const next = single.then(task, task);
+        single = next.catch(() => {});
+        return next;
+      },
+    };
+  },
 };
 const SETTINGS_DIR = path.resolve('src/storage/settings');
 function loadSettingsModule(absPath) {

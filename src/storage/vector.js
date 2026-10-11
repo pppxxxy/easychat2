@@ -9,7 +9,7 @@ import {
   backupCorruptValue,
   createMutationQueue,
   readJsonStatus,
-  readJsonWithSecrets,
+  readJsonStatusWithSecrets,
   setJsonWithSecrets,
 } from './io.js';
 import { tActive } from '../i18n/index.js';
@@ -87,10 +87,15 @@ export async function saveVectorMemoryConfig(config) {
 
 // 读取完整多配置载荷（设置页用）。
 async function readVectorMemoryPayload() {
-  const stored = await readJsonWithSecrets(VECTOR_MEMORY_CONFIGS_KEY, null);
+  // 损坏时先备份原始值再按缺失处理：否则下次保存会把损坏配置静默覆盖成默认（apiKey 丢失无副本）。
+  const storedStatus = await readJsonStatusWithSecrets(VECTOR_MEMORY_CONFIGS_KEY);
+  if (storedStatus.status === 'corrupt') await backupCorruptValue(VECTOR_MEMORY_CONFIGS_KEY);
+  const stored = storedStatus.status === 'ok' ? storedStatus.value : null;
   if (stored) return normalizeVectorMemoryPayload(stored);
   // 旧单配置键：迁移前可能是明文，也走 hydrate 以防已转引用。
-  const legacy = await readJsonWithSecrets(VECTOR_MEMORY_KEY, null);
+  const legacyStatus = await readJsonStatusWithSecrets(VECTOR_MEMORY_KEY);
+  if (legacyStatus.status === 'corrupt') await backupCorruptValue(VECTOR_MEMORY_KEY);
+  const legacy = legacyStatus.status === 'ok' ? legacyStatus.value : null;
   return normalizeVectorMemoryPayload(legacy);
 }
 

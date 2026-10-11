@@ -7,7 +7,7 @@ import { normalizeImagePosition } from '../../imageGen/inlineImagePrompt.js';
 import { normalizeStickerChance, normalizeStickerPosition } from '../../chat/stickerPolicy.js';
 import { normalizeHiddenToolNotices } from '../../chat/toolNoticeVisibility.js';
 import { BUBBLE_STYLES, THEMES, normalizeCustomColors } from '../../theme/themes.js';
-import { readJson } from '../io.js';
+import { readJson, createMutationQueue } from '../io.js';
 import { normalizeImageProviderId } from './imageProvider.js';
 
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
@@ -15,6 +15,9 @@ const APPEARANCE_KEY = '@easychat2_appearance';
 const INLINE_IMAGE_KEY = '@easychat2_inline_image';
 const MUSIC_CLIP_KEY = '@easychat2_music_clip';
 const UI_SECTIONS_KEY = '@easychat2_ui_sections';
+
+// 外观键（主题/字号/语言）由多个 Context 共享写入：入队串行化，避免并发读改写丢字段。
+const appearanceMutation = createMutationQueue();
 
 function normalizeChatOptions(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -135,11 +138,15 @@ export async function saveAppearanceSettings(settings) {
 // saveAppearanceSettings 且只带上自己的字段，归一化会把其余字段归回默认值——
 // 表现为「改主题把语言重置了」。所有写入方都应走这个函数。
 export async function patchAppearanceSettings(patch) {
-  const current = await getAppearanceSettings();
-  const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
-  const normalized = normalizeAppearance(merged);
-  await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
-  return normalized;
+  // 串行化读-改-写：主题/字号/语言由相互独立的 Context 分别修改，并发时各自读同一份
+  // 现值再整表覆盖，后写者会丢掉先写者的字段（此前只解决「字段缺失」没解决并发）。
+  return appearanceMutation.enqueue(async () => {
+    const current = await getAppearanceSettings();
+    const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
+    const normalized = normalizeAppearance(merged);
+    await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
+    return normalized;
+  });
 }
 
 // 设置页各折叠卡的展开/收起状态。只存用户显式切换过的卡（布尔），

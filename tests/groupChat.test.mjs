@@ -495,6 +495,10 @@ test('群聊请求完整透传用户设定、预设、引用、摘要、插件�
     userText: args.userText, userProfile: args.userProfile, globalPresets: args.globalPresets,
     quote: args.quote, summaryText: args.summaryText, pluginContext: args.pluginContext,
     imageMessages: args.imageMessages,
+    // 群聊与单聊共用同一套系统注入参数（未传即 undefined，逐字段透传）。
+    currentTimeText: undefined, scheduleText: undefined, locationText: undefined,
+    stickerNames: undefined, stickerEnabled: undefined, downloadImageEnabled: undefined,
+    extraSystemPrompt: undefined, voiceAudio: undefined,
   });
   for (const key of ['userProfile', 'globalPresets', 'quote', 'imageMessages']) {
     assert.strictEqual(forwarded[key], args[key]);

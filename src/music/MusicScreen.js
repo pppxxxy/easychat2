@@ -403,7 +403,7 @@ export default function MusicScreen() {
     load(item);
     if (openingDoneRef.current !== item.id) {
       openingDoneRef.current = item.id;
-      generate({ kind: 'opening' });
+      generate({ kind: 'opening', song: item });
     }
   }, [generate, items, load]);
 

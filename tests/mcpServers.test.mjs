@@ -54,6 +54,11 @@ const ioStub = {
     const raw = storage.get(key);
     return raw ? JSON.parse(raw) : fallback;
   },
+  readJsonStatusWithSecrets: async key => {
+    const raw = storage.get(key);
+    if (raw === null || raw === undefined) return { status: 'missing' };
+    try { return { status: 'ok', value: JSON.parse(raw) }; } catch (error) { return { status: 'corrupt' }; }
+  },
   setJsonWithSecrets: async (key, payload) => {
     storage.set(key, JSON.stringify(payload));
   },
