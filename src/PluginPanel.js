@@ -222,31 +222,39 @@ export default function PluginPanel({ visible, onClose }) {
                         })}
                       </View>
 
-                      <FieldLabel style={styles.label}>{t('plugin.apiKeyLabel')}</FieldLabel>
-                      <View style={styles.keyRow}>
-                        <TextField
-                          style={styles.keyInput}
-                          value={config.apiKey || ''}
-                          onChangeText={text => setConfigField(plugin.id, 'apiKey', text)}
-                          placeholder={t('plugin.apiKeyPlaceholder')}
-                          secureTextEntry={!showKey[plugin.id]}
-                          autoCapitalize="none"
-                        />
-                        <TouchableOpacity
-                          style={styles.eyeButton}
-                          onPress={() => setShowKey(current => ({
-                            ...current,
-                            [plugin.id]: !current[plugin.id],
-                          }))}
-                          hitSlop={8}
-                        >
-                          <Ionicons
-                            name={showKey[plugin.id] ? 'eye-off-outline' : 'eye-outline'}
-                            size={18}
-                            color={theme.colors.textFaint}
-                          />
-                        </TouchableOpacity>
-                      </View>
+                      {currentProvider.noteKey ? (
+                        <FieldHint style={styles.note}>{t(currentProvider.noteKey)}</FieldHint>
+                      ) : null}
+
+                      {(currentProvider.secretFields || []).includes('apiKey') ? (
+                        <>
+                          <FieldLabel style={styles.label}>{t('plugin.apiKeyLabel')}</FieldLabel>
+                          <View style={styles.keyRow}>
+                            <TextField
+                              style={styles.keyInput}
+                              value={config.apiKey || ''}
+                              onChangeText={text => setConfigField(plugin.id, 'apiKey', text)}
+                              placeholder={t('plugin.apiKeyPlaceholder')}
+                              secureTextEntry={!showKey[plugin.id]}
+                              autoCapitalize="none"
+                            />
+                            <TouchableOpacity
+                              style={styles.eyeButton}
+                              onPress={() => setShowKey(current => ({
+                                ...current,
+                                [plugin.id]: !current[plugin.id],
+                              }))}
+                              hitSlop={8}
+                            >
+                              <Ionicons
+                                name={showKey[plugin.id] ? 'eye-off-outline' : 'eye-outline'}
+                                size={18}
+                                color={theme.colors.textFaint}
+                              />
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      ) : null}
 
                       {(currentProvider.keyLinks || []).length > 0 ? (
                         <View style={styles.keyLinks}>
@@ -351,6 +359,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   desc: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 3 },
   config: { marginTop: 10 },
   label: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 10, marginBottom: 6 },
+  note: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 8 },
   providerRow: { flexDirection: 'row', flexWrap: 'wrap' },
   providerChip: {
     paddingHorizontal: 12,

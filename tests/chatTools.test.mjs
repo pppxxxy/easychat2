@@ -213,6 +213,18 @@ test('搜索工具配置：未启用或缺密钥时不暴露（不暴露即不�
     { id: 'web-search', type: 'web-search', enabled: true, config: { provider: 'serpapi', apiKey: 'k' } },
   ];
   assert.deepEqual(chatTools.resolveSearchPluginConfig(ready), { provider: 'serpapi', apiKey: 'k' });
+
+  // AnySearch 匿名档（默认提供方）无需密钥也应暴露工具，否则默认配置搜不了
+  const anonymous = [
+    { id: 'web-search', type: 'web-search', enabled: true, config: { provider: 'anysearch' } },
+  ];
+  assert.deepEqual(chatTools.resolveSearchPluginConfig(anonymous), { provider: 'anysearch' });
+
+  // 密钥档仍要求密钥
+  const keyedNoKey = [
+    { id: 'web-search', type: 'web-search', enabled: true, config: { provider: 'anysearch-key' } },
+  ];
+  assert.equal(chatTools.resolveSearchPluginConfig(keyedNoKey), null, 'AnySearch 密钥档缺密钥 → 不暴露');
 });
 
 test('UI 接线：气泡组件、渲染分支、发送路径驱动三者齐备', () => {

@@ -127,7 +127,9 @@ test('missingRequiredFields：自定义供应商要求地址与密钥', () => {
 });
 
 test('missingRequiredFields：容错输入与未知供应商回退首个', () => {
-  assert.deepEqual(missingRequiredFields(null, null), ['apiKey']);
+  // 首个提供方是 AnySearch 匿名档（无需密钥），故 null 输入不再缺 apiKey
+  assert.deepEqual(missingRequiredFields(null, null), []);
+  assert.equal(PROVIDERS[0].id, 'anysearch');
   assert.deepEqual(missingRequiredFields(getProvider('不存在'), { apiKey: 'k' }), []);
   // 每个内置供应商都能被判定，不抛异常
   PROVIDERS.forEach(provider => {
@@ -206,15 +208,27 @@ test('联网搜索冷却与失败一次性上报：成功后重新允许上报',
   }
 });
 
-test('AnySearch：POST + Bearer 头，query/max_results 走请求体', () => {
-  const provider = getProvider('anysearch');
-  assert.equal(provider.id, 'anysearch');
+test('AnySearch 密钥档：POST + Bearer 头，query/max_results 走请求体', () => {
+  const provider = getProvider('anysearch-key');
+  assert.equal(provider.id, 'anysearch-key');
   const request = buildRequest(provider, { apiKey: 'ak-anysearch-123456' }, '今日新闻', 5);
   assert.equal(request.method, 'POST');
   assert.equal(request.url, 'https://api.anysearch.com/v1/search');
   assert.equal(request.headers.Authorization, 'Bearer ak-anysearch-123456');
   assert.equal(request.headers['Content-Type'], 'application/json');
   // 密钥走头部，请求体只留查询词与条数（信封式 API 不接受密钥入体）
+  assert.deepEqual(JSON.parse(request.body), { query: '今日新闻', max_results: 5 });
+});
+
+test('AnySearch 匿名档：不要求密钥，且完全不发 Authorization 头', () => {
+  const provider = getProvider('anysearch');
+  assert.equal(provider.id, 'anysearch');
+  assert.deepEqual(missingRequiredFields(provider, {}), [], '匿名档不应要求任何密钥');
+  const request = buildRequest(provider, {}, '今日新闻', 5);
+  assert.equal(request.method, 'POST');
+  assert.equal(request.url, 'https://api.anysearch.com/v1/search');
+  // 空 Bearer 会被网关判 401，必须一个头都不带才会走匿名额度
+  assert.equal(request.headers.Authorization, undefined);
   assert.deepEqual(JSON.parse(request.body), { query: '今日新闻', max_results: 5 });
 });
 
@@ -240,10 +254,8 @@ test('AnySearch：结果位于响应信封 data.results', () => {
   ]);
 });
 
-test('AnySearch：runWebSearch 端到端解析信封结果', async () => {
-  const originalXHR = globalThis.XMLHttpRequest;
-  const captured = [];
-  class CapturingXHR {
+function captureXhr(captured) {
+  return class CapturingXHR {
     open(method, url) {
       this.method = method;
       this.url = url;
@@ -262,28 +274,56 @@ test('AnySearch：runWebSearch 端到端解析信封结果', async () => {
       queueMicrotask(() => this.onload && this.onload());
     }
     abort() {}
-  }
-  globalThis.XMLHttpRequest = CapturingXHR;
+  };
+}
+
+test('AnySearch 密钥档：runWebSearch 端到端带 Bearer 并解析信封结果', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const captured = [];
+  globalThis.XMLHttpRequest = captureXhr(captured);
   try {
     const results = await runWebSearch({
-      query: 'anysearch 端到端唯一查询词',
-      config: { provider: 'anysearch', apiKey: 'ak-e2e-123456', maxResults: 3 },
+      query: 'anysearch 密钥档端到端唯一词',
+      config: { provider: 'anysearch-key', apiKey: 'ak-e2e-123456', maxResults: 3 },
     });
     assert.deepEqual(results, [{ title: '结果甲', url: 'https://example.com/1', snippet: '摘要甲' }]);
     assert.equal(captured.length, 1);
     assert.equal(captured[0].method, 'POST');
     assert.equal(captured[0].url, 'https://api.anysearch.com/v1/search');
     assert.equal(captured[0].headers.Authorization, 'Bearer ak-e2e-123456');
-    assert.deepEqual(JSON.parse(captured[0].body), { query: 'anysearch 端到端唯一查询词', max_results: 3 });
+    assert.deepEqual(JSON.parse(captured[0].body), { query: 'anysearch 密钥档端到端唯一词', max_results: 3 });
   } finally {
     globalThis.XMLHttpRequest = originalXHR;
   }
 });
 
-test('missingRequiredFields：AnySearch 与其它供应商同口径要求密钥', () => {
-  const provider = getProvider('anysearch');
-  assert.deepEqual(missingRequiredFields(provider, {}), ['apiKey']);
-  assert.deepEqual(missingRequiredFields(provider, { apiKey: '  ' }), ['apiKey']);
-  assert.deepEqual(missingRequiredFields(provider, { apiKey: 'k' }), []);
+test('AnySearch 匿名档：runWebSearch 无密钥可用且不带鉴权头', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  const captured = [];
+  globalThis.XMLHttpRequest = captureXhr(captured);
+  try {
+    const results = await runWebSearch({
+      query: 'anysearch 匿名档端到端唯一词',
+      config: { provider: 'anysearch', maxResults: 2 },
+    });
+    assert.deepEqual(results, [{ title: '结果甲', url: 'https://example.com/1', snippet: '摘要甲' }]);
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].method, 'POST');
+    assert.equal(captured[0].headers.Authorization, undefined);
+    assert.deepEqual(JSON.parse(captured[0].body), { query: 'anysearch 匿名档端到端唯一词', max_results: 2 });
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('missingRequiredFields：AnySearch 密钥档要求密钥，匿名档不要求', () => {
+  const keyed = getProvider('anysearch-key');
+  assert.deepEqual(missingRequiredFields(keyed, {}), ['apiKey']);
+  assert.deepEqual(missingRequiredFields(keyed, { apiKey: '  ' }), ['apiKey']);
+  assert.deepEqual(missingRequiredFields(keyed, { apiKey: 'k' }), []);
+
+  const anonymous = getProvider('anysearch');
+  assert.deepEqual(missingRequiredFields(anonymous, {}), []);
+  assert.deepEqual(missingRequiredFields(anonymous, { apiKey: '' }), []);
 });
 

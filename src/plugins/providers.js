@@ -1,4 +1,39 @@
+// AnySearch 两档共用同一 REST 接口，只有鉴权与密钥入口不同：
+// 匿名档（默认）不发送 Authorization 头，走官方按 IP 限速的免费额度；
+// 密钥档发送 Bearer，走密钥上的付费额度。
+const ANYSEARCH_API = {
+  baseUrl: 'https://api.anysearch.com/v1/search',
+  method: 'POST',
+  authType: 'header',
+  authKeyName: 'Authorization',
+  authPrefix: 'Bearer ',
+  queryParam: 'query',
+  limitParam: 'max_results',
+  extra: {},
+  // 结果包在响应信封 data.results 里（{ code, message, request_id, data: { results } }）
+  resultsPath: 'data.results',
+  fields: { title: 'title', url: 'url', snippet: 'snippet' },
+};
+
 export const PROVIDERS = [
+  {
+    id: 'anysearch',
+    label: 'AnySearch Free',
+    labelKey: 'plugin.provider.anysearchFree',
+    noteKey: 'plugin.note.anysearchFree',
+    keyLinks: [],
+    // 不要求密钥：无 Authorization 头即匿名额度，是新建配置的默认提供方
+    secretFields: [],
+    ...ANYSEARCH_API,
+  },
+  {
+    id: 'anysearch-key',
+    label: 'AnySearch Key',
+    labelKey: 'plugin.provider.anysearchKey',
+    keyLinks: [{ label: '获取 AnySearch Key', labelKey: 'plugin.keyLink.anysearch', url: 'https://anysearch.com/console/api-keys' }],
+    secretFields: ['apiKey'],
+    ...ANYSEARCH_API,
+  },
   {
     id: 'serpapi',
     label: 'SerpAPI',
@@ -64,23 +99,6 @@ export const PROVIDERS = [
     secretFields: ['apiKey'],
   },
   {
-    id: 'anysearch',
-    label: 'AnySearch',
-    keyLinks: [{ label: '获取 AnySearch Key', labelKey: 'plugin.keyLink.anysearch', url: 'https://anysearch.com/console/api-keys' }],
-    baseUrl: 'https://api.anysearch.com/v1/search',
-    method: 'POST',
-    authType: 'header',
-    authKeyName: 'Authorization',
-    authPrefix: 'Bearer ',
-    queryParam: 'query',
-    limitParam: 'max_results',
-    extra: {},
-    // 结果包在响应信封 data.results 里（{ code, message, request_id, data: { results } }）
-    resultsPath: 'data.results',
-    fields: { title: 'title', url: 'url', snippet: 'snippet' },
-    secretFields: ['apiKey'],
-  },
-  {
     id: 'custom',
     label: '自定义',
     labelKey: 'plugin.provider.custom',
@@ -99,13 +117,15 @@ export const PROVIDERS = [
   },
 ];
 
+// 未知 / 空 id 回退到首个提供方（AnySearch 匿名档：不需要密钥，永远可用）。
 export function getProvider(id) {
   return PROVIDERS.find(provider => provider.id === id) || PROVIDERS[0];
 }
 
 // 判断某供应商配置缺少哪些必填项，返回缺失字段名数组（空数组=配置完整）。
 // 面板「开启联网搜索」前的拦截与 webSearch 执行前的短路共用同一判定，
-// 避免两处规则漂移（此前各写一份 if 链）。
+// 避免两处规则漂移（此前各写一份 if 链）。secretFields 为空的提供方
+// （AnySearch 匿名档）不要求密钥，因此恒返回空数组。
 export function missingRequiredFields(provider, config) {
   const source = config && typeof config === 'object' ? config : {};
   const target = provider || PROVIDERS[0];
