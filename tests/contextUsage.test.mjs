@@ -81,20 +81,6 @@ test('shouldAutoCompact：0.8 触发、0.79 不触发、非法占用不触发', 
   assert.equal(shouldAutoCompact({ ratio: 0.5 }, { ratio: 0.5 }), true);
 });
 
-test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / 提示条 0.7', () => {
-  // 2026-10-10 核实：ChatScreen 曾把 0.85 与 0.7 硬编码在渲染里，而常量是 0.8——
-  // 看着像笔误，实为三种不同语义（记忆总结的「上下文偏高」判定 / 会话空闲自动压缩 /
-  // 提示条出现线）。这条断言钉住「它们不相等」，防止后人「顺手统一」把触发点改跑偏。
-  assert.equal(AUTO_COMPACT_RATIO, 0.8, '记忆总结的「上下文偏高」口径');
-  assert.equal(SESSION_AUTO_COMPACT_RATIO, 0.85, '会话空闲自动压缩线');
-  assert.equal(SESSION_COMPACT_HINT_RATIO, 0.7, '提示条出现线');
-  assert.ok(SESSION_COMPACT_HINT_RATIO < AUTO_COMPACT_RATIO, '提示条早于记忆总结线');
-  assert.ok(AUTO_COMPACT_RATIO < SESSION_AUTO_COMPACT_RATIO, '记忆总结线早于会话压缩线');
-  // 会话压缩线仍用同一判定函数，只是阈值不同。
-  assert.equal(shouldAutoCompact({ ratio: 0.85 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), true);
-  assert.equal(shouldAutoCompact({ ratio: 0.84 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
-});
-
 test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))（对齐 dsh）', () => {
   assert.equal(COMPACTION_HEADROOM_TOKENS, 65536);
   // 无输出预留、默认 headroom：W=200000 → min(160000, 200000−65536=134464) = 134464
@@ -112,6 +98,32 @@ test('P3：resolveCompactionThreshold = floor(min(W×ratio, W−O−headroom))�
   assert.equal(shouldAutoCompactTokens(134464, 200000), true);
   assert.equal(shouldAutoCompactTokens(134463, 200000), false);
   assert.equal(shouldAutoCompactTokens(999, 32000), false, '远低于阈值 → 不触发');
+});
+
+test('三档阈值各有其名：记忆总结 0.8 / 会话自动压缩 0.85 / 提示条 0.7', () => {
+  // 2026-10-10 核实：ChatScreen 曾把 0.85 与 0.7 硬编码在渲染里，而常量是 0.8——
+  // 看着像笔误，实为三种不同语义（记忆总结的「上下文偏高」判定 / 会话空闲自动压缩 /
+  // 提示条出现线）。这条断言钉住「它们不相等」，防止后人「顺手统一」把触发点改跑偏。
+  assert.equal(AUTO_COMPACT_RATIO, 0.8, '记忆总结的「上下文偏高」口径');
+  assert.equal(SESSION_AUTO_COMPACT_RATIO, 0.85, '会话空闲自动压缩线');
+  assert.equal(SESSION_COMPACT_HINT_RATIO, 0.7, '提示条出现线');
+  assert.ok(SESSION_COMPACT_HINT_RATIO < AUTO_COMPACT_RATIO, '提示条早于记忆总结线');
+  assert.ok(AUTO_COMPACT_RATIO < SESSION_AUTO_COMPACT_RATIO, '记忆总结线早于会话压缩线');
+  // 会话压缩线仍用同一判定函数，只是阈值不同。
+  assert.equal(shouldAutoCompact({ ratio: 0.85 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), true);
+  assert.equal(shouldAutoCompact({ ratio: 0.84 }, { ratio: SESSION_AUTO_COMPACT_RATIO }), false);
+});
+
+test('阈值只定义一次：contextUsage 的三个比例全部转发自 compactionPolicy', async () => {
+  // 三线整合前，0.8/0.85/0.7 在 contextUsage 与 compactionPolicy 各写一份——改一处忘另一处
+  // 会让提示条/自动压缩/记忆总结的触发点悄悄分叉。现在 compactionPolicy 是唯一来源。
+  const policy = await import('../src/chat/compactionPolicy.js');
+  assert.equal(AUTO_COMPACT_RATIO, policy.MEMORY_SUMMARY_RATIO, '同一常量对象，不是同值两份');
+  assert.equal(SESSION_AUTO_COMPACT_RATIO, policy.SESSION_AUTO_COMPACT_RATIO);
+  assert.equal(SESSION_COMPACT_HINT_RATIO, policy.SESSION_COMPACT_HINT_RATIO);
+  const source = readSource('src/chat/contextUsage.js');
+  // 断言「赋值形式」的字面量，而不是文件里出现的数字（注释里会提到这三个值）。
+  assert.equal(/=\s*0\.(?:7|85|8)\s*;/.test(source), false, '不得再出现第二份字面量');
 });
 
 test('ChatScreen：compact 指令拦截（可带关注点）与记忆总结的 80% 占用接线钉死在源码', () => {

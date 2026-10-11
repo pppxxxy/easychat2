@@ -93,3 +93,22 @@ test('端到端：真实分节结果经 Anthropic 转换后带缓存断点', () 
   assert.equal(body.system[0].cache_control.type, 'ephemeral');
   assert.ok(body.system[0].text.startsWith('你的名字是测试角色。'));
 });
+
+test('缓存合并（Z 稳定前缀 + D 骨架）：off 不打标；默认时 system 与 tools 断点共存', () => {
+  const messages = [
+    { role: 'system', content: 'P\n\nR', systemCache: { prefixText: 'P', restText: 'R' } },
+    { role: 'user', content: 'hi' },
+  ];
+  const tools = [{ type: 'function', function: { name: 't', description: '', parameters: {} } }];
+  // off：TTL 开关生效——system 前缀块不打标（网关不认这字段时的逃生舱）。
+  const off = buildRequestBody({
+    protocol: 'anthropic', model: 'm', messages, tools, config: { promptCacheTtl: 'off' },
+  });
+  assert.ok(Array.isArray(off.system));
+  assert.equal('cache_control' in off.system[0], false, 'off 时系统块不打标');
+  assert.equal('cache_control' in off.tools[off.tools.length - 1], false, 'off 时 tools 也不打标');
+  // 默认（5m）：system 稳定前缀块带 ephemeral，且 tools 尾也有断点（两套合并后共存）。
+  const on = buildRequestBody({ protocol: 'anthropic', model: 'm', messages, tools, config: {} });
+  assert.equal(on.system[0].cache_control.type, 'ephemeral', 'system 前缀断点（Z 稳定前缀）');
+  assert.equal(on.tools[on.tools.length - 1].cache_control.type, 'ephemeral', 'tools 尾断点（D 骨架）');
+});

@@ -7,14 +7,18 @@ import { Alert } from 'react-native';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { getWorkspaceSettings, patchWorkspaceSettings } from '../storage/workspace.js';
 import { pickWorkspaceFolder } from '../workspace/picker.js';
+import { resolveGitRunner } from '../workspace/native.js';
 
-export default function useWorkspaceSettings() {
+// characterId：沙盒是 root/<characterId>/，git 仓库要建在同一个沙盒里，所以初始化必须
+// 用与工具执行时（ctx.characterId）一致的角色 id。缺省 'default' 与旧调用点行为一致。
+export default function useWorkspaceSettings({ characterId = 'default' } = {}) {
   const { t } = useTranslation();
   const [workspaceMode, setWorkspaceMode] = useState('ask');
   const workspaceModeRef = useRef('ask');
   const [workspaceFolder, setWorkspaceFolder] = useState({ kind: 'app', uri: '', name: '' });
   const [commandExecution, setCommandExecution] = useState(false);
   const [pythonExecution, setPythonExecution] = useState(false);
+  const [localGit, setLocalGit] = useState(false);
   const [workspaceFolderBusy, setWorkspaceFolderBusy] = useState(false);
   // 异步保存（选文件夹 / 命令开关）回来时组件可能已卸载，setState 前先查这个 ref。
   const settingsMountedRef = useRef(true);
@@ -32,6 +36,7 @@ export default function useWorkspaceSettings() {
         setWorkspaceFolder(settings.location);
         setCommandExecution(settings.allowCommandExecution);
         setPythonExecution(settings.allowPythonExecution);
+        setLocalGit(settings.allowLocalGit);
       })
       .catch(() => {});
   }, []);
@@ -133,16 +138,57 @@ export default function useWorkspaceSettings() {
     );
   }, [t]);
 
+  // 本地版本控制开关（W7）。打开时**顺手把仓库建起来**：三个 git 只读工具不带副作用
+  //（readOnly 不能被「顺手 init」破坏），所以初始化只能发生在这个用户显式动作里。
+  // 初始化失败不翻开关——否则会留下「设置里显示已开启、工具却每次报没有仓库」的假状态。
+  const toggleLocalGit = useCallback((value) => {
+    const save = next => patchWorkspaceSettings({ allowLocalGit: next })
+      .then(saved => {
+        if (settingsMountedRef.current) setLocalGit(saved.allowLocalGit);
+        return saved;
+      })
+      .catch(() => {
+        Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
+        return null;
+      });
+    if (!value) {
+      save(false);
+      return;
+    }
+    Alert.alert(
+      t('settings.workspace.localGit.confirm.title'),
+      t('settings.workspace.localGit.confirm.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.workspace.localGit.confirm.ok'),
+          onPress: () => {
+            save(true).then(saved => {
+              if (!saved) return;
+              const runner = resolveGitRunner(saved);
+              if (!runner) return;
+              runner.ensureRepo({ characterId }).catch(() => {
+                Alert.alert(t('settings.workspace.localGit.initFailed.title'), t('settings.workspace.localGit.initFailed.body'));
+              });
+            });
+          },
+        },
+      ]
+    );
+  }, [characterId, t]);
+
   return {
     workspaceMode,
     workspaceFolder,
     commandExecution,
     pythonExecution,
+    localGit,
     workspaceFolderBusy,
     updateWorkspaceMode,
     chooseWorkspaceFolder,
     resetWorkspaceFolder,
     toggleCommandExecution,
     togglePythonExecution,
+    toggleLocalGit,
   };
 }

@@ -143,12 +143,13 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
   assert.ok(panel.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
   assert.ok(panel.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
-  // 进度条已抽成 PlanProgressBar（ChatPanel 卡在架构棘轮基线上，自成一体的部件先出去
-  // 才腾得出余量）：文案在组件里，宿主只负责接线与折叠状态。
-  const bar = fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8');
-  assert.ok(bar.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
-  assert.ok(panel.includes('<PlanProgressBar'), 'ChatPanel 接线到进度条组件');
-  assert.ok(panel.includes('setPlanCollapsed'), '可收起');
+  // W1 外提：进度条的渲染（含文案与折叠）搬去 AgentPlanPanel，ChatPanel 只负责把清单传下去。
+  const planPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
+  assert.ok(planPanel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  assert.ok(planPanel.includes('setCollapsed'), '可收起（折叠态归面板自己）');
+  const sidePanels = fs.readFileSync(path.resolve('src/workspace/screen/SessionSidePanels.js'), 'utf8');
+  assert.ok(sidePanels.includes('<AgentPlanPanel'), '装配层把清单传给计划面板');
+  assert.ok(panel.includes('<SessionSidePanels'), 'ChatPanel 通过装配层渲染');
   const clearCount = (panel.match(/setAgentPlan\(\[\]\)/g) || []).length;
   assert.ok(clearCount >= 2, '新对话与切对话两处都清空');
 
@@ -172,10 +173,18 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes('pendingPlanRun'), '批准走 state→effect 触发');
   assert.ok(screen.includes("handleSelectMode('write')"), '先切模式（持久化到存储）');
   assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
-  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）。
-  // 判据是「**是字符串**」而不是「非 undefined」：`onPress={handleSend}` 会把点击事件对象
-  // 当第一个实参传进来，按「非 undefined」判断会让工作区发什么都变成 "[object Object]"
-  //（见 resolveSendText 的注释与回归测试）。
+  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
   assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
-  assert.ok(fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8').includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  const approvalPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
+  assert.ok(approvalPanel.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  assert.ok(screen.includes('canApprove={canApprovePlan}'), 'ChatPanel 把批准判据传给装配层');
+  // 2026-10-10 回归：发送按钮是 onPress={handleSend}，RN 把点击事件对象当第一实参传进来。
+  // 旧判据「overrideText === undefined」认不出事件对象，String(事件) = "[object Object]"，
+  // 于是「工作区发啥都变成 [object Object]」。判据必须是「是不是字符串」。
+  assert.ok(screen.includes("typeof overrideText === 'string' ? overrideText : input"), '文本取用按类型判定');
+  assert.equal(
+    screen.includes('overrideText === undefined ? input : overrideText'),
+    false,
+    '不得退回「只判 undefined」的旧判据（会把点击事件对象当文本）'
+  );
 });

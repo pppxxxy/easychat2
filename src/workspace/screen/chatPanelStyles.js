@@ -194,6 +194,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   sendButtonDisabled: { opacity: 0.5 },
   stopButton: { backgroundColor: theme.colors.surfaceBorder },
+  // W1：压缩行（会话投影里的 compaction 行）用虚线描边区分于普通气泡。
+  bubbleCompaction: { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, borderStyle: 'dashed' },
 });
 
 

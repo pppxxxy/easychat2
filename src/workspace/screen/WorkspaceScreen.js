@@ -13,7 +13,7 @@
 // 不再出现跨面板的 Modal 叠 Modal。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, PanResponder, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Modal, PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
@@ -32,17 +32,20 @@ import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
 import TerminalPanel from './TerminalPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
+import GitHistoryPanel from './GitHistoryPanel.js';
 
 // 左栏宽度。**样式与两栏宽度解算共用同一个常量**——两处各写一个数，迟早会对不上
 //（改了样式忘了改解算，两栏之和就不再等于可用宽度）。
 const RAIL_WIDTH = 76;
 
-// 左栏五个领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub / 终端再次，设置最后。
+// 左栏领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub / 终端再次，历史（W7 本地 git）
+// 排在设置之前——它不属于「工具」，而是回看这几轮改了什么。设置始终最后。
 const DOMAIN_KEYS = [
   { id: 'chat', icon: 'chatbubbles-outline', labelKey: 'workspace.screen.rail.chat' },
   { id: 'files', icon: 'folder-outline', labelKey: 'workspace.screen.rail.files' },
   { id: 'github', icon: 'logo-github', labelKey: 'workspace.screen.rail.github' },
   { id: 'terminal', icon: 'terminal-outline', labelKey: 'workspace.screen.rail.terminal' },
+  { id: 'history', icon: 'time-outline', labelKey: 'workspace.screen.rail.history' },
   { id: 'settings', icon: 'settings-outline', labelKey: 'workspace.screen.rail.settings' },
 ];
 
@@ -150,19 +153,32 @@ export default function WorkspaceScreen({ visible, onClose }) {
   }), []);
 
   const renderChatPanel = () => (
-    <ChatPanel visible={visible} draft={draft} onOpenPanel={openFiles} />
+    <ChatPanel
+      visible={visible}
+      draft={draft}
+      onOpenPanel={openFiles}
+      onOpenHistory={() => setPanel('history')}
+    />
   );
   // 非对话领域。**不接收 onClose**：导航是屏幕的职责（左栏切领域 + 返回键按层级退）。
   const renderDomainPanel = id => (
     <>
       {id === 'files' ? (
-        <FilesPanel visible={visible} embedded initialSection={filesSection} />
+        <FilesPanel
+          visible={visible}
+          embedded
+          initialSection={filesSection}
+          onOpenHistory={() => setPanel('history')}
+        />
       ) : null}
       {id === 'github' ? (
         <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
       ) : null}
       {id === 'terminal' ? (
         <TerminalPanel characterId={characterId} />
+      ) : null}
+      {id === 'history' ? (
+        <GitHistoryPanel characterId={characterId} />
       ) : null}
       {id === 'settings' ? (
         <WorkspaceSettingsPanel characterId={characterId} />
@@ -186,7 +202,12 @@ export default function WorkspaceScreen({ visible, onClose }) {
         </View>
 
         <View style={styles.mainRow}>
-          <View style={styles.rail}>
+          {/* 领域排到六个，窄屏或大字号下可能超高——rail 自己滚，不裁掉最后一项。 */}
+          <ScrollView
+            style={styles.rail}
+            contentContainerStyle={styles.railContent}
+            showsVerticalScrollIndicator={false}
+          >
             {DOMAIN_KEYS.map(item => {
               const active = panel === item.id;
               return (
@@ -208,9 +229,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
                 </TouchableOpacity>
               );
             })}
-            {/* 预留位：后续领域（如终端）接在这里，不挤右侧内容区。 */}
+            {/* 弹性留白：领域已排满（六个），窄屏上靠 rail 自身滚动，不再往内容区挤。 */}
             <View style={styles.railSpacer} />
-          </View>
+          </ScrollView>
 
           <View style={styles.content}>
             {/* P1：宽屏两栏。窄屏**逐字不变**（下面的 else 分支就是原来的条件渲染）；
@@ -289,6 +310,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 4,
   },
   railLabelActive: { color: theme.colors.primary, fontWeight: '700' },
+  railContent: { paddingBottom: 12 },
   railSpacer: { flex: 1 },
   content: { flex: 1 },
   // P1：宽屏两栏。`paneHidden` 用于「宽屏 + 设置领域」——对话保持挂载（不丢草稿）但不参与布局。
