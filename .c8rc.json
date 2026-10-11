@@ -23,6 +23,7 @@
     "src/settings/useWorkspaceSettings.js",
     "src/settings/SamplingCard.js",
     "src/settings/settingsStyles.js",
+    "src/settings/CustomThemeModal.js",
     "src/settings/CollapsibleHint.js",
     "src/settings/SecretTextField.js",
     "src/settings/sections/AboutSection.js",
