@@ -272,6 +272,7 @@ export const settings = {
   'settings.inlineImage.size': 'Size (Width*Height)',
   'settings.inlineImage.maxPromptChars': 'Prompt Length Limit (characters)',
   'settings.inlineImage.keyNote': 'Keys are stored only on this device and shared with "Extensions → Image Generation".',
+  'settings.inlineImage.settings': 'Details',
   'settings.inlineImage.otherFeatures': 'Other features',
   'settings.global.title': 'Global Settings',
   'settings.global.presets': 'Global Presets / Memory Summary',
