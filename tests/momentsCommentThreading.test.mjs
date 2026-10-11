@@ -17,6 +17,7 @@ const read = (...segments) => readFileSync(path.join(HERE, '..', ...segments), '
 const MOMENTS_VIEW = read('src', 'MomentsView.js');
 const RUNNER = read('src', 'moments', 'commentRunner.js');
 const RUN_COMMENTS = read('src', 'moments', 'runUserMomentComments.js');
+const RUN_CHAR_REPLY = read('src', 'moments', 'runCharacterMomentReply.js');
 const REPLY = read('src', 'moments', 'momentReply.js');
 const STYLES = read('src', 'moments', 'momentsStyles.js');
 
@@ -28,20 +29,30 @@ test('后台评论任务不依赖 React：runner 里不得出现 react / react-n
   assert.ok(RUNNER.includes('export function subscribeCommentRunner'));
 });
 
+test('单条角色回复也不依赖 React 上下文：全部从存储读数据', () => {
+  assert.equal(/from 'react'/.test(RUN_CHAR_REPLY), false, '不得依赖 React');
+  assert.equal(/from 'react-native'/.test(RUN_CHAR_REPLY), false, '不得依赖 react-native');
+  assert.equal(RUN_CHAR_REPLY.includes('AppContext'), false, '不得依赖 AppContext');
+  // 角色卡 / 会话 / 预设 / 用户资料都从存储读
+  assert.ok(RUN_CHAR_REPLY.includes('getCharacterLibrary'));
+  assert.ok(RUN_CHAR_REPLY.includes('getSessions'));
+  assert.ok(RUN_CHAR_REPLY.includes('getEnabledGlobalPresetPrompts'));
+  assert.ok(RUN_CHAR_REPLY.includes('getUserProfile'));
+  assert.ok(RUN_CHAR_REPLY.includes('focusCommentId: focusId'));
+  assert.ok(RUN_CHAR_REPLY.includes('replyToId: focusId'));
+});
+
 test('用户发布动态：评论任务交给模块级 runner，而不是组件自己的 AbortController', () => {
   assert.ok(MOMENTS_VIEW.includes("from './moments/commentRunner.js'"), '应引入后台 runner');
   assert.ok(MOMENTS_VIEW.includes('startCommentTask(momentId'), '发布后应登记后台任务');
-  assert.ok(MOMENTS_VIEW.includes('stopCommentTask(id)'), '停止按钮应停后台任务');
+  assert.ok(MOMENTS_VIEW.includes('stopCommentTask(momentId)'), '停止按钮应停后台任务');
   assert.ok(MOMENTS_VIEW.includes('subscribeCommentRunner'), '应订阅任务状态');
   // 旧实现把 controller 挂在组件 ref 上，卸载即 abort —— 这正是「一退出就结束」的根因。
-  // 只查 submitPost 这一段：requestReply（角色自己动态的单条回复）仍用组件级 controller。
-  const start = MOMENTS_VIEW.indexOf('const submitPost = useCallback');
-  const end = MOMENTS_VIEW.indexOf('const renderItem = useCallback');
-  assert.ok(start > 0 && end > start, '找不到 submitPost');
-  const submitPost = MOMENTS_VIEW.slice(start, end);
-  assert.equal(submitPost.includes('new AbortController'), false, '发布动态不得再挂组件级 AbortController');
-  assert.equal(submitPost.includes('replyControllersRef.current.set'), false, '发布动态不得再挂组件级 controller');
-  assert.ok(submitPost.includes('startCommentTask'), '发布动态应改用后台 runner');
+  // 整个文件都不该再出现组件级回复簿记。
+  assert.equal(MOMENTS_VIEW.includes('new AbortController'), false, '不应再自建 AbortController');
+  assert.equal(MOMENTS_VIEW.includes('replyControllersRef'), false, '不应再有组件级 controller 表');
+  assert.equal(MOMENTS_VIEW.includes('pendingReplyRef'), false, '补发簿记应由 runner 队列取代');
+  assert.equal(MOMENTS_VIEW.includes('useApp()'), false, '回复所需数据改由存储读取，不再依赖上下文');
 });
 
 test('评论线程化：渲染走 flattenCommentThread，嵌套回复带「回复某人」小标', () => {
@@ -62,10 +73,16 @@ test('用户可对着具体评论回应：每条评论有「回复」入口，�
   assert.ok(MOMENTS_VIEW.includes('focusCommentId: comment.id'));
 });
 
-test('角色自己的动态：回复用户那条评论时挂到它下面（不再笼统回最新一条）', () => {
+test('角色自己的动态：回复用户那条评论时也交给后台 runner，并挂到它下面', () => {
   assert.ok(MOMENTS_VIEW.includes('requestReply(latest, comment.id)'), '应把用户评论 id 传下去');
-  assert.ok(MOMENTS_VIEW.includes('focusCommentId: String(focusCommentId'));
-  assert.ok(MOMENTS_VIEW.includes('...(focusCommentId ? { replyToId: String(focusCommentId) } : {})'));
+  assert.ok(MOMENTS_VIEW.includes('runCharacterMomentReply'), '应调用后台单条回复执行器');
+  // requestReply 本体：登记后台任务、带上 focus 评论、结果回调刷新
+  const start = MOMENTS_VIEW.indexOf('const requestReply = useCallback');
+  assert.ok(start > 0, '找不到 requestReply');
+  const body = MOMENTS_VIEW.slice(start, MOMENTS_VIEW.indexOf('const submitComment = useCallback'));
+  assert.ok(body.includes('startCommentTask(momentId'), '单条回复也应登记后台任务');
+  assert.ok(body.includes('commentId,'), '应把要回复的评论 id 交给执行器');
+  assert.ok(body.includes('onComment: refreshFromStorage'));
 });
 
 test('评论生成：用「回应用户」的提示词，并按「回复<名字>：」解析嵌套目标', () => {

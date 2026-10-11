@@ -11,20 +11,9 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EMPTY_REPLY_TEXT, getConfigFingerprint, isCanceledError, sendChatMessage } from './network/api.js';
-import { buildRequestMessages } from './prompt/chatPipeline.js';
-import { getEnabledGlobalPresetPrompts } from './storage/globalPresets.js';
-import { getApiConfigs } from './storage/apiConfigs.js';
-import { getMessagesBySession, getSessionSummaries } from './storage/sessions.js';
 import { getMoments, updateMoments } from './storage/moments.js';
-import { getUserProfile } from './storage/personas.js';
-import {
-  buildMomentMemoryText,
-  buildMomentReplyPrompt,
-  normalizeMomentReply,
-} from './moments/momentReply.js';
-import { buildMemorySummaryText, isBuiltinAssistant, isSessionScopedMemory } from './memory/memorySummary.js';
 import { runUserMomentComments } from './moments/runUserMomentComments.js';
+import { runCharacterMomentReply } from './moments/runCharacterMomentReply.js';
 import { flattenCommentThread } from './moments/commentThread.js';
 import {
   getCommentingIds,
@@ -33,14 +22,12 @@ import {
   subscribeCommentRunner,
 } from './moments/commentRunner.js';
 import { createMomentsStyles } from './moments/momentsStyles.js';
-import { useApp } from './context/AppContext.js';
 import ChapterModal from './books/ChapterModal.js';
 import { Card, EmptyState, TopicButton } from './ui/index.js';
 import PaneHeader from './ui/PaneHeader.js';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
-import { maskSecrets } from './storage/secrets.js';
 
 function formatTime(timestamp, t) {
   const value = Number(timestamp);
@@ -58,7 +45,6 @@ function formatTime(timestamp, t) {
 export default function MomentsView({ active = true }) {
   const navigation = useNavigation();
   const { theme, fonts, tokens } = useTheme();
-  const { characters, sessions } = useApp();
   const { t } = useTranslation();
   const styles = useMemo(() => createMomentsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [moments, setMoments] = useState([]);
@@ -66,10 +52,9 @@ export default function MomentsView({ active = true }) {
   const [postDraft, setPostDraft] = useState('');
   const [posting, setPosting] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState({});
-  // 用户对着哪条评论回应：{ [momentId]: { id, name } }。提交后清空。
+  // 用户对着哪条评论回应：{ [momentId]: { id, name, characterId } }。提交后清空。
   const [replyTargets, setReplyTargets] = useState({});
-  const [replying, setReplying] = useState([]);
-  // 后台评论任务（用户动态的角色评论）由模块级 runner 持有：退出界面也继续跑。
+  // 后台任务（用户动态的群评、角色动态的单条回复）由模块级 runner 持有：退出界面也继续跑。
   const [commentingIds, setCommentingIds] = useState(() => getCommentingIds());
   const [topic, setTopic] = useState(null);
   // 评论折叠：默认只显示「查看 N 条评论」，点击展开评论列表与输入框。
@@ -82,19 +67,7 @@ export default function MomentsView({ active = true }) {
       return next;
     });
   }, []);
-  const momentsRef = useRef(moments);
-  momentsRef.current = moments;
-  const charactersRef = useRef(characters);
-  charactersRef.current = characters;
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
-  const replyingRef = useRef(new Set());
-  // 回复进行中又提交了评论：记下来，等这次回复结束后再补一次，避免第二条评论没有回复。
-  const pendingReplyRef = useRef(new Set());
-  const requestReplyRef = useRef(null);
   const mountedRef = useRef(true);
-  // 每条动态的回复都挂一个 AbortController，支持用户中途停止，也会在组件卸载时统一中止。
-  const replyControllersRef = useRef(new Map());
 
   // 从存储重读动态列表（后台任务每写一条评论都会回调一次，让评论逐步出现）。
   const refreshFromStorage = useCallback(() => {
@@ -108,28 +81,12 @@ export default function MomentsView({ active = true }) {
 
   useEffect(() => {
     mountedRef.current = true;
-    const controllers = replyControllersRef.current;
     return () => {
       mountedRef.current = false;
-      pendingReplyRef.current.clear();
-      requestReplyRef.current = null;
-      controllers.forEach(controller => controller.abort());
-      controllers.clear();
-      replyingRef.current.clear();
     };
   }, []);
 
-  useEffect(() => {
-    if (active) return;
-    pendingReplyRef.current.clear();
-    requestReplyRef.current = null;
-    replyControllersRef.current.forEach(controller => controller.abort());
-    replyControllersRef.current.clear();
-    replyingRef.current.clear();
-    if (mountedRef.current) setReplying([]);
-  }, [active]);
-
-  // 订阅后台评论任务：任务增删时更新「正在评论」状态，并把结果从存储读回来。
+  // 订阅后台任务：任务增删时更新「正在评论 / 正在回复」状态，并把结果从存储读回来。
   // 后台任务不随本组件卸载中止（见 moments/commentRunner.js），所以离开再回来时
   // 结果早已落库；这里保证停留在页面上时也能看到新评论逐步出现。
   useEffect(() => {
@@ -194,15 +151,9 @@ export default function MomentsView({ active = true }) {
     }));
   }, [mutateMoments, t]);
 
-  // 停止某条动态正在进行的工作：中止组件内的单条回复请求，并停掉后台评论任务。
+  // 停止某条动态正在进行的后台任务（群评或单条回复）：中止当前请求并丢弃排队任务。
   const cancelReply = useCallback(momentId => {
-    const id = String(momentId || '');
-    // 用户显式停止：连待补发的那次也取消，不能停止后又被自动补发一次。
-    pendingReplyRef.current.delete(id);
-    const controller = replyControllersRef.current.get(id);
-    if (controller) controller.abort();
-    // 后台评论任务不挂在组件上（见 moments/commentRunner.js），必须单独停。
-    stopCommentTask(id);
+    stopCommentTask(momentId);
   }, []);
 
   const removeMoment = useCallback(moment => {
@@ -217,139 +168,32 @@ export default function MomentsView({ active = true }) {
         },
       },
     ]);
-  }, [cancelReply, moments, mutateMoments, t]);
+  }, [cancelReply, mutateMoments, t]);
 
-  const appendComment = useCallback((momentId, comment) => {
-    mutateMoments(list => list.map(item => (
-      item.id === momentId
-        ? { ...item, comments: [...(Array.isArray(item.comments) ? item.comments : []), comment] }
-        : item
-    )));
-  }, [mutateMoments]);
-
-  // 动态下的评论相当于一次“不写进记忆的对话”：角色依据这条动态来源的那段记忆来回复。
-  // 回复只写回动态评论，不写入会话消息，也不进入记忆摘要。
-  const requestReply = useCallback(async (moment, focusCommentId = '') => {
+  // 角色自己的动态：让发帖角色回复用户刚发的那条评论。
+  // 交给模块级 runner（与用户动态的群评同一套），退出动态页也会跑完并写库；
+  // 结果挂在那条用户评论下（replyToId），渲染成缩进的小标。
+  const requestReply = useCallback((moment, focusCommentId = '') => {
     const momentId = String((moment && moment.id) || '');
-    if (!momentId || !mountedRef.current) return;
-    // 已经在回复这条动态：记下来，等这次回复结束再补一次，别把新评论静默丢掉。
-    if (replyingRef.current.has(momentId)) {
-      pendingReplyRef.current.add(momentId);
-      return;
-    }
-    const character = charactersRef.current.find(item => item.id === moment.characterId);
-    if (!character) {
-      Alert.alert(t('moments.alert.noReply.title'), t('moments.alert.noReply.bodyMissing'));
-      return;
-    }
-    const controller = new AbortController();
-    replyControllersRef.current.set(momentId, controller);
-    replyingRef.current.add(momentId);
-    setReplying(current => (current.includes(momentId) ? current : [...current, momentId]));
-    try {
-      const sessionId = String(moment.sessionId || '');
-      const [summaries, messages, profile, presets, apiConfig] = await Promise.all([
-        sessionId ? getSessionSummaries(sessionId).catch(() => []) : [],
-        sessionId ? getMessagesBySession(sessionId).catch(() => []) : [],
-        getUserProfile().catch(() => null),
-        getEnabledGlobalPresetPrompts().catch(() => []),
-        getApiConfigs(),
-      ]);
-      if (controller.signal.aborted || !mountedRef.current) return;
-      const charName = String(moment.characterName || character.name || '').trim() || t('moments.default.characterName');
-      const userName = String((profile && profile.userName) || '').trim() || t('app.default.userName');
-      const latest = momentsRef.current.find(item => item.id === momentId) || moment;
-      // 提示词里必须能看到用户刚发的那条评论（focusCommentId），但 momentsRef 可能还没
-      // 追上这次更新（setState 尚未重渲染）。按 id 合并两份评论列表：既不缺刚发的，
-      // 也不丢等待期间新到的；Map 保序，重复 id 取先出现的那份。
-      const commentsById = new Map();
-      [
-        ...(Array.isArray(moment.comments) ? moment.comments : []),
-        ...(Array.isArray(latest.comments) ? latest.comments : []),
-      ].forEach(entry => {
-        if (entry && entry.id && !commentsById.has(String(entry.id))) {
-          commentsById.set(String(entry.id), entry);
-        }
-      });
-      const threadComments = [...commentsById.values()];
-      // 与聊天页同一口径：按“记忆是否按会话隔离”决定用会话摘要还是角色世界书记忆。
-      // 内置助手按会话级；来源会话计入判定，避免把角色卡旧记忆带进来。
-      const scoped = isBuiltinAssistant(character)
-        || isSessionScopedMemory(sessionsRef.current, character.id, undefined, sessionId);
-      const memoryText = buildMemorySummaryText(character, summaries, scoped)
-        || buildMomentMemoryText({ summaries, messages, charName, userName });
-      const prompt = buildMomentReplyPrompt({
-        moment: latest,
-        comments: threadComments,
-        memoryText,
-        charName,
-        userName,
-        focusCommentId: String(focusCommentId || ''),
-      });
-      const requestMessages = buildRequestMessages({
-        character,
-        historyMessages: [],
-        userText: prompt,
-        userProfile: profile || {},
-        globalPresets: presets,
-        // 记忆已经在 prompt 里说明过一次，这里不再重复注入摘要
-        summaryText: '',
-        memorySnippets: '',
-        pluginContext: '',
-        images: [],
-        quote: null,
-      });
-       const activeConfig = apiConfig.configs.find(item => item.id === apiConfig.activeId) || apiConfig.configs[0];
-       const raw = await sendChatMessage(requestMessages, {
-         stream: false,
-         signal: controller.signal,
-         expectedConfigId: String(activeConfig && activeConfig.id || ''),
-         expectedConfigFingerprint: activeConfig ? getConfigFingerprint(activeConfig) : '',
-       });
-      if (controller.signal.aborted || !mountedRef.current) return;
-      // 接口空响应会返回占位文本：那不是角色回复，不能写进动态。
-      if (String(raw || '').trim() === EMPTY_REPLY_TEXT) {
-        throw new Error(t('moments.error.noReply'));
-      }
-      const text = normalizeMomentReply(raw);
-      if (!text) throw new Error(t('moments.error.noReply'));
-      appendComment(momentId, {
-        id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        by: 'character',
-        name: charName,
-        text,
-        createdAt: Date.now(),
-        likedByCharacter: false,
-        // 回复的是用户某条评论时挂到它下面（渲染成小标）；否则是对动态本身的顶层评论。
-        ...(focusCommentId ? { replyToId: String(focusCommentId) } : {}),
-      });
-    } catch (error) {
-      if (!isCanceledError(error) && mountedRef.current) {
-        Alert.alert(t('moments.alert.noReply.title'), maskSecrets((error && error.message) || t('moments.alert.noReply.bodyRetry')));
-      }
-    } finally {
-      // 请求簿记必须同源同判：controller、replyingRef 与“正在回复”状态是同一次请求的三份记录。
-      // 只清理自己注册的那一次——旧请求的 finally 晚到时，新请求的标记不能被删掉，
-      // 否则 requestReply 开头的去重失效，同一动态会并发发起重复回复（重复扣费）。
-      const isLatestReply = replyControllersRef.current.get(momentId) === controller;
-      if (isLatestReply) {
-        replyControllersRef.current.delete(momentId);
-        replyingRef.current.delete(momentId);
-        if (mountedRef.current) {
-          setReplying(current => current.filter(id => id !== momentId));
-        }
-      }
-      if (isLatestReply && mountedRef.current) {
-        // 回复期间又来了评论：补一次回复（用最新动态，把新评论一并带上）。
-        if (pendingReplyRef.current.has(momentId)) {
-          pendingReplyRef.current.delete(momentId);
-          const latest = momentsRef.current.find(item => item.id === momentId);
-          if (latest && requestReplyRef.current) requestReplyRef.current(latest);
-        }
-      }
-    }
-  }, [appendComment, t]);
-  requestReplyRef.current = requestReply;
+    const commentId = String(focusCommentId || '');
+    if (!momentId || !commentId) return;
+    startCommentTask(momentId, ({ signal }) => runCharacterMomentReply({
+      momentId,
+      commentId,
+      signal,
+      onComment: refreshFromStorage,
+      onError: error => {
+        // 用户还在页面上时才提示；已经离开就不打扰（任务本身仍在后台跑完）。
+        if (!mountedRef.current) return;
+        Alert.alert(
+          t('moments.alert.noReply.title'),
+          String((error && error.message) || '') === 'moment-character-missing'
+            ? t('moments.alert.noReply.bodyMissing')
+            : t('moments.alert.noReply.bodyRetry')
+        );
+      },
+    }));
+  }, [refreshFromStorage, t]);
 
   const submitComment = useCallback(async moment => {
     const text = String(commentDrafts[moment.id] || '').trim();
@@ -563,7 +407,7 @@ export default function MomentsView({ active = true }) {
           )
         ) : null}
 
-        {replying.includes(item.id) || commentingIds.has(item.id) ? (
+        {commentingIds.has(item.id) ? (
           <View style={styles.replyPendingRow}>
             <Text style={styles.replyPending}>
               {item.authorType === 'user' ? t('moments.replying.commenting') : t('moments.replying.character', { name: item.characterName || t('moments.default.characterName') })}
@@ -616,7 +460,7 @@ export default function MomentsView({ active = true }) {
         ) : null}
       </Card>
     );
-  }, [cancelReply, commentingIds, commentDrafts, expandedComments, removeMoment, replying, replyTargets, styles, submitComment, t, theme.colors, toggleComments, toggleLike]);
+  }, [cancelReply, commentingIds, commentDrafts, expandedComments, removeMoment, replyTargets, styles, submitComment, t, theme.colors, toggleComments, toggleLike]);
 
   if (loaded && moments.length === 0) {
     return (
