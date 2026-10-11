@@ -121,8 +121,75 @@ test('内核：discard 可只作用于指定路径（单文件级撤销）', asy
   assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/b.txt`), 'b2\\n', 'b 不动');
 });
 
-test('内核：changedInCommit 报某次提交相对父提交的改动（首个提交全算新增）', async () => {
+// P1 回归（2026-10-11）：审计/快照文件不得进 git 变更集。
+//
+// 事故形态：`.easychat/sessions|file-history|rollback/` 在 git 眼里就是普通文件，
+// 没有提交时全是 untracked → `git_discard({all:true})` 一次 unlink 清空审计流与
+// 回滚基线（paths.js 明文声明写工具不得改写这些文件）；回合检查点 commitAll 又会
+// 把它们提交进历史。
+test('P1 回归：审计/快照文件不进 changedFiles，discard({all:true}) 之后仍在', async () => {
   const { fileSystem, workspaceGit } = setup();
+  await workspaceGit.init();
+  // 真实链路上这些目录由 store 的 ensureDirectory 建出来（memory FS 不替你建父目录，
+  // 不建的话 walkWorkdir 的 lstat 会 ENOENT 跳过整棵子树——测试就变成空跑）。
+  for (const dir of ['.easychat/sessions/', '.easychat/rollback/', '.easychat/file-history/']) {
+    await fileSystem.makeDirectoryAsync(`${ROOT}${CHARACTER}/${dir}`, { intermediates: true });
+  }
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/.easychat/sessions/s1.jsonl`, '{"event":"audit"}');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/.easychat/rollback/1.json`, '{"base":"x"}');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/.easychat/file-history/index.json`, '{"entries":[]}');
+
+  // 前置断言：这些文件确实被 walkWorkdir 看见了（否则下面的断言是空跑）
+  assert.equal((await workspaceGit.status()).some(row => row.path.startsWith('.easychat/')), true,
+    '前置条件：审计文件确实在 git 的工作区扫描范围内');
+
+  // 未提交时：审计文件不算 untracked，普通文件照旧算
+  const changed = await workspaceGit.changedFiles();
+  assert.deepEqual(changed.map(row => [row.path, row.status]), [['a.txt', 'untracked']],
+    '审计/快照文件不得出现在变更集里');
+
+  // 「丢弃全部改动」不能碰审计流与回滚基线
+  const result = await workspaceGit.discard();
+  assert.equal(result.removed, 1, '只删掉真正的新文件 a.txt');
+  assert.equal(
+    await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/.easychat/sessions/s1.jsonl`),
+    '{"event":"audit"}',
+    '事件流仍在'
+  );
+  assert.equal(
+    await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/.easychat/rollback/1.json`),
+    '{"base":"x"}',
+    '推送基线仍在'
+  );
+  assert.equal(
+    await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/.easychat/file-history/index.json`),
+    '{"entries":[]}',
+    '写前快照索引仍在'
+  );
+
+  // 显式按路径丢弃也不能绕过（filepaths 命中不了被过滤掉的行）
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/.easychat/sessions/s2.jsonl`, 'keep');
+  const scoped = await workspaceGit.discard({ filepaths: ['.easychat/sessions/s2.jsonl'] });
+  assert.equal(scoped.removed, 0, '按路径丢弃同样碰不到受保护文件');
+  assert.equal(await fileSystem.readAsStringAsync(`${ROOT}${CHARACTER}/.easychat/sessions/s2.jsonl`), 'keep');
+});
+
+test('P1 回归：回合检查点不把审计/快照文件提交进历史', async () => {
+  const { fileSystem, workspaceGit } = setup();
+  await workspaceGit.init();
+  await fileSystem.makeDirectoryAsync(`${ROOT}${CHARACTER}/.easychat/sessions/`, { intermediates: true });
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
+  await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/.easychat/sessions/s1.jsonl`, '{"event":"audit"}');
+  assert.equal((await workspaceGit.status()).some(row => row.path.startsWith('.easychat/')), true,
+    '前置条件：审计文件确实在扫描范围内');
+  const oid = await workspaceGit.commitAll('检查点');
+  assert.match(oid, /^[0-9a-f]{40}$/, '普通文件仍会被提交');
+  assert.deepEqual(await workspaceGit.changedInCommit(oid), [{ path: 'a.txt', status: 'added' }],
+    '提交里只有普通文件，审计流不混进项目历史');
+});
+
+test('内核：changedInCommit 报某次提交相对父提交的改动（首个提交全算新增）', async () => {  const { fileSystem, workspaceGit } = setup();
   await workspaceGit.init();
   await fileSystem.makeDirectoryAsync(`${ROOT}${CHARACTER}/sub/`, { intermediates: true });
   await fileSystem.writeAsStringAsync(`${ROOT}${CHARACTER}/a.txt`, 'v1');
