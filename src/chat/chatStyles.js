@@ -1,5 +1,4 @@
-// ChatScreen 的样式工厂。从 src/ChatScreen.js 原样外提（无行为变化）。
-// 被 ChatScreen、MessageBubble、ThinkingIndicator、ErrorBubble 共用。
+// ChatScreen 的样式工厂（从 src/ChatScreen.js 原样外提）：ChatScreen/MessageBubble/ThinkingIndicator/ErrorBubble 共用。
 
 import { StyleSheet } from 'react-native';
 
@@ -47,6 +46,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   compactHintIcon: {
     marginRight: 6,
   },
+  compactHintStopped: { backgroundColor: theme.colors.dangerAlpha(0.12) }, // 自动压缩已停：危险色区别于「建议压缩」
   compactHintText: {
     flex: 1,
     color: theme.colors.text,

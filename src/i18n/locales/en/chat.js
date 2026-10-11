@@ -415,6 +415,7 @@ export const chat = {
   'chat.compact.hint': 'Context {percent}% used — compact to save tokens and cost',
   'chat.compact.action': 'Compact',
   'chat.compact.dismiss': 'Dismiss hint',
+  'chat.compact.stopped': 'Auto-compaction failed {count} times in a row and stopped — compact manually, or the next request may exceed the context window',
   'chat.compact.focus.title': 'Compact conversation',
   'chat.compact.focus.hint': 'Optionally say what to keep this time (e.g. “keep the raw error text and open questions”). It is added to the summary prompt as an extra requirement; leaving it empty is a plain compaction.',
   'chat.compact.focus.placeholder': 'Focus (optional)',

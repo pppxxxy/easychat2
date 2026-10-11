@@ -93,3 +93,13 @@ export function shouldCompactAnyRule({ bytes = 0, tokens = 0, byteThreshold = 0,
 export function shouldStopAutoCompact(failures) {
   return Number(failures) >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES;
 }
+
+// 「自动压缩已停」提示条该不该出现：连续失败达上限、**且**上下文仍高于提示线。
+// 高于提示线才有意义——用户手动压缩成功后占用回落，提示应当自然消失（不用手动关）。
+// 抽成纯函数便于直测：hook 本体要 React 渲染器才能测。
+export function shouldWarnAutoCompactStopped({ failures = 0, ratio = 0, hintRatio = SESSION_COMPACT_HINT_RATIO } = {}) {
+  if (!shouldStopAutoCompact(failures)) return false;
+  const line = Number(hintRatio);
+  const value = Number(ratio);
+  return Number.isFinite(line) && Number.isFinite(value) && value >= line;
+}

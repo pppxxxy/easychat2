@@ -8,12 +8,14 @@
 // 只在空闲时触发（不在发送路径上做），避免「压缩替换消息」与「发送读消息」的时序竞态；
 // 同一消息条数只尝试一次。
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  SESSION_COMPACT_HINT_RATIO,
   resolveAutoCompactPolicy,
   shouldCompactAnyRule,
   shouldStopAutoCompact,
+  shouldWarnAutoCompactStopped,
 } from './compactionPolicy.js';
 
 export default function useAutoCompact({
@@ -28,6 +30,8 @@ export default function useAutoCompact({
   // 字节口径（AsyncStorage 落盘上限）：由调用方用 compactionStatus 算好传进来。
   byteSize = 0,
   byteThreshold = 0,
+  // 「建议压缩」提示线：连续失败到上限后据此决定要不要挂「已停」提示条。
+  hintRatio = SESSION_COMPACT_HINT_RATIO,
 }) {
   const policy = useMemo(
     () => resolveAutoCompactPolicy({
@@ -38,6 +42,9 @@ export default function useAutoCompact({
   );
   const attemptRef = useRef(-1);
   const failuresRef = useRef(0);
+  // 连续失败次数提升为 state：达上限（shouldStopAutoCompact）后本 hook 会**静默放弃**，
+  // 用户看不到这件事就只能一路用到上下文超限才撞报错。宿主据此挂一条可见提示条。
+  const [failures, setFailures] = useState(0);
 
   useEffect(() => {
     if (enabled === false) return;
@@ -53,11 +60,25 @@ export default function useAutoCompact({
     if (attemptRef.current === messages.length) return;
     attemptRef.current = messages.length;
     Promise.resolve(onCompact({ silent: true })).then(
-      result => { failuresRef.current = result && result.ok === false ? failuresRef.current + 1 : 0; },
-      () => { failuresRef.current += 1; }
+      result => {
+        failuresRef.current = result && result.ok === false ? failuresRef.current + 1 : 0;
+        setFailures(failuresRef.current);
+      },
+      () => {
+        failuresRef.current += 1;
+        setFailures(failuresRef.current);
+      }
     );
   }, [
     enabled, contextUsage.tokens, policy, isSending, messages.length,
     byteSize, byteThreshold, compactBusyRef, onCompact,
   ]);
+
+  return {
+    failures,
+    stopped: shouldStopAutoCompact(failures),
+    // 已停 + 占用仍高 → 宿主必须让用户看见（此前是静默 return，用户零反馈，
+    // 直到后续请求撞上下文超限才报错）。
+    stoppedNotice: shouldWarnAutoCompactStopped({ failures, ratio: contextUsage.ratio, hintRatio }),
+  };
 }

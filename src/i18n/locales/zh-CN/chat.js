@@ -416,6 +416,7 @@ export const chat = {
   'chat.compact.hint': '上下文已用 {percent}%，建议压缩以省 token 与费用',
   'chat.compact.action': '压缩',
   'chat.compact.dismiss': '忽略提示',
+  'chat.compact.stopped': '自动压缩已连续失败 {count} 次并停止，请手动压缩（否则下次请求可能超出上下文）',
   'chat.compact.focus.title': '压缩会话',
   'chat.compact.focus.hint': '可以写一句「这次要特别保留什么」（如「保留报错原文与未决问题」），会作为额外要求加进总结提示词；留空就是普通压缩。',
   'chat.compact.focus.placeholder': '关注点（可留空）',
