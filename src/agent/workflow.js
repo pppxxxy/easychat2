@@ -59,6 +59,20 @@ export function planWorkflow(steps) {
   return { ok: true, waves, order: waves.flat(), errors: [] };
 }
 
+// 结果表：**无原型对象**。键是 `step.id`，而 id 是模型给的（用户可控的任意字符串），
+// 普通对象字面量会让 `Object.prototype` 参与进来：
+//   · `id: '__proto__'` → `results['__proto__'] = 结论` 走的是原型 setter，
+//     字符串值不是对象，赋值被**静默丢弃**；随后读 `results['__proto__']` 拿到的是
+//     `Object.prototype`，被 `String(x || '')` 拼成 `[object Object]` —— 该步骤的结论无声消失，
+//     合并结果里变成一段乱码；
+//   · 同理，`dependsOn: ['__proto__']` 会把 `[object Object]` 拼进下一步的 task，
+//     污染模型输入（`dependsOn: ['constructor']` 这类未赋值的原型键同理会取到 Object 构造函数）。
+// 无原型对象让「任意字符串 id」都只是一个普通键，从根上消掉这一类问题。
+// （2026-10-11 逐行审查 P1-1。）
+function newResultTable() {
+  return Object.create(null);
+}
+
 // 执行：按层跑，层内并发受限；runStep(step) 由调用方注入（返回结论字符串）。
 // 有依赖的步骤，其 task 会拼上前置结论。返回 { ok, results: { id: text }, order, errors }。
 export async function runWorkflow({
@@ -70,11 +84,11 @@ export async function runWorkflow({
 } = {}) {
   const list = normalizeWorkflowSteps(steps);
   const plan = planWorkflow(list);
-  if (!plan.ok) return { ok: false, results: {}, order: [], errors: plan.errors };
-  if (typeof runStep !== 'function') return { ok: false, results: {}, order: [], errors: ['缺少步骤执行器'] };
+  if (!plan.ok) return { ok: false, results: newResultTable(), order: [], errors: plan.errors };
+  if (typeof runStep !== 'function') return { ok: false, results: newResultTable(), order: [], errors: ['缺少步骤执行器'] };
 
   const byId = new Map(list.map(step => [step.id, step]));
-  const results = {};
+  const results = newResultTable();
   for (const wave of plan.waves) {
     if (signal && signal.aborted) break;
     const waveResults = await mapWithConcurrency(wave, concurrency, async id => {
