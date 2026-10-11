@@ -36,6 +36,7 @@ import { runDiaryIfNewDay } from './src/diary/diaryStartup.js';
 // 定时 Agent 任务：import 即注册无界面（Headless JS）任务，供 App 被杀时原生唤起执行。
 import './src/agent/task/headless.js';
 import { startAgentTaskScheduler } from './src/agent/task/agentTaskScheduler.js';
+import { startAutoBackupScheduler } from './src/backup/autoBackupScheduler.js';
 import {
   ackPendingMessages,
   addOpenRoleListener,
@@ -362,6 +363,18 @@ function AgentTaskStartup() {
     });
     return () => { stop(); };
   }, [loaded, refreshAppData]);
+  return null;
+}
+
+// 自动备份：启动/回前台按间隔到期检查，切后台时按「退出时备份」开关触发一次。
+// 与 UI 无关，挂载即启动；是否真的备份由设置决定（scheduler 内部读设置判定）。
+function AutoBackupStartup() {
+  const { loaded } = useApp();
+  useEffect(() => {
+    if (!loaded) return undefined;
+    const stop = startAutoBackupScheduler();
+    return () => { stop(); };
+  }, [loaded]);
   return null;
 }
 
@@ -700,6 +713,7 @@ export default function App() {
                 {startupReady ? <DiaryStartup /> : null}
                 {startupReady ? <DownloadQueueStartup /> : null}
                 {startupReady ? <AgentTaskStartup /> : null}
+                {startupReady ? <AutoBackupStartup /> : null}
                 <StartupFlow onReady={handleStartupReady} />
               </AppProvider>
             </I18nProvider>

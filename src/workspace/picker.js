@@ -73,3 +73,7 @@ export async function pickWorkspaceFolder() {
     throw error;
   }
 }
+
+// 通用目录选择器：工作区根与自动备份目标共用同一实现（名字带 workspace 是历史原因，
+// 行为与可用性判定完全一致）。新调用方用 pickDirectory 更贴切。
+export const pickDirectory = pickWorkspaceFolder;
