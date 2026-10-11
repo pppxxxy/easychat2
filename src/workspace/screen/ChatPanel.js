@@ -59,11 +59,8 @@ import {
 import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
 import { resolveAutoCompactPolicy } from '../../chat/compactionPolicy.js';
 import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
-import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
-import { messageTextOf } from '../../chat/messageText.js';
-import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
-import { buildReactiveCompactDeps } from '../../chat/sessionCompaction.js';
+import { buildReactiveCompactDeps, buildSessionCompactionDeps } from '../../chat/sessionCompaction.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
 // P0：工具过程卡片（模型是纯函数，组件只管渲染）——替代原先一行会闪过的 toolStatus。
 import { applyToolEvent, traceCardsForMessage } from '../../chat/toolCardView.js';
@@ -72,7 +69,6 @@ import ToolCardList from './ToolCardList.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
 import PlanProgressBar from './PlanProgressBar.js';
-import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
 import { resolveTranscription, transcribeAudio } from '../../transcription.js';
@@ -460,23 +456,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null }) {
       const autoRatio = windowSize > 0 ? policy.thresholdTokens / windowSize : AUTO_COMPACT_RATIO;
       const chatId = activeChatIdRef.current;
       const ownerId = characterIdRef.current;
+      // deps 换用 Z 线自己写的 buildSessionCompactionDeps（P1-7）：原先这里**内联**了一份
+      // 五项装配（estimateRatio / summarize / writeTranscript / retainTokens / estimateTokens），
+      // 与那个函数逐字相同——两份近似代码的下场必然是「只改一处」（本次合并里
+      // estimateTokens 的正文口径、minMessages 的键名就都踩过）。宿主侧装配只留一处。
       const result = await runCompactionPipeline(list, {
         autoRatio: silent ? autoRatio : 0,
-        deps: {
-          estimateRatio: msgs => computeContextUsage(msgs, windowSize).ratio,
+        deps: buildSessionCompactionDeps({
+          windowSize,
+          store: storeRef.current,
+          characterId: ownerId,
           summarize: request => sendChatMessage(request, {
             stream: false,
             expectedConfigId: String(current.id || ''),
             expectedConfigFingerprint: getConfigFingerprint(current),
           }),
-          writeTranscript: jsonl => writeTranscript({ store: storeRef.current, characterId: ownerId, content: jsonl }),
-          // P4：保留量按 token 预算（窗口的 16%，对齐 dsh retainRatio），下限仍是 6 条。
-          retainTokens: Math.max(0, Math.floor(windowSize * COMPACTION_RETAIN_RATIO)),
-          estimateTokens: msg => estimateMessagesTokens([{
-            role: msg && msg.role,
-            content: messageTextOf(msg),
-          }]),
-        },
+        }),
       });
       if (result.applied.length > 0 && result.messages !== list) {
         if (mountedRef.current) setMessages(result.messages);
