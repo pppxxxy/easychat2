@@ -222,3 +222,39 @@ test('P4：applyCompactionWithAuthority 传 retainTokens 时按 token 保留尾�
   assert.match(String(out[0].content), /历史摘要/);
   assert.deepEqual(out.slice(1).map(m => String(m.content)[0]), ['c', 'd']);
 });
+
+// 回归 2026-10-11 审查 P0-4：管线的 L2 原先读 `d.retainMinMessages`，而宿主
+// （chat/sessionCompaction.js 的 buildSessionCompactionDeps）写的是 `minMessages`——
+// 全仓没有第二处定义 retainMinMessages，于是下限永远退化到默认 6 条。
+// 既有测试只断言「deps 里有 minMessages 这个键」，从没断言**管线真的用了它**，所以漏过了。
+// 这条测试必须走完整管线（不是直接调 applyCompactionWithAuthority），否则测不到键名。
+test('回归 P0-4：管线真的用了 deps.minMessages——传 0 就一条都不保留', async () => {
+  const messages = [
+    { role: 'user', content: 'a'.repeat(100) },
+    { role: 'assistant', content: 'b'.repeat(100) },
+    { role: 'user', content: 'c'.repeat(100) },
+    { role: 'assistant', content: 'd'.repeat(100) },
+  ];
+  const est = m => String(m.content || '').length; // 每条 100 token
+  const base = {
+    estimateRatio: () => 0.9, // 始终高压 → 走到 L2
+    summarize: async () => '已完成：无\n关键决策与发现：无\n未完成与下一步：无',
+    estimateTokens: est,
+    // 预算 1 < 单条 100：**预算本身一条都装不下**，所以「保留几条」完全由下限决定——
+    // 这正是能把 minMessages 单独拎出来验证的形状（预算够宽时下限不参与判定）。
+    retainTokens: 1,
+  };
+  const zero = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, minMessages: 0 } });
+  assert.deepEqual(zero.applied, ['L2']);
+  assert.equal(zero.messages.length, 1, 'minMessages: 0 → 只留摘要消息，0 条原文');
+
+  // 下限真的是「下限」：同一个预算下 minMessages: 2 → 至少留 2 条。
+  const two = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, minMessages: 2 } });
+  assert.equal(two.messages.length, 3, 'minMessages: 2 → 摘要 + 2 条原文');
+
+  // 键名写错（旧 bug 的形状：管线读的键和宿主写的键不是同一个）→ 下限退回默认 6 条，
+  // 于是「一条都装不下」的预算反而全保留。这条钉住「键名必须与宿主一致」：
+  // 写错的后果不是报错，而是**静默变成默认值**，所以测试必须盯真实键名。
+  const typo = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, retainMinMessages: 0 } });
+  assert.equal(typo.messages.length, 5, '键名写错 → 下限退回默认 6，4 条原文全部保留（= 旧 bug 的现象）');
+});

@@ -184,6 +184,10 @@ export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
 //   clear(messages) -> Promise<{ messages, changed }>    （L1，宿主包 K1）
 //   summarize(requestMessages) -> Promise<string>        （L2）
 //   writeTranscript(jsonl) -> Promise<{ path } | null>   （L3）
+//   retainTokens: number + estimateTokens(msg) -> number + minMessages: number
+//     —— L2 尾部保留量（按 token 预算，minMessages 是下限条数）。**键名以本注释为准**：
+//        宿主 buildSessionCompactionDeps 写的就是这三个名字（P0-4 之前这里读错过一个键，
+//        见下面 L2 处的说明）。P2 的 assertCompactionDeps 会在收到未知键时直接抛。
 export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus = '', deps = {} } = {}) {
   const d = deps || {};
   const ratioOf = typeof d.estimateRatio === 'function' ? d.estimateRatio : () => 0;
@@ -246,7 +250,12 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
       current = applyCompactionWithAuthority(current, summary, {
         transcriptPath,
         retainTokens: d.retainTokens,
-        minMessages: d.retainMinMessages,
+        // 键名与宿主（chat/sessionCompaction.js 的 buildSessionCompactionDeps）一致：`minMessages`。
+        // 2026-10-11 审查 P0-4：这里原先读 `d.retainMinMessages`，而全仓**没有任何地方写这个键**
+        // （宿主的保留下限一直叫 minMessages）→ 下限永远是 applyCompactionWithAuthority 的默认 6，
+        // 「按 token 预算保留、下限 N 条」里的 N 静默失效。既有测试只断言 deps 里有 minMessages
+        // 这个键，从没断言管线真的用了它，所以门禁全绿而 bug 在。
+        minMessages: d.minMessages,
         estimateTokens: d.estimateTokens,
       });
     }
