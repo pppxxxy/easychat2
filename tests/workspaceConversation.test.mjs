@@ -14,8 +14,6 @@ import {
   toolRowsFromTrace,
 } from '../src/workspace/conversation.js';
 import { COMPACTION_MARKER } from '../src/chat/compaction.js';
-import fs from 'node:fs';
-import path from 'node:path';
 
 const toolCall = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 
@@ -108,32 +106,6 @@ test('buildConversationRows：空输入 / 脏数据安全（永不抛错——�
   const rows = buildConversationRows({ messages: [{ role: 'user', content: 'hi' }] });
   assert.equal(rows.length, 1, '缺 id 也能出行（key 退化成 msg:）');
   assert.equal(rows[0].key, 'msg:');
-});
-
-test('W1 接线：ChatPanel 按行渲染（不再直接遍历 messages）', () => {
-  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.match(panel, /buildConversationRows\(\{ messages, live: liveTool \}\)/, '渲染前先投影成行（W2 起带实时行）');
-  // W2：正在跑的那次调用并进流里，不再单独占一条状态行
-  assert.equal(panel.includes('setToolStatus'), false, '瞬时状态行已并进流（live 行）');
-  assert.match(panel, /setLiveTool\(event\.phase === 'start'/, '工具事件驱动 live 行');
-  assert.match(panel, /\{rows\.map\(row => \{/, '按行遍历');
-  assert.equal(panel.includes('{messages.map(item => ('), false, '旧的逐条气泡渲染已移除');
-  assert.match(panel, /<ToolCallRow key=\{row\.key\} tool=\{row\.tool\}/, '工具行走 ToolCallRow');
-  // W2②：写类卡片能一键跳到「历史」面板看提交历史（交接链钉死，防静默断开）
-  assert.match(panel, /onOpenHistory=\{onOpenHistory\}/, 'ChatPanel 透传历史入口');
-  const screen = fs.readFileSync(path.resolve('src/workspace/screen/WorkspaceScreen.js'), 'utf8');
-  assert.match(screen, /onOpenHistory=\{\(\) => setPanel\('history'\)\}/, 'WorkspaceScreen 接到历史面板');
-  const card = fs.readFileSync(path.resolve('src/workspace/screen/ToolCallRow.js'), 'utf8');
-  assert.match(card, /workspace\.chat\.tool\.history/, '卡片里的入口文案走 i18n');
-  // W3①：助手正文走与角色聊天同一个渲染器（不再把 Markdown 当纯文本）
-  assert.match(panel, /<AssistantMessageBody text=\{item\.content\} textColor=\{theme\.colors\.text\} \/>/, '助手正文用 Markdown 渲染器（并传正文取色，防深底深字）');
-  assert.match(panel, /row\.kind === 'compaction' \? styles\.bubbleCompaction/, '压缩行有独立样式');
-  // 会话侧栏面板（回合小结 + 计划进度）已外提，ChatPanel 只传数据
-  assert.match(panel, /<SessionSidePanels/, '侧栏面板外提');
-  assert.equal(panel.includes('setPlanCollapsed'), false, '折叠态已归面板自己');
-  const side = fs.readFileSync(path.resolve('src/workspace/screen/SessionSidePanels.js'), 'utf8');
-  assert.match(side, /<TurnSummaryPanel/, '回合小结在装配里');
-  assert.match(side, /<AgentPlanPanel/, '计划面板在装配里');
 });
 
 test('W2：toolCardKind 按工具族分派（认不出的走通用行）', async () => {

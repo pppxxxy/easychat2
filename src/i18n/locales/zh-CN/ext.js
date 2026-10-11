@@ -39,6 +39,8 @@ export const ext = {
   'ext.home.diary.desc': '角色为你和它的对话写日记',
   'ext.home.screen': '屏幕注视',
   'ext.home.screen.desc': '截屏让角色看看并聊聊',
+  'ext.home.plugins': '插件',
+  'ext.home.plugins.desc': '安装 / 卸载插件，扩展工具与界面',
   'ext.home.music': '音乐',
   'ext.home.music.desc': '导入本地音乐，和角色一起听',
   'ext.home.music.summary': '{count} 首',

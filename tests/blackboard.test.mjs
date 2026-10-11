@@ -93,7 +93,7 @@ test('黑板播种与序列化：serialize → createBlackboard({ initial }) 往
   first.post({ topic: '结论', from: 'task-2', text: 'B' });
   first.post({ topic: '风险', text: 'C' });
   const data = first.serialize();
-  assert.equal(data.version, 1);
+  assert.equal(data.version, 2);
   const second = createBlackboard({ initial: data });
   assert.deepEqual(second.topics(), ['结论', '风险']);
   assert.equal(second.read({ topic: '结论' }).messages.length, 2);

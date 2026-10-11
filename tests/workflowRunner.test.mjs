@@ -41,7 +41,7 @@ test('agent 档案收窄工具集（步骤写 agent 时不再被忽略）', asyn
     store, characterId: 'c', steps: [{ id: 'a', task: 'x', agent: 'narrow' }], stream,
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(captured[0], ['board_post', 'board_read', 'read_workspace_file']);
+  assert.deepEqual(captured[0], ['board_inbox', 'board_post', 'board_read', 'board_send', 'board_task', 'read_workspace_file']);
 });
 
 test('黑板跨步骤共享：前一步 board_post 的内容，后一步 board_read 读得到', async () => {

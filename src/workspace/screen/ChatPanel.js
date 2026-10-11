@@ -85,7 +85,7 @@ import useChatRecorder from '../../chat/useChatRecorder.js';
 import { readWorkspaceAgents } from '../agents.js';
 import { installSampleTeams, readWorkspaceTeams } from '../teams.js';
 import { clearPersistentBlackboard, loadPersistentBlackboard } from '../boardStore.js';
-import { boardTopics } from '../../agent/blackboard.js';
+import { boardTopics, boardTasks } from '../../agent/blackboard.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createSteeringQueue } from '../../agent/steering.js';
 import {
@@ -194,6 +194,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   const [workspaceTeams, setWorkspaceTeams] = useState([]);
   // 团队记忆（跨会话黑板）快照（设置面板展示用；清空后置空）。
   const [boardSnapshot, setBoardSnapshot] = useState([]);
+  // 任务看板快照（board_task 的分工清单）：与 boardSnapshot 同一份黑板，展示用。
+  const [boardTaskSnapshot, setBoardTaskSnapshot] = useState([]);
   // A5 会话级已读登记：read 工具写入、每轮注入「本会话已读」一行；切对话即清
   //（「本会话」的语义边界）。懒初始化——ref 只需要一个稳定实例，不参与渲染。
   const readLogRef = useRef(null);
@@ -536,7 +538,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       .catch(() => {});
     loadPersistentBlackboard(storeRef.current, characterId)
       .then(board => {
-        if (alive) setBoardSnapshot(boardTopics(board));
+        if (alive) { setBoardSnapshot(boardTopics(board)); setBoardTaskSnapshot(boardTasks(board)); }
       })
       .catch(() => {});
     return () => {
@@ -848,7 +850,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           style: 'destructive',
           onPress: () => {
             clearPersistentBlackboard(storeRef.current, characterId)
-              .then(() => setBoardSnapshot([]))
+              .then(() => { setBoardSnapshot([]); setBoardTaskSnapshot([]); })
               .catch(() => {});
           },
         },
@@ -1552,6 +1554,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                   teams={workspaceTeams}
                   onInstallSampleTeams={handleInstallSampleTeams}
                   boardTopics={boardSnapshot}
+                  boardTasks={boardTaskSnapshot}
                   onClearBoard={handleClearBoard}
                   commands={workspaceCommands}
                   onInstallSampleCommands={handleInstallSampleCommands}

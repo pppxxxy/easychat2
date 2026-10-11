@@ -1,0 +1,194 @@
+// 插件面板（PluginPanel）——差距 #2「插件化运行时」的用户界面。
+//
+// 三件事：① 列出已安装插件（可卸载）；② 内置市场（一键安装）；③ 演示「可注册 UI」——
+// 把已安装插件贡献的 `settings.row` 槽位渲染出来（PluginSlot）。
+//
+// 自包含：进来自己读工作区设置、建沙盒 store、加载插件运行时（与工作区面板同款 bootstrapping）。
+// 插件落盘 `.easychat/plugins.json`；沙盒执行见 plugins/sandbox.js（能力受限，诚实边界见其文件头）。
+//
+// 说明：RN UI 文件，已登记进 .c8rc.json 排除。
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
+
+import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/I18nContext.js';
+import { getWorkspaceSettings } from '../storage/workspace.js';
+import { createWorkspaceStore } from '../workspace/native.js';
+import {
+  loadPluginRuntime,
+  installPlugin,
+  uninstallPlugin,
+  listMarket,
+} from '../workspace/plugins/index.js';
+import PluginSlot from '../workspace/screen/PluginSlot.js';
+
+export default function WorkspacePluginsPanel() {
+  const { theme, fonts, tokens } = useTheme();
+  const { t } = useTranslation();
+  const navigation = useNavigation();
+  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+
+  const [store, setStore] = useState(null);
+  const [runtime, setRuntime] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const mountedRef = React.useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const reload = useCallback(async activeStore => {
+    if (!activeStore) return;
+    const capabilities = {
+      read: path => activeStore.readWorkspaceFile({ path }),
+      write: (path, content) => activeStore.writeWorkspaceFile({ path, content }),
+    };
+    const next = await loadPluginRuntime({ store: activeStore, capabilities });
+    if (mountedRef.current) setRuntime(next);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const settings = await getWorkspaceSettings();
+        const created = createWorkspaceStore(settings);
+        if (!alive) return;
+        setStore(created);
+        await reload(created);
+      } catch (error) {
+        if (alive) setRuntime(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [reload]);
+
+  const installed = (runtime && runtime.plugins) || [];
+  const installedIds = new Set(installed.map(item => item.id));
+
+  const handleInstall = useCallback(async item => {
+    if (busy || !store) return;
+    setBusy(true);
+    try {
+      const result = await installPlugin({ store, manifest: item.manifest });
+      if (!result.ok) {
+        Alert.alert(t('workspace.plugins.installFailTitle'), String(result.error || ''));
+        return;
+      }
+      await reload(store);
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
+  }, [busy, store, reload, t]);
+
+  const handleUninstall = useCallback(async plugin => {
+    if (busy || !store) return;
+    setBusy(true);
+    try {
+      const result = await uninstallPlugin({ store, id: plugin.id });
+      if (!result.ok) {
+        Alert.alert(t('workspace.plugins.uninstallFailTitle'), String(result.error || ''));
+        return;
+      }
+      await reload(store);
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
+  }, [busy, store, reload, t]);
+
+  const market = listMarket();
+  const slotRows = runtime && runtime.registry ? runtime.registry.render('settings.row') : [];
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.back} onPress={() => navigation.goBack()} hitSlop={8}>
+          <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.title}>{t('workspace.plugins.title')}</Text>
+        <View style={styles.back} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.body}>
+        <Text style={styles.hint}>{t('workspace.plugins.hint')}</Text>
+
+        <Text style={styles.section}>{t('workspace.plugins.installed')}</Text>
+        {installed.length === 0 ? (
+          <Text style={styles.empty}>{t('workspace.plugins.none')}</Text>
+        ) : installed.map(plugin => (
+          <View key={plugin.id} style={styles.card}>
+            <View style={styles.cardHead}>
+              <Text style={styles.cardTitle} numberOfLines={1}>{plugin.name || plugin.id}</Text>
+              <TouchableOpacity onPress={() => handleUninstall(plugin)} disabled={busy} hitSlop={6}>
+                <Text style={styles.remove}>{t('workspace.plugins.uninstall')}</Text>
+              </TouchableOpacity>
+            </View>
+            {plugin.description ? <Text style={styles.cardDesc}>{plugin.description}</Text> : null}
+            <Text style={styles.cardMeta}>
+              {t('workspace.plugins.meta', { slots: plugin.slots.length, tools: plugin.tools.length })}
+            </Text>
+          </View>
+        ))}
+
+        {slotRows.length > 0 ? (
+          <>
+            <Text style={styles.section}>{t('workspace.plugins.slotDemo')}</Text>
+            <PluginSlot kind="settings.row" contributions={slotRows} />
+          </>
+        ) : null}
+
+        <Text style={styles.section}>{t('workspace.plugins.market')}</Text>
+        {market.map(item => {
+          const isInstalled = installedIds.has(item.id);
+          return (
+            <View key={item.id} style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
+                <TouchableOpacity
+                  onPress={() => handleInstall(item)}
+                  disabled={busy || isInstalled}
+                  hitSlop={6}
+                >
+                  <Text style={[styles.install, isInstalled && styles.installDone]}>
+                    {isInstalled ? t('workspace.plugins.installedTag') : t('workspace.plugins.install')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.cardDesc}>{item.description}</Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  topBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 44, paddingHorizontal: 12, paddingBottom: 8,
+    borderBottomWidth: tokens.border.thin, borderBottomColor: theme.colors.divider,
+  },
+  back: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  title: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800' },
+  body: { padding: 14, gap: 10 },
+  hint: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17) },
+  section: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 8 },
+  empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
+  card: {
+    padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin, borderColor: theme.colors.surfaceBorder,
+  },
+  cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  cardTitle: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
+  cardDesc: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginTop: 4, lineHeight: fonts.scaled(17) },
+  cardMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 6 },
+  install: { color: theme.colors.primary, fontSize: fonts.scaled(12.5), fontWeight: '600' },
+  installDone: { color: theme.colors.textFaint },
+  remove: { color: theme.colors.danger || theme.colors.primary, fontSize: fonts.scaled(12.5) },
+});

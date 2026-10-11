@@ -109,6 +109,8 @@ export default function WorkspaceSettingsSheet({
   onInstallSampleTeams,
   // 团队记忆（跨会话黑板）：宿主读好的主题快照 + 清空动作。
   boardTopics = [],
+  // 任务看板快照（board_task 的分工清单）：与 boardTopics 同一份黑板，展示用。
+  boardTasks = [],
   onClearBoard,
   // 斜杠命令（输入框建议列表的数据源）；安装示例沿用技能那一套。
   commands = [],
@@ -597,7 +599,19 @@ export default function WorkspaceSettingsSheet({
       return (
         <View>
           <Text style={styles.bodyHint}>{t('workspace.settings.board.hint')}</Text>
-          {boardTopics.length === 0 ? (
+          {boardTasks.length > 0 ? (
+            <View style={styles.boardTopic}>
+              <Text style={styles.boardTopicTitle}>
+                {t('workspace.settings.board.tasks', { count: boardTasks.length })}
+              </Text>
+              {boardTasks.map(task => (
+                <Text key={task.id} style={styles.bodyHint} selectable>
+                  {`#${task.id} [${task.status}] ${task.title}${task.owner ? `（@${task.owner}）` : ''}`}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {(boardTopics.length === 0 && boardTasks.length === 0) ? (
             <Text style={styles.bodyHint}>{t('workspace.settings.board.empty')}</Text>
           ) : boardTopics.map(topic => (
             <View key={topic.topic} style={styles.boardTopic}>
@@ -611,7 +625,7 @@ export default function WorkspaceSettingsSheet({
               ))}
             </View>
           ))}
-          {boardTopics.length > 0 ? (
+          {(boardTopics.length > 0 || boardTasks.length > 0) ? (
             <TouchableOpacity
               style={styles.skillsInstall}
               onPress={() => onClearBoard && onClearBoard()}

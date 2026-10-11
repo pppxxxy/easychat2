@@ -94,7 +94,7 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'list_workspace_files',
     'read_workspace_file',
     'search_workspace',
-    'list_symbols',
+    'list_symbols', 'find_references',
     'ask_user',
     'skill',
     'update_plan',

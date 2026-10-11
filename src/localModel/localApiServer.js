@@ -5,6 +5,7 @@
 import { normalizeLocalModelApiServer } from './modelState.js';
 import { describeModelError, recordModelLog } from './modelLogs.js';
 import { AGENT_ENDPOINT_PATH, buildAgentEndpointResponse, parseAgentEndpointRequest } from '../agent/agentEndpoint.js';
+import { parseRpcMessage, handleRpcRequest } from '../agent/rpc.js';
 import { tActive } from '../i18n/index.js';
 
 const EVENT_REQUEST = 'LocalApiServer:onRequest';
@@ -260,6 +261,31 @@ export function attachLocalApiServerAgent({ runAgent, addListener, respond } = {
   };
   return listen(event => {
     if (!event || event.path !== AGENT_ENDPOINT_PATH) return sharedQueue;
+    return enqueue(() => handle(event));
+  });
+}
+
+// JSON-RPC 2.0 端点（差距 #3）：把原生转发的请求体当一条 JSON-RPC 消息，分发到 handlers，
+// 回写响应。与 agent/chat 共用同一条串行队列（同一常驻模型非并发安全）。
+// handlers = { 'agent.run': async params => result, ... }（方法名见 agent/rpc.js）。
+// 注意：原生侧路由需把 `/rpc` 一并转发到 onRequest（Kotlin 未编译验证，见插件 README）。
+export const RPC_ENDPOINT_PATH = '/rpc';
+
+export function attachLocalApiServerRpc({ handlers, addListener, respond } = {}) {
+  const listen = typeof addListener === 'function' ? addListener : addLocalApiServerRequestListener;
+  const reply = typeof respond === 'function' ? respond : respondLocalApiServer;
+  const handle = async event => {
+    let message = { kind: 'invalid' };
+    try {
+      message = parseRpcMessage(JSON.stringify(event.body || {}));
+    } catch (error) {
+      message = { kind: 'invalid' };
+    }
+    const response = await handleRpcRequest(message, handlers || {});
+    await reply(event.requestId, response);
+  };
+  return listen(event => {
+    if (!event || event.path !== RPC_ENDPOINT_PATH) return sharedQueue;
     return enqueue(() => handle(event));
   });
 }

@@ -39,6 +39,8 @@ export const ext = {
   'ext.home.diary.desc': 'Your characters keep a diary of your conversations',
   'ext.home.screen': 'Screen watch',
   'ext.home.screen.desc': 'Capture the screen and let your character take a look',
+  'ext.home.plugins': 'Plugins',
+  'ext.home.plugins.desc': 'Install / uninstall plugins to extend tools and UI',
   'ext.home.music': 'Music',
   'ext.home.music.desc': 'Import local music, listen together',
   'ext.home.music.summary': '{count} tracks',

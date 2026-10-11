@@ -24,6 +24,7 @@ import ScreenWatchScreen from '../screenWatch/ScreenWatchScreen.js';
 import ProactivePanel from '../ProactivePanel.js';
 import SchedulePanel from './SchedulePanel.js';
 import AgentTaskPanel from './AgentTaskPanel.js';
+import WorkspacePluginsPanel from './WorkspacePluginsPanel.js';
 import DiaryPanel from '../DiaryPanel.js';
 import MapPanel from '../MapPanel.js';
 
@@ -49,6 +50,7 @@ export default function ExtensionStack() {
       <Stack.Screen name="ext-proactive" component={ProactivePanel} />
       <Stack.Screen name="ext-agent-task" component={AgentTaskPanel} />
       <Stack.Screen name="ext-schedule" component={SchedulePanel} />
+      <Stack.Screen name="ext-plugins" component={WorkspacePluginsPanel} />
       <Stack.Screen name="ext-diary" component={DiaryPanel} />
       <Stack.Screen name="ext-map" component={MapPanel} />
     </Stack.Navigator>

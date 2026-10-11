@@ -1260,7 +1260,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             <SheetHeader title={preview ? preview.path : ''} onClose={() => setPreview(null)} />
             <ScrollView contentContainerStyle={styles.body}>
               <FieldHint>{preview && preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
-              {/* Markdown/HTML 默认按聊天同款渲染；「查看原文」切回纯文本。 */}
+              {/* Markdown/HTML 默认按聊天同款渲染；「查看原文」切回纯文本。取色传 theme.colors.text，
+                  预览底是 background（深），不能用聊天默认的 bubbleAssistantText（深字）。 */}
               {preview && isRichPreview(preview.path) && !previewRaw ? (
                 <AssistantMessageBody text={preview.content} fullWidth textColor={theme.colors.text} />
               ) : (
@@ -1297,9 +1298,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         <FileHistorySheet
           visible={historyOpen}
           onClose={() => { setHistoryOpen(false); setHistoryPath(''); }}
+          onOpenHistory={onOpenHistory}
           store={storeRef.current}
           characterId={characterId}
-          path={historyPath} onOpenHistory={onOpenHistory}
+          path={historyPath}
           onRestored={() => {
             // 恢复改的是文件内容：刷新列表并关掉可能已过期的预览。
             setPreview(null);

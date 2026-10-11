@@ -68,8 +68,8 @@ test('注册表：给了 git runner 才多出 git 工具（读三 + 写二）；
   const store = { listWorkspaceFiles: async () => [] };
   const without = createWorkspaceToolDefinitions({ store });
   assert.equal(without.some(item => GIT_TOOL_NAMES.includes(item.name)), false, '没 runner → 一个都不注册');
-  // 整合后基础清单是 19 个（D/Z/M 三线并入的只读+可改工具），git 仍是条件追加、不改变基数。
-  assert.equal(without.length, 19, '基础清单不受影响（git 是条件加）');
+  // 整合后基础清单是 20 个（D/Z/M 三线 + m1010m11 的 find_references），git 仍是条件追加、不改变基数。
+  assert.equal(without.length, 20, '基础清单不受影响（git 是条件加）');
 
   const withGit = byName(createWorkspaceToolDefinitions({ store, git: makeGitRunner(createMemoryFileSystem()) }));
   for (const name of GIT_TOOL_NAMES) {
