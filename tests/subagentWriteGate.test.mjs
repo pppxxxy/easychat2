@@ -138,6 +138,7 @@ test('回归 P0-1：用真实写工具定义——拒绝时目标文件绝不落
     store,
     stream: writeThenConclude(),
     mode: 'write',
+    workspaceMode: 'write',
     confirm: async call => { asked.push(call); return false; },
   });
   assert.equal(asked.length, 1, '写工具必须先问用户一次');
@@ -155,6 +156,7 @@ test('回归 P0-1：用真实写工具定义——批准时恰好写一次', asy
     store: makeStore(writes),
     stream: writeThenConclude(),
     mode: 'write',
+    workspaceMode: 'write',
     confirm: async () => true,
   });
   assert.deepEqual(writes, ['hello'], '批准后按原文写入一次（不重复副作用）');
@@ -169,6 +171,7 @@ test('回归 P0-1：真实写工具 + 没有审批钩子 → 按「不可询问 
     store: makeStore(writes),
     stream: writeThenConclude(),
     mode: 'write',
+    workspaceMode: 'write',
     // 不传 confirm：无人值守环境绝不能变成「不用问就写」
   });
   assert.deepEqual(writes, [], '没有审批钩子时必须拒绝执行，而不是静默放行');
@@ -197,6 +200,7 @@ test('回归 P0-1：三个真实写工具逐个过确认门（不是只修了 wr
       store: makeStore(writes),
       stream,
       mode: 'write',
+    workspaceMode: 'write',
       confirm: async call => { asked.push(call.name); return false; },
     });
     assert.deepEqual(asked, [item.name], `${item.name} 必须先过确认门`);
@@ -224,6 +228,7 @@ test('回归 P0-1：执行写工具时 signal 与 confirm 传进了 ctx（与主
     store: makeStore(writes),
     stream: writeThenConclude(),
     mode: 'write',
+    workspaceMode: 'write',
     signal: controller,
     confirm: confirmFn,
   });

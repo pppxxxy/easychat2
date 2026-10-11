@@ -93,8 +93,20 @@ export async function runSubagent({
   maxRounds = SUBAGENT_MAX_ROUNDS,
   onEvent = null,
   mode = 'read',
+  workspaceMode = '',
   confirm = null,
 } = {}) {
+  // P0-2（纵深防御第二层）：run_subagent / run_workflow 自身都是 readOnly 工具，**在 READ 模式
+  // 也能被模型调用**；而本函数内部直接调 tool.execute，绕过了 registry.canRunTool 的模式闸门
+  //（本模块按设计不接触全局注册表）。于是「READ 模式 + run_subagent{mode:'write'}」曾能落盘，
+  // 且按 P0-1 之前连确认都不会问。
+  //
+  // 因此这里**不信调用方**：write 模式必须由宿主明确声明「当前是可改模式」才放行。
+  // 第一层闸门在 workspace/toolDefs/subagentTool.js 与 workflowTool.js（同样判 workspaceMode），
+  // 这里再判一次是纵深防御——任一层被漏改，写操作仍然进不来。
+  if (mode === 'write' && workspaceMode !== 'write') {
+    return { content: '写子代理不可用：当前不是「可改」模式（未执行）。', isError: true };
+  }
   const text = String(task == null ? '' : task).trim();
   if (!text) return { content: '子任务描述为空。', isError: true };
   const streamFn = stream || resolveDefaultStream();

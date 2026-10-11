@@ -54,6 +54,18 @@ export const SUBAGENT_TOOL_DEFINITION = {
     // 只读工具按**名字白名单**过滤（不含 run_subagent——它自己也是 readOnly，
     // 只看标志会递归）：防递归是结构性的，不靠"记得别给"。
     const writeMode = String((args && args.mode) || 'read').toLowerCase() === 'write';
+    // P0-2（纵深防御第一层）：run_subagent 是 readOnly 工具，**READ 模式也能被模型调用**；
+    // 而 runSubagent 内部直接调 tool.execute，绕过了 registry.canRunTool 的模式闸门。
+    // 因此这里必须自己看工作区模式——否则「READ 模式 + mode:'write'」就能越权落盘。
+    // 明确拒绝而不是静默降级为只读：模型要的是写，降级后它只会得到一句「没写成」，
+    // 而「为什么不成」才是它（和用户）需要知道的信息。
+    const workspaceMode = String((ctx && ctx.workspaceMode) || '');
+    if (writeMode && workspaceMode !== 'write') {
+      return {
+        content: '写子代理不可用：当前是只读模式，写操作需要用户切到「可改」模式（未执行）。',
+        isError: true,
+      };
+    }
     // 只读来源 = readTools 两项 + searchTool（search_workspace）；按名字白名单收。
     const readSource = READ_ONLY_TOOL_DEFINITIONS.concat([SEARCH_TOOL_DEFINITION]);
     let subagentTools = readSource.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
@@ -95,6 +107,8 @@ export const SUBAGENT_TOOL_DEFINITION = {
       characterId: ctx && ctx.characterId,
       signal: (ctx && ctx.signal) || null,
       mode: writeMode ? 'write' : 'read',
+      // 把宿主模式一路传下去：runSubagent 内部会再断言一次（纵深防御第二层）。
+      workspaceMode,
       confirm: (ctx && typeof ctx.confirm === 'function') ? ctx.confirm : null,
       ...(maxRounds ? { maxRounds } : {}),
     });

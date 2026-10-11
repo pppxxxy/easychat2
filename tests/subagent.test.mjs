@@ -334,14 +334,14 @@ test('写子代理：write 模式放行写工具并逐写 confirm；拒绝不执
 
   const denied = await runSubagent({
     task: '写文件', tools: [writeTool], store: {}, stream: streamWith('c1', '结论：未写。'),
-    mode: 'write', confirm: async () => false,
+    mode: 'write', workspaceMode: 'write', confirm: async () => false,
   });
   assert.equal(executed.length, 0, '拒绝后不执行');
   assert.ok(denied.content.includes('结论'));
 
   const approved = await runSubagent({
     task: '写文件', tools: [writeTool], store: {}, stream: streamWith('c2', '结论：已写。'),
-    mode: 'write', confirm: async () => true,
+    mode: 'write', workspaceMode: 'write', confirm: async () => true,
   });
   assert.equal(executed.length, 1, '批准后执行一次');
   assert.ok(approved.content.includes('结论'));

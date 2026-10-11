@@ -43,6 +43,25 @@ export const WORKFLOW_TOOL_DEFINITION = {
   },
   execute: async (options, args, ctx) => {
     const confirm = (ctx && typeof ctx.confirm === 'function') ? ctx.confirm : null;
+    // P0-2（纵深防御第一层）：run_workflow 是 readOnly 工具，**READ 模式也能被模型调用**；
+    // 它的步骤直接调 runSubagent，同样绕过 registry.canRunTool 的模式闸门。
+    // 整条工作流**明确拒绝**（而不是把写步骤降级为只读）：这是授权错误，不是步骤级失败——
+    // 半跑一遍再回一句「工作流成功」会把「没写的写成了」伪装成完成。
+    const workspaceMode = String((ctx && ctx.workspaceMode) || '');
+    const writeStepIds = (Array.isArray(args && args.steps) ? args.steps : [])
+      .map((step, index) => ({
+        id: String((step && step.id) || `step-${index + 1}`),
+        mode: String((step && step.mode) || 'read').toLowerCase(),
+      }))
+      .filter(item => item.mode === 'write')
+      .map(item => item.id);
+    if (writeStepIds.length > 0 && workspaceMode !== 'write') {
+      return {
+        content: `工作流无法执行：步骤 ${writeStepIds.join('、')} 要求 write 模式，`
+          + '但当前是只读模式，写操作需要用户切到「可改」模式（未执行）。',
+        isError: true,
+      };
+    }
     const result = await runWorkflow({
       steps: args && args.steps,
       signal: (ctx && ctx.signal) || null,
@@ -55,6 +74,8 @@ export const WORKFLOW_TOOL_DEFINITION = {
           characterId: ctx && ctx.characterId,
           signal: (ctx && ctx.signal) || null,
           mode: writeMode ? 'write' : 'read',
+          // 同上：runSubagent 内部会再断言一次（纵深防御第二层）。
+          workspaceMode,
           confirm,
         });
         return outcome && outcome.content ? outcome.content : '';
