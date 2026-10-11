@@ -90,7 +90,6 @@ export default [
       'src/localModel/modelCatalog.js',
       'src/localModel/ModelLogsModal.js',
       'src/localModel/modelManager.js',
-      'src/location/service.js',
       'src/MapPanel.js',
       'src/memory/memorySummary.js',
       'src/MemoryScreen.js',
