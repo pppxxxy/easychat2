@@ -174,6 +174,8 @@ const DEFAULT_INLINE_IMAGE = {
   size: '832*1216',
   maxPromptChars: 400,
   imagePosition: 'end',
+  enhance: false,
+  enhanceConfigId: '',
 };
 
 function normalizeInlineImage(raw) {
@@ -189,6 +191,10 @@ function normalizeInlineImage(raw) {
       : DEFAULT_INLINE_IMAGE.maxPromptChars,
     // 配图取「回复的哪一段」：开头 / 高潮正中间 / 结尾（默认结尾）。
     imagePosition: normalizeImagePosition(source.imagePosition),
+    // 智能增强：生图前先调一次模型，按上下文把回复段落转写成画面描述；缺省关闭。
+    enhance: source.enhance === true,
+    // 智能增强（润色）用的接口配置 id；空串 = 用当前默认接口。
+    enhanceConfigId: String(source.enhanceConfigId || ''),
   };
 }
 
