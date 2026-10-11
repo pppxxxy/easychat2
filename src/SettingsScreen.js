@@ -85,6 +85,7 @@ import WorkspaceSection from './settings/sections/WorkspaceSection.js';
 import GithubSection from './settings/sections/GithubSection.js';
 import McpServersSection from './settings/sections/McpServersSection.js';
 import SecuritySection from './settings/sections/SecuritySection.js';
+import AutoBackupCard from './settings/AutoBackupCard.js';
 import BulkLockPickerModal from './settings/sections/BulkLockPickerModal.js';
 import AboutSection from './settings/sections/AboutSection.js';
 import { authenticateBiometric, getBiometricAvailability } from './security/biometrics.js';
@@ -119,11 +120,9 @@ const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version |
 
 // 设置卡渲染顺序（单一事实源）：JSX 顺序、stickyHeaderIndices、sectionOffsetsRef
 // 与搜索索引（searchIndex.js 的 sectionId）都以它为准——调序必须五处同步，漏一处
-// 即搜索跳错或吸顶错位。2026-10-07 调序：本地模型从「关于」卡里的一行升级为
-// 独立卡（GitHub 之后），「关于」按用户预期殿底；语言移到关于之前，可发现性
-// 由搜索 + 默认展开保障（不再依赖垫底）。
-const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'language', 'about'];
-
+// 即搜索跳错或吸顶错位。2026-10-07 调序：本地模型从「关于」卡里的一行升级为独立卡
+// （GitHub 之后），「关于」按用户预期殿底；语言移到关于之前（可发现性由搜索 + 默认展开保障）。
+const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'autoBackup', 'language', 'about'];
 
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
@@ -1754,7 +1753,6 @@ export default function SettingsScreen() {
           </CollapsibleSection>
         </Card>
 
-
         <Card
           style={[styles.sectionCard, flashSection === 'workspace' && styles.sectionCardFlash]}
           onLayout={event => { sectionOffsetsRef.current.workspace = event.nativeEvent.layout.y; }}
@@ -1842,6 +1840,8 @@ export default function SettingsScreen() {
             <SecuritySection {...sectionProps} />
           </CollapsibleSection>
         </Card>
+
+        <AutoBackupCard styles={styles} flash={flashSection === 'autoBackup'} open={isSectionOpen('autoBackup')} onToggle={next => toggleSection('autoBackup', next)} onLayout={y => { sectionOffsetsRef.current.autoBackup = y; }} />
 
         {/* 语言：独立卡、默认展开——此前只藏在外观折叠卡里，找语言的人翻不到。
             2026-10-07 调序：语言移到「关于」之前（关于殿底是用户对设置页的

@@ -16,6 +16,7 @@ export const SETTINGS_SECTION_LABELS = {
   mcpservers: 'MCP 服务器',
   localmodel: '本地模型',
   security: '隐私与安全',
+  autoBackup: '自动备份',
   about: '关于',
   language: '界面语言',
 };
@@ -80,6 +81,11 @@ export const SETTINGS_SEARCH_INDEX = [
   { sectionId: 'security', label: '批量上锁', keywords: ['批量', '多选', '全选', '批量上锁', '统一密码', 'bulk', 'select all', 'multi'] },
   { sectionId: 'security', label: '密码提示', keywords: ['密码提示', '提示', '备忘', '忘记密码', 'hint', 'forgot'] },
   { sectionId: 'security', label: '离开后重新上锁', keywords: ['重新上锁', '后台', 'relock', 'background'] },
+
+  { sectionId: 'autoBackup', label: '自动备份', keywords: ['自动备份', '备份', '定时备份', 'backup', 'auto'] },
+  { sectionId: 'autoBackup', label: '备份间隔', keywords: ['间隔', '频率', '周期', 'interval'] },
+  { sectionId: 'autoBackup', label: '退出时备份', keywords: ['退出', '后台', '离开', 'exit'] },
+  { sectionId: 'autoBackup', label: '备份文件夹', keywords: ['文件夹', '目录', '位置', '路径', 'folder'] },
 
   { sectionId: 'about', label: '当前版本', keywords: ['版本', 'version'] },
   { sectionId: 'about', label: '使用教程', keywords: ['教程', '帮助', '引导', 'tutorial'] },

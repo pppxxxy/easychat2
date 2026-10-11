@@ -411,6 +411,10 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     marginRight: 12,
   },
   smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13) },
+  // 自动备份：自定义天数输入行与单位。
+  autoBackupCustomRow: { flexDirection: 'row', alignItems: 'center', marginTop: tokens.spacing.sm },
+  autoBackupDaysInput: { width: 84, textAlign: 'center' },
+  autoBackupUnit: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), marginLeft: tokens.spacing.sm },
   removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
   versionText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
   modelChipCaps: { paddingHorizontal: 4, paddingVertical: 2, marginRight: 2 },

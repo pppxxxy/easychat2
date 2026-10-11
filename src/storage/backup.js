@@ -130,7 +130,7 @@ async function collectMedia(directory, prefix = '', hooks = {}) {
   return { items, failed };
 }
 
-export async function exportBackup({ appVersion = '', onProgress, signal } = {}) {
+export async function exportBackup({ appVersion = '', onProgress, signal, directory = '', fileName = '' } = {}) {
   const report = (phase, done, total) => {
     if (typeof onProgress === 'function') {
       try {
@@ -197,7 +197,12 @@ export async function exportBackup({ appVersion = '', onProgress, signal } = {})
   throwIfAborted(signal);
   report('packing', 0, 0);
   const payload = buildBackupPayload({ storage, media, appVersion });
-  const uri = `${FileSystem.documentDirectory}easychat2-backup-${Date.now()}.json`;
+  // directory 缺省写 documentDirectory 根（手动导出）；自动备份传入专用子目录，
+  // 与手动导出分开，避免「淘汰旧备份」误删用户手动导出的包。fileName 缺省用时间戳名。
+  const baseDir = String(directory || FileSystem.documentDirectory || '');
+  const dir = baseDir && !baseDir.endsWith('/') ? `${baseDir}/` : baseDir;
+  const name = fileName || `easychat2-backup-${Date.now()}.json`;
+  const uri = `${dir}${name}`;
   // 流式写盘：按片序列化 + 逐片写入，避免一次性构造巨型 JSON 串。
   // 打包/写盘阶段保持可取消，并持续上报 writing 进度（已写字节/总字节）。
   const bytes = await writeBackupStream(uri, payload, { signal, report });
