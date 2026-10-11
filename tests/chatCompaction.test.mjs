@@ -169,6 +169,64 @@ test('E2 压缩自动化接线：silent 模式 + 85% 空闲自动触发 + 70% �
   assert.ok(options.includes('autoCompact: source.autoCompact !== false'), '缺省开启（只有显式 false 才关）');
 });
 
+// 把 `const NAME = useCallback(async (…` 起到配对的 `]);` 整段抠出来（按花括号计数）。
+// ChatScreen 依赖 RN 运行时，Node 进不去，接线只能钉源码——但「整段抠出来再断言」比
+// 「在整文件里 includes」强得多：后者会被注释、别处的同名变量、甚至被删掉的调用点骗过。
+function extractCallback(source, name) {
+  const start = source.indexOf(`const ${name} = useCallback(`);
+  assert.notEqual(start, -1, `找不到 ${name} 的 useCallback 定义`);
+  // 函数体起点必须取 `) => {` 的那个 `{`——直接 indexOf('{') 会撞上默认参数里的 `{}`
+  //（`useCallback(async (options = {}) => {`），花括号计数会当场归零，切出一段废文本。
+  const arrow = source.indexOf(') => {', start);
+  assert.notEqual(arrow, -1, `${name} 不是 async 箭头函数形态`);
+  let depth = 0;
+  let index = arrow + 5;
+  const bodyStart = index;
+  for (; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') depth += 1;
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  assert.ok(index > bodyStart, `${name} 的函数体没找到结尾`);
+  // 连同后面的依赖数组一起带上（`}, [...]);`）
+  const tail = source.indexOf(']);', index);
+  assert.notEqual(tail, -1, `${name} 的依赖数组没找到`);
+  return source.slice(start, tail + 3);
+}
+
+// 回归 2026-10-11 审查 P1-5：防重入的检查原先在 `await resolveCompactionFocus(...)` **之后**，
+// 两次并发触发（提示条 + 自动路径，或用户连点）会双双通过检查、双双走完流程，
+// 于是**重复发一次 LLM 摘要请求**（花钱，且两次结果互相覆盖）。
+// 光把检查挪到首行不够——检查与置位之间只要还有 await，两者仍能同时通过，
+// 所以断言必须同时钉住「检查在最前」与「置位也在任何 await 之前」。
+test('回归 P1-5：压缩防重入的检查与占位都在任何 await 之前（不允许重复发摘要请求）', () => {
+  const screen = fs.readFileSync(path.resolve('src/ChatScreen.js'), 'utf8');
+  const body = extractCallback(screen, 'handleCompactSession');
+  // 必须剥掉行注释再量位置：本函数上方那段说明里就写着「在任何 await 之前」，
+  // 不剥的话 indexOf('await ') 会命中注释、把断言变成永远失败（或永远通过）。
+  const code = body.replace(/\/\/[^\n]*/g, '');
+
+  const guardAt = code.indexOf('if (compactBusyRef.current) return');
+  const claimAt = code.indexOf('compactBusyRef.current = true');
+  const firstAwaitAt = code.indexOf('await ');
+  const resolveFocusAt = code.indexOf('await resolveCompactionFocus(');
+
+  assert.notEqual(guardAt, -1, '必须有防重入检查');
+  assert.notEqual(claimAt, -1, '必须占位（防重入走 ref）');
+  assert.notEqual(firstAwaitAt, -1, '这个函数本来就该有 await');
+  assert.ok(guardAt < firstAwaitAt, '防重入检查必须在**任何 await 之前**');
+  assert.ok(claimAt < firstAwaitAt, '占位也必须在任何 await 之前（否则检查与置位之间会被并发穿过）');
+  assert.ok(guardAt < resolveFocusAt && claimAt < resolveFocusAt,
+    '两者都要在 await resolveCompactionFocus 之前——那正是原 bug 的时序');
+  // 只有一处检查（不许留着「检查在首行、旧检查又在中途」这种双份写法）。
+  assert.equal(code.split('if (compactBusyRef.current) return').length - 1, 1, '防重入检查只允许一处');
+  // 释放仍在 finally 里（异常路径也要解锁，否则一次失败会永久锁死）。
+  assert.ok(/finally\s*\{[^}]*compactBusyRef\.current = false/.test(code), 'finally 里释放占位');
+});
+
 // ---- 关注点（focus）：/compact 后面那句「这次要特别保留什么」----
 
 test('normalizeCompactionFocus：空白折叠、超长截断、空值归一为空串', () => {

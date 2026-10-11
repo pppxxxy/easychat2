@@ -1534,27 +1534,27 @@ export default function ChatScreen() {
   const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
   const handleCompactSession = useCallback(async (options = {}) => {
     const silent = options && options.silent === true;
-    // focus（可选）：本次会话压缩要特别保留什么。无关注点时提示词逐字节不变。
-    const hookFocus = await resolveCompactionFocus({
-      characterId: character.id,
-      focus: normalizeCompactionFocus(options && options.focus),
-    });
-    if (hookFocus.blocked.length > 0) {
-      if (!silent) Alert.alert(t('chat.hooks.blocked.title'), hookFocus.blocked.join('\n'));
-      return { ok: false, reason: 'hook-blocked' };
-    }
-    const focus = hookFocus.focus;
-    const workspaceStore = hookFocus.store;
+    // 防重入：检查 + 占位必须在**任何 await 之前**成对完成，否则并发触发会重复发摘要请求（P1-5）。
     if (compactBusyRef.current) return { ok: false, reason: 'busy' };
-    const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
-    const meaningful = countCompactionMessages(list);
-    if (meaningful < COMPACTION_MIN_MESSAGES) {
-      if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
-      return { ok: false, reason: 'too-short' };
-    }
     compactBusyRef.current = true;
-    setCompactBusy(true);
     try {
+      // focus（可选）：本次会话压缩要特别保留什么。无关注点时提示词逐字节不变。
+      const hookFocus = await resolveCompactionFocus({
+        characterId: character.id,
+        focus: normalizeCompactionFocus(options && options.focus),
+      });
+      if (hookFocus.blocked.length > 0) {
+        if (!silent) Alert.alert(t('chat.hooks.blocked.title'), hookFocus.blocked.join('\n'));
+        return { ok: false, reason: 'hook-blocked' };
+      }
+      const { focus, store: workspaceStore } = hookFocus;
+      const list = Array.isArray(messagesRef.current) ? messagesRef.current : messages;
+      const meaningful = countCompactionMessages(list);
+      if (meaningful < COMPACTION_MIN_MESSAGES) {
+        if (!silent) Alert.alert(t('chat.settings.compactTitle'), t('chat.settings.compactTooShort'));
+        return { ok: false, reason: 'too-short' };
+      }
+      setCompactBusy(true);
       const { configs, activeId } = await getApiConfigs();
       const config = configs.find(item => item.id === activeId) || configs[0];
       if (!config) throw new Error('no config');
