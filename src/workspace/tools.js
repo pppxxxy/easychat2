@@ -17,11 +17,13 @@ import { SHELL_TOOL_TIMEOUT_MS } from './shell.js';
 import { PYTHON_TOOL_TIMEOUT_MS } from './python.js';
 import { READ_ONLY_TOOL_DEFINITIONS, formatWorkspaceReadResult } from './toolDefs/readTools.js';
 import { SEARCH_TOOL_DEFINITION } from './toolDefs/searchTool.js';
+import { LIST_SYMBOLS_TOOL_DEFINITION } from './toolDefs/symbolsTool.js';
 import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
 import { MATERIALIZE_TOOL_DEFINITION } from './toolDefs/materializeTool.js';
 import { GET_BUILD_LOG_DEFINITION, RUN_REMOTE_BUILD_DEFINITION } from './toolDefs/ciTools.js';
 import { WRITE_TOOL_DEFINITIONS } from './toolDefs/writeTools.js';
 import { SUBAGENT_TOOL_DEFINITION } from './toolDefs/subagentTool.js';
+import { WORKFLOW_TOOL_DEFINITION } from './toolDefs/workflowTool.js';
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
 import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from './toolDefs/execTools.js';
 
@@ -38,10 +40,12 @@ function resolveStore({ store, root, fileSystem } = {}) {
 const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
   SEARCH_TOOL_DEFINITION,
+  LIST_SYMBOLS_TOOL_DEFINITION,
   PLAN_TOOL_DEFINITION,
   MATERIALIZE_TOOL_DEFINITION,
   GET_BUILD_LOG_DEFINITION,
   SUBAGENT_TOOL_DEFINITION,
+  WORKFLOW_TOOL_DEFINITION,
   ...WRITE_TOOL_DEFINITIONS,
   RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,

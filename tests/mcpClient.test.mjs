@@ -191,3 +191,40 @@ test('JSON-RPC error 应答转为异常', async () => {
     server.close();
   }
 });
+
+test('MCP 完整性：resources/list + resources/read + prompts/list + prompts/get', async () => {
+  const server = await startServer(async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    if (body.method === 'initialize') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(jsonResult(body.id, { protocolVersion: MCP_PROTOCOL_VERSION }));
+    } else if (body.method === 'notifications/initialized') {
+      res.writeHead(202); res.end();
+    } else if (body.method === 'resources/list') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(jsonResult(body.id, { resources: [{ uri: 'file:///a.txt', name: 'a' }] }));
+    } else if (body.method === 'resources/read') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(jsonResult(body.id, { contents: [{ uri: body.params.uri, text: 'hello' }] }));
+    } else if (body.method === 'prompts/list') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(jsonResult(body.id, { prompts: [{ name: 'greet' }] }));
+    } else if (body.method === 'prompts/get') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(jsonResult(body.id, { messages: [{ role: 'user', content: { type: 'text', text: `hi ${body.params.name}` } }] }));
+    } else {
+      res.writeHead(400); res.end();
+    }
+  });
+  try {
+    const endpoint = `http://127.0.0.1:${listenPort(server)}/mcp/`;
+    const session = createMcpSession({ endpoint, token: 't' });
+    assert.deepEqual(await session.listResources(), [{ uri: 'file:///a.txt', name: 'a' }]);
+    assert.equal((await session.readResource('file:///a.txt')).contents[0].text, 'hello');
+    assert.deepEqual(await session.listPrompts(), [{ name: 'greet' }]);
+    assert.equal((await session.getPrompt('greet')).messages[0].content.text, 'hi greet');
+    session.close();
+  } finally {
+    server.close();
+  }
+});

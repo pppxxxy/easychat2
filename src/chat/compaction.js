@@ -14,6 +14,8 @@
 // 本模块不 import i18n：它产出的文本是**发给模型的提示词**与**带标记的摘要
 // 消息**（会话内容，不是界面文案）——铁律照旧。
 
+import { expandHistoryWithTraces } from './toolTrace.js';
+
 export const COMPACTION_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const COMPACTION_KEEP_RECENT = 6;
 // P4（对齐 dsh retainRatio）：压缩后按「窗口的 16%」逐字保留尾部，带最少条数下限。
@@ -101,8 +103,52 @@ export function buildCompactionSystemPrompt(focus = '') {
 
 // N2：可选 toolTranscript（工具语义转写）追加到 user 段，保住「调用了哪些工具、动了哪些文件」。
 // D 系：可选 focus（用户关注点）经 buildCompactionSystemPrompt 注入。
+// 工具语义转写关注的工具（有「路径」语义的）——供摘要统一使用（原先在 compactionPipeline）。
+const TRANSCRIBE_TOOLS = new Set([
+  'write_workspace_file', 'edit_workspace_file', 'read_workspace_file',
+  'list_workspace_files', 'search_workspace', 'update_plan',
+]);
+
+function textOf(item) {
+  if (!item) return '';
+  return String(item.content != null ? item.content : (item.text != null ? item.text : ''));
+}
+
+// 工具语义转写：把「调用了哪些工具、动了哪些文件」提炼成几行（摘要请求 user 段的附加）。
+export function buildToolTranscript(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const results = new Map();
+  list.forEach(item => {
+    if (item && item.role === 'tool') results.set(String(item.tool_call_id), item);
+  });
+  const lines = [];
+  list.forEach(item => {
+    if (!item || item.role !== 'assistant' || !Array.isArray(item.tool_calls)) return;
+    item.tool_calls.forEach(call => {
+      // 历史里的 tool_calls 是 OpenAI 形态（{ id, type, function: { name, arguments } }）；
+      // 循环内联的则可能是 { id, name, arguments }——两种都认。
+      const fn = call && call.function ? call.function : call;
+      const name = String((fn && fn.name) || '');
+      if (!TRANSCRIBE_TOOLS.has(name)) return;
+      let path = '';
+      try {
+        const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : fn.arguments;
+        path = String((args && (args.path || args.subdir || args.pattern)) || '');
+      } catch (error) {
+        path = '';
+      }
+      const result = results.get(String(call.id));
+      const len = result ? textOf(result).length : 0;
+      lines.push(`调用了 ${name}：${path || '(无路径)'}（结果 ${len} 字符）`);
+    });
+  });
+  return lines.join('\n');
+}
+
 export function buildCompactionSummaryRequest(messages, { toolTranscript = '', focus = '' } = {}) {
-  const lines = (Array.isArray(messages) ? messages : [])
+  // ④ 完整 transcript：先展开工具轨迹（toolTrace → tool 消息），让摘要看得到工具调用/结果。
+  const expanded = expandHistoryWithTraces(messages);
+  const lines = (Array.isArray(expanded) ? expanded : [])
     .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
     .map(messageLine)
     .filter(Boolean);
@@ -114,7 +160,7 @@ export function buildCompactionSummaryRequest(messages, { toolTranscript = '', f
     kept.unshift(line);
     total += line.length + 1;
   }
-  const transcript = String(toolTranscript || '').trim();
+  const transcript = String(toolTranscript || '').trim() || buildToolTranscript(expanded);
   const userContent = [kept.join('\n'), transcript].filter(Boolean).join('\n\n');
   return [
     { role: 'system', content: buildCompactionSystemPrompt(focus) },

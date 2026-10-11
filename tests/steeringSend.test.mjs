@@ -5,6 +5,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { resolveSteeringSend, STEERING_SEND_ACTIONS } from '../src/chat/steeringSend.js';
 
@@ -61,4 +63,14 @@ test('坏输入安全：undefined / null / 非字符串文本都不抛', () => {
   assert.equal(resolveSteeringSend({ inFlight: true, text: undefined }).reason, 'empty');
   assert.equal(resolveSteeringSend({ inFlight: true, text: null }).reason, 'empty');
   assert.equal(resolveSteeringSend({ inFlight: true, text: 123 }).reason, 'noLoop', '数字文本非空，缺队列才是原因');
+});
+
+test('工作区发送回归：onPress={handleSend} 传的 press 事件不得被当正文（[object Object]）', () => {
+  const src = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  assert.ok(src.includes("typeof overrideText === 'string'"), 'overrideText 只认字符串（事件对象一律当无覆盖，用输入框内容）');
+  assert.equal(
+    /overrideText === undefined \? input : overrideText/.test(src),
+    false,
+    '旧的 undefined 判断已移除（它会放行 press 事件 → [object Object]）'
+  );
 });

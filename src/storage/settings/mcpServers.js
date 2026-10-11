@@ -116,11 +116,33 @@ export function normalizeMcpServer(raw) {
     //（见 toThirdPartyId）；第三方服务器的记录永远不带，所以拿不到内置命名空间与分级语义。
     builtin: source.builtin === true,
     toolCatalog: normalizeCatalog(source.toolCatalog),
+    // MCP 完整性：resources / prompts 目录（连接时拉取，供注册只读工具）。
+    resourceCatalog: normalizeAuxCatalog(source.resourceCatalog, 'uri'),
+    promptCatalog: normalizeAuxCatalog(source.promptCatalog, 'name'),
     deniedNames: (Array.isArray(source.deniedNames) ? source.deniedNames : [])
       .map(name => String(name || '').trim())
       .filter(Boolean),
     tierOverrides: normalizeTierOverrides(source.tierOverrides),
   };
+}
+
+// resources/prompts 目录归一：按 idKey（uri / name）去重、过滤空、限 100 条。
+function normalizeAuxCatalog(raw, idKey) {
+  const seen = new Set();
+  const out = [];
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const source = item && typeof item === 'object' ? item : {};
+    const id = String(source[idKey] || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      [idKey]: id,
+      name: String(source.name || '').trim(),
+      description: String(source.description || '').trim(),
+    });
+    if (out.length >= 100) break;
+  }
+  return out;
 }
 
 // 第三方列表专用：保留字 id 一律改写（**固定**尾缀，不随机）。
@@ -230,7 +252,7 @@ export async function migrateGithubServer({ getGithubSettings } = {}) {
 // 连接成功后的服务器记录更新（纯函数，供 hook 直用、Node 直测）：
 // 写目录（按服务器分域过滤）+ 连接时间 + 置为启用。tools 为空时也保留记录
 // （用户看到「已连接但无可用工具」比静默失败清楚）。
-export function applyConnectResult(server, tools) {
+export function applyConnectResult(server, tools, { resources = [], prompts = [] } = {}) {
   const normalized = normalizeMcpServer(server);
   if (!normalized) return null;
   const { allowed, deniedNames } = filterMcpToolsForRegistration(tools, {
@@ -242,6 +264,8 @@ export function applyConnectResult(server, tools) {
     enabled: true,
     connectedAt: Date.now(),
     toolCatalog: allowed,
+    resourceCatalog: resources,
+    promptCatalog: prompts,
     deniedNames,
   });
 }

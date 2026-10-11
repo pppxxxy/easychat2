@@ -73,6 +73,22 @@ test('buildCompactionSummaryRequest：system 三段式要求 + 转写 + 超长�
   assert.equal(capped[1].content.includes('第0条'), false, '最旧的被丢');
 });
 
+test('④：buildCompactionSummaryRequest 展开 toolTrace，摘要请求含工具转写', () => {
+  const req = buildCompactionSummaryRequest([
+    { id: 'u1', role: 'user', text: '读 a.js' },
+    {
+      id: 'a1',
+      role: 'assistant',
+      text: '读完了',
+      toolTrace: [
+        { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_workspace_file', arguments: '{"path":"a.js"}' } }] },
+        { role: 'tool', tool_call_id: 'c1', content: 'file body' },
+      ],
+    },
+  ]);
+  assert.match(req[1].content, /调用了 read_workspace_file：a\.js/, '工具转写进入摘要请求');
+});
+
 test('applyCompaction：摘要消息 + 最近 K 条原文（保序）；空/keep=0 安全', () => {
   const list = Array.from({ length: 20 }, (unused, index) => msg(index % 2 === 0 ? 'user' : 'assistant', `消息${index}`));
   const next = applyCompaction(list, '已完成：A\n关键决策与发现：B\n未完成与下一步：C');

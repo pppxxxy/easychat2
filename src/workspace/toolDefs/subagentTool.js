@@ -11,6 +11,7 @@
 import { mapWithConcurrency, runSubagent, SUBAGENT_TOOL_NAMES, SUBAGENT_WRITE_TOOL_NAMES } from '../../agent/subagent.js';
 import { readWorkspaceAgents } from '../agents.js';
 import { READ_ONLY_TOOL_DEFINITIONS } from './readTools.js';
+import { SEARCH_TOOL_DEFINITION } from './searchTool.js';
 import { WRITE_TOOL_DEFINITIONS } from './writeTools.js';
 
 // 并行任务数上限：手机端同时两条模型流是上限（网络与速率限制考虑）。
@@ -53,7 +54,9 @@ export const SUBAGENT_TOOL_DEFINITION = {
     // 只读工具按**名字白名单**过滤（不含 run_subagent——它自己也是 readOnly，
     // 只看标志会递归）：防递归是结构性的，不靠"记得别给"。
     const writeMode = String((args && args.mode) || 'read').toLowerCase() === 'write';
-    let subagentTools = READ_ONLY_TOOL_DEFINITIONS.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
+    // 只读来源 = readTools 两项 + searchTool（search_workspace）；按名字白名单收。
+    const readSource = READ_ONLY_TOOL_DEFINITIONS.concat([SEARCH_TOOL_DEFINITION]);
+    let subagentTools = readSource.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
     // write 模式叠加写工具（仍受名字白名单 + 防递归约束；逐写由宿主审批）。
     if (writeMode) {
       subagentTools = subagentTools.concat(
