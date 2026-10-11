@@ -304,7 +304,9 @@ export async function runAgentTurn(messages, options = {}) {
         ok,
         ...(ok ? {} : { error: serialized }),
       });
-      history.push({ role: 'tool', tool_call_id: call.id, content: serialized });
+      // P0 加固：把权威错误标记随 tool 消息带下去（供 toolTrace 保留 → 展示层判状态）。
+      // API 侧的工具消息是**显式构造**的（apiProtocols/messages.js），此字段不会进请求体。
+      history.push({ role: 'tool', tool_call_id: call.id, content: serialized, isError: !ok });
       machine.completeTool(call.id, { success: ok, content: serialized });
     }
 

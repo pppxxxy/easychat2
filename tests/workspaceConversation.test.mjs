@@ -61,6 +61,17 @@ test('toolRowsFromTrace：轨迹被截断（结果缺失）时记 unknown，不�
   assert.equal(rows[0].tool.resultPreview, '');
 });
 
+test('toolRowsFromTrace：状态优先信权威 isError（正文正则只是老轨迹的回落）', () => {
+  const rows = toolRowsFromTrace([
+    { role: 'assistant', content: '', tool_calls: [toolCall('c1', 'read_workspace_file', { path: 'a.js' }), toolCall('c2', 'read_workspace_file', { path: 'b.js' })] },
+    // 正文不含「错误/失败/Error:」——正则看不出来，但权威标记说失败了 → 必须判 error。
+    { role: 'tool', tool_call_id: 'c1', content: '文件不存在：notes/x.txt', isError: true },
+    // 正文恰好含「错误」字样，但权威标记说成功了 → 必须判 ok（不被正文误导）。
+    { role: 'tool', tool_call_id: 'c2', content: '日志里出现了“错误”二字，但这次读取成功', isError: false },
+  ], { messageId: 'm3' });
+  assert.deepEqual(rows.map(row => row.tool.status), ['error', 'ok']);
+});
+
 test('buildConversationRows：工具行排在终稿之前（发生顺序），用户/助手行按原序', () => {
   const rows = buildConversationRows({
     messages: [

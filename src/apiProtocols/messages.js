@@ -12,14 +12,17 @@ function safeParseJson(text) {
   }
 }
 
-// OpenAI 兼容：内部形态即目标形态，原样返回。
-// systemCache 是内部缓存计划字段（见 prompt/systemSections.js），绝不能泄漏给端点。
+// OpenAI 兼容：内部形态即目标形态，原样返回；**只剥内部字段**（协议里没有它们）：
+//   systemCache —— 内部缓存计划字段（见 prompt/systemSections.js）
+//   isError     —— agent 工具结果的权威错误标记（loop.js 带上、toolTrace 保留供展示层判状态），
+//                  绝不能泄漏给端点（部分 OpenAI 兼容实现会对未知字段直接 400）。
+const OPENAI_INTERNAL_FIELDS = ['systemCache', 'isError'];
 export function toOpenAiMessages(messages) {
   return (Array.isArray(messages) ? messages : []).map(message => {
     if (!message || typeof message !== 'object') return message;
-    if (!message.systemCache) return { ...message };
+    if (!OPENAI_INTERNAL_FIELDS.some(field => field in message)) return { ...message };
     const copy = { ...message };
-    delete copy.systemCache;
+    for (const field of OPENAI_INTERNAL_FIELDS) delete copy[field];
     return copy;
   });
 }

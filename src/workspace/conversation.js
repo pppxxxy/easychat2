@@ -113,6 +113,17 @@ function toolCallArguments(call) {
   return fn ? fn.arguments : undefined;
 }
 
+// 历史工具调用的状态判定（P0 加固）：**优先信权威标记** `isError`——loop 随 tool 消息带下来、
+// toolTrace 原样保留；没有该字段的老轨迹才回落到正文正则（那时只能猜）。
+// 无配对结果 = 'unknown'（轨迹被截断过就会这样），**不假装成功也不假装失败**。
+const ERROR_TEXT_RE = /(^|\n)\s*(错误|失败)|isError|Error:/i;
+function toolResultStatus(result, content) {
+  if (!result) return 'unknown';
+  if (result.isError === true) return 'error';
+  if (result.isError === false) return 'ok';
+  return ERROR_TEXT_RE.test(content) ? 'error' : 'ok';
+}
+
 // 一轮的 toolTrace → 工具行。配对规则：按 tool_call_id 找结果；找不到结果的行
 // status 记 'unknown'（轨迹被截断过就会这样），**不假装成功也不假装失败**。
 export function toolRowsFromTrace(trace, { messageId = '' } = {}) {
@@ -142,7 +153,7 @@ export function toolRowsFromTrace(trace, { messageId = '' } = {}) {
           args: summarizeToolArgs(name, toolCallArguments(call)),
           // 富卡片按工具族取字段（edit 的 find/replace、shell 的 command、plan 的清单…）。
           argsRaw: parseToolArgs(toolCallArguments(call)),
-          status: !result ? 'unknown' : (/(^|\n)\s*(错误|失败)|isError|Error:/i.test(content) ? 'error' : 'ok'),
+          status: toolResultStatus(result, content),
           resultLength: content.length,
           resultPreview: previewToolResult(content),
           // 可展开的完整输出（截断到上限；更大的结果已由 O1 落盘 + 指针接管）。

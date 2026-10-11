@@ -48,6 +48,9 @@ export function extractToolTrace(appendedMessages, options = {}) {
         role: 'tool',
         tool_call_id: item.tool_call_id,
         content: String(item.content == null ? '' : item.content),
+        // P0 加固：消息带 `isError` 就原样保留（展示层据此判状态，比正文正则权威）。
+        // 老轨迹没有这个字段——保留为「无该字段」，展示层会回落到正则，不假装知道。
+        ...(item.isError === undefined ? {} : { isError: item.isError === true }),
       });
     } else if (item.role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
       trace.push({

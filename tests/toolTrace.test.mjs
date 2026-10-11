@@ -28,6 +28,18 @@ test('extractToolTrace：保留 assistant(tool_calls)+tool，丢掉纯文本终�
   assert.equal(extractToolTrace(null), null);
 });
 
+test('extractToolTrace：随消息带下来的 isError 原样保留；老轨迹（无该字段）不带', () => {
+  const trace = extractToolTrace([
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: '失败了', isError: true },
+    { role: 'tool', tool_call_id: 'c2', content: '成功了', isError: false },
+    { role: 'tool', tool_call_id: 'c3', content: '老轨迹没有这个字段' },
+  ]);
+  assert.equal(trace[1].isError, true, '权威失败标记保留');
+  assert.equal(trace[2].isError, false, '权威成功标记也保留（可与「不知道」区分）');
+  assert.equal('isError' in trace[3], false, '无该字段的老轨迹不带——展示层回落正文正则，不假装知道');
+});
+
 test('sanitizeTrace：逐条截断超大 tool 内容；总预算超限则整体丢弃', () => {
   const big = 'X'.repeat(50000);
   const out = sanitizeTrace([{ role: 'tool', tool_call_id: 'c1', content: big }]);

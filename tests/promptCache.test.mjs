@@ -58,14 +58,19 @@ test('带缓存计划时 Anthropic system 用 block 数组，前缀块带 epheme
   assert.deepEqual(system[1], { type: 'text', text: 'R' });
 });
 
-test('toOpenAiMessages 剥掉内部 systemCache（不泄漏给端点）', () => {
+test('toOpenAiMessages 剥掉内部字段（systemCache / isError 都不泄漏给端点）', () => {
   const out = toOpenAiMessages([
     { role: 'system', content: 'S', systemCache: { prefixText: 'P', restText: 'R' } },
     { role: 'user', content: 'hi' },
+    // agent 工具结果的权威错误标记：只服务展示层判状态，协议里没有这个字段。
+    { role: 'tool', tool_call_id: 'c1', content: '文件不存在：x', isError: true },
   ]);
   assert.equal('systemCache' in out[0], false);
   assert.equal(out[0].content, 'S');
   assert.equal(out[1].content, 'hi');
+  assert.equal('isError' in out[2], false, 'isError 是内部字段，不得进请求体');
+  assert.equal(out[2].content, '文件不存在：x', '正文原样保留');
+  assert.equal(out[2].tool_call_id, 'c1');
 });
 
 test('buildRequestBody：anthropic 出 block 数组，openai 无内部字段', () => {
