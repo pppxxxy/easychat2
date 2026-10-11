@@ -174,13 +174,38 @@ export async function runSubagent({
           args = {};
         }
         // 写子代理：需要确认的工具**逐条**先问用户，未批准则不执行（与主循环同款纪律）。
-        if (tool.requiresConfirmation && typeof confirm !== 'function') {
+        //
+        // 判据是 `readOnly !== true`（fail-closed），**不是**只看 `requiresConfirmation`：
+        // 真实写工具（workspace/toolDefs/writeTools.js 的三个）只声明 `readOnly: false`，
+        // 从不声明 requiresConfirmation——只看那个字段等于「写操作直接执行」，而本文件与
+        // subagentTool / workflowTool 的文案都写着「每一次写操作都会先请用户确认」
+        //（2026-10-11 逐行审查 P0-1：该分支曾是死代码）。
+        //
+        // 为什么挂在 readOnly 上而不是「给三个写工具加 requiresConfirmation」：
+        //   1) readOnly 本来就是**安全字段**——注册表的模式门控（canRunTool）靠它，
+        //      新写工具必须正确声明它才可能被放行，因此这个判据不会随「忘记加标志」再次失效；
+        //   2) 给写工具定义加 requiresConfirmation 会**连带改变主循环**（tools.js 透传该字段，
+        //      runTool 随即对每次写入弹审批），与 paths.js 明文记录的设计相反：
+        //      「写工具（write_workspace_file / edit_workspace_file）不需要逐条确认，
+        //        因此根本不走权限规则求值」。
+        // 取 `!== true` 而非 `=== false`：readOnly 缺失/写错的工具按「可能写」处理（fail-closed），
+        // 宁可多问一次，不可静默放行。
+        const needsConfirm = tool.requiresConfirmation === true || tool.readOnly !== true;
+        if (needsConfirm && typeof confirm !== 'function') {
           outcome = { content: '该工具需要用户确认，但当前环境无法询问用户（未执行）。', isError: true };
-        } else if (tool.requiresConfirmation) {
+        } else if (needsConfirm) {
           const approved = await confirm({ name: call.name, args });
           outcome = approved ? undefined : { content: '用户拒绝了此操作（未执行）。', isError: true };
         }
-        if (outcome === undefined) outcome = await tool.execute({ store }, args, { characterId });
+        if (outcome === undefined) {
+          // ctx 与主循环（registry.runTool）同形：signal / confirm 必须传进去——
+          // 工具内部若还要再问一次（或要能被中止），拿不到钩子就只能失败。
+          outcome = await tool.execute({ store }, args, {
+            characterId,
+            signal,
+            confirm: typeof confirm === 'function' ? confirm : null,
+          });
+        }
       } catch (error) {
         if (isAbortError(error) || (signal && signal.aborted)) throw makeAbortError();
         lastError = (error && error.message) || '工具执行失败。';
