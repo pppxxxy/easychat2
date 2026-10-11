@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -9,6 +9,7 @@ import {
   SecondaryButton,
 } from '../../ui/index.js';
 import WorkspaceCapabilitiesCard from '../../WorkspaceCapabilitiesCard.js';
+import ExtensionImportSheet from '../../extension/ExtensionImportSheet.js';
 import { WORKSPACE_ROOT_KINDS } from '../../workspace/location.js';
 import { isShellAvailable } from '../../workspace/shell.js';
 
@@ -33,6 +34,9 @@ export default function WorkspaceSection(props) {
     toggleCommandExecution,
     setWorkspaceOpen,
   } = props;
+  // 导入扩展的弹层归这一卡自己持有：设置页宿主文件有行数棘轮，加状态/渲染会顶破基线
+  // （与外观卡持自定义配色编辑器同款处理）。
+  const [importOpen, setImportOpen] = useState(false);
   return (
     <>
           <FieldLabel style={styles.label}>{t('settings.workspace.mode')}</FieldLabel>
@@ -117,6 +121,19 @@ export default function WorkspaceSection(props) {
             onPress={() => setWorkspaceOpen(true)}
           />
 
+          <View style={[styles.capabilityRow, { marginTop: 16 }]}>
+            <View style={styles.linkLeft}>
+              <Ionicons name="cloud-download-outline" size={17} color={theme.colors.primaryMuted} />
+              <Text style={styles.linkText}>{t('workspace.import.open')}</Text>
+            </View>
+            <SecondaryButton
+              title={t('workspace.import.openAction')}
+              small
+              onPress={() => setImportOpen(true)}
+            />
+          </View>
+          <FieldHint style={styles.hint}>{t('workspace.import.openHint')}</FieldHint>
+
           <WorkspaceCapabilitiesCard
             settings={{
               mode: workspaceMode,
@@ -125,6 +142,8 @@ export default function WorkspaceSection(props) {
             }}
             shellAvailable={isShellAvailable()}
           />
+
+          <ExtensionImportSheet visible={importOpen} onClose={() => setImportOpen(false)} />
     </>
   );
 }

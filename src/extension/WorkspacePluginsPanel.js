@@ -24,6 +24,7 @@ import {
   listMarket,
 } from '../workspace/plugins/index.js';
 import PluginSlot from '../workspace/screen/PluginSlot.js';
+import ExtensionImportSheet from './ExtensionImportSheet.js';
 
 export default function WorkspacePluginsPanel() {
   const { theme, fonts, tokens } = useTheme();
@@ -34,6 +35,7 @@ export default function WorkspacePluginsPanel() {
   const [store, setStore] = useState(null);
   const [runtime, setRuntime] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const mountedRef = React.useRef(true);
 
   useEffect(() => {
@@ -110,11 +112,34 @@ export default function WorkspacePluginsPanel() {
           <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>{t('workspace.plugins.title')}</Text>
-        <View style={styles.back} />
+        <TouchableOpacity
+          style={styles.back}
+          onPress={() => setImportOpen(true)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t('workspace.import.open')}
+        >
+          <Ionicons name="download-outline" size={20} color={theme.colors.primary} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.hint}>{t('workspace.plugins.hint')}</Text>
+
+        <TouchableOpacity
+          style={styles.importRow}
+          onPress={() => setImportOpen(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={t('workspace.import.open')}
+        >
+          <Ionicons name="cloud-download-outline" size={17} color={theme.colors.primary} />
+          <View style={styles.importText}>
+            <Text style={styles.importTitle}>{t('workspace.import.open')}</Text>
+            <Text style={styles.importDesc}>{t('workspace.import.openHint')}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
+        </TouchableOpacity>
 
         <Text style={styles.section}>{t('workspace.plugins.installed')}</Text>
         {installed.length === 0 ? (
@@ -163,6 +188,13 @@ export default function WorkspacePluginsPanel() {
           );
         })}
       </ScrollView>
+
+      <ExtensionImportSheet
+        visible={importOpen}
+        store={store}
+        onClose={() => setImportOpen(false)}
+        onImported={activeStore => reload(activeStore)}
+      />
     </View>
   );
 }
@@ -178,6 +210,18 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   title: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800' },
   body: { padding: 14, gap: 10 },
   hint: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17) },
+  importRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.35),
+  },
+  importText: { flex: 1, marginLeft: 10, marginRight: 8 },
+  importTitle: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
+  importDesc: { color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), marginTop: 2, lineHeight: fonts.scaled(16) },
   section: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 8 },
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
   card: {

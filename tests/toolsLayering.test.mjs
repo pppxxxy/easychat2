@@ -104,14 +104,17 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'run_workflow',
     'run_team',
     'export_extension_pack',
+    'search_extension_repos',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
+    'import_extension',
   ], '索引层聚合顺序是契约（只读 → 搜索 → 计划 → 物化 → 子代理 → 写 → 导出）');
   assert.equal(loaded.includes('workspace/docx.js'), false, 'docx.js 必须惰性（不随定义加载）');
+  assert.equal(loaded.includes('workspace/import/index.js'), false, 'import/index.js 必须惰性（静态链拉 fflate）');
 });
 
 test('只读域（readTools.js）自足：不拉 hooks / 子代理 / docx / 执行域', () => {
