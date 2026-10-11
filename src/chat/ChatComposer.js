@@ -73,9 +73,9 @@ export default function ChatComposer({
                 {item.kind === 'image' && item.uri ? (
                   <Image source={{ uri: item.uri }} style={styles.attachmentThumb} />
                 ) : item.kind === 'video' ? (
-                  <Ionicons name="videocam-outline" size={14} color={theme.colors.primarySoft} />
+                  <Ionicons name="videocam-outline" size={14} color={theme.colors.accentText} />
                 ) : (
-                  <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
+                  <Ionicons name="document-text-outline" size={14} color={theme.colors.accentText} />
                 )}
                 <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
                  <TouchableOpacity
@@ -110,7 +110,7 @@ export default function ChatComposer({
           accessibilityRole="button"
           accessibilityLabel={t('chat.composer.a11y.attach')}
         >
-          <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
+          <Ionicons name="add-circle-outline" size={22} color={theme.colors.accentText} />
         </TouchableOpacity>
         {voiceEnabled && !isSending ? (
           recording ? (
@@ -132,7 +132,7 @@ export default function ChatComposer({
               accessibilityRole="button"
               accessibilityLabel={t('chat.composer.a11y.record')}
             >
-              <Ionicons name="mic-outline" size={22} color={theme.colors.primarySoft} />
+              <Ionicons name="mic-outline" size={22} color={theme.colors.accentText} />
             </TouchableOpacity>
           )
         ) : null}
@@ -157,7 +157,7 @@ export default function ChatComposer({
            accessibilityRole="button"
            accessibilityLabel={t('chat.composer.a11y.sticker')}
          >
-           <Ionicons name="happy-outline" size={21} color={theme.colors.primarySoft} />
+           <Ionicons name="happy-outline" size={21} color={theme.colors.accentText} />
          </TouchableOpacity>
         {isSending ? (
           <>

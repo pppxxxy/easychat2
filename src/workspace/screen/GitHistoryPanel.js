@@ -140,7 +140,7 @@ export default function GitHistoryPanel({ characterId = 'default' }) {
       <View style={styles.header}>
         <Text style={styles.title}>{t('workspace.git.title')}</Text>
         <TouchableOpacity onPress={load} accessibilityLabel={t('workspace.git.refresh')} hitSlop={8}>
-          <Ionicons name="refresh-outline" size={18} color={theme.colors.primarySoft} />
+          <Ionicons name="refresh-outline" size={18} color={theme.colors.accentText} />
         </TouchableOpacity>
       </View>
 
@@ -219,7 +219,7 @@ export default function GitHistoryPanel({ characterId = 'default' }) {
 function markColor(status, theme) {
   if (status === 'added') return theme.colors.success || theme.colors.primary;
   if (status === 'deleted') return theme.colors.danger || theme.colors.primary;
-  return theme.colors.warning || theme.colors.primarySoft;
+  return theme.colors.warning || theme.colors.accentText;
 }
 
 const createStyles = (theme, fonts) => StyleSheet.create({

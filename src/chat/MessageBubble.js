@@ -402,7 +402,7 @@ const fullWidthAssistant = !isUser && fullWidth;
                 accessibilityRole="button"
                 accessibilityLabel={t('chat.bubble.videoA11y', { name: message.image.name || t('chat.bubble.unnamed') })}
               >
-                <Ionicons name="videocam" size={26} color={theme.colors.primarySoft} />
+                <Ionicons name="videocam" size={26} color={theme.colors.accentText} />
                 <Text style={styles.videoCardName} numberOfLines={1}>
                   {message.image.name || t('chat.bubble.videoFallback')}
                 </Text>
@@ -510,7 +510,7 @@ const fullWidthAssistant = !isUser && fullWidth;
               accessibilityRole="button"
               accessibilityLabel={t('chat.bubble.moreA11y')}
             >
-              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="ellipsis-horizontal" size={15} color={theme.colors.accentText} />
             </TouchableOpacity>
             {!isUser && !isMediaMessage && onBroadcast ? (
               <TouchableOpacity

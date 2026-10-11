@@ -1746,7 +1746,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!token || busy}
           accessibilityLabel={t('workspace.github.toolbar.repos')}
         >
-          <Ionicons name="list-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="list-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !canAct && styles.toolDisabled]}
@@ -1754,7 +1754,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct || actionBusy === 'import'}
           accessibilityLabel={t('workspace.github.toolbar.importLocal')}
         >
-          <Ionicons name="cloud-upload-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="cloud-upload-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !canAct && styles.toolDisabled]}
@@ -1762,7 +1762,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct}
           accessibilityLabel={t('workspace.github.toolbar.newEntry')}
         >
-          <Ionicons name="add-outline" size={21} color={theme.colors.primarySoft} />
+          <Ionicons name="add-outline" size={21} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.toolButton}
@@ -1770,7 +1770,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={actionBusy === 'refresh'}
           accessibilityLabel={t('workspace.github.toolbar.refresh')}
         >
-          <Ionicons name="refresh-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="refresh-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !token && styles.toolDisabled]}
@@ -1778,7 +1778,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!token}
           accessibilityLabel={t('workspace.github.toolbar.createRepo')}
         >
-          <Ionicons name="add-circle-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="add-circle-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, !canAct && styles.toolDisabled]}
@@ -1786,7 +1786,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct}
           accessibilityLabel={t('workspace.github.toolbar.manage')}
         >
-          <Ionicons name="options-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="options-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
         {/* H1：云构建（触发 → 看状态 → 读日志——「写→检查→修」闭环的远端重活）。 */}
         <TouchableOpacity
@@ -1800,7 +1800,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           disabled={!canAct}
           accessibilityLabel={t('workspace.github.toolbar.build')}
         >
-          <Ionicons name="cafe-outline" size={19} color={theme.colors.primarySoft} />
+          <Ionicons name="cafe-outline" size={19} color={theme.colors.accentText} />
         </TouchableOpacity>
       </View>
     </View>

@@ -60,7 +60,7 @@ export default function AttachmentMenuModal({ visible, onClose, onSelect, vision
                 <Ionicons
                   name={option.icon}
                   size={22}
-                  color={locked ? theme.colors.textFaint : theme.colors.primarySoft}
+                  color={locked ? theme.colors.textFaint : theme.colors.accentText}
                 />
                 <View style={styles.attachMenuTextWrap}>
                   <Text style={[styles.attachMenuTitle, locked && styles.attachMenuTitleLocked]}>

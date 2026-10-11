@@ -135,7 +135,7 @@ export default function ModelPanelModal({
             accessibilityRole="button"
             accessibilityLabel={t('chat.modelPanel.manageA11y')}
           >
-            <Ionicons name="settings-outline" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="settings-outline" size={16} color={theme.colors.accentText} />
             <Text style={styles.localLogLink}>{t('chat.modelPanel.manage')}</Text>
           </TouchableOpacity>
 

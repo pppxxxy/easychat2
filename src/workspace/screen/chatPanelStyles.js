@@ -138,7 +138,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 6,
   },
   recordingText: { color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, flex: 1 },
-  recordingAction: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '600' },
+  recordingAction: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '600' },
   // 斜杠命令建议条：输入 / 时出现在输入行上方（横向滚动，点击填入命令名）。
   slashBar: {
     paddingHorizontal: 12,

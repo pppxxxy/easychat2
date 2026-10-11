@@ -182,7 +182,7 @@ export default function StickerPanelModal({
                 accessibilityRole="button"
                 accessibilityLabel={t('chat.sticker.addA11y')}
               >
-                <Ionicons name="add" size={25} color={theme.colors.primarySoft} />
+                <Ionicons name="add" size={25} color={theme.colors.accentText} />
                 <Text style={styles.stickerAddText}>{t('chat.sticker.add')}</Text>
               </TouchableOpacity>
             ) : null}

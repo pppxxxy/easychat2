@@ -102,16 +102,16 @@ export default function VoiceBubble({ message, isUser }) {
       accessibilityLabel={state === 'playing' ? t('chat.voice.stopA11y') : t('chat.voice.playA11y')}
     >
       {state === 'loading' ? (
-        <ActivityIndicator size="small" color={isUser ? theme.colors.primaryContrast : theme.colors.primarySoft} />
+        <ActivityIndicator size="small" color={isUser ? theme.colors.primaryContrast : theme.colors.accentText} />
       ) : (
         <Ionicons
           name={state === 'playing' ? 'pause' : 'play'}
           size={18}
-          color={isUser ? theme.colors.primaryContrast : theme.colors.primarySoft}
+          color={isUser ? theme.colors.primaryContrast : theme.colors.accentText}
         />
       )}
-      <View style={[styles.wave, { backgroundColor: isUser ? theme.colors.primaryContrast : theme.colors.primarySoft }]} />
-      <Text style={[styles.duration, { color: isUser ? theme.colors.primaryContrast : theme.colors.primarySoft }]}>
+      <View style={[styles.wave, { backgroundColor: isUser ? theme.colors.primaryContrast : theme.colors.accentText }]} />
+      <Text style={[styles.duration, { color: isUser ? theme.colors.primaryContrast : theme.colors.accentText }]}>
         {formatVoiceDuration(audio.durationMs)}
       </Text>
     </TouchableOpacity>

@@ -23,7 +23,7 @@ export default function ContextBar({
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   return (
     <View style={[styles.contextBar, bgUri ? styles.inputBarOverlay : styles.inputBarSurface]}>
-      <Ionicons name={icon} size={16} color={iconDanger ? theme.colors.danger : theme.colors.primarySoft} />
+      <Ionicons name={icon} size={16} color={iconDanger ? theme.colors.danger : theme.colors.accentText} />
       <View style={styles.contextBarBody}>{children}</View>
       {typeof onAction === 'function' ? (
         <TouchableOpacity

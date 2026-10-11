@@ -221,7 +221,7 @@ export default function WorkspaceScreen({ visible, onClose }) {
                   <Ionicons
                     name={item.icon}
                     size={21}
-                    color={active ? theme.colors.primary : theme.colors.primarySoft}
+                    color={active ? theme.colors.primary : theme.colors.accentText}
                   />
                   <Text style={[styles.railLabel, active && styles.railLabelActive]} numberOfLines={2}>
                     {t(item.labelKey)}

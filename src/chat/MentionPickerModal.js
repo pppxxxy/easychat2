@@ -43,7 +43,7 @@ export default function MentionPickerModal({
               activeOpacity={0.7}
             >
               <View style={styles.modalRowAvatarFallback}>
-                <Ionicons name="people" size={14} color={theme.colors.primarySoft} />
+                <Ionicons name="people" size={14} color={theme.colors.accentText} />
               </View>
               <Text style={styles.modalRowText}>@{EVERYONE_MENTION}</Text>
             </TouchableOpacity>

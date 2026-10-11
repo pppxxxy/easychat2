@@ -1458,11 +1458,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       >
         <View style={styles.embeddedBar}>
             <TouchableOpacity style={styles.embeddedAction} onPress={handleNewChat} activeOpacity={0.8}>
-              <Ionicons name="add-circle-outline" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="add-circle-outline" size={16} color={theme.colors.accentText} />
               <Text style={styles.embeddedActionText}>{t('workspace.rail.newChat')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.embeddedAction} onPress={() => setHistoryOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="time-outline" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="time-outline" size={16} color={theme.colors.accentText} />
               <Text style={styles.embeddedActionText}>{t('workspace.rail.history')}</Text>
             </TouchableOpacity>
             {/* P2-1：消息检索开关。消息一多就只能一路滚，这里给一个入口。 */}
@@ -1478,7 +1478,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
               <Ionicons
                 name={msgSearchOpen ? 'close-outline' : 'search-outline'}
                 size={16}
-                color={theme.colors.primarySoft}
+                color={theme.colors.accentText}
               />
               <Text style={styles.embeddedActionText}>
                 {msgSearchOpen ? t('workspace.chat.search.clear') : t('workspace.chat.search.placeholder')}
@@ -1513,7 +1513,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 onPress={() => onOpenPanel('viewer')}
                 activeOpacity={0.8}
               >
-                <Ionicons name="folder-open-outline" size={14} color={theme.colors.primarySoft} />
+                <Ionicons name="folder-open-outline" size={14} color={theme.colors.accentText} />
                 <Text style={styles.filesLinkText} numberOfLines={1}>
                   {t('workspace.home.filesLink')}
                 </Text>
@@ -1628,7 +1628,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                     <Ionicons
                       name={item.kind === 'image' ? 'image-outline' : 'document-text-outline'}
                       size={14}
-                      color={theme.colors.primarySoft}
+                      color={theme.colors.accentText}
                     />
                     <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
                     <TouchableOpacity onPress={() => removeAttachment(item.id)} hitSlop={6}>
@@ -1683,7 +1683,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 disabled={sending}
                 accessibilityLabel={t('workspace.chat.attach.a11y')}
               >
-                <Ionicons name="add-circle-outline" size={22} color={theme.colors.primarySoft} />
+                <Ionicons name="add-circle-outline" size={22} color={theme.colors.accentText} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.iconButton}
@@ -1699,7 +1699,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 <Ionicons
                   name={recorder.recording ? 'mic' : 'mic-outline'}
                   size={22}
-                  color={recorder.recording ? theme.colors.danger : theme.colors.primarySoft}
+                  color={recorder.recording ? theme.colors.danger : theme.colors.accentText}
                 />
               </TouchableOpacity>
               <TextInput
@@ -1719,7 +1719,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                 onPress={() => setSettingsOpen(true)}
                 accessibilityLabel={t('workspace.settings.title')}
               >
-                <Ionicons name="options-outline" size={22} color={theme.colors.primarySoft} />
+                <Ionicons name="options-outline" size={22} color={theme.colors.accentText} />
               </TouchableOpacity>
               {sending ? (
                 <>

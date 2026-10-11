@@ -91,7 +91,7 @@ function BranchForkRow({
                   activeOpacity={0.8}
                 >
                   {busyId === branch.id ? (
-                    <ActivityIndicator size="small" color={theme.colors.primarySoft} />
+                    <ActivityIndicator size="small" color={theme.colors.accentText} />
                   ) : (
                     <Text style={styles.branchActionText}>{t('chat.branch.checkout')}</Text>
                   )}

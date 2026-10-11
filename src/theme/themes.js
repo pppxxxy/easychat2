@@ -206,6 +206,24 @@ export const THEMES = [
 
 export const DEFAULT_THEME_ID = 'dark';
 
+// WCAG 2.1 相对亮度（sRGB）。非法输入返回 0（对比度会退化成「几乎不可读」，便于测试抓出）。
+export function relativeLuminance(hex) {
+  const clean = String(hex == null ? '' : hex).replace('#', '').trim();
+  const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return 0;
+  const channels = [0, 2, 4]
+    .map(i => parseInt(full.slice(i, i + 2), 16) / 255)
+    .map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+// WCAG 2.1 对比度，1 ~ 21。供主题层派生前景色，以及 tests/themeContrast.test.mjs 复用同一公式。
+export function contrastRatio(a, b) {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
 // 聊天气泡风格偏好（存储于聊天设置）：圆润（默认）/ 卡片 / 无底纹。
 export const BUBBLE_STYLES = ['rounded', 'card', 'plain'];
 
@@ -260,6 +278,16 @@ export function getTheme(id) {
     panelButtonText: '#eef4f7',
     // 行内代码/代码块的强调色：需在深色与浅色 surface 上都可读（dangerSoft 两向都够）。
     codeText: found.colors.dangerSoft,
+    // 「主色系强调前景」——给**文字与图标**用的强调色。
+    // 背景：primarySoft 是「浅色调」，在深色底上可读（dark 8.15:1），但在浅色主题的
+    // 白底/浅灰底上只有 1.92:1（light）——当文字色用等于隐形。故这里在 primary 与
+    // primarySoft 之间挑「在 surface 上对比度更高」的那个：浅底主题取 primary
+    // （light 5.41:1），深底主题取 primarySoft。装饰性用途（背景/边框）继续直接用
+    // primarySoft，不走这个 token。口径与 dangerTextStrong / codeText 一致：
+    // 「按主题挑一个可读前景」，不新增颜色取值。
+    accentText: contrastRatio(primary, found.colors.surface) >= contrastRatio(found.colors.primarySoft, found.colors.surface)
+      ? primary
+      : found.colors.primarySoft,
   };
   return { ...found, colors };
 }
