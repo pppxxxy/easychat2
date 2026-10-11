@@ -244,7 +244,24 @@ export default function WorkspaceScreen({ visible, onClose }) {
                 </View>
                 {twoPane ? (
                   <>
-                    <View style={styles.splitter} {...splitterResponder.panHandlers}>
+                    <View
+                      style={styles.splitter}
+                      {...splitterResponder.panHandlers}
+                      // 视觉上仍是 3px 细线（splitterBar），但容器宽到 28 让手指够得着；
+                      // 读屏用户用 adjust 手势改宽度（与 ScrollScrubber 的滑块同一套做法）。
+                      accessibilityRole="adjustable"
+                      accessibilityLabel={t('workspace.home.splitterA11y')}
+                      accessibilityValue={{ text: t('workspace.home.splitterValue', { percent: Math.round(splitRatio * 100) }) }}
+                      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                      onAccessibilityAction={event => {
+                        const step = event.nativeEvent.actionName === 'increment' ? 40 : -40;
+                        setSplitRatio(ratioFromDrag({
+                          startRatio: ratioRef.current,
+                          dx: step,
+                          width: contentWidthRef.current,
+                        }));
+                      }}
+                    >
                       <View style={styles.splitterBar} />
                     </View>
                     <View style={{ width: columns.right }}>
@@ -317,6 +334,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   paneRow: { flex: 1, flexDirection: 'row' },
   paneFill: { flex: 1 },
   paneHidden: { display: 'none' },
-  splitter: { width: 14, alignItems: 'center', justifyContent: 'center' },
+  splitter: { width: 28, alignItems: 'center', justifyContent: 'center' },
   splitterBar: { width: 3, flex: 1, borderRadius: 2, backgroundColor: theme.colors.divider, marginVertical: 8 },
 });

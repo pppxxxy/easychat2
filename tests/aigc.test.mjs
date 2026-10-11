@@ -134,9 +134,15 @@ test('动态与生图界面有 AI 生成显式标识', () => {
   assert.ok(zhCN['moments.aigcHint'].includes('动态与回复由 AI 生成'), '语言包中文值正确');
   assert.ok(IMAGE_GEN.includes("t('imageGen.aigcHint')"), '应引用生图 AI 标识的 i18n 键');
   assert.ok(zhCN['imageGen.aigcHint'].includes('画廊中的图片由 AI 生成'), '语言包中文值正确');
-  // 聊天页提示行（既有合规项保持）。文案常量 2026-09-27 随 ChatScreen 拆分
-  // 移至 src/chat/chatConstants.js，断言改指向新文件、约束不变。
-  assert.ok(readSource(['src', 'chat', 'chatConstants.js']).includes('AI 生成可能有误，仅供参考'));
+  // 聊天页提示行（既有合规项保持）。文案 2026-10-11 从模块级中文常量迁到 i18n 词条
+  // （英文界面下此前显示中文，属合规文案漏译）——约束不变，只是断言改指向
+  // 「常量导出 i18n key + 词条内容」这一对新落点。
+  const CHAT_CONSTANTS = readSource(['src', 'chat', 'chatConstants.js']);
+  assert.ok(
+    CHAT_CONSTANTS.includes("AI_DISCLAIMER_TEXT_KEY = 'chat.aiDisclaimer'"),
+    '免责文案常量应导出 i18n key（不得再硬编码中文）'
+  );
+  assert.ok(zhCN['chat.aiDisclaimer'].includes('AI 生成可能有误，仅供参考'), '语言包中文值正确');
 });
 
 test('免责声明带版本号：条款更新后存量用户需重新确认', () => {

@@ -24,6 +24,8 @@ export const workspace = {
   'workspace.home.title': 'Workspace',
   'workspace.home.exit': 'Exit workspace',
   'workspace.home.filesLink': 'View created files and change history',
+  'workspace.home.splitterA11y': 'Resize the chat and domain panes',
+  'workspace.home.splitterValue': 'Chat pane {percent}%',
   'workspace.rail.newChat': 'New chat',
   'workspace.rail.history': 'History',
   'workspace.screen.rail.chat': 'Chat',

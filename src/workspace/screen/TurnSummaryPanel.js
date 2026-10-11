@@ -148,7 +148,7 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
       {collapsed ? null : files.map(item => (
         <View key={item.path} style={styles.row}>
           <Text style={styles.op} numberOfLines={1}>{t(OP_KEYS[item.op] || OP_KEYS.edit)}</Text>
-          <Text style={styles.path} numberOfLines={1}>{item.path}</Text>
+          <Text style={styles.path} numberOfLines={1} ellipsizeMode="middle">{item.path}</Text>
           {item.count > 1 ? <Text style={styles.count}>{`×${item.count}`}</Text> : null}
         </View>
       ))}

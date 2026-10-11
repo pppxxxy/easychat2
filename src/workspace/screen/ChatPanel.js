@@ -1626,7 +1626,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                       size={14}
                       color={theme.colors.accentText}
                     />
-                    <Text style={styles.attachmentName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.attachmentName} numberOfLines={1} ellipsizeMode="middle">{item.name}</Text>
                     <TouchableOpacity onPress={() => removeAttachment(item.id)} hitSlop={6}>
                       <Ionicons name="close" size={14} color={theme.colors.textFaint} />
                     </TouchableOpacity>
@@ -1725,12 +1725,12 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                     <TouchableOpacity
                       style={styles.sendButton}
                       onPress={handleSend}
-                      accessibilityLabel={t('workspace.chat.steer.a11y')}
+                      hitSlop={8} accessibilityRole="button" accessibilityLabel={t('workspace.chat.steer.a11y')}
                     >
                       <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text} />
                     </TouchableOpacity>
                   ) : null}
-                  <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} accessibilityLabel={t('workspace.chat.stop.a11y')}>
+                  <TouchableOpacity style={[styles.sendButton, styles.stopButton]} onPress={handleStop} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('workspace.chat.stop.a11y')}>
                     <Ionicons name="stop" size={18} color={theme.colors.text} />
                   </TouchableOpacity>
                 </>
@@ -1739,7 +1739,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
                   style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
                   onPress={handleSend}
                   disabled={!canSend}
-                  accessibilityLabel={t('workspace.chat.send.a11y')}
+                  hitSlop={8} accessibilityRole="button" accessibilityLabel={t('workspace.chat.send.a11y')}
                 >
                   <Ionicons name="arrow-up" size={20} color={theme.colors.text} />
                 </TouchableOpacity>

@@ -81,7 +81,7 @@ export default function ChatComposer({
                  <TouchableOpacity
                    onPress={() => onRemoveAttachment(item.id)}
                    disabled={attachLocked}
-                   hitSlop={6}
+                   hitSlop={15}
                    accessibilityRole="button"
                    accessibilityLabel={t('chat.composer.a11y.removeAttachment', { name: item.name || t('chat.composer.quote.fallbackName') })}
                  >

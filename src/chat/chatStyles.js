@@ -31,8 +31,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
     opacity: 0.7,
     textAlign: 'center',
   },
-  // E2：上下文占用提示条（≥70% 时出现，点击「压缩」一键执行）——贴着输入区，
-  // 不遮挡消息流。
+  // E2：上下文占用提示条（≥70% 时出现，点击「压缩」一键执行）——贴着输入区，不遮挡消息流。
   compactHintBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -46,6 +45,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   compactHintIcon: {
     marginRight: 6,
   },
+  sheetWidth: { maxWidth: 520, alignSelf: 'center', width: '100%' }, // 弹窗卡片上限：宽屏/横屏不拉满
   compactHintStopped: { backgroundColor: theme.colors.dangerAlpha(0.12) }, // 自动压缩已停：危险色区别于「建议压缩」
   compactHintText: {
     flex: 1,
@@ -1416,7 +1416,7 @@ export const createChatStyles = (theme, fonts, tokens, options = {}) => {
   voiceHoldButtonActive: { backgroundColor: theme.colors.primaryAlpha(0.16), borderRadius: tokens.radius.md },
   voiceRecordingText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), marginLeft: 8 },
   voiceCancelText: { color: theme.colors.danger, fontSize: fonts.scaled(13), fontWeight: '700', paddingHorizontal: 6 },
-  fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
+  fullScreenContainer: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48, maxWidth: 520, alignSelf: 'center', width: '100%' },
   fullScreenHeader: {
     flexDirection: 'row',
     alignItems: 'center',

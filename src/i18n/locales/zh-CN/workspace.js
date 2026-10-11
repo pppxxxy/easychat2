@@ -24,6 +24,8 @@ export const workspace = {
   'workspace.home.title': '工作区',
   'workspace.home.exit': '退出工作区',
   'workspace.home.filesLink': '查看已创建的文件与历史改动',
+  'workspace.home.splitterA11y': '调整对话与领域面板宽度',
+  'workspace.home.splitterValue': '对话占 {percent}%',
   'workspace.rail.newChat': '新建对话',
   'workspace.rail.history': '查找历史',
   'workspace.screen.rail.chat': '对话',

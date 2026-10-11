@@ -33,7 +33,7 @@ export default function ThinkingPanelModal({
         style={styles.modelBackdrop}
         onPress={onClose}
       >
-        <Pressable style={styles.modelSheet} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
+        <Pressable style={[styles.modelSheet, styles.sheetWidth]} onPress={() => {}} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modelTitle}>{t('chat.thinkingPanel.title')}</Text>
           {!thinkingSupported ? (
             <Text style={styles.modelEmpty}>

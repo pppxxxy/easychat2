@@ -1214,7 +1214,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
           <>
             <TouchableOpacity style={styles.layerHeader} onPress={() => { setLayer(''); setPreview(null); }} activeOpacity={0.8}>
               <Ionicons name="chevron-back" size={18} color={theme.colors.text} />
-              <Text style={styles.layerTitle} numberOfLines={1}>{preview.path}</Text>
+              <Text style={styles.layerTitle} numberOfLines={1} ellipsizeMode="middle">{preview.path}</Text>
             </TouchableOpacity>
             <FieldHint>{preview.truncated ? t('workspace.panel.preview.truncated') : t('workspace.panel.preview.hint')}</FieldHint>
             <Text style={styles.previewText}>{preview.content}</Text>
@@ -1240,7 +1240,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                   activeOpacity={0.85}
                 >
                   <View style={styles.repoMain}>
-                    <Text style={styles.repoName} numberOfLines={1}>{repo.fullName}</Text>
+                    <Text style={styles.repoName} numberOfLines={1} ellipsizeMode="middle">{repo.fullName}</Text>
                     <Text style={styles.repoMeta} numberOfLines={1}>
                       {[repo.defaultBranch, repo.isPrivate ? t('workspace.panel.repo.visibility.private') : t('workspace.panel.repo.visibility.public'), repo.pushedAt].filter(Boolean).join(' · ')}
                       {localCount(repo) > 0 ? ` · ${t('workspace.github.repoList.localCount', { count: localCount(repo) })}` : ''}
@@ -1275,7 +1275,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     searchResults.map(path => (
                       <TouchableOpacity key={path} style={styles.fileRow} onPress={() => openFile(path)} activeOpacity={0.8}>
                         <Ionicons name="search-outline" size={15} color={theme.colors.primaryMuted} />
-                        <Text style={styles.fileName} numberOfLines={1}>{path}</Text>
+                        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{path}</Text>
                       </TouchableOpacity>
                     ))
                   )
@@ -1286,7 +1286,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                         <View key={crumb.path || 'root'} style={styles.crumbItem}>
                           {index > 0 ? <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} /> : null}
                           <TouchableOpacity onPress={() => setSubdir(crumb.path)} activeOpacity={0.7}>
-                            <Text style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]} numberOfLines={1}>
+                            <Text style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]} numberOfLines={1} ellipsizeMode="middle">
                               {crumb.name}
                             </Text>
                           </TouchableOpacity>
@@ -1306,7 +1306,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                             size={16}
                             color={theme.colors.primaryMuted}
                           />
-                          <Text style={styles.fileName} numberOfLines={1}>{child.name}</Text>
+                          <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{child.name}</Text>
                           {/* C1：只在清单里（未物化）的条目带云朵角标——点开时按需下载。 */}
                           {virtualPaths.has(child.path) ? (
                             <Ionicons

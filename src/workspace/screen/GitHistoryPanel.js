@@ -190,7 +190,7 @@ export default function GitHistoryPanel({ characterId = 'default' }) {
                           <Text style={[styles.fileMark, { color: markColor(item.status, theme) }]}>
                             {commitFileMark(item.status)}
                           </Text>
-                          <Text style={styles.filePath} numberOfLines={1}>{item.path}</Text>
+                          <Text style={styles.filePath} numberOfLines={1} ellipsizeMode="middle">{item.path}</Text>
                         </TouchableOpacity>
                       ))}
                     </>

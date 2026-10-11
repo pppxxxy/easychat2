@@ -21,7 +21,7 @@ export default function SelectionTextModal({ text, onClose }) {
       onRequestClose={onClose}
     >
       <View style={styles.modalBackdrop}>
-        <View style={styles.modalSheet} accessibilityViewIsModal importantForAccessibility="yes">
+        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.bubble.selectText')}</Text>
           <ScrollView style={styles.selectScroll} keyboardShouldPersistTaps="handled">
             <Text selectable style={styles.selectText}>{text}</Text>

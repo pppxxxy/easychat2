@@ -30,7 +30,7 @@ export default function StickerNamePromptModal({
         style={styles.modalBackdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.modalSheet} accessibilityViewIsModal importantForAccessibility="yes">
+        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.bubble.saveAsSticker')}</Text>
           <TextInput
             style={styles.stickerNameInput}

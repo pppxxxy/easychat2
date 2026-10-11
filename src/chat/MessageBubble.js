@@ -507,6 +507,7 @@ const fullWidthAssistant = !isUser && fullWidth;
               style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
               onPress={() => setActionsOpen(true)}
               activeOpacity={0.8}
+              hitSlop={{ top: 11, bottom: 11, left: 6, right: 6 }}
               accessibilityRole="button"
               accessibilityLabel={t('chat.bubble.moreA11y')}
             >
@@ -516,6 +517,8 @@ const fullWidthAssistant = !isUser && fullWidth;
               <TouchableOpacity
                 style={[styles.messageActionButton, overlayActions && styles.messageActionButtonOverlay]}
                 onPress={() => onBroadcast(rawText != null ? rawText : message.text)}
+                hitSlop={{ top: 11, bottom: 11, left: 6, right: 6 }}
+                accessibilityRole="button"
                 activeOpacity={0.8}
               >
                 <Text style={styles.messageActionText}>{t('chat.bubble.broadcast')}</Text>

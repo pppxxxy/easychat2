@@ -37,7 +37,7 @@ export default function ChatSettingsModal({
         activeOpacity={1}
         onPress={onClose}
       >
-        <View style={styles.modalSheet} accessibilityViewIsModal importantForAccessibility="yes">
+        <View style={[styles.modalSheet, styles.sheetWidth]} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.modalTitle}>{t('chat.settings.title')}</Text>
           <TouchableOpacity
             style={styles.linkRow}

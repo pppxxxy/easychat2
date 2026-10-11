@@ -308,7 +308,7 @@ export default function ConversationCardModal({
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, maxWidth: 520, alignSelf: 'center', width: '100%' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
