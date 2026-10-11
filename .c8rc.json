@@ -22,6 +22,8 @@
     "src/settings/useGithubMcp.js",
     "src/settings/useWorkspaceSettings.js",
     "src/settings/SamplingCard.js",
+    "src/settings/McpServerCard.js",
+    "src/settings/useMcpServer.js",
     "src/settings/settingsStyles.js",
     "src/settings/CollapsibleHint.js",
     "src/settings/SecretTextField.js",

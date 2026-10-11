@@ -25,6 +25,7 @@
       ],
       "./plugins/withProactiveMessage",
       "./plugins/withLocalApiServer",
+      "./plugins/withMcpServer",
       "./plugins/withShellExecutor",
       "./plugins/withScreenOverlay",
     [

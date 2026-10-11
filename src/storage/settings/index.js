@@ -53,6 +53,17 @@ export {
   getEnabledPlugins,
 } from './plugins.js';
 export {
+  MCP_SERVER_KEY,
+  MCP_SERVER_SCOPES,
+  MCP_SERVER_PORT_DEFAULT,
+  MCP_SERVER_PORT_MIN,
+  MCP_SERVER_PORT_MAX,
+  normalizeMcpServerSettings,
+  getMcpServerSettings,
+  saveMcpServerSettings,
+  patchMcpServerSettings,
+} from './mcpServer.js';
+export {
   DISCLAIMER_VERSION,
   isDisclaimerAcknowledged,
   acknowledgeDisclaimer,
