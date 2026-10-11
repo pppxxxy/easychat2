@@ -18,12 +18,19 @@ function readSource(relativePath) {
 
 test('useScreenWatchComments：多模态带图 + 视觉门控 + 链路守卫', () => {
   const source = readSource('src/screenWatch/useScreenWatchComments.js');
-  assert.ok(source.includes('images: dataUris'), '截图读成 data URI 后以 images 参数走多模态');
+  // 2026-10 起「请求里到底放什么」由 frameRecognition 的纯函数决定（走主模型直接看
+  // 时就是 dataUris 原样，走 OCR 时可能只发描述文本），所以这里断言的是**接线**：
+  // 请求形态取自 shape，而 shape 由 resolveScreenWatchRequest 按来源算出来。
+  assert.ok(source.includes('images: shape.images'), '截图读成 data URI 后以 images 参数走多模态');
+  assert.ok(source.includes('resolveScreenWatchRequest'), '请求形态按「画面识别来源」解析（主模型 / OCR）');
+  assert.ok(source.includes('resolveScreenWatchSource'), '来源读自用户配置');
+  assert.ok(source.includes('mergeDescriptionIntoUserText'), 'OCR 描述注入到用户文本');
   assert.ok(source.includes('readImageDataUri'), '本地 file:// 截图先转 data URI（接口只认 data:/http URL）');
   assert.ok(source.includes('imageUris'), '支持视频帧序列（多图）');
   assert.ok(source.includes('getLocalModelMediaCapabilities'), '视觉判定含本地模型多模态');
   assert.ok(source.includes('supportsVision === true'), '视觉判定含在线来源标记');
   assert.ok(source.includes("code: 'NO_VISION'"), '无视觉能力必须给 NO_VISION 错误');
+  assert.ok(source.includes("code: 'OCR_FAILED'"), 'OCR 失败且主模型不识图必须给明确错误');
   assert.ok(source.includes('buildScreenWatchPrompt'), 'prompt 走纯函数');
   assert.ok(/stream:\s*false/.test(source) && source.includes('expectedConfigId'),
     '一次性生成 + 配置守卫');

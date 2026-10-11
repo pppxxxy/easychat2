@@ -19,6 +19,11 @@ import { getApiConfigs, capabilitiesForModel, getActiveModel } from '../storage/
 import { getLocalModelMediaCapabilities } from '../localModel/modelState.js';
 import { getActiveLocalModel, getLocalModelSettings } from '../storage/localModels.js';
 import { readImageDataUri } from '../chat/attachments.js';
+import {
+  buildImageDescriptionText,
+  imageDescriptionFailed,
+  imageDescriptionPrefix,
+} from '../chat/imageDescriptionPrompt.js';
 import { sha256Ascii, bytesToBase64Url } from '../mcp/sha256.js';
 import {
   getImageRecognitionSettings,
@@ -27,12 +32,10 @@ import {
   writeImageRecognitionCache,
 } from '../storage/settings/imageRecognition.js';
 
-// 识别结果里每条描述的前缀。**这是发给主模型的提示词**，按仓库铁律不进 i18n。
-const IMAGE_DESCRIPTION_PREFIX = '【图片内容（由图片识别模型转述）】';
-// 识别失败时给主模型的说明（同样发给模型，不进 i18n）。只在「降级继续」时出现。
-const IMAGE_DESCRIPTION_FAILED = '【这张图片的内容识别失败，你这次看不到它的内容】';
-
-export { IMAGE_DESCRIPTION_PREFIX, IMAGE_DESCRIPTION_FAILED };
+// 识别结果里两段固定文本（发给主模型的提示词，不进 i18n）由
+// chat/imageDescriptionPrompt.js 单点定义，这里复用并对外 re-export，
+// 让「引擎的调用方」与「上下文投影」用同一份文本。
+export { buildImageDescriptionText, imageDescriptionFailed, imageDescriptionPrefix };
 
 // ---- 纯函数 ----
 
@@ -114,18 +117,18 @@ export function decideImageRecognitionAction({ mainModelVision, failureCount = 0
   return mainModelVision === true ? 'fallback-original' : 'fail';
 }
 
-// 把识别结果拼成给主模型的文本。失败项如实标注，不含糊。
-export function buildImageDescriptionText(descriptions = []) {
-  return (Array.isArray(descriptions) ? descriptions : [])
-    .filter(item => item && item.dataUri)
-    .map(item => {
-      const body = String(item.description || '').trim();
-      return body
-        ? `${IMAGE_DESCRIPTION_PREFIX}\n${body}`
-        : IMAGE_DESCRIPTION_FAILED;
-    })
-    .join('\n\n');
+// 识别成功时，要不要把**原图**也一起交给主模型。
+// - 主模型看不到图 → 附了也没用（接口会拒/忽略），一律不附；
+// - 看得到图 → 由用户配置 attachOriginal 决定（关掉时只发文字描述，更省流量）。
+// 与失败降级分开成两个判定：失败时是「退回原图」，成功时是「要不要顺便附原图」，
+// 两者的理由不同，混在一起会让提示文案说不清。
+export function decideAttachOriginal({ settings, mainModelVision } = {}) {
+  if (mainModelVision !== true) return false;
+  return !!(settings && settings.attachOriginal === true);
 }
+
+// 把识别结果拼成给主模型的文本：实现已抽到 chat/imageDescriptionPrompt.js
+// （与上下文投影共用同一份文本），这里直接 re-export，见文件上方 import。
 
 // ---- 编排 ----
 
@@ -207,7 +210,7 @@ async function describeOne({
 export async function describeImages(dataUris, options = {}) {
   const list = (Array.isArray(dataUris) ? dataUris : []).map(item => String(item || '')).filter(Boolean);
   if (list.length === 0) {
-    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'no-image' };
+    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'no-image', attachOriginal: false };
   }
   const deps = {
     send: typeof options.send === 'function' ? options.send : sendChatMessage,
@@ -216,12 +219,12 @@ export async function describeImages(dataUris, options = {}) {
   };
   const plan = await resolveImageRecognitionPlan(options.settings || null);
   if (!plan.ready) {
-    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: plan.reason };
+    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: plan.reason, attachOriginal: false };
   }
   // 调用方已经取消（切会话/重发）：不要发起识别，也不要把取消算成「识别失败」
   //（那会让降级判定以为图片坏了，进而给用户一条误导性的提示）。
   if (options.signal && options.signal.aborted) {
-    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'aborted' };
+    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'aborted', attachOriginal: false };
   }
   const timeoutSeconds = options.timeoutSeconds || plan.settings.timeoutSeconds;
   const concurrency = options.concurrency || plan.settings.concurrency;
@@ -254,27 +257,58 @@ export async function describeImages(dataUris, options = {}) {
     failureCount,
     skipped: false,
     reason: '',
+    // 识别成功时要不要把原图也交给主模型（见 decideAttachOriginal）。
+    attachOriginal: decideAttachOriginal({
+      settings: plan.settings,
+      mainModelVision: options.mainModelVision,
+    }),
   };
 }
 
-// 便捷入口：读文件 → 识别 → 返回同一形状。截图/附件两种来源都用它。
+// 便捷入口：读文件 → 识别 → 返回同一形状，但**结果按来源 URI 归属**
+// （每条结果带 sourceUri）。调用方持有的是 file:// 路径，而识别需要 data URI，
+// 两者对不上就无法把描述配回对应的消息——所以这里显式回填来源。
 export async function describeImageFiles(uris, options = {}) {
   const list = (Array.isArray(uris) ? uris : []).map(item => String(item || '')).filter(Boolean);
   if (list.length === 0) {
-    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'no-image' };
+    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'no-image', attachOriginal: false };
   }
   const readImage = typeof options.readImage === 'function' ? options.readImage : readImageDataUri;
-  const dataUris = [];
+  const pairs = [];
   for (const uri of list) {
     try {
-      dataUris.push(await readImage(uri));
+      const dataUri = await readImage(uri);
+      if (dataUri) pairs.push({ sourceUri: uri, dataUri: String(dataUri) });
     } catch (error) {
-      dataUris.push('');
+      // 单张读失败不拖垮整批：它会在下面被记为失败项（有可见后果，不是静默丢弃）。
+      pairs.push({ sourceUri: uri, dataUri: '' });
     }
   }
-  const usable = dataUris.filter(Boolean);
+  const usable = pairs.filter(pair => pair.dataUri);
   if (usable.length === 0) {
-    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'read-failed' };
+    return { text: '', descriptions: [], failureCount: 0, skipped: true, reason: 'read-failed', attachOriginal: false };
   }
-  return describeImages(usable, options);
+  const described = await describeImages(usable.map(pair => pair.dataUri), options);
+  const byDataUri = new Map();
+  (described.descriptions || []).forEach(item => {
+    if (item && item.dataUri) byDataUri.set(String(item.dataUri), item);
+  });
+  const descriptions = pairs.map(pair => {
+    const found = pair.dataUri ? byDataUri.get(pair.dataUri) : null;
+    if (found) return { ...found, sourceUri: pair.sourceUri };
+    return {
+      sourceUri: pair.sourceUri,
+      dataUri: pair.dataUri,
+      description: '',
+      cached: false,
+      cacheKey: '',
+      error: pair.dataUri ? 'unknown' : 'read-failed',
+    };
+  });
+  return {
+    ...described,
+    descriptions,
+    // 读文件失败的也算识别失败（否则「一张图读不出来」会被当成识别成功而静默漏掉）。
+    failureCount: descriptions.filter(item => !item.description).length,
+  };
 }

@@ -59,4 +59,15 @@ export const screenWatch = {
   'screenWatch.accessibility.open': '去系统设置开启',
   'screenWatch.accessibility.howTo': '点上面的按钮会打开系统的「无障碍」列表，请在列表里找到本应用并开启。系统没有直达本应用那一项的入口，所以需要你手动找一下。',
   'screenWatch.accessibility.notEnough': '注意：画面采集仍然由悬浮窗完成，开启无障碍只是让授权更省事；它本身不会让截屏变成无需授权。',
+  // ---- 画面识别来源（screenWatch/FrameRecognitionCard.js）----
+  'screenWatch.frameSource.title': '画面识别来源',
+  'screenWatch.frameSource.hint': '屏幕画面交给谁「看」：直接交给当前聊天模型，或先由图片识别模型转成文字描述再交给它。',
+  'screenWatch.frameSource.loading': '正在读取当前设置…',
+  'screenWatch.frameSource.main': '主模型直接看',
+  'screenWatch.frameSource.mainMeta': '与现在一样：画面直接交给当前聊天模型（需要它支持识图）。',
+  'screenWatch.frameSource.ocr': '先用图片识别模型转文字',
+  'screenWatch.frameSource.ocrMeta': '画面先由图片识别模型转成文字描述，再交给主模型评论——主模型不支持识图时也能用。',
+  'screenWatch.frameSource.notReady': '图片识别还没配好（需要在「设置 → 扩展 → 图片识别（OCR）模型」里开启并填好接口、模型名与密钥），现在这个选择不会生效。',
+  'screenWatch.error.ocrUnavailable': '已选择「先用图片识别模型转文字」，但图片识别还没配好：请在「设置 → 扩展 → 图片识别（OCR）模型」里开启并填好接口、模型名与密钥。',
+  'screenWatch.error.ocrFailed': '画面识别失败，且当前模型不支持识图，无法看屏幕。请检查图片识别模型的接口、模型名与密钥后重试。',
 };

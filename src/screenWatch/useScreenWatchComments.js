@@ -23,6 +23,11 @@ import {
   getOrCreateActiveThread,
 } from './threads.js';
 import { readImageDataUri } from '../chat/attachments.js';
+import {
+  mergeDescriptionIntoUserText,
+  resolveScreenWatchRequest,
+  resolveScreenWatchSource,
+} from './frameRecognition.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 const COMMENT_TEXT_MAX = 2000;
@@ -119,8 +124,15 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         getOrCreateActiveThread(character.id, character.name).catch(() => null),
       ]);
       if (controller.signal.aborted) return false;
-      // 视觉门控：与聊天附件菜单同一口径。读盘失败按不支持处理（给明确提示）。
-      if (!caps.vision) {
+      // 画面识别来源（设置里可改）：'main' 画面直接交给主模型（需要它支持识图），
+      // 'ocr' 先用图片识别模型转文字描述再交给主模型评论。
+      // 主模型视觉能力复用上面已解析的 caps.vision（同一口径，不重复读盘）。
+      const source = await resolveScreenWatchSource();
+      const mainModelVision = caps.vision === true;
+      if (controller.signal.aborted) return false;
+      // 视觉门控：'main' 口径不变（与聊天附件菜单同一口径）；'ocr' 不要求主模型识图，
+      // 但要求图片识别本身可用——否则这次请求既没有图也没有描述，等于发个空请求。
+      if (source === 'main' && !caps.vision) {
         throw Object.assign(new Error(t('screenWatch.error.noVision')), { code: 'NO_VISION' });
       }
       const current = caps.current;
@@ -134,6 +146,20 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         throw Object.assign(new Error(t('error.screenWatch.captureReadFailed')), { code: 'CAPTURE_READ' });
       }
       if (controller.signal.aborted) return false;
+      // 按来源决定这次请求放什么：'ocr' 时先把画面交给图片识别模型换文字描述。
+      const shape = await resolveScreenWatchRequest({
+        source,
+        dataUris,
+        signal: controller.signal,
+        mainModelVision,
+      });
+      if (controller.signal.aborted) return false;
+      if (shape.error === 'ocr-unavailable') {
+        throw Object.assign(new Error(t('screenWatch.error.ocrUnavailable')), { code: 'NO_VISION' });
+      }
+      if (shape.error === 'ocr-failed') {
+        throw Object.assign(new Error(t('screenWatch.error.ocrFailed')), { code: 'OCR_FAILED' });
+      }
       // 对话线程历史（不含本次要说的话）：让角色记住这场对话的前文，连续截屏不再各说各话。
       const thread = threadState ? threadState.thread : null;
       const historyMessages = (thread ? thread.entries : [])
@@ -143,17 +169,21 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         character,
         historyMessages,
         // 用户主动说话时以他的话为主（同时带截图则先说明在看屏幕）；否则走原评论提示。
-        userText: saidText
-          ? (uris.length > 0
-            ? `${buildScreenWatchPrompt()}\n\n用户看着屏幕说：${saidText}`
-            : saidText)
-          : buildScreenWatchPrompt(),
+        // OCR 模式下把画面描述拼在后面（主模型看不到图时全靠这段文字理解画面）。
+        userText: mergeDescriptionIntoUserText(
+          saidText
+            ? (uris.length > 0
+              ? `${buildScreenWatchPrompt()}\n\n用户看着屏幕说：${saidText}`
+              : saidText)
+            : buildScreenWatchPrompt(),
+          shape.descriptionText
+        ),
         userProfile: profile || {},
         globalPresets: presets,
         summaryText: '',
         memorySnippets: '',
         pluginContext: '',
-        images: dataUris,
+        images: shape.images,
         quote: null,
       });
       const raw = await sendChatMessage(requestMessages, {
@@ -204,8 +234,11 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
     } catch (caught) {
       if (controller.signal.aborted || isCanceledError(caught)) return false;
       let message;
+      // 三类「配置/能力」失败各有专属文案（不带服务端细节）：NO_VISION=主模型不识图、
+      // CAPTURE_READ=截图读不出来、OCR_FAILED=选了先转文字但识别失败且主模型也看不到图。
       if (caught && caught.code === 'NO_VISION') message = caught.message;
       else if (caught && caught.code === 'CAPTURE_READ') message = t('screenWatch.capture.failed.body');
+      else if (caught && caught.code === 'OCR_FAILED') message = caught.message;
       else {
         // 真实原因必须露出来：此前一律显示「评论生成失败，请检查 API 配置后重试」，
         // 把服务端报错、网络失败、空响应、守卫拦截全归成同一句话——用户明明配的是

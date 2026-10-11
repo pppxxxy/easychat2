@@ -60,4 +60,15 @@ export const screenWatch = {
   'screenWatch.accessibility.open': 'Open system settings',
   'screenWatch.accessibility.howTo': 'The button opens the system Accessibility list; find this app in the list and turn it on. The system has no deep link to this app\'s own entry, so you need to find it yourself.',
   'screenWatch.accessibility.notEnough': 'Note: frames are still captured by the floating window. Enabling accessibility only saves you the repeated grant — it does not make capture grant-free by itself.',
+  // ---- Frame recognition source (screenWatch/FrameRecognitionCard.js) ----
+  'screenWatch.frameSource.title': 'Frame recognition source',
+  'screenWatch.frameSource.hint': 'Who "reads" the screen: the current chat model directly, or the image recognition model first (turning frames into text) and then the chat model.',
+  'screenWatch.frameSource.loading': 'Reading the current setting…',
+  'screenWatch.frameSource.main': 'Main model looks directly',
+  'screenWatch.frameSource.mainMeta': 'Same as now: frames go straight to the current chat model (it must have vision).',
+  'screenWatch.frameSource.ocr': 'Recognize with the OCR model first',
+  'screenWatch.frameSource.ocrMeta': 'Frames are first turned into a text description by the image recognition model, then handed to the main model to comment on — works even when the main model has no vision.',
+  'screenWatch.frameSource.notReady': 'Image recognition is not configured yet (enable it under "Settings → Extensions → Image recognition (OCR) model" and fill in the API config, model name and key). This choice will not take effect until then.',
+  'screenWatch.error.ocrUnavailable': 'You picked "recognize with the OCR model first", but image recognition is not configured: enable it under "Settings → Extensions → Image recognition (OCR) model" and fill in the API config, model name and key.',
+  'screenWatch.error.ocrFailed': 'Frame recognition failed and the current model does not support vision, so screen peek is unavailable. Check the image recognition model\'s API config, model name and key, then retry.',
 };

@@ -55,15 +55,17 @@ import {
   MAX_IMAGE_ATTACHMENTS,
   MAX_IMAGE_BASE64_BYTES,
   MAX_VIDEO_ATTACHMENTS,
-  MAX_VIDEO_BASE64_BYTES,
   MAX_VIDEO_BYTES,
   mergeTextAttachments,
   readImageDataUri,
-  readVideoDataUri,
   validateImageBatch,
-  validateVideoSize,
 } from './attachments.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
+// 图片识别（OCR）：带图片的消息先由 OCR 模型换成文字描述再喂主模型（接线见
+// chat/imageRecognitionSend.js，这里只用它的两个入口）。
+import { applyImageRecognitionToMessages } from './imageRecognitionSend.js';
+import { resolveImageRecognitionPlan } from '../imageRecognition/index.js';
+import { prepareVideoMessages } from './videoSend.js';
 import { createVoiceMessage } from './voiceMessages.js';
 import { createRequestMeter, estimatePromptTokens, estimateReplyTokens } from './sessionStats.js';
 import { recordSessionRequest } from '../storage/sessionStats.js';
@@ -1387,6 +1389,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
       let visionEnabled = false;
       let audioInputEnabled = false;
       let videoEnabled = false;
+      // 图片识别（OCR）这次能不能用（开关 + 配置 + 模型名 + 密钥四项都满足）。
+      // 在图片循环前解析：循环里的视觉门控需要它来决定「主模型没有识图能力时
+      // 是否放行到 OCR 通道」。
+      let imageRecognitionPlan = null;
      let expectedConfigId = '';
      let expectedConfigFingerprint = '';
     try {
@@ -1411,6 +1417,10 @@ if (!isCurrent() || controller.signal.aborted) return false;
       const localMedia = getLocalModelMediaCapabilities(localSettingsForMedia, localItemForMedia);
       visionEnabled = visionEnabled || localMedia.vision;
       audioInputEnabled = audioInputEnabled || localMedia.audio;
+      // 图片识别（OCR）配置：只在确实带图片时解析（纯文字消息不白读一次存储）。
+      // 用途有二：图片循环的视觉门控（主模型无识图能力时是否放行到 OCR 通道）、
+      // 循环之后的识别接线。
+      if (imageAttachments.length > 0) imageRecognitionPlan = await resolveImageRecognitionPlan().catch(() => null);
      let sizedImages = [];
      try {
        sizedImages = await Promise.all(imageAttachments.map(async item => {
@@ -1440,7 +1450,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     for (let index = 0; index < imageAttachments.length; index += 1) {
       const item = sizedImages[index];
       const kind = item.kind === STICKER_MESSAGE_KIND ? STICKER_MESSAGE_KIND : 'image';
-      if (kind === 'image' && !visionEnabled) {
+      if (kind === 'image' && !visionEnabled && !(imageRecognitionPlan && imageRecognitionPlan.ready)) {
          Alert.alert(tRef.current('chat.send.noVision.title'), tRef.current('chat.send.noVision.body'));
          return false;
        }
@@ -1494,65 +1504,53 @@ if (!isCurrent() || controller.signal.aborted) return false;
         includeImage: visionEnabled,
       });
     }
-    // 视频附件：能力/数量/大小三重校验后读成数据 URI。预算与图片分列——
-    // 视频请求体大得多，单独用 MAX_VIDEO_BASE64_BYTES 控住，避免一条视频
-    // 把图片的额度连带吃光。
+    // 图片识别（OCR）接线：先把图片交给 OCR 模型换成文字描述（描述由 chatMedia 的
+    // 上下文投影拼进该消息文本，让看不到图的模型也能理解画面），再决定是否附原图。
+    // 失败**绝不静默丢图**：主模型能看图 → 退回直发原图；看不到图 → 明确提示并中止
+    //（继续发就是发一条模型看不懂的请求，用户只会收到莫名其妙的回复）。
+    if (imageRecognitionPlan && imageRecognitionPlan.ready && imageMessages.length > 0) {
+      const recognized = await applyImageRecognitionToMessages(imageMessages, {
+        plan: imageRecognitionPlan,
+        mainModelVision: visionEnabled,
+        signal: abortRef.current ? abortRef.current.signal : null,
+      });
+      if (isCanceled() || !isSessionGuardCurrent(sessionGuard)) return false;
+      if (recognized.decision === 'fail') {
+        Alert.alert(tRef.current('chat.send.imageRecognitionFailed.title'), tRef.current('chat.send.imageRecognitionFailed.body'));
+        return false;
+      }
+      if (recognized.ran) imageMessages.forEach(item => { item.includeImage = recognized.attachOriginal; });
+    }
+    // 视频附件：校验后读成数据 URI（编排已抽到 chat/videoSend.js）。预算与图片分列：
+    // 视频请求体大得多，共用一份额度会让一条视频把图片的额度吃光。
     if (videoAttachments.length > 0) {
       if (!videoEnabled) {
         Alert.alert(tRef.current('chat.send.noVideo.title'), tRef.current('chat.send.noVideo.body'));
         return false;
       }
-      let totalVideoBase64Bytes = 0;
-      for (let index = 0; index < videoAttachments.length; index += 1) {
-        const item = videoAttachments[index];
-        let size = Number(item.size || 0);
-        try {
-          const info = await getImageFileInfo(item.uri);
-           if (!info.exists) throw sendError(SEND_ERROR.VIDEO_MISSING);
-           size = info.size || size;
-           validateVideoSize({ size });
-         } catch (error) {
-           if (error && error.code === SEND_ERROR.VIDEO_MISSING) {
-             Alert.alert(tRef.current('chat.send.videoMissing.title'), tRef.current('chat.send.videoMissing.body'));
-           } else {
-             Alert.alert(tRef.current('chat.send.videoTooLarge.title'), tRef.current('chat.send.videoTooLarge.body', { max: Math.round(MAX_VIDEO_BYTES / (1024 * 1024)) }));
-           }
-          return false;
-        }
-        let dataUri = '';
-        try {
-          const estimatedBase64Bytes = Math.ceil(size * 4 / 3);
-          if (totalVideoBase64Bytes + estimatedBase64Bytes > MAX_VIDEO_BASE64_BYTES) {
-            throw sendError(SEND_ERROR.VIDEO_TOTAL_TOO_LARGE);
-          }
-          totalVideoBase64Bytes += estimatedBase64Bytes;
-          dataUri = await readVideoDataUri(item.uri, item.mime);
-          const separator = dataUri.indexOf(',');
-          const base64Length = separator >= 0 ? dataUri.length - separator - 1 : dataUri.length;
-          totalVideoBase64Bytes = Math.max(
-            totalVideoBase64Bytes,
-            totalVideoBase64Bytes - estimatedBase64Bytes + Math.ceil(base64Length * 3 / 4)
-          );
-          if (totalVideoBase64Bytes > MAX_VIDEO_BASE64_BYTES) throw sendError(SEND_ERROR.VIDEO_TOTAL_TOO_LARGE);
-          if (isCanceled()) return false;
-        } catch (error) {
+      const prepared = await prepareVideoMessages(videoAttachments, {
+        now,
+        indexOffset: imageAttachments.length,
+        maxVideoBytes: MAX_VIDEO_BYTES,
+        getFileInfo: getImageFileInfo,
+        isCanceled,
+        isGuardCurrent: () => isSessionGuardCurrent(sessionGuard),
+      });
+      if (!prepared.ok) {
+        if (prepared.reason === 'canceled' || prepared.reason === 'guard-changed') return false;
+        if (prepared.reason === 'missing') {
+          Alert.alert(tRef.current('chat.send.videoMissing.title'), tRef.current('chat.send.videoMissing.body'));
+        } else if (prepared.reason === 'read-failed') {
           Alert.alert(tRef.current('chat.send.videoReadFailed.title'), tRef.current('chat.send.videoReadFailed.body'));
-          return false;
+        } else {
+          Alert.alert(tRef.current('chat.send.videoTooLarge.title'), tRef.current('chat.send.videoTooLarge.body', { max: Math.round(MAX_VIDEO_BYTES / (1024 * 1024)) }));
         }
-        if (!isSessionGuardCurrent(sessionGuard)) return false;
-        const videoMessage = createMediaMessage({
-          id: `${now}-video-${index}`,
-          kind: 'video',
-          uri: item.uri,
-          mime: item.mime,
-          name: item.name,
-          width: item.width,
-          height: item.height,
-          timestamp: now + imageAttachments.length + index,
-        });
-        mediaMessages.push(videoMessage);
-        imageMessages.push({ ...videoMessage, dataUri, includeVideo: videoEnabled });
+        return false;
       }
+      prepared.messages.forEach(({ message, dataUri }) => {
+        mediaMessages.push(message);
+        imageMessages.push({ ...message, dataUri, includeVideo: videoEnabled });
+      });
     }
      const mergedText = mergeTextAttachments(text, textAttachments);
      if (!mergedText && mediaMessages.length === 0 && !voice) return false;

@@ -55,6 +55,18 @@ export async function setJsonWithSecrets(key, payload) {
   await AsyncStorage.setItem(key, json);
 }
 
+// 明确**不含密钥**的内部数据（如「图片识别」的结果缓存：只有模型产出的描述文本，
+// 没有任何凭据）。为什么需要单独一个入口：setJsonWithSecrets 会先跑一遍
+// protectSecrets（按字段名白名单找密钥）——对纯派生数据是白跑，而且一旦将来有人
+// 往缓存里塞了同名字段，会被悄悄搬进安全存储（那边有 2048 字节单值上限）。
+// 体积预算的登记保持一致：派生数据同样不该悄悄把存储键顶到 CursorWindow 上限。
+// 判据是「调用方保证无密钥」，所以只允许存储层内部/派生数据使用。
+export async function setJsonRaw(key, payload) {
+  const json = JSON.stringify(payload);
+  assertValueBudget(key, json);
+  await AsyncStorage.setItem(key, json);
+}
+
 export async function readJsonWithSecrets(key, fallback) {
   const value = await readJson(key, fallback);
   return hydrateSecrets(key, value);

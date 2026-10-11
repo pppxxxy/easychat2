@@ -41,6 +41,9 @@ const ioStub = {
     }
   },
   setJson: async (key, value) => { await AsyncStorage.setItem(key, JSON.stringify(value)); },
+  // 派生数据（缓存）走 setJsonRaw：明确不含密钥，不做保险箱遍历。
+  setJsonRaw: async (key, value) => { await AsyncStorage.setItem(key, JSON.stringify(value)); },
+  setJsonWithSecrets: async (key, value) => { await AsyncStorage.setItem(key, JSON.stringify(value)); },
   backupCorruptValue: async key => { corruptBackups.push(key); return true; },
 };
 

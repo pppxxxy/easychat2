@@ -262,6 +262,10 @@ export const chat = {
   'chat.send.imageTooLarge.regenTotalBody': 'The total image size required for regeneration is too large.',
   'chat.send.noVision.title': 'Vision not supported',
   'chat.send.noVision.body': 'The current source is not marked as vision-capable. Please confirm the model capabilities in Settings.',
+  // Image recognition (OCR) failed while the main model cannot see images either, so the
+  // send must stop — sending anyway would be a request the model cannot understand.
+  'chat.send.imageRecognitionFailed.title': 'Image recognition failed',
+  'chat.send.imageRecognitionFailed.body': 'The current model does not support vision, and image recognition could not read this image either. Check the API config, model name and key under "Settings → Extensions → Image recognition (OCR) model", or switch to a vision-capable model and resend.',
   'chat.send.noVideo.title': 'Video not supported',
   'chat.send.noVideo.body': 'The current source is not marked as video-capable (and must use the OpenAI-compatible protocol). Please confirm the model capabilities in Settings.',
   'chat.send.videoMissing.title': 'Video unavailable',

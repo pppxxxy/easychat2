@@ -17,6 +17,7 @@ const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
 const MENU = read('src/chat/AttachmentMenuModal.js');
 const CHAT_SCREEN = read('src/ChatScreen.js');
 const SEND = read('src/chat/useChatSend.js');
+const VIDEO_SEND = read('src/chat/videoSend.js');
 const BUBBLE = read('src/chat/MessageBubble.js');
 const MEDIA = read('src/chat/chatMedia.js');
 const SWITCH = read('src/chat/useSessionSwitch.js');
@@ -69,9 +70,15 @@ test('useChatSend：发送时复检 + includeVideo 标记 + 视频独立数量�
   );
   assert.ok(SEND.includes("if (!videoEnabled) {\n        Alert.alert(tRef.current('chat.send.noVideo.title')"), '发送时复检，未支持直接拒绝（走 i18n 键）');
   assert.equal(zhCN['chat.send.noVideo.title'], '不支持看视频', '语言包中文值正确');
-  assert.ok(SEND.includes("imageMessages.push({ ...videoMessage, dataUri, includeVideo: videoEnabled });"),
-    '视频消息带 includeVideo 标记（管道按它裁剪）');
-  assert.ok(SEND.includes('MAX_VIDEO_ATTACHMENTS') && SEND.includes('validateVideoSize'), '数量与大小校验复用附件层');
+  // 2026-10 起视频预处理编排抽到 chat/videoSend.js（useChatSend 顶到行数基线），
+  // 但 includeVideo 标记仍由**发送路径**在把抽出的消息并入 imageMessages 时打上——
+  // 所以两处都要查：videoSend 产出消息、useChatSend 打标记，缺一就是接线断了。
+  assert.ok(SEND.includes('includeVideo: videoEnabled'), '发送路径给抽出的视频消息打 includeVideo 标记');
+  assert.ok(VIDEO_SEND.includes("kind: 'video'"), 'videoSend 仍产出 video kind 的消息');
+  // 数量守卫仍在发送路径（附件层常量），大小校验随编排一起搬到了 videoSend。
+  assert.ok(SEND.includes('MAX_VIDEO_ATTACHMENTS'), '数量守卫复用附件层常量');
+  assert.ok(VIDEO_SEND.includes('MAX_VIDEO_BASE64_BYTES') && VIDEO_SEND.includes('maxVideoBytes'),
+    '大小校验随编排搬到 videoSend，且仍用附件层常量');
   assert.ok(SEND.includes("item.kind === 'video'"), '从附件列表分流视频');
 });
 

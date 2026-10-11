@@ -19,7 +19,8 @@
 import {
   backupCorruptValue,
   readJsonStatus,
-  setJson,
+  setJsonRaw,
+  setJsonWithSecrets,
 } from '../io.js';
 
 const IMAGE_RECOGNITION_KEY = '@easychat2_image_recognition';
@@ -99,7 +100,9 @@ export async function getImageRecognitionSettings() {
 
 export async function saveImageRecognitionSettings(settings) {
   const normalized = normalizeImageRecognitionSettings(settings);
-  await setJson(IMAGE_RECOGNITION_KEY, normalized);
+  // 配置走含密钥入口（与 settings/ 其它域一致）：当前没有密钥字段，但万一将来
+  // 有人往这里加了同名字段，保险箱会兜住——**不能**为了省一次遍历而留下旁路。
+  await setJsonWithSecrets(IMAGE_RECOGNITION_KEY, normalized);
   return normalized;
 }
 
@@ -174,7 +177,7 @@ export async function writeImageRecognitionCache(key, description, { limit = DEF
   try {
     const table = await readCacheTable();
     table[id] = { description: text, at: Date.now() };
-    await setJson(IMAGE_RECOGNITION_CACHE_KEY, { entries: pruneImageRecognitionCache(table, limit) });
+    await setJsonRaw(IMAGE_RECOGNITION_CACHE_KEY, { entries: pruneImageRecognitionCache(table, limit) });
     return true;
   } catch (error) {
     return false;
@@ -184,7 +187,7 @@ export async function writeImageRecognitionCache(key, description, { limit = DEF
 // 仅测试用：清空缓存键（缓存是派生数据，清掉不影响任何用户配置）。
 export async function clearImageRecognitionCache() {
   try {
-    await setJson(IMAGE_RECOGNITION_CACHE_KEY, { entries: {} });
+    await setJsonRaw(IMAGE_RECOGNITION_CACHE_KEY, { entries: {} });
     return true;
   } catch (error) {
     return false;

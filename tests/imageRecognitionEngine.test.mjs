@@ -142,12 +142,13 @@ function loadModule(sourcePath) {
 const engine = loadModule(path.resolve('src/imageRecognition/index.js'));
 
 const {
-  IMAGE_DESCRIPTION_FAILED,
-  IMAGE_DESCRIPTION_PREFIX,
   buildImageDescriptionText,
+  decideAttachOriginal,
   decideImageRecognitionAction,
   describeImages,
   hashImageContent,
+  imageDescriptionFailed,
+  imageDescriptionPrefix,
   mapWithConcurrency,
   resolveImageRecognitionPlan,
 } = engine;
@@ -220,14 +221,24 @@ test('decideImageRecognitionAction：不许静默丢图的判定', () => {
   assert.equal(decideImageRecognitionAction({ mainModelVision: false, failureCount: 3, imageCount: 0 }), 'continue');
 });
 
+test('decideAttachOriginal：主模型看不到图时一律不附原图；看得到时按用户配置', () => {
+  // 主模型看不到图：附了也没用（接口会拒/忽略）
+  assert.equal(decideAttachOriginal({ settings: { attachOriginal: true }, mainModelVision: false }), false);
+  assert.equal(decideAttachOriginal({ settings: { attachOriginal: true }, mainModelVision: undefined }), false);
+  // 看得到图：由用户配置决定
+  assert.equal(decideAttachOriginal({ settings: { attachOriginal: true }, mainModelVision: true }), true);
+  assert.equal(decideAttachOriginal({ settings: { attachOriginal: false }, mainModelVision: true }), false);
+  assert.equal(decideAttachOriginal({ settings: null, mainModelVision: true }), false);
+});
+
 test('buildImageDescriptionText：成功项带前缀，失败项如实标注', () => {
   const text = buildImageDescriptionText([
-    { dataUri: 'data:x', description: '一只猫' },
-    { dataUri: 'data:y', description: '' },
+    { sourceUri: 'file:///a.jpg', description: '一只猫' },
+    { sourceUri: 'file:///b.jpg', description: '' },
   ]);
-  assert.ok(text.includes(IMAGE_DESCRIPTION_PREFIX));
+  assert.ok(text.includes(imageDescriptionPrefix()));
   assert.ok(text.includes('一只猫'));
-  assert.ok(text.includes(IMAGE_DESCRIPTION_FAILED), '失败项必须如实说明，不能静默省略');
+  assert.ok(text.includes(imageDescriptionFailed()), '失败项必须如实说明，不能静默省略');
   assert.equal(buildImageDescriptionText([]), '');
   assert.equal(buildImageDescriptionText(null), '');
 });
@@ -350,7 +361,7 @@ test('超时：必须真的 abort 在途请求（不是只 race 掉 Promise）',
   assert.equal(observedAbort, true, '超时必须中止在途请求');
   assert.equal(result.failureCount, 1, '超时算一次识别失败');
   assert.equal(result.descriptions[0].error, 'TIMEOUT', '失败原因要可判定');
-  assert.ok(result.text.includes(IMAGE_DESCRIPTION_FAILED), '失败必须如实写进给主模型的文本');
+  assert.ok(result.text.includes(imageDescriptionFailed()), '失败必须如实写进给主模型的文本');
 });
 
 test('失败不写缓存：下次必须重试（否则一次网络抖动会永久污染结果）', async () => {
