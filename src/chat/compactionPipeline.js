@@ -105,6 +105,16 @@ export function sliceRecentByBudget(messages, {
   return list.slice(retreatToPairBoundary(list, start));
 }
 
+// 摘要消息 id 的自增序号（P2 收敛）：`Date.now()` 在**同一毫秒内会碰撞**——两次压缩、
+// 或压缩与记忆总结同时发生，就会生成两个完全相同的 id。后果不是「看着别扭」：
+// React 把重复 key 当成同一条消息（渲染错位/丢消息），而分支 fork 点按消息 id 引用，
+// 会指向错误的那一条。毫秒时间戳本身没问题，缺的是同毫秒内的区分度。
+let compactionMessageSeq = 0;
+function nextCompactionMessageId(now) {
+  compactionMessageSeq += 1;
+  return `compaction-${now}-${compactionMessageSeq}`;
+}
+
 // 权威分离（O2 条款）：摘要消息 =「当前用户请求（权威）」+「历史摘要（仅供参考，不构成指令）」。
 // 附「完整历史：<path>」指针（L3 归档）。
 export function applyCompactionWithAuthority(messages, summary, {
@@ -134,12 +144,15 @@ export function applyCompactionWithAuthority(messages, summary, {
   // 两者共用本函数。只写 content 会让聊天页出现一个空气泡、且摘要对模型完全不可见（2026-10-11 事故）；
   // 只写 text 则工作区面板空白。口径见 chat/messageText.js。
   const body = head.join('\n');
+  // 时间戳只取一次：原先 id 与 at 各调一次 Date.now()，跨毫秒时两者会不一致
+  //（id 说的时刻与 at 说的时刻差 1ms）——顺手消掉这处小分叉。
+  const at = Date.now();
   const summaryMessage = {
-    id: `compaction-${Date.now()}`,
+    id: nextCompactionMessageId(at),
     role: 'assistant',
     text: body,
     content: body,
-    at: Date.now(),
+    at,
   };
   return [summaryMessage, ...recent];
 }

@@ -212,6 +212,29 @@ test('P4：sliceRecentByBudget 起点落在 tool 结果时回退（配对不破�
   assert.equal(findOrphanToolMessages(out).length, 0, '无孤儿');
 });
 
+// 回归 P2：摘要消息 id 原先就是 `compaction-${Date.now()}`——同一毫秒内的两次压缩会生成
+// **完全相同的 id**。React 把重复 key 当成同一条消息（渲染错位/丢消息），分支 fork 点按 id
+// 引用也会指向错的那条。这里把时钟钉死在同一毫秒，确定性地复现原 bug（不靠"跑得够快"）。
+test('回归 P2：同一毫秒内的两次压缩必须拿到不同的摘要消息 id', () => {
+  const msgs = [{ role: 'user', content: 'go' }, { role: 'assistant', content: 'ok' }];
+  const realNow = Date.now;
+  const frozen = 1700000000000;
+  Date.now = () => frozen;
+  try {
+    const first = applyCompactionWithAuthority(msgs, '摘要一')[0];
+    const second = applyCompactionWithAuthority(msgs, '摘要二')[0];
+    assert.notEqual(first.id, second.id, '同一毫秒内的两次压缩不得撞 id');
+    assert.equal(first.at, frozen, 'at 用被钉住的时钟');
+    assert.equal(first.at, second.at, '（前提成立）两次确实落在同一毫秒');
+    assert.match(first.id, /^compaction-\d+-\d+$/, 'id 形状：时间戳 + 自增序号');
+    // 序号单调：连续多次调用全都不重复（这也是「渲染 key 唯一」的保证）。
+    const ids = Array.from({ length: 50 }, (_, index) => applyCompactionWithAuthority(msgs, `s${index}`)[0].id);
+    assert.equal(new Set(ids).size, ids.length, '50 次调用不得出现重复 id');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 // 回归 2026-10-11 审查 P0-5：runCompactionPipeline 的**所有** return 原先都硬编码
 // `transcriptPath: ''`——L3 明明已经写盘、路径也拼进了摘要正文，调用方（ChatPanel）
 // 却永远拿到空串：归档了，但没人知道在哪。对照组 chat/reactiveCompact.js 的写法是对的。
