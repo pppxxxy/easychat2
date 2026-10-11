@@ -13,9 +13,14 @@ export {
   PLUGIN_MANIFEST_VERSION,
   SLOT_KINDS,
   PLUGIN_PERMISSIONS,
+  PLUGIN_CATEGORIES,
+  DEFAULT_PLUGIN_CATEGORY,
   PLUGIN_LIMITS,
   normalizePluginId,
   normalizeManifest,
+  normalizePluginCategory,
+  inferPluginCategory,
+  groupPluginsByCategory,
   validateManifest,
 } from './manifest.js';
 export { SLOT_PRIORITY, priorityOf, createSlotRegistry } from './registry.js';

@@ -22,9 +22,19 @@ import {
   installPlugin,
   uninstallPlugin,
   listMarket,
+  groupPluginsByCategory,
 } from '../workspace/plugins/index.js';
 import PluginSlot from '../workspace/screen/PluginSlot.js';
 import ExtensionImportSheet from './ExtensionImportSheet.js';
+
+// 归类文案：写成显式映射而不是拼 `workspace.plugins.category.${id}`——模板串拼出来的
+// key 静态扫不到，i18n 对账测试既查不出缺键也查不出死键。
+const CATEGORY_KEYS = {
+  workspace: 'workspace.plugins.category.workspace',
+  chat: 'workspace.plugins.category.chat',
+  feature: 'workspace.plugins.category.feature',
+  other: 'workspace.plugins.category.other',
+};
 
 export default function WorkspacePluginsPanel() {
   const { theme, fonts, tokens } = useTheme();
@@ -144,18 +154,25 @@ export default function WorkspacePluginsPanel() {
         <Text style={styles.section}>{t('workspace.plugins.installed')}</Text>
         {installed.length === 0 ? (
           <Text style={styles.empty}>{t('workspace.plugins.none')}</Text>
-        ) : installed.map(plugin => (
-          <View key={plugin.id} style={styles.card}>
-            <View style={styles.cardHead}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{plugin.name || plugin.id}</Text>
-              <TouchableOpacity onPress={() => handleUninstall(plugin)} disabled={busy} hitSlop={6}>
-                <Text style={styles.remove}>{t('workspace.plugins.uninstall')}</Text>
-              </TouchableOpacity>
-            </View>
-            {plugin.description ? <Text style={styles.cardDesc}>{plugin.description}</Text> : null}
-            <Text style={styles.cardMeta}>
-              {t('workspace.plugins.meta', { slots: plugin.slots.length, tools: plugin.tools.length })}
+        ) : groupPluginsByCategory(installed).map(group => (
+          <View key={group.category}>
+            <Text style={styles.groupLabel}>
+              {t(CATEGORY_KEYS[group.category])} · {group.items.length}
             </Text>
+            {group.items.map(plugin => (
+              <View key={plugin.id} style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>{plugin.name || plugin.id}</Text>
+                  <TouchableOpacity onPress={() => handleUninstall(plugin)} disabled={busy} hitSlop={6}>
+                    <Text style={styles.remove}>{t('workspace.plugins.uninstall')}</Text>
+                  </TouchableOpacity>
+                </View>
+                {plugin.description ? <Text style={styles.cardDesc}>{plugin.description}</Text> : null}
+                <Text style={styles.cardMeta}>
+                  {t('workspace.plugins.meta', { slots: plugin.slots.length, tools: plugin.tools.length })}
+                </Text>
+              </View>
+            ))}
           </View>
         ))}
 
@@ -167,26 +184,33 @@ export default function WorkspacePluginsPanel() {
         ) : null}
 
         <Text style={styles.section}>{t('workspace.plugins.market')}</Text>
-        {market.map(item => {
-          const isInstalled = installedIds.has(item.id);
-          return (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.cardHead}>
-                <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
-                <TouchableOpacity
-                  onPress={() => handleInstall(item)}
-                  disabled={busy || isInstalled}
-                  hitSlop={6}
-                >
-                  <Text style={[styles.install, isInstalled && styles.installDone]}>
-                    {isInstalled ? t('workspace.plugins.installedTag') : t('workspace.plugins.install')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.cardDesc}>{item.description}</Text>
-            </View>
-          );
-        })}
+        {groupPluginsByCategory(market).map(group => (
+          <View key={group.category}>
+            <Text style={styles.groupLabel}>
+              {t(CATEGORY_KEYS[group.category])} · {group.items.length}
+            </Text>
+            {group.items.map(item => {
+              const isInstalled = installedIds.has(item.id);
+              return (
+                <View key={item.id} style={styles.card}>
+                  <View style={styles.cardHead}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleInstall(item)}
+                      disabled={busy || isInstalled}
+                      hitSlop={6}
+                    >
+                      <Text style={[styles.install, isInstalled && styles.installDone]}>
+                        {isInstalled ? t('workspace.plugins.installedTag') : t('workspace.plugins.install')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.cardDesc}>{item.description}</Text>
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </ScrollView>
 
       <ExtensionImportSheet
@@ -223,6 +247,14 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   importTitle: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
   importDesc: { color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), marginTop: 2, lineHeight: fonts.scaled(16) },
   section: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 8 },
+  groupLabel: {
+    color: theme.colors.primarySoft,
+    fontSize: fonts.scaled(11.5),
+    fontWeight: '700',
+    marginTop: 6,
+    marginBottom: 4,
+    letterSpacing: 0.3,
+  },
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
   card: {
     padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface,

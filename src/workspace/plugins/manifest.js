@@ -24,6 +24,24 @@ export const SLOT_KINDS = Object.freeze([
 // 能力白名单：插件在 manifest 里声明它需要什么，沙盒据此注入对应原语。
 export const PLUGIN_PERMISSIONS = Object.freeze(['fs.read', 'fs.write', 'search', 'notify']);
 
+// 插件的四个归类（决定它在插件面板里归到哪一组）：
+//   workspace 工作区插件 / chat 聊天插件 / feature 功能插件 / other 其他插件
+// 顺序即面板里的分组顺序。
+export const PLUGIN_CATEGORIES = Object.freeze(['workspace', 'chat', 'feature', 'other']);
+// 「其他」= 不属于前三种的兜底。声明缺失或非法时也落这里（但推断能认出时会归到对应组）。
+export const DEFAULT_PLUGIN_CATEGORY = 'other';
+
+// 槽位种类 → 它属于哪一类界面贡献。判定只看槽位，不看插件名字——
+// 名字是自由文本，按名字猜归类必然漂移。
+const SLOT_CATEGORY = Object.freeze({
+  'chat.header': 'chat',
+  'chat.footer': 'chat',
+  'message.action': 'chat',
+  'composer.button': 'chat',
+  'files.toolbar': 'workspace',
+  'settings.row': 'other',
+});
+
 export const PLUGIN_LIMITS = Object.freeze({
   idMax: 48,
   nameMax: 60,
@@ -88,6 +106,45 @@ function normalizePermissions(raw) {
   return out;
 }
 
+// 从插件「实际贡献了什么」推一个归类。用于没声明 category 的插件——导入进来的第三方
+// 插件几乎都不会带这个字段，全靠推断落到合适的分组，而不是一股脑进「其他」。
+// 判定顺序：工作区能力（读写工作区文件的工具）→ 聊天界面 → 工作区界面 → 功能 → 其他。
+// 传进来的 parts 应当是**已归一化**的 slots/tools/hooks/permissions。
+export function inferPluginCategory(parts) {
+  const src = parts && typeof parts === 'object' ? parts : {};
+  const slots = Array.isArray(src.slots) ? src.slots : [];
+  const tools = Array.isArray(src.tools) ? src.tools : [];
+  const permissions = Array.isArray(src.permissions) ? src.permissions : [];
+  const hooks = src.hooks && typeof src.hooks === 'object' ? src.hooks : {};
+  if (tools.length > 0 && permissions.some(p => p === 'fs.read' || p === 'fs.write')) return 'workspace';
+  if (slots.some(slot => slot && SLOT_CATEGORY[slot.kind] === 'chat')) return 'chat';
+  if (slots.some(slot => slot && SLOT_CATEGORY[slot.kind] === 'workspace')) return 'workspace';
+  // 钩子会改 agent 行为、工具能干活——都算「加了个功能」；只有一行设置项的不算。
+  if (Object.keys(hooks).length > 0 || tools.length > 0) return 'feature';
+  return DEFAULT_PLUGIN_CATEGORY;
+}
+
+// 归类归一：显式声明优先（白名单内才认），否则推断。
+export function normalizePluginCategory(raw, parts) {
+  const value = text(raw, 24).toLowerCase();
+  if (PLUGIN_CATEGORIES.includes(value)) return value;
+  return inferPluginCategory(parts);
+}
+
+// 面板分组：顺序固定（工作区 → 聊天 → 功能 → 其他），**空组不返回**——
+// 摆一排空标题只会让人以为界面坏了。每项须带已归一的 `category`。
+export function groupPluginsByCategory(items) {
+  const list = Array.isArray(items) ? items : [];
+  const buckets = PLUGIN_CATEGORIES.map(category => ({ category, items: [] }));
+  const byCategory = new Map(buckets.map(bucket => [bucket.category, bucket]));
+  for (const item of list) {
+    const raw = text(item && item.category, 24).toLowerCase();
+    const target = PLUGIN_CATEGORIES.includes(raw) ? raw : DEFAULT_PLUGIN_CATEGORY;
+    byCategory.get(target).items.push(item);
+  }
+  return buckets.filter(bucket => bucket.items.length > 0);
+}
+
 // 归一化任意输入 → 标准 manifest（永不抛）。非法字段被丢弃，缺字段补默认。
 export function normalizeManifest(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
@@ -96,13 +153,15 @@ export function normalizeManifest(raw) {
   const tools = (Array.isArray(src.tools) ? src.tools : [])
     .map(normalizeTool).filter(Boolean).slice(0, PLUGIN_LIMITS.toolsMax);
   const hooks = src.hooks && typeof src.hooks === 'object' ? { ...src.hooks } : {};
+  const permissions = normalizePermissions(src.permissions);
   return {
     version: PLUGIN_MANIFEST_VERSION,
     id: normalizePluginId(src.id),
     name: text(src.name, PLUGIN_LIMITS.nameMax),
     pluginVersion: text(src.pluginVersion || src.version, PLUGIN_LIMITS.versionMax),
     description: text(src.description, PLUGIN_LIMITS.descMax),
-    permissions: normalizePermissions(src.permissions),
+    category: normalizePluginCategory(src.category, { slots, tools, hooks, permissions }),
+    permissions,
     slots,
     tools,
     hooks,
@@ -130,5 +189,8 @@ export function validateManifest(raw) {
   perms.forEach((p, i) => {
     if (!PLUGIN_PERMISSIONS.includes(text(p, 32))) errors.push(`permissions[${i}] 非法：${p}`);
   });
+  // 归类是可选字段；但**写了就必须合法**——静默回落会让作者以为声明生效了。
+  const category = text(src.category, 24).toLowerCase();
+  if (category && !PLUGIN_CATEGORIES.includes(category)) errors.push(`category 非法：${src.category}`);
   return { ok: errors.length === 0, errors };
 }

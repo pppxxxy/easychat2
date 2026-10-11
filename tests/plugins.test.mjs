@@ -3,12 +3,19 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   normalizePluginId,
   normalizeManifest,
   validateManifest,
   SLOT_KINDS,
+  PLUGIN_CATEGORIES,
+  DEFAULT_PLUGIN_CATEGORY,
+  inferPluginCategory,
+  normalizePluginCategory,
+  groupPluginsByCategory,
 } from '../src/workspace/plugins/manifest.js';
 import { createSlotRegistry, priorityOf } from '../src/workspace/plugins/registry.js';
 import { createCapabilityContext, compileHandler, runInSandbox } from '../src/workspace/plugins/sandbox.js';
@@ -195,4 +202,109 @@ test('loader：loadPluginRuntime 在无 store 时降级为空运行时', async (
   const runtime = await loadPluginRuntime({});
   assert.deepEqual(runtime.pluginIds, []);
   assert.equal(runtime.tools.length, 0);
+});
+
+// —— 插件归类（工作区 / 聊天 / 功能 / 其他）——
+
+test('归类：显式声明优先，写了非法值算校验失败（不静默回落）', () => {
+  const declared = normalizeManifest({ id: 'a', name: 'A', category: 'chat', slots: [{ kind: 'files.toolbar', id: 'x' }] });
+  assert.equal(declared.category, 'chat', '声明优先于推断（哪怕推断会得出 workspace）');
+  for (const category of PLUGIN_CATEGORIES) {
+    assert.equal(normalizeManifest({ id: 'a', name: 'A', category }).category, category);
+  }
+  // 写了但非法：校验必须报错——静默回落会让作者以为声明生效了
+  const bad = validateManifest({ id: 'a', name: 'A', category: 'nope' });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some(error => error.includes('category')));
+  // 没写：不算错，走推断
+  assert.equal(validateManifest({ id: 'a', name: 'A' }).ok, true);
+  assert.equal(normalizeManifest({ id: 'a', name: 'A', category: 'nope' }).category, DEFAULT_PLUGIN_CATEGORY);
+});
+
+test('归类推断：按「贡献了什么」判定，判定顺序稳定', () => {
+  // 读写工作区文件的工具 → 工作区插件
+  assert.equal(inferPluginCategory({ tools: [{ name: 't' }], permissions: ['fs.read'] }), 'workspace');
+  assert.equal(inferPluginCategory({ tools: [{ name: 't' }], permissions: ['fs.write'] }), 'workspace');
+  // 工作区能力优先于聊天界面：同时有两者时算工作区（能改工作区的插件本质是工作区插件）
+  assert.equal(
+    inferPluginCategory({ tools: [{ name: 't' }], permissions: ['fs.write'], slots: [{ kind: 'chat.header' }] }),
+    'workspace',
+  );
+  // 聊天界面槽位 → 聊天插件
+  assert.equal(inferPluginCategory({ slots: [{ kind: 'chat.header' }] }), 'chat');
+  assert.equal(inferPluginCategory({ slots: [{ kind: 'composer.button' }] }), 'chat');
+  assert.equal(inferPluginCategory({ slots: [{ kind: 'message.action' }] }), 'chat');
+  // 工作区界面槽位 → 工作区插件
+  assert.equal(inferPluginCategory({ slots: [{ kind: 'files.toolbar' }] }), 'workspace');
+  // 钩子 / 不需要工作区权限的工具 → 功能插件
+  assert.equal(inferPluginCategory({ hooks: { before_tool: [] } }), 'feature');
+  assert.equal(inferPluginCategory({ tools: [{ name: 't' }], permissions: ['notify'] }), 'feature');
+  // 只有一行设置项、或什么都没有 → 其他（「其他」就是不属于前三类的兜底）
+  assert.equal(inferPluginCategory({ slots: [{ kind: 'settings.row' }] }), 'other');
+  assert.equal(inferPluginCategory({}), 'other');
+  assert.equal(inferPluginCategory(null), 'other');
+  // 归一入口：合法值原样，非法/缺失走推断
+  assert.equal(normalizePluginCategory(' workspace ', {}), 'workspace');
+  assert.equal(normalizePluginCategory('nope', { slots: [{ kind: 'chat.footer' }] }), 'chat');
+});
+
+test('分组：顺序固定、空组不出现、未知归类落「其他」', () => {
+  const groups = groupPluginsByCategory([
+    { id: 'o1', category: 'other' },
+    { id: 'c1', category: 'chat' },
+    { id: 'w1', category: 'workspace' },
+    { id: 'c2', category: 'chat' },
+    { id: 'x1' },
+    { id: 'x2', category: '不认识的归类' },
+  ]);
+  assert.deepEqual(groups.map(group => group.category), ['workspace', 'chat', 'other'], '功能组为空 → 不出现');
+  assert.deepEqual(groups.map(group => group.items.map(item => item.id)), [['w1'], ['c1', 'c2'], ['o1', 'x1', 'x2']]);
+  assert.deepEqual(groupPluginsByCategory([]), []);
+  assert.deepEqual(groupPluginsByCategory(null), []);
+});
+
+test('分组：四类齐全时按 工作区 → 聊天 → 功能 → 其他 排列', () => {
+  const groups = groupPluginsByCategory(
+    PLUGIN_CATEGORIES.slice().reverse().map(category => ({ id: category, category })),
+  );
+  assert.deepEqual(groups.map(group => group.category), [...PLUGIN_CATEGORIES]);
+});
+
+test('market：每个条目都显式声明合法归类，listMarket 暴露的与落盘的一致', () => {
+  for (const item of PLUGIN_MARKET) {
+    assert.ok(
+      PLUGIN_CATEGORIES.includes(item.manifest.category),
+      `${item.id} 必须显式声明 category（内置条目的归类是产品裁决，不该靠推断漂移）`,
+    );
+    assert.equal(validateManifest(item.manifest).ok, true, `${item.id} 清单非法`);
+  }
+  for (const item of listMarket()) {
+    assert.equal(item.category, item.manifest.category, `${item.id} 的展示归类必须等于安装后落盘的归类`);
+    assert.equal(normalizeManifest(item.manifest).category, item.category, `${item.id} 归一化后归类不得改变`);
+  }
+});
+
+test('归类随安装落盘：装 → 序列化 → 读回，category 不丢', async () => {
+  const store = memoryStore();
+  const manifest = normalizeManifest({
+    id: 'cat-demo',
+    name: 'Cat Demo',
+    category: 'chat',
+    slots: [{ kind: 'chat.header', id: 'h', label: 'H' }],
+  });
+  await installPlugin({ store, manifest });
+  const text = store.files[PLUGINS_FILE];
+  assert.equal(JSON.parse(text).plugins[0].category, 'chat');
+  const loaded = await loadPluginRuntime({ store, capabilities: {} });
+  assert.equal(loaded.plugins[0].category, 'chat');
+});
+
+test('UI 接线：插件面板对「已安装」与「内置市场」都按归类分组', () => {
+  const source = readFileSync(path.resolve('src/extension/WorkspacePluginsPanel.js'), 'utf8');
+  assert.ok(source.includes('groupPluginsByCategory'), '面板用归类分组');
+  assert.equal((source.match(/groupPluginsByCategory\(/g) || []).length, 2, '两个列表各分一次组');
+  for (const category of PLUGIN_CATEGORIES) {
+    assert.ok(source.includes(`workspace.plugins.category.${category}`), `${category} 的文案 key 已接线`);
+  }
+  assert.ok(source.includes('styles.groupLabel'), '分组标题有独立样式');
 });
