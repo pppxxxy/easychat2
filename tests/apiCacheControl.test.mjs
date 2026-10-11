@@ -16,6 +16,13 @@ import {
   normalizePromptCacheTtl,
 } from '../src/apiProtocols/cacheControl.js';
 import { buildRequestBody } from '../src/apiProtocols.js';
+import {
+  buildSystemChunks,
+  buildSystemSections,
+  composeSystemText,
+  planSystemCache,
+  splitSystemForCache,
+} from '../src/prompt/systemSections.js';
 
 test('normalizePromptCacheTtl：off / 1h / 5m 三态，非法与缺失回落默认', () => {
   assert.deepEqual([...PROMPT_CACHE_TTLS], ['off', '5m', '1h']);
@@ -134,4 +141,49 @@ test('buildRequestBody：anthropic 打断点、off 时不打、OpenAI 系一律�
     config: { promptCacheTtl: '1h' },
   });
   assert.equal(JSON.stringify(openai).includes('cache_control'), false, 'OpenAI 系自动缓存，不打断点');
+});
+
+// P1 回归（2026-10-11）：**有世界书时也要真的打出断点**。
+//
+// 事故形态：worldBefore（世界书注入）是 dynamic 且排在系统提示最前，而 planSystemCache
+// 只认「从第 0 段起连续 stable」→ breakIndex === 0 → 一个断点都不打，base / persona /
+// 预设 / format 这些稳定段永远进不了缓存前缀。这里从**真实的分节 + 计划**一路走到
+// Anthropic 请求体，钉住「断点确实落在稳定块上」。
+test('P1 回归：有世界书时 Anthropic 系统提示仍打断点，且断点落在稳定块上', () => {
+  const sections = buildSystemSections({
+    worldBeforeText: 'WB（世界书注入，逐轮可变）',
+    baseText: 'BASE',
+    personaText: 'PERSONA',
+    formatText: 'FMT',
+  });
+  const plan = planSystemCache(sections);
+  assert.equal(plan.cacheable, true, '前置条件：计划认为可缓存');
+
+  const split = splitSystemForCache(sections, plan.breakIndex);
+  const chunks = buildSystemChunks(sections);
+  const markIndex = chunks.reduce((found, chunk, index) => (chunk.stable ? index : found), -1);
+  assert.ok(markIndex >= 0, '必须有一个被标记的稳定块');
+
+  const messages = [{
+    role: 'system',
+    content: composeSystemText(sections),
+    systemCache: { ...split, chunks, markIndex },
+  }, { role: 'user', content: 'hi' }];
+  const body = buildRequestBody({
+    protocol: 'anthropic',
+    model: 'claude-x',
+    messages,
+    stream: false,
+    samplingParams: {},
+    config: { promptCacheTtl: '5m' },
+  });
+
+  assert.ok(Array.isArray(body.system), 'system 必须是块数组');
+  const marked = body.system.filter(block => block.cache_control);
+  assert.equal(marked.length, 1, '只打一个 system 断点');
+  assert.ok(marked[0].text.includes('BASE'), `断点块应含稳定段内容，实际：${marked[0].text}`);
+  assert.ok(marked[0].text.includes('FMT'), 'format 是稳定段，应在断点块里');
+  assert.equal(marked[0].text.includes('世界书'), false, '世界书在断点块之前（一并进缓存前缀）');
+  // 块拼接逐字节等于原系统提示（换成块数组不改变发给模型的内容）
+  assert.equal(body.system.map(block => block.text).join('\n\n'), composeSystemText(sections));
 });
