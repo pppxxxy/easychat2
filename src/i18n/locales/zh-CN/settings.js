@@ -292,6 +292,7 @@ export const settings = {
   'settings.sticker.positionLabel': '相对文字',
   'settings.sticker.position.below': '文字下方',
   'settings.sticker.position.above': '文字上方',
+  'settings.inlineImage.settings': '详细设置',
   'settings.inlineImage.otherFeatures': '其它功能',
   'settings.global.title': '全局配置',
   'settings.global.presets': '全局预设 / 记忆总结',

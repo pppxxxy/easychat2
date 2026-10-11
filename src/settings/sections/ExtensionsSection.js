@@ -3,6 +3,7 @@ import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import {
+  CollapsibleSection,
   CollapsibleSelect,
   FieldHint,
   FieldLabel,
@@ -65,6 +66,15 @@ export default function ExtensionsSection(props) {
               thumbColor={theme.colors.primaryContrast}
             />
           </View>
+          {/* 配图参数收进折叠区（2026-10-11）：这 8 项常驻展开时会把下面的「联网搜索 /
+              语音播报 / 语音转文字」推到一屏之外，用户找它们得先翻完整个配图设置。
+              开关留在行上（状态一眼可见、常用），参数默认收起。
+              （内层沿用原缩进，避免 100+ 行纯缩进噪声淹没真正的改动。） */}
+          <CollapsibleSection
+            title={t('settings.inlineImage.settings')}
+            icon="options-outline"
+            defaultOpen={false}
+          >
           <FieldLabel style={styles.label}>{t('settings.inlineImage.provider')}</FieldLabel>
           <CollapsibleSelect
             label={t('settings.inlineImage.currentProvider')}
@@ -204,6 +214,7 @@ export default function ExtensionsSection(props) {
             placeholder="400"
           />
           <Text style={styles.fieldHint}>{t('settings.inlineImage.keyNote')}</Text>
+          </CollapsibleSection>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="download-outline" size={17} color={theme.colors.primaryMuted} />

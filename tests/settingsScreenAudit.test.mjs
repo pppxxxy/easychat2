@@ -167,3 +167,43 @@ test('模型列表：检测与按输入搜索共用同一拉取逻辑，且搜�
   assert.equal(zhCN['settings.api.a11ySearchModels'], '按输入内容搜索接口上的模型', '语言包中文值正确');
   assert.ok(STYLES.includes('modelSearchButton:'));
 });
+
+test('拓展功能：配图参数收进折叠区，联网搜索/语音播报不再被整块顶到屏外', () => {
+  // 用户诉求（2026-10-11）：配图设置常驻展开时，下面的「联网搜索 / 语音播报 / 语音转文字」
+  // 被推到一屏之外，找它们得先翻完整个配图设置。参数收进默认收起的折叠区。
+  const EXT = read('src/settings/sections/ExtensionsSection.js');
+  // 开关留在行上（状态一眼可见、常用），不跟着参数一起藏起来
+  assert.ok(EXT.includes("t('settings.inlineImage.auto')"), '开关行保留');
+  assert.ok(EXT.includes('<Switch'), '开关仍在行上');
+
+  const openAt = EXT.indexOf('<CollapsibleSection');
+  assert.ok(openAt > 0, '配图参数应包在 CollapsibleSection 里');
+  const headEnd = EXT.indexOf('>', openAt);
+  const head = EXT.slice(openAt, headEnd + 1);
+  assert.ok(head.includes("t('settings.inlineImage.settings')"), '折叠头用「详细设置」词条');
+  assert.ok(head.includes('defaultOpen={false}'), '默认收起（否则等于没折叠）');
+
+  // 折叠区必须真的盖住那些大块参数（少一个都会漏出屏外）
+  const closeAt = EXT.indexOf('</CollapsibleSection>');
+  assert.ok(closeAt > openAt, '折叠区要闭合');
+  const body = EXT.slice(openAt, closeAt);
+  for (const key of [
+    'settings.inlineImage.provider',
+    'settings.inlineImage.position',
+    'settings.inlineImage.stylePrefix',
+    'settings.inlineImage.size',
+    'settings.inlineImage.maxPromptChars',
+    'settings.inlineImage.keyNote',
+  ]) {
+    assert.ok(body.includes(key), `${key} 应在折叠区内`);
+  }
+
+  // 三个入口链接必须在折叠区之外，否则等于没折叠
+  const tail = EXT.slice(closeAt);
+  for (const key of ['settings.global.webSearch', 'settings.global.tts', 'settings.global.transcription']) {
+    assert.ok(tail.includes(key), `${key} 应在折叠区之后（常驻可见）`);
+  }
+
+  // 词条中英齐备
+  assert.equal(zhCN['settings.inlineImage.settings'], '详细设置', '语言包中文值正确');
+});

@@ -292,6 +292,7 @@ export const settings = {
   'settings.sticker.positionLabel': 'Relative to text',
   'settings.sticker.position.below': 'Below text',
   'settings.sticker.position.above': 'Above text',
+  'settings.inlineImage.settings': 'Details',
   'settings.inlineImage.otherFeatures': 'Other features',
   'settings.global.title': 'Global Settings',
   'settings.global.presets': 'Global Presets / Memory Summary',
