@@ -38,10 +38,16 @@ export function mcpToolPrefix(server) {
 
 // 注册前置判定（纯函数，与 shellGateReason 同风格）。返回 '' 表示可注册。
 // 对服务器记录同样适用：enabled + toolCatalog 非空。
+// 审查修复 F4：判据从「必须有工具目录」放宽为「**任一**目录非空」。
+// 原因：只有 resources 或只有 prompts 的 MCP 服务器是合法形态，而本模块新加的
+// read_resource / get_prompt 正好服务它们——此前被 NO_CATALOG 整个挡在门外，
+// 于是新能力对最需要它的那类服务器**永远不可达**。
 export function mcpGateReason(settings) {
   const source = settings && typeof settings === 'object' ? settings : {};
   if (source.enabled !== true) return 'SWITCH_OFF';
-  if (!Array.isArray(source.toolCatalog) || source.toolCatalog.length === 0) return 'NO_CATALOG';
+  const hasCatalog = ['toolCatalog', 'resourceCatalog', 'promptCatalog']
+    .some(key => Array.isArray(source[key]) && source[key].length > 0);
+  if (!hasCatalog) return 'NO_CATALOG';
   return '';
 }
 

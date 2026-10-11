@@ -3,13 +3,9 @@
 // 每步是一个只读（或 opt-in 可写）子代理；无依赖的步骤并行，有依赖的等前置完成并带上其结论。
 // 只读对象从 readTools/writeTools 直接引（不经注册表），防递归名单天然不含 run_subagent。
 
-import { runSubagent, SUBAGENT_TOOL_NAMES, SUBAGENT_WRITE_TOOL_NAMES } from '../../agent/subagent.js';
+import { runSubagent } from '../../agent/subagent.js';
 import { runWorkflow, WORKFLOW_MAX_STEPS } from '../../agent/workflow.js';
-import { READ_ONLY_TOOL_DEFINITIONS } from './readTools.js';
-import { WRITE_TOOL_DEFINITIONS } from './writeTools.js';
-
-const READ_TOOLS = READ_ONLY_TOOL_DEFINITIONS.filter(item => SUBAGENT_TOOL_NAMES.includes(item.name));
-const WRITE_TOOLS = WRITE_TOOL_DEFINITIONS.filter(item => SUBAGENT_WRITE_TOOL_NAMES.includes(item.name));
+import { hostAllowsWrite, subagentToolSet } from './subagentToolSet.js';
 
 export const WORKFLOW_TOOL_DEFINITION = {
   name: 'run_workflow',
@@ -47,10 +43,11 @@ export const WORKFLOW_TOOL_DEFINITION = {
       steps: args && args.steps,
       signal: (ctx && ctx.signal) || null,
       runStep: async step => {
-        const writeMode = step.mode === 'write';
+        // F1/F3：与 run_subagent 同一份工具集与同一条宿主模式门控（步骤里的 mode 只是请求）。
+        const writeMode = step.mode === 'write' && hostAllowsWrite(ctx);
         const outcome = await runSubagent({
           task: step.task,
-          tools: writeMode ? READ_TOOLS.concat(WRITE_TOOLS) : READ_TOOLS,
+          tools: subagentToolSet(writeMode ? 'write' : 'read'),
           store: options.store,
           characterId: ctx && ctx.characterId,
           signal: (ctx && ctx.signal) || null,

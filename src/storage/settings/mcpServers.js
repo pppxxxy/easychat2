@@ -252,9 +252,15 @@ export async function migrateGithubServer({ getGithubSettings } = {}) {
 // 连接成功后的服务器记录更新（纯函数，供 hook 直用、Node 直测）：
 // 写目录（按服务器分域过滤）+ 连接时间 + 置为启用。tools 为空时也保留记录
 // （用户看到「已连接但无可用工具」比静默失败清楚）。
-export function applyConnectResult(server, tools, { resources = [], prompts = [] } = {}) {
+export function applyConnectResult(server, tools, options = {}) {
   const normalized = normalizeMcpServer(server);
   if (!normalized) return null;
+  // 审查修复 F5：省略 resources/prompts 时**保留**既有目录，而不是清空。
+  // 此前默认值是 []，任何只传两个参数的调用方（含既有测试、将来的重连路径）都会把
+  // 资源/提示词目录静默抹掉——「没传」与「显式清空」是两件事，不该共用一个默认值。
+  const opts = options && typeof options === 'object' ? options : {};
+  const resources = Array.isArray(opts.resources) ? opts.resources : normalized.resourceCatalog;
+  const prompts = Array.isArray(opts.prompts) ? opts.prompts : normalized.promptCatalog;
   const { allowed, deniedNames } = filterMcpToolsForRegistration(tools, {
     serverId: normalized.id,
     tierOverrides: normalized.tierOverrides,
