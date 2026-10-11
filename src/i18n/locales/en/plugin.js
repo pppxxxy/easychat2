@@ -1,11 +1,15 @@
 // i18n 词条 · plugin 域（English）。聚合入口见 ../en.js。
 export const plugin = {
   'plugin.provider.custom': 'Custom',
+  'plugin.provider.anysearchFree': 'AnySearch Free',
+  'plugin.provider.anysearchKey': 'AnySearch Key',
+  'plugin.note.anysearchFree': 'No API key needed: anonymous access with a free quota, rate-limited per IP.',
   'plugin.keyLink.serpapi': 'Get a SerpAPI Key',
   'plugin.keyLink.googleApiKey': 'Get an API Key (credentials)',
   'plugin.keyLink.googleCx': 'Create a search engine (cx)',
   'plugin.keyLink.brave': 'Get a Brave Search Key',
   'plugin.keyLink.tavily': 'Get a Tavily Key',
+  'plugin.keyLink.anysearch': 'Get an AnySearch Key',
   'plugin.webSearch.name': 'Web Search',
   'plugin.webSearch.desc': 'Lets characters search the web and answer with up-to-date information.',
   'plugin.webSearch.numberedName': 'Web Search {index}',

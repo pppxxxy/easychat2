@@ -1,11 +1,15 @@
 // i18n 词条 · plugin 域（zh-CN 基准）。聚合入口见 ../zh-CN.js。
 export const plugin = {
   'plugin.provider.custom': '自定义',
+  'plugin.provider.anysearchFree': 'AnySearch 免费',
+  'plugin.provider.anysearchKey': 'AnySearch 密钥',
+  'plugin.note.anysearchFree': '无需密钥：匿名使用有免费额度，按 IP 限速。',
   'plugin.keyLink.serpapi': '获取 SerpAPI Key',
   'plugin.keyLink.googleApiKey': '获取 API Key（凭据）',
   'plugin.keyLink.googleCx': '创建搜索引擎（cx）',
   'plugin.keyLink.brave': '获取 Brave Search Key',
   'plugin.keyLink.tavily': '获取 Tavily Key',
+  'plugin.keyLink.anysearch': '获取 AnySearch Key',
   'plugin.webSearch.name': '联网搜索',
   'plugin.webSearch.desc': '角色可搜索网络信息，结合时事回答。',
   'plugin.webSearch.numberedName': '联网搜索 {index}',

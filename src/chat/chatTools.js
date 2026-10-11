@@ -13,6 +13,7 @@
 
 import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { getPlugins } from '../storage/settings/plugins.js';
+import { getProvider } from '../plugins/providers.js';
 import { runWebSearch } from '../plugins/webSearch.js';
 import { runWebFetch } from '../plugins/webFetch.js';
 import { tActive } from '../i18n/index.js';
@@ -36,7 +37,11 @@ export function resolveSearchPluginConfig(plugins) {
   // provider 与密钥至少要有一个能用的：缺失时 runWebSearch 会返回空数组，
   // 模型会以为自己「搜到了但没结果」，不如直接不暴露这个工具。
   const hasProvider = Boolean(String(config.provider || '').trim());
-  const hasKey = Boolean(String(config.apiKey || '').trim()) || Boolean(String(config.customBaseUrl || '').trim());
+  // 无密钥提供方（AnySearch 匿名档）secretFields 为空，不要求填密钥即可用。
+  const keyOptional = !(getProvider(config.provider).secretFields || []).includes('apiKey');
+  const hasKey = keyOptional
+    || Boolean(String(config.apiKey || '').trim())
+    || Boolean(String(config.customBaseUrl || '').trim());
   if (!hasProvider || !hasKey) return null;
   return config;
 }

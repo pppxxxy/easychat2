@@ -105,7 +105,10 @@ export function buildRequest(provider, config, query, limit) {
     params[provider.authKeyName] = apiKey;
   } else if (provider.authType === 'body') {
     bodyParams = { ...params, [provider.authKeyName]: apiKey };
-  } else {
+  } else if (apiKey) {
+    // 空密钥时完全不发鉴权头：AnySearch 的匿名免费额度靠「没有 Authorization 头」
+    // 触发，带一个空 Bearer 反而被网关判 401。需要密钥的提供方在更早的
+    // missingRequiredFields 已被拦下，走不到这里。
     headers[provider.authKeyName] = `${provider.authPrefix || ''}${apiKey}`;
   }
   const queryString = Object.entries(params)
