@@ -56,20 +56,17 @@ import {
   getTranscriptionSettings,
   saveThinkingSettings,
 } from '../../storage/settings.js';
-import { AUTO_COMPACT_RATIO, computeContextUsage, resolveContextWindow } from '../../chat/contextUsage.js';
+import { AUTO_COMPACT_RATIO, resolveContextWindow } from '../../chat/contextUsage.js';
 import { resolveAutoCompactPolicy } from '../../chat/compactionPolicy.js';
 import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
-import { COMPACTION_RETAIN_RATIO } from '../../chat/compaction.js';
-import { estimateMessagesTokens } from '../../localModel/localContext.js';
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
-import { buildReactiveCompactDeps } from '../../chat/sessionCompaction.js';
+import { buildReactiveCompactDeps, buildSessionCompactionDeps } from '../../chat/sessionCompaction.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
 // P2-1：消息检索（就地过滤会话行）——判定全在纯函数 chat/messageSearch.js。
 import { searchChatMessages } from '../../chat/messageSearch.js';
 import { promptUserChoice } from '../../chat/askUserPrompt.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
-import { writeTranscript } from '../transcripts.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
 import { resolveTranscription, transcribeAudio } from '../../transcription.js';
@@ -144,7 +141,7 @@ import ToolCallRow from './ToolCallRow.js';
 import { buildConversationRows } from '../conversation.js';
 import {
   buildWorkspaceAgentMessages,
-  buildWorkspaceAgentSystemPrompt,
+  buildWorkspaceAgentSystemPrompt, resolveSendText,
   projectWorkspaceChatHistory,
 } from '../chat.js';
 
@@ -471,23 +468,22 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       const autoRatio = windowSize > 0 ? policy.thresholdTokens / windowSize : AUTO_COMPACT_RATIO;
       const chatId = activeChatIdRef.current;
       const ownerId = characterIdRef.current;
+      // deps 换用 Z 线自己写的 buildSessionCompactionDeps（P1-7）：原先这里**内联**了一份
+      // 五项装配（estimateRatio / summarize / writeTranscript / retainTokens / estimateTokens），
+      // 与那个函数逐字相同——两份近似代码的下场必然是「只改一处」（本次合并里
+      // estimateTokens 的正文口径、minMessages 的键名就都踩过）。宿主侧装配只留一处。
       const result = await runCompactionPipeline(list, {
         autoRatio: silent ? autoRatio : 0,
-        deps: {
-          estimateRatio: msgs => computeContextUsage(msgs, windowSize).ratio,
+        deps: buildSessionCompactionDeps({
+          windowSize,
+          store: storeRef.current,
+          characterId: ownerId,
           summarize: request => sendChatMessage(request, {
             stream: false,
             expectedConfigId: String(current.id || ''),
             expectedConfigFingerprint: getConfigFingerprint(current),
           }),
-          writeTranscript: jsonl => writeTranscript({ store: storeRef.current, characterId: ownerId, content: jsonl }),
-          // P4：保留量按 token 预算（窗口的 16%，对齐 dsh retainRatio），下限仍是 6 条。
-          retainTokens: Math.max(0, Math.floor(windowSize * COMPACTION_RETAIN_RATIO)),
-          estimateTokens: msg => estimateMessagesTokens([{
-            role: msg && msg.role,
-            content: String((msg && (msg.content != null ? msg.content : msg.text)) || ''),
-          }]),
-        },
+        }),
       });
       if (result.applied.length > 0 && result.messages !== list) {
         if (mountedRef.current) setMessages(result.messages);
@@ -1090,12 +1086,21 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     if (controllerRef.current) controllerRef.current.abort();
   }, []);
 
-  // I2：overrideText——批准链路带确认文本发起。判据必须是「是不是字符串」而不是「是不是 undefined」：发送按钮是 onPress={handleSend}，RN 会把点击事件对象当第一实参传进来，它不是 undefined，String(事件) = "[object Object]"（发啥都变成它）；非字符串一律当没传（用输入框内容）。
+  // I2：overrideText——批准链路带确认文本发起。判据必须是「是不是字符串」而不是「是不是 undefined」：
+  // 发送按钮是 onPress={handleSend}，RN 会把点击事件对象当第一实参传进来，它不是 undefined，
+  // String(事件) = "[object Object]"（工作区发啥都变成它）；非字符串一律当没传（用输入框内容）。
+  // 解析收敛到纯函数 resolveSendText（src/workspace/chat.js，有行为回归测试）——发送/草稿保护/`/compact`
+  // 三处判据共用同一实现，不再各处内联。
   const handleSend = useCallback(async overrideText => {
-    const text = String(typeof overrideText === 'string' ? overrideText : input).trim();
+    // onPress={handleSend} 会把 press 事件当第一参传入；overrideText 只认**字符串**
+    // （批准链路传字符串）——其余（含事件对象）一律当「无覆盖」，用输入框内容。
+    // 文本解析收敛到纯函数 resolveSendText（src/workspace/chat.js，行为测试在
+    // tests/workspaceChat.test.mjs）；判据只在这里算一次，下面三处共用。
+    const hasOverride = typeof overrideText === 'string';
+    const text = resolveSendText(overrideText, input);
     // N2：手动压缩命令 `/compact`（工作区会话）。
     if (!sending && text === '/compact') {
-      if (typeof overrideText !== 'string') {
+      if (!hasOverride) {
         setInput('');
         persistDraft(characterId, activeChatId, '');
       }
@@ -1183,7 +1188,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     // 发出去了：清空输入框、同时把该会话的草稿清掉（内存 + 盘），
     // 否则下次切回来会把已经发过的话又填回输入框。
     // I2：批准链路（overrideText）不碰输入框、草稿与附件——用户可能正打着别的话。
-    if (typeof overrideText !== 'string') {
+    if (!hasOverride) {
       persistDraft(ownerId, chatId, '');
       setInput('');
       setAttachments([]);

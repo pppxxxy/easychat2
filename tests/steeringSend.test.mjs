@@ -67,8 +67,8 @@ test('坏输入安全：undefined / null / 非字符串文本都不抛', () => {
 
 test('工作区发送回归：onPress={handleSend} 传的 press 事件不得被当正文（[object Object]）', () => {
   const src = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  // 整合后沿用 D 系的写法：判据是「不是字符串」→ 一律当无覆盖（press 事件对象也在此列）。
-  assert.ok(src.includes("typeof overrideText !== 'string'"), 'overrideText 只认字符串（事件对象一律当无覆盖，用输入框内容）');
+  // 整合后沿用 D 系写法：判据是「是字符串」才算覆盖（press 事件对象在此被挡下）。
+  assert.ok(src.includes("typeof overrideText === 'string'"), 'overrideText 只认字符串（事件对象一律当无覆盖，用输入框内容）');
   assert.equal(
     /overrideText === undefined \? input : overrideText/.test(src),
     false,

@@ -3,7 +3,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const ROOT = process.cwd();
@@ -45,6 +45,24 @@ test('棘轮不变量：基线内文件不超过各自基线，基线外文件�
     }
   }
   assert.deepEqual(violations, [], `行数棘轮被突破：\n${violations.join('\n')}`);
+});
+
+// 回归 2026-10-11 审查 P2：基线里存在**远高于实际行数**的空转余量
+// （ChatPanel.js 1851 vs 实际 1712、WorkspaceSettingsSheet.js 904 vs 818、
+//  FilesPanel.js 1580 vs 1534），棘轮对这几个文件形同虚设——可以悄悄长回一百多行才报警。
+// 这条把「阈值 = 当前实际值，不再留缓冲」这条写在 guard-structure.mjs 文件头的协议
+// 变成可执行的不变量：基线高于实际就是余量，余量必须为 0。
+// 代价是有意为之：文件变短时要顺手把基线数字一起下调（一个数字，同一次提交）。
+test('回归 P2：行数基线不留空转余量（阈值 = 当前实际值）', () => {
+  const air = [];
+  for (const [r, limit] of Object.entries(baseline.fileLineBaseline)) {
+    const file = path.join(ROOT, r);
+    if (!existsSync(file)) continue;
+    const lines = countLines(readFileSync(file, 'utf8'));
+    if (limit > lines) air.push(`${r}: 基线 ${limit} > 实际 ${lines}（空转 ${limit - lines} 行）`);
+  }
+  assert.deepEqual(air, [],
+    `以下基线高于实际行数，棘轮因此失去意义——请把基线下调到实际值：\n${air.join('\n')}`);
 });
 
 test('守卫脚本已接线两项新规则', () => {

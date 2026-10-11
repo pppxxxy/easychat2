@@ -51,8 +51,8 @@ export const RUN_TEAM_TOOL_DEFINITION = {
       characterId: ctx && ctx.characterId,
       signal: (ctx && ctx.signal) || null,
       confirm: (ctx && typeof ctx.confirm === 'function') ? ctx.confirm : null,
-      // F1/F3：宿主模式才是写授权（步骤里的 mode 只是请求）。
-      hostMode: ctx && ctx.mode,
+      // 宿主模式才是写授权（步骤里的 mode 只是请求）。
+      hostMode: ctx && ctx.workspaceMode,
       steps,
       ...(board ? { board } : {}),
     });

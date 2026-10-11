@@ -6,14 +6,14 @@
 //    档案，收窄工具集与轮次（与 run_subagent 的 agent 参数同款语义）。
 // 2. **黑板共享**：整批步骤共享一块黑板（团队通信，见 agent/blackboard.js），署名 step.id。
 //
-// F1/F3（Z 系审查修复）：工具集走共用构建器 subagentToolSet（此前这里各写一份白名单，
+// F1/F3 + P0-2（Z/D 两线整合）：工具表走共用装配点 subagentTools（此前这里各写一份白名单，
 // 漏了 search_workspace）；写授权只看**宿主模式** hostMode，不看步骤里模型传的 mode。
 
 import { runSubagent } from '../../agent/subagent.js';
 import { runWorkflow } from '../../agent/workflow.js';
 import { createBlackboard } from '../../agent/blackboard.js';
 import { readWorkspaceAgents } from '../agents.js';
-import { hostAllowsWrite, subagentToolSet } from './subagentToolSet.js';
+import { buildSubagentTools } from './subagentTools.js';
 import { BOARD_TOOL_DEFINITIONS } from './boardTools.js';
 
 // 跑一组步骤：共享黑板 + 逐步骤按 agent 档案收窄工具/轮次。返回 runWorkflow 的结果。
@@ -21,11 +21,11 @@ import { BOARD_TOOL_DEFINITIONS } from './boardTools.js';
 // stream 仅测试注入（生产走 runSubagent 的默认取配置路径）。
 // hostMode 是宿主当前模式（registry 的 ctx.mode）：write 步骤只有在宿主本身可写时才放行。
 export async function runWorkflowSteps({
-  store, characterId, signal, confirm, steps, onStep, stream = null, board, hostMode = null,
+  store, characterId, signal, confirm, steps, onStep, stream = null, board, hostMode = null, buildTools = buildSubagentTools,
 } = {}) {
   const sharedBoard = board || createBlackboard();
-  // 缺省（未给 hostMode）= 不放行写——与 hostAllowsWrite 的「默认拒绝」语义一致。
-  const allowWrite = hostAllowsWrite({ mode: hostMode });
+  // 缺省（未给 hostMode）= 不放行写（fail-closed）。
+  const allowWrite = String(hostMode == null ? '' : hostMode).toLowerCase() === 'write';
   return runWorkflow({
     steps,
     signal,
@@ -33,7 +33,7 @@ export async function runWorkflowSteps({
     runStep: async step => {
       // 宿主模式才是授权；步骤 mode='write' 只是「请求」。
       const writeMode = step.mode === 'write' && allowWrite;
-      let tools = subagentToolSet(writeMode ? 'write' : 'read');
+      let tools = buildTools(writeMode ? 'write' : 'read');
       let maxRounds;
       const profileName = String(step.agent || '').trim();
       if (profileName) {

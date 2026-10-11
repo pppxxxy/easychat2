@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { COMPACTION_MARKER, COMPACTION_KEEP_RECENT } from '../src/chat/compaction.js';
 import { findOrphanToolMessages } from '../src/agent/resultClearing.js';
 import {
+  COMPACTION_DEP_KEYS,
   applyCompactionWithAuthority,
+  assertCompactionDeps,
   buildRecapSection,
   buildToolTranscript,
   buildTranscriptJsonl,
@@ -15,6 +17,7 @@ import {
   sliceRecentIntact,
   trimLargeToolResults,
 } from '../src/chat/compactionPipeline.js';
+import { buildSessionCompactionDeps } from '../src/chat/sessionCompaction.js';
 
 function toolCall(id, name, args) {
   return { role: 'assistant', content: '', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] };
@@ -158,6 +161,8 @@ test('runCompactionPipeline：四档全跑（L0→L1→L2→L3）+ 权威分离 
   assert.deepEqual(result.applied, ['L0', 'L1', 'L2', 'L3']);
   assert.match(String(result.messages[0].content), /\[历史压缩\]/);
   assert.match(String(result.messages[0].content), /完整历史：\.transcripts\/t\.jsonl/);
+  // 回归 P0-5：摘要正文里的归档路径必须与返回值一致——见下面的专项测试。
+  assert.equal(result.transcriptPath, '.transcripts/t.jsonl');
 
   // 幂等：对已压缩历史再跑 → no-op
   const again = await runCompactionPipeline(result.messages, { autoRatio: 0.8, deps: { estimateRatio: () => 0.9, summarize: async () => 'X' } });
@@ -210,6 +215,72 @@ test('P4：sliceRecentByBudget 起点落在 tool 结果时回退（配对不破�
   assert.equal(findOrphanToolMessages(out).length, 0, '无孤儿');
 });
 
+// 回归 P2：摘要消息 id 原先就是 `compaction-${Date.now()}`——同一毫秒内的两次压缩会生成
+// **完全相同的 id**。React 把重复 key 当成同一条消息（渲染错位/丢消息），分支 fork 点按 id
+// 引用也会指向错的那条。这里把时钟钉死在同一毫秒，确定性地复现原 bug（不靠"跑得够快"）。
+test('回归 P2：同一毫秒内的两次压缩必须拿到不同的摘要消息 id', () => {
+  const msgs = [{ role: 'user', content: 'go' }, { role: 'assistant', content: 'ok' }];
+  const realNow = Date.now;
+  const frozen = 1700000000000;
+  Date.now = () => frozen;
+  try {
+    const first = applyCompactionWithAuthority(msgs, '摘要一')[0];
+    const second = applyCompactionWithAuthority(msgs, '摘要二')[0];
+    assert.notEqual(first.id, second.id, '同一毫秒内的两次压缩不得撞 id');
+    assert.equal(first.at, frozen, 'at 用被钉住的时钟');
+    assert.equal(first.at, second.at, '（前提成立）两次确实落在同一毫秒');
+    assert.match(first.id, /^compaction-\d+-\d+$/, 'id 形状：时间戳 + 自增序号');
+    // 序号单调：连续多次调用全都不重复（这也是「渲染 key 唯一」的保证）。
+    const ids = Array.from({ length: 50 }, (_, index) => applyCompactionWithAuthority(msgs, `s${index}`)[0].id);
+    assert.equal(new Set(ids).size, ids.length, '50 次调用不得出现重复 id');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+// 回归 2026-10-11 审查 P0-5：runCompactionPipeline 的**所有** return 原先都硬编码
+// `transcriptPath: ''`——L3 明明已经写盘、路径也拼进了摘要正文，调用方（ChatPanel）
+// 却永远拿到空串：归档了，但没人知道在哪。对照组 chat/reactiveCompact.js 的写法是对的。
+test('回归 P0-5：L3 写盘后 transcriptPath 必须原样带出，且与摘要正文里的指针一致', async () => {
+  const messages = [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: 'ok' },
+  ];
+  const result = await runCompactionPipeline(messages, {
+    autoRatio: 0,
+    deps: {
+      estimateRatio: () => 0.9,
+      summarize: async () => '三段式摘要',
+      writeTranscript: async jsonl => {
+        assert.match(jsonl, /"role":"user"/, '归档的是完整历史的 jsonl');
+        return { path: '.transcripts/2026-10-11.jsonl' };
+      },
+    },
+  });
+  assert.deepEqual(result.applied, ['L2', 'L3']);
+  assert.equal(result.transcriptPath, '.transcripts/2026-10-11.jsonl', '归档路径必须带出（此前恒为空串）');
+  // 「摘要里写着路径、返回值却是空」正是原 bug 的自相矛盾之处，这里把两者钉在一起。
+  assert.ok(
+    String(result.messages[0].text).includes(`完整历史：${result.transcriptPath}`),
+    '摘要正文里的归档指针必须与返回的 transcriptPath 是同一个值',
+  );
+
+  // 没走 L3 的路径（没注入 writeTranscript）必须如实给空串，而不是 undefined
+  // ——调用方会直接把它当字符串用。
+  const noArchive = await runCompactionPipeline(messages, {
+    autoRatio: 0,
+    deps: { estimateRatio: () => 0.9, summarize: async () => '三段式摘要' },
+  });
+  assert.deepEqual(noArchive.applied, ['L2']);
+  assert.equal(noArchive.transcriptPath, '', '没归档就是空串（不是 undefined）');
+  assert.equal(String(noArchive.messages[0].text).includes('完整历史：'), false);
+
+  // 早期短路 return 也要带上该字段（形状一致，调用方不必判 undefined）
+  const tooSmall = await runCompactionPipeline(messages, { autoRatio: 0.9, deps: { estimateRatio: () => 0.1 } });
+  assert.deepEqual(tooSmall.applied, []);
+  assert.equal(tooSmall.transcriptPath, '');
+});
+
 test('P4：applyCompactionWithAuthority 传 retainTokens 时按 token 保留尾部', () => {
   const msgs = [
     { role: 'user', content: 'a'.repeat(100) },
@@ -221,4 +292,70 @@ test('P4：applyCompactionWithAuthority 传 retainTokens 时按 token 保留尾�
   const out = applyCompactionWithAuthority(msgs, '摘要', { retainTokens: 250, minMessages: 0, estimateTokens: est });
   assert.match(String(out[0].content), /历史摘要/);
   assert.deepEqual(out.slice(1).map(m => String(m.content)[0]), ['c', 'd']);
+});
+
+// 回归 2026-10-11 审查 P0-4：管线的 L2 原先读 `d.retainMinMessages`，而宿主
+// （chat/sessionCompaction.js 的 buildSessionCompactionDeps）写的是 `minMessages`——
+// 全仓没有第二处定义 retainMinMessages，于是下限永远退化到默认 6 条。
+// 既有测试只断言「deps 里有 minMessages 这个键」，从没断言**管线真的用了它**，所以漏过了。
+// 这条测试必须走完整管线（不是直接调 applyCompactionWithAuthority），否则测不到键名。
+test('回归 P0-4：管线真的用了 deps.minMessages——传 0 就一条都不保留', async () => {
+  const messages = [
+    { role: 'user', content: 'a'.repeat(100) },
+    { role: 'assistant', content: 'b'.repeat(100) },
+    { role: 'user', content: 'c'.repeat(100) },
+    { role: 'assistant', content: 'd'.repeat(100) },
+  ];
+  const est = m => String(m.content || '').length; // 每条 100 token
+  const base = {
+    estimateRatio: () => 0.9, // 始终高压 → 走到 L2
+    summarize: async () => '已完成：无\n关键决策与发现：无\n未完成与下一步：无',
+    estimateTokens: est,
+    // 预算 1 < 单条 100：**预算本身一条都装不下**，所以「保留几条」完全由下限决定——
+    // 这正是能把 minMessages 单独拎出来验证的形状（预算够宽时下限不参与判定）。
+    retainTokens: 1,
+  };
+  const zero = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, minMessages: 0 } });
+  assert.deepEqual(zero.applied, ['L2']);
+  assert.equal(zero.messages.length, 1, 'minMessages: 0 → 只留摘要消息，0 条原文');
+
+  // 下限真的是「下限」：同一个预算下 minMessages: 2 → 至少留 2 条。
+  const two = await runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, minMessages: 2 } });
+  assert.equal(two.messages.length, 3, 'minMessages: 2 → 摘要 + 2 条原文');
+
+  // 键名写错（旧 bug 的形状：管线读的键和宿主写的键不是同一个）——现在**直接拒绝**，
+  // 而不是静默退回默认值。见下面 P2 的 assertCompactionDeps 回归。
+  // 注意管线是 async：拒绝以 rejected promise 的形式出现，所以用 assert.rejects。
+  await assert.rejects(
+    runCompactionPipeline(messages, { autoRatio: 0, deps: { ...base, retainMinMessages: 0 } }),
+    /未知的 deps 键：retainMinMessages/,
+    '拼错的键名必须当场拒绝，而不是静默变成默认值',
+  );
+});
+
+// 回归 P2：deps 键名白名单。P0-4 的根因就是「键名拼错 → 静默取到 undefined → 被默认参数兜住」，
+// 表现为「配置看着生效、其实没生效」。未知键直接抛，把错误挪到调用点。
+test('回归 P2：assertCompactionDeps 拒绝未知键，放行全部合法键', async () => {
+  // 白名单本身与文档同步：宿主（buildSessionCompactionDeps）产出的键必须全部在内。
+  const hostKeys = Object.keys(buildSessionCompactionDeps({ windowSize: 1000, store: null }));
+  for (const key of hostKeys) {
+    assert.ok(COMPACTION_DEP_KEYS.includes(key), `宿主产出的 ${key} 必须在白名单里`);
+  }
+  // 合法键（含全部可选键）逐个放行
+  const legal = {};
+  for (const key of COMPACTION_DEP_KEYS) legal[key] = () => 0;
+  assert.equal(assertCompactionDeps(legal), legal, '合法 deps 原样返回');
+  // 空 / 坏输入安全
+  assert.deepEqual(assertCompactionDeps(undefined), {});
+  assert.deepEqual(assertCompactionDeps(null), {});
+  assert.deepEqual(assertCompactionDeps({}), {});
+  // 未知键 → 抛，且报出是哪个键（否则调用方还得自己猜）
+  assert.throws(() => assertCompactionDeps({ retainMinMessages: 0 }), /未知的 deps 键：retainMinMessages/);
+  assert.throws(() => assertCompactionDeps({ minmessages: 0 }), /minmessages/, '大小写写错也算未知键');
+  assert.throws(() => assertCompactionDeps({ estimateRatio: () => 0, nope: 1 }), /nope/);
+  // 真实调用点同样拦得住（不是只在直接调 assert 时才生效）——管线是 async，故用 rejects。
+  await assert.rejects(
+    runCompactionPipeline([{ role: 'user', content: 'hi' }], { deps: { typoKey: 1 } }),
+    /未知的 deps 键：typoKey/,
+  );
 });

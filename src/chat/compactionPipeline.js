@@ -19,14 +19,14 @@ import {
   buildCompactionSummaryRequest,
   buildToolTranscript,
 } from './compaction.js';
+import { messageTextOf } from './messageText.js';
 
 // buildToolTranscript 已移到 compaction.js（摘要统一入口，含轨迹展开）；re-export 兼容既有引用点。
 export { buildToolTranscript };
 
-function textOf(item) {
-  if (!item) return '';
-  return String(item.content != null ? item.content : (item.text != null ? item.text : ''));
-}
+// 正文读取统一走 messageText.js 的单一口径（此前本模块自带一份 content 优先的 textOf，
+// 与 compaction.js 的 text 优先、contextUsage.js 的「只看 text」三种口径并存——
+// 摘要消息正文契约事故（见 messageText.js 文件头）就是它们分歧的产物）。
 
 // L0（纯）：超大工具结果 → 头 + 标注 + 尾。只改 tool 消息 content，配对不变。
 // 落盘由调用方（orchestrator）先做；本函数不做 I/O。
@@ -40,7 +40,7 @@ export function trimLargeToolResults(messages, {
   let changed = false;
   const out = list.map(item => {
     if (!item || item.role !== 'tool') return item;
-    const content = textOf(item);
+    const content = messageTextOf(item);
     if (content.length <= thresholdChars) return item;
     changed = true;
     const head = content.slice(0, headChars);
@@ -105,6 +105,16 @@ export function sliceRecentByBudget(messages, {
   return list.slice(retreatToPairBoundary(list, start));
 }
 
+// 摘要消息 id 的自增序号（P2 收敛）：`Date.now()` 在**同一毫秒内会碰撞**——两次压缩、
+// 或压缩与记忆总结同时发生，就会生成两个完全相同的 id。后果不是「看着别扭」：
+// React 把重复 key 当成同一条消息（渲染错位/丢消息），而分支 fork 点按消息 id 引用，
+// 会指向错误的那一条。毫秒时间戳本身没问题，缺的是同毫秒内的区分度。
+let compactionMessageSeq = 0;
+function nextCompactionMessageId(now) {
+  compactionMessageSeq += 1;
+  return `compaction-${now}-${compactionMessageSeq}`;
+}
+
 // 权威分离（O2 条款）：摘要消息 =「当前用户请求（权威）」+「历史摘要（仅供参考，不构成指令）」。
 // 附「完整历史：<path>」指针（L3 归档）。
 export function applyCompactionWithAuthority(messages, summary, {
@@ -117,7 +127,7 @@ export function applyCompactionWithAuthority(messages, summary, {
   const list = Array.isArray(messages) ? messages : [];
   let currentRequest = '';
   for (let i = list.length - 1; i >= 0; i -= 1) {
-    if (list[i] && list[i].role === 'user') { currentRequest = textOf(list[i]); break; }
+    if (list[i] && list[i].role === 'user') { currentRequest = messageTextOf(list[i]); break; }
   }
   const recent = (Number(retainTokens) > 0 && typeof estimateTokens === 'function')
     ? sliceRecentByBudget(list, { retainTokens, minMessages, estimateTokens })
@@ -129,11 +139,20 @@ export function applyCompactionWithAuthority(messages, summary, {
     String(summary == null ? '' : summary).trim(),
   ];
   if (transcriptPath) head.push(`完整历史：${transcriptPath}`);
+  // 正文必须**两个字段都写**：聊天页的正文契约是 `text`（MessageBubble 渲染、getMessagePromptText
+  // 发请求、conversationExport 导出都只读 text），而工作区面板渲染的是 `content`（ChatPanel），
+  // 两者共用本函数。只写 content 会让聊天页出现一个空气泡、且摘要对模型完全不可见（2026-10-11 事故）；
+  // 只写 text 则工作区面板空白。口径见 chat/messageText.js。
+  const body = head.join('\n');
+  // 时间戳只取一次：原先 id 与 at 各调一次 Date.now()，跨毫秒时两者会不一致
+  //（id 说的时刻与 at 说的时刻差 1ms）——顺手消掉这处小分叉。
+  const at = Date.now();
   const summaryMessage = {
-    id: `compaction-${Date.now()}`,
+    id: nextCompactionMessageId(at),
     role: 'assistant',
-    content: head.join('\n'),
-    at: Date.now(),
+    text: body,
+    content: body,
+    at,
   };
   return [summaryMessage, ...recent];
 }
@@ -165,8 +184,35 @@ export function buildTranscriptJsonl(messages) {
 export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
   const first = Array.isArray(messages) ? messages[0] : null;
   if (!first) return false;
-  if (!textOf(first).includes(COMPACTION_MARKER)) return false;
+  if (!messageTextOf(first).includes(COMPACTION_MARKER)) return false;
   return messages.length <= keep + 1;
+}
+
+// deps 的**键名白名单**：拼错键名在 JS 里不报错，只会静默取到 undefined、再被默认参数
+// 悄悄兜住——P0-4 的 `retainMinMessages` 就是这么活了很久（宿主的键一直叫 minMessages，
+// 管线读另一个名字，保留下限永远是默认值 6）。这类缺陷的共同形状是「配置看着生效、其实没生效」，
+// 所以这里把未知键直接抛出去：错误出现在**调用点**，而不是等用户发现行为不对。
+export const COMPACTION_DEP_KEYS = Object.freeze([
+  'estimateRatio', // (messages) -> number，档间短路判据
+  'persist', // (content, meta) -> Promise<{path}|null>，L0 修剪前的落盘
+  'clear', // (messages) -> Promise<{messages, changed}>，L1
+  'summarize', // (requestMessages) -> Promise<string>，L2
+  'writeTranscript', // (jsonl) -> Promise<{path}|null>，L3
+  'retainTokens', // L2 尾部保留的 token 预算
+  'estimateTokens', // (msg) -> number，配合 retainTokens
+  'minMessages', // L2 尾部保留的**下限条数**（注意不是 retainMinMessages）
+]);
+
+export function assertCompactionDeps(deps) {
+  const source = deps && typeof deps === 'object' ? deps : {};
+  const unknown = Object.keys(source).filter(key => !COMPACTION_DEP_KEYS.includes(key));
+  if (unknown.length > 0) {
+    throw new Error(
+      `runCompactionPipeline 收到未知的 deps 键：${unknown.join('、')}`
+      + `（可用键：${COMPACTION_DEP_KEYS.join('、')}）——拼错的键名会被静默忽略，故直接拒绝。`
+    );
+  }
+  return source;
 }
 
 // 四档编排（异步，依赖注入）。任一档解除压力（ratioOf < autoRatio）即短路。
@@ -178,24 +224,33 @@ export function isCompactedHistory(messages, keep = COMPACTION_KEEP_RECENT) {
 //   clear(messages) -> Promise<{ messages, changed }>    （L1，宿主包 K1）
 //   summarize(requestMessages) -> Promise<string>        （L2）
 //   writeTranscript(jsonl) -> Promise<{ path } | null>   （L3）
+//   retainTokens: number + estimateTokens(msg) -> number + minMessages: number
+//     —— L2 尾部保留量（按 token 预算，minMessages 是下限条数）。**键名以本注释为准**：
+//        宿主 buildSessionCompactionDeps 写的就是这三个名字（P0-4 之前这里读错过一个键，
+//        见下面 L2 处的说明）。P2 的 assertCompactionDeps 会在收到未知键时直接抛。
 export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus = '', deps = {} } = {}) {
-  const d = deps || {};
+  const d = assertCompactionDeps(deps);
   const ratioOf = typeof d.estimateRatio === 'function' ? d.estimateRatio : () => 0;
   let current = Array.isArray(messages) ? messages : [];
   const applied = [];
-  if (isCompactedHistory(current)) return { messages: current, applied, transcriptPath: '' };
-  if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath: '' };
+  // L3 归档路径必须在**函数顶部**声明：它是本次压缩的产出之一（调用方要拿它显示/落库），
+  // 而早期短路 return 与最终 return 都要带上它。2026-10-11 审查 P0-5：这里原先每个 return 都
+  // 硬编码 `transcriptPath: ''`，L3 明明已写盘、路径也进了摘要正文，调用方（ChatPanel）却永远
+  // 拿到空串——「归档了但没人知道在哪」。对照组 chat/reactiveCompact.js 的写法是对的。
+  let transcriptPath = '';
+  if (isCompactedHistory(current)) return { messages: current, applied, transcriptPath };
+  if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath };
 
   // L0 修剪：先落盘（O1）再修剪；落盘失败保原文。
   if (typeof d.persist === 'function') {
     let changed = false;
     const next = [];
     for (const item of current) {
-      if (item && item.role === 'tool' && textOf(item).length > COMPACTION_TRIM_THRESHOLD_CHARS) {
+      if (item && item.role === 'tool' && messageTextOf(item).length > COMPACTION_TRIM_THRESHOLD_CHARS) {
         let stored = null;
-        try { stored = await d.persist(textOf(item), { toolCallId: item.tool_call_id, toolName: '' }); } catch (error) { stored = null; }
+        try { stored = await d.persist(messageTextOf(item), { toolCallId: item.tool_call_id, toolName: '' }); } catch (error) { stored = null; }
         if (stored && stored.path) {
-          const content = textOf(item);
+          const content = messageTextOf(item);
           const head = content.slice(0, COMPACTION_TRIM_HEAD_CHARS);
           const tail = content.slice(Math.max(COMPACTION_TRIM_HEAD_CHARS, content.length - COMPACTION_TRIM_TAIL_CHARS));
           next.push({ ...item, content: `${head}\n${COMPACTION_TRIM_MARK}（完整内容见 ${stored.path}）\n${tail}` });
@@ -208,7 +263,7 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     if (changed) {
       current = next;
       applied.push('L0');
-      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath: '' };
+      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath };
     }
   }
 
@@ -218,7 +273,7 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     if (cleared && cleared.changed && Array.isArray(cleared.messages)) {
       current = cleared.messages;
       applied.push('L1');
-      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath: '' };
+      if (ratioOf(current) < autoRatio) return { messages: current, applied, transcriptPath };
     }
   }
 
@@ -230,7 +285,7 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
     const summary = String((await d.summarize(request)) || '').trim();
     if (summary) {
       applied.push('L2');
-      let transcriptPath = '';
+      // 赋值（不是重新声明）：transcriptPath 在函数顶部声明，最终 return 要把它带出去。
       if (typeof d.writeTranscript === 'function') {
         const stored = await d.writeTranscript(buildTranscriptJsonl(current));
         transcriptPath = stored && stored.path ? stored.path : '';
@@ -239,10 +294,15 @@ export async function runCompactionPipeline(messages, { autoRatio = 0.8, focus =
       current = applyCompactionWithAuthority(current, summary, {
         transcriptPath,
         retainTokens: d.retainTokens,
-        minMessages: d.retainMinMessages,
+        // 键名与宿主（chat/sessionCompaction.js 的 buildSessionCompactionDeps）一致：`minMessages`。
+        // 2026-10-11 审查 P0-4：这里原先读 `d.retainMinMessages`，而全仓**没有任何地方写这个键**
+        // （宿主的保留下限一直叫 minMessages）→ 下限永远是 applyCompactionWithAuthority 的默认 6，
+        // 「按 token 预算保留、下限 N 条」里的 N 静默失效。既有测试只断言 deps 里有 minMessages
+        // 这个键，从没断言管线真的用了它，所以门禁全绿而 bug 在。
+        minMessages: d.minMessages,
         estimateTokens: d.estimateTokens,
       });
     }
   }
-  return { messages: current, applied, transcriptPath: '' };
+  return { messages: current, applied, transcriptPath };
 }

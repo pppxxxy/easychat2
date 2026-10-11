@@ -173,15 +173,27 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes('pendingPlanRun'), '批准走 state→effect 触发');
   assert.ok(screen.includes("handleSelectMode('write')"), '先切模式（持久化到存储）');
   assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
-  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
-  assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
+  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）。
+  // 判据是「**是字符串**」而不是「非 undefined」：`onPress={handleSend}` 会把点击事件对象
+  // 当第一个实参传进来，按「非 undefined」判断会让工作区发什么都变成 "[object Object]"
+  //（见 resolveSendText 的注释与回归测试）。
+  assert.ok(screen.includes("const hasOverride = typeof overrideText === 'string';"), '判据只算一次');
+  const overrideGuardCount = (screen.match(/if \(!hasOverride\)/g) || []).length;
+  assert.ok(overrideGuardCount >= 2, 'overrideText 路径有草稿保护（`/compact` 与发送后清空两处共用同一判据）');
+  // 计划进度条：W1 外提到 AgentPlanPanel，ChatPanel 经 SessionSidePanels 装配（z1010z7 界面线）。
   const approvalPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
   assert.ok(approvalPanel.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
   assert.ok(screen.includes('canApprove={canApprovePlan}'), 'ChatPanel 把批准判据传给装配层');
   // 2026-10-10 回归：发送按钮是 onPress={handleSend}，RN 把点击事件对象当第一实参传进来。
   // 旧判据「overrideText === undefined」认不出事件对象，String(事件) = "[object Object]"，
-  // 于是「工作区发啥都变成 [object Object]」。判据必须是「是不是字符串」。
-  assert.ok(screen.includes("typeof overrideText === 'string' ? overrideText : input"), '文本取用按类型判定');
+  // 于是「工作区发啥都变成 [object Object]」。文本解析**只有一处实现**——纯函数
+  // resolveSendText（src/workspace/chat.js，行为测试在 workspaceChat.test.mjs）。
+  assert.ok(screen.includes('resolveSendText(overrideText, input)'), '文本取用走 resolveSendText 纯函数');
+  assert.equal(
+    screen.includes("typeof overrideText === 'string' ? overrideText : input"),
+    false,
+    '不得再内联一份解析（三处判据必须共用 resolveSendText / hasOverride）'
+  );
   assert.equal(
     screen.includes('overrideText === undefined ? input : overrideText'),
     false,

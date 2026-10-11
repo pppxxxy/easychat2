@@ -94,6 +94,7 @@ export async function runSubagent({
   maxRounds = SUBAGENT_MAX_ROUNDS,
   onEvent = null,
   mode = 'read',
+  workspaceMode = '',
   confirm = null,
   // 团队通信：同一批次的多个分身共享一块黑板（blackboard.js）。extraTools 是随黑板
   // 一起注入的额外工具（board_post/board_read），agentName 是发布者署名。
@@ -101,6 +102,17 @@ export async function runSubagent({
   extraTools = [],
   agentName = '',
 } = {}) {
+  // P0-2（纵深防御第二层）：run_subagent / run_workflow 自身都是 readOnly 工具，**在 READ 模式
+  // 也能被模型调用**；而本函数内部直接调 tool.execute，绕过了 registry.canRunTool 的模式闸门
+  //（本模块按设计不接触全局注册表）。于是「READ 模式 + run_subagent{mode:'write'}」曾能落盘，
+  // 且按 P0-1 之前连确认都不会问。
+  //
+  // 因此这里**不信调用方**：write 模式必须由宿主明确声明「当前是可改模式」才放行。
+  // 第一层闸门在 workspace/toolDefs/subagentTool.js 与 workflowTool.js（同样判 workspaceMode），
+  // 这里再判一次是纵深防御——任一层被漏改，写操作仍然进不来。
+  if (mode === 'write' && workspaceMode !== 'write') {
+    return { content: '写子代理不可用：当前不是「可改」模式（未执行）。', isError: true };
+  }
   const text = String(task == null ? '' : task).trim();
   if (!text) return { content: '子任务描述为空。', isError: true };
   const streamFn = stream || resolveDefaultStream();
@@ -185,18 +197,41 @@ export async function runSubagent({
           args = {};
         }
         // 写子代理：需要确认的工具**逐条**先问用户，未批准则不执行（与主循环同款纪律）。
-        // 审查修复 F2：判据不能只看 tool.requiresConfirmation——写工具（write/edit/create_dir）
-        // 本身不带这个标记（主代理写文件本来就不逐条确认），于是这段确认在真实工具上
-        // **从来不会执行**，与「逐写审批」的承诺相反。改成「标记 || （写模式下非只读工具）」，
-        // 单一事实源，run_workflow 的步骤同样受它保护。
-        const needsConfirm = tool.requiresConfirmation === true || (mode === 'write' && tool.readOnly !== true);
+        //
+        // 判据是 `readOnly !== true`（fail-closed），**不是**只看 `requiresConfirmation`：
+        // 真实写工具（workspace/toolDefs/writeTools.js 的三个）只声明 `readOnly: false`，
+        // 从不声明 requiresConfirmation——只看那个字段等于「写操作直接执行」，而本文件与
+        // subagentTool / workflowTool 的文案都写着「每一次写操作都会先请用户确认」
+        //（2026-10-11 逐行审查 P0-1：该分支曾是死代码）。
+        //
+        // 为什么挂在 readOnly 上而不是「给三个写工具加 requiresConfirmation」：
+        //   1) readOnly 本来就是**安全字段**——注册表的模式门控（canRunTool）靠它，
+        //      新写工具必须正确声明它才可能被放行，因此这个判据不会随「忘记加标志」再次失效；
+        //   2) 给写工具定义加 requiresConfirmation 会**连带改变主循环**（tools.js 透传该字段，
+        //      runTool 随即对每次写入弹审批），与 paths.js 明文记录的设计相反：
+        //      「写工具（write_workspace_file / edit_workspace_file）不需要逐条确认，
+        //        因此根本不走权限规则求值」。
+        // 取 `!== true` 而非 `=== false`：readOnly 缺失/写错的工具按「可能写」处理（fail-closed），
+        // 宁可多问一次，不可静默放行。
+        const needsConfirm = tool.requiresConfirmation === true || tool.readOnly !== true;
         if (needsConfirm && typeof confirm !== 'function') {
           outcome = { content: '该工具需要用户确认，但当前环境无法询问用户（未执行）。', isError: true };
         } else if (needsConfirm) {
           const approved = await confirm({ name: call.name, args });
           outcome = approved ? undefined : { content: '用户拒绝了此操作（未执行）。', isError: true };
         }
-        if (outcome === undefined) outcome = await tool.execute({ store }, args, { characterId, board, agentName });
+        if (outcome === undefined) {
+          // ctx 与主循环（registry.runTool）同形：signal / confirm 必须传进去——
+          // 工具内部若还要再问一次（或要能被中止），拿不到钩子就只能失败。
+          // board / agentName 供黑板（团队 / 并行批次）使用。
+          outcome = await tool.execute({ store }, args, {
+            characterId,
+            board,
+            agentName,
+            signal,
+            confirm: typeof confirm === 'function' ? confirm : null,
+          });
+        }
       } catch (error) {
         if (isAbortError(error) || (signal && signal.aborted)) throw makeAbortError();
         lastError = (error && error.message) || '工具执行失败。';

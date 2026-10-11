@@ -11,6 +11,10 @@ import {
   CAPABILITY_TITLE_KEY,
   capabilityViewModel,
 } from '../src/workspace/capabilities.js';
+import {
+  WORKSPACE_TOOL_NAMES,
+  WRITE_ONLY_WORKSPACE_TOOL_NAMES,
+} from '../src/workspace/tools.js';
 
 const APP_ROOT = { kind: 'app', uri: '', name: '' };
 const SAF_ROOT = { kind: 'saf', uri: 'content://tree/primary%3ADocs', name: 'Docs' };
@@ -34,21 +38,82 @@ test('边界条目覆盖五条硬约束（工具集 / 两个开关 / 隔离 / �
 test('activeWorkspaceTools：按模式给出真实工具集', () => {
   assert.deepEqual(activeWorkspaceTools({ mode: 'ask' }), [], '询问模式一个工具都没有');
   assert.deepEqual(activeWorkspaceTools(null), []);
-  assert.deepEqual(activeWorkspaceTools({ mode: 'read' }), ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent']);
-  assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [
+  // 2026-10-11 审查 P1-4：这里**不再手抄**清单，而是从工具注册的唯一事实源（WORKSPACE_TOOL_NAMES）
+  // 派生——手抄的那份漏了本次合并新增的 list_symbols 与 run_workflow，能力卡因此对用户说谎。
+  assert.deepEqual(
+    activeWorkspaceTools({ mode: 'read' }),
+    WORKSPACE_TOOL_NAMES.filter(name => !WRITE_ONLY_WORKSPACE_TOOL_NAMES.includes(name)),
+  );
+  assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [...WORKSPACE_TOOL_NAMES]);
+  // 具体名单仍然钉死（派生关系正确 + 名单本身是人能读懂的契约）。
+  assert.deepEqual(activeWorkspaceTools({ mode: 'read' }), [
     'list_workspace_files',
     'read_workspace_file',
     'search_workspace',
+    'list_symbols',
+    'ask_user',
+    'skill',
     'update_plan',
     'materialize_repo',
     'get_build_log',
     'run_subagent',
+    'run_workflow',
+    'run_team',
+    'export_extension_pack',
+  ]);
+  assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [
+    'list_workspace_files',
+    'read_workspace_file',
+    'search_workspace',
+    'list_symbols',
+    'ask_user',
+    'skill',
+    'update_plan',
+    'materialize_repo',
+    'get_build_log',
+    'run_subagent',
+    'run_workflow',
+    'run_team',
+    'export_extension_pack',
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
     'run_remote_build',
     'export_workspace_docx',
+    'install_extension_pack',
   ]);
+});
+
+// 回归 P1-4：能力卡的核心承诺是「如实回答现在开了哪些」。这条断言把清单**钉在门控上**：
+// read 模式的清单必须恰好等于注册表 canRunTool 会放行的那些（readOnly === true），
+// 于是「新增工具忘了同步能力卡」这类漏改在门禁上直接变红，而不是等用户发现卡片在说谎。
+test('回归 P1-4：能力清单与注册表的模式门控同源（新增工具不会再漏）', async () => {
+  const { createWorkspaceToolDefinitions } = await import('../src/workspace/tools.js');
+  // 用真实定义聚合（不接 shell/python 桥，它们按开关单独加）。
+  const definitions = createWorkspaceToolDefinitions({});
+  const byName = new Map(definitions.map(item => [item.name, item]));
+  // 1) 能力卡写的每个名字都必须在真实定义里存在（否则卡上写着「开着」而工具根本不存在）。
+  for (const name of WORKSPACE_TOOL_NAMES) {
+    assert.ok(byName.has(name), `能力清单里的 ${name} 必须有真实定义`);
+  }
+  // 2) write 模式清单 = 全部基础工具，且顺序与定义聚合一致。
+  assert.deepEqual([...WORKSPACE_TOOL_NAMES], definitions
+    .map(item => item.name)
+    .filter(name => WORKSPACE_TOOL_NAMES.includes(name)));
+  // 3) write 专属集合 = readOnly !== true 的那些——与 registry.canRunTool 的判据逐字一致。
+  const expectedWriteOnly = definitions
+    .filter(item => WORKSPACE_TOOL_NAMES.includes(item.name) && item.readOnly !== true)
+    .map(item => item.name);
+  assert.deepEqual([...WRITE_ONLY_WORKSPACE_TOOL_NAMES], expectedWriteOnly);
+  // 4) read 模式清单必须恰好是「readOnly 为真」的那些（逐条比对，不靠集合大小）。
+  const readList = activeWorkspaceTools({ mode: 'read' });
+  const readOnlyNames = definitions
+    .filter(item => WORKSPACE_TOOL_NAMES.includes(item.name) && item.readOnly === true)
+    .map(item => item.name);
+  assert.deepEqual([...readList].sort(), [...readOnlyNames].sort(), 'read 清单必须与门控放行的集合完全一致');
+  // 5) 本次合并新增的两个工具必须在卡上（这就是 P1-4 漏掉的那两个）。
+  assert.ok(readList.includes('list_symbols'), 'list_symbols（LSP-lite）必须在能力卡上');
+  assert.ok(readList.includes('run_workflow'), 'run_workflow（依赖式编排）必须在能力卡上');
 });
 
 test('run_shell 只有「开关开 + 可改 + 应用内根 + 原生可用」才出现在清单里', () => {

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   buildReactiveCompactDeps,
@@ -166,3 +168,53 @@ test('resolveCompactionFocus：钩子读不到一律当没有钩子，focus 原�
   });
   assert.deepEqual(thrown, { blocked: [], store: null, focus: 'x' });
 });
+
+// 回归 2026-10-11 审查 P1-7：ChatPanel 原先**内联**了一份与 buildSessionCompactionDeps
+// 逐字相同的五项装配（estimateRatio / summarize / writeTranscript / retainTokens /
+// estimateTokens）。两份近似代码的下场必然是「只改一处」——本次合并里 estimateTokens 的正文
+// 口径与 minMessages 的键名就都踩过。这里两头都钉：行为（共用函数确实覆盖那五项）与结构
+// （ChatPanel 不再留副本）。
+test('回归 P1-7：buildSessionCompactionDeps 覆盖宿主原先内联的五项，换用后语义不变', async () => {
+  const store = makeStore();
+  const seen = [];
+  const deps = buildSessionCompactionDeps({
+    windowSize: 200000,
+    store,
+    characterId: 'ch',
+    summarize: async request => { seen.push(request); return '摘要'; },
+  });
+  // 五项逐条对照（原内联版本就是这五项）
+  assert.equal(typeof deps.estimateRatio, 'function');
+  assert.equal(typeof deps.summarize, 'function');
+  assert.equal(typeof deps.writeTranscript, 'function');
+  assert.equal(deps.retainTokens, Math.floor(200000 * 0.16), '保留量按窗口的 16%');
+  assert.equal(typeof deps.estimateTokens, 'function');
+  // estimateRatio：与 computeContextUsage 同口径（空历史 0，非空落在 (0,1)）
+  assert.equal(deps.estimateRatio([]), 0);
+  const ratio = deps.estimateRatio([{ role: 'user', text: '你好世界' }]);
+  assert.ok(ratio > 0 && ratio < 1, `ratio 应落在 (0,1)，实际 ${ratio}`);
+  // estimateTokens：两种消息形状同口径（正文在 text 的聊天消息 / 在 content 的工作区消息）
+  const emptyTokens = deps.estimateTokens({ role: 'user', text: '' });
+  const textTokens = deps.estimateTokens({ role: 'user', text: '一段中文内容' });
+  const contentTokens = deps.estimateTokens({ role: 'assistant', content: '一段中文内容' });
+  assert.ok(textTokens > emptyTokens, '有正文必须比空正文多算');
+  assert.equal(contentTokens, textTokens, 'text 与 content 两种形状必须同口径');
+  assert.ok(contentTokens > emptyTokens, '工作区消息（正文在 content）也必须被算进去');
+  // writeTranscript：落到 .transcripts/（与 ChatPanel 原来那行同源）
+  const stored = await deps.writeTranscript('{"role":"user"}');
+  assert.match(String(stored && stored.path), /^\.transcripts\//);
+  // summarize：原样透传（宿主给什么就用什么）
+  await deps.summarize([{ role: 'user', content: 'x' }]);
+  assert.equal(seen.length, 1);
+});
+
+test('回归 P1-7：ChatPanel 不再内联压缩 deps 装配（宿主侧只留一处）', () => {
+  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  assert.ok(panel.includes('buildSessionCompactionDeps('), 'ChatPanel 必须换用共用装配函数');
+  // 内联的痕迹：在宿主里再写这些 deps 键（那正是会漂移的副本）。
+  assert.equal(/retainTokens:\s*Math\.max\(0, Math\.floor\(windowSize/.test(panel), false, '不得再内联 retainTokens');
+  assert.equal(/estimateTokens:\s*msg\s*=>/.test(panel), false, '不得再内联 estimateTokens');
+  assert.equal(/writeTranscript:\s*jsonl\s*=>/.test(panel), false, '不得再内联 writeTranscript');
+  assert.equal(panel.includes("from '../transcripts.js'"), false, 'writeTranscript 直连也随之移除（改由共用函数提供）');
+});
+

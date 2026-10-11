@@ -8,6 +8,7 @@
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
 import { modelContextWindow } from '../network/modelProfiles.js';
+import { messageTextOf } from './messageText.js';
 import {
   DEFAULT_AUTOCOMPACT_RATIO,
   DEFAULT_HEADROOM_TOKENS,
@@ -19,23 +20,27 @@ import {
 // 的新一代）上下文都在 128k~200k 这一档，32k 会让「上下文占用」显示虚高、80% 自动压缩
 // 过早触发（对话还没多长就被压缩，摘要反而丢信息）。
 export const DEFAULT_CONTEXT_WINDOW = 200000;
-// 「上下文偏高」的通用口径：**记忆总结**在占用达到它时绕过条数阈值（memorySummary.js），
-// 工作区占用条也用它决定是否转警示色（FilesPanel）。它不是会话压缩阈值——见下面两个。
-// **定义只有一份**：`compactionPolicy.js`（全仓唯一阈值来源）；这里转发，保持既有导入名不变。
+// 三个阈值**语义不同、各自具名**，值本身只在 compactionPolicy 定义一次（这里只转发，
+// 免得两处各写一份「看着像笔误」的数字；改值只改 compactionPolicy）：
+//   AUTO_COMPACT_RATIO        0.8 ——「上下文偏高」通用口径（**记忆总结**在占用达到它时
+//                                    绕过条数阈值，memorySummary.js；工作区占用条也用它
+//                                    决定是否转警示色，FilesPanel），不是会话压缩阈值；
+//   SESSION_AUTO_COMPACT_RATIO 0.85 —— 会话空闲静默自动压缩；
+//   SESSION_COMPACT_HINT_RATIO 0.7  ——「建议压缩」提示条。
+// 历史上 ChatScreen 把 0.85/0.7 硬编码在渲染里、常量却是 0.8，看着像笔误（2026-10-10 核实：
+// 确为不同语义，不是笔误）。命名清楚以免下次有人「顺手统一」——统一会让记忆总结的触发点
+// 或会话压缩的触发点跑偏。这里转发，保持既有导入名不变。
 export const AUTO_COMPACT_RATIO = MEMORY_SUMMARY_RATIO;
-// 会话压缩（E2）的两条线：≥85% 空闲时静默自动压缩；≥70% 出「建议压缩」提示条。
-// 与 AUTO_COMPACT_RATIO 是**两件事**，历史上 ChatScreen 把 0.85/0.7 硬编码在渲染里、
-// 常量却是 0.8，看着像笔误（2026-10-10 核实：确为不同语义，不是笔误）。
-// 命名清楚以免下次有人「顺手统一」——统一会让记忆总结的触发点或会话压缩的触发点跑偏。
-// 同样只在 `compactionPolicy.js` 定义一份，这里转发。
 export { SESSION_AUTO_COMPACT_RATIO, SESSION_COMPACT_HINT_RATIO } from './compactionPolicy.js';
 
-// 会话消息（{ role, text }）→ 估算 token。
+// 会话消息（{ role, text } 或 { role, content }）→ 估算 token。
+// 正文读取统一走 messageText.js：此前这里只看 text，工作区面板的 content 消息一律估成 0 token
+//（占用条与自动压缩判据在工作区页面上等于失效），是同一批「三种口径」分歧的一部分。
 export function estimateHistoryTokens(messages) {
   const list = Array.isArray(messages) ? messages : [];
   return estimateMessagesTokens(list.map(item => ({
     role: item && item.role,
-    content: String((item && item.text) || ''),
+    content: messageTextOf(item),
   })));
 }
 
@@ -57,14 +62,14 @@ export function computeContextUsage(messages, windowSize) {
   return { tokens, window, ratio: window > 0 ? tokens / window : 0 };
 }
 
-// 是否到达自动压缩线（默认 80%）。
-export function shouldAutoCompact(contextUsage, { ratio = AUTO_COMPACT_RATIO } = {}) {
-  return !!(contextUsage
-    && Number.isFinite(contextUsage.ratio)
-    && contextUsage.ratio >= ratio);
-}
+// 2026-10-11 逐行审查 P2：这里原先还有一个 `shouldAutoCompact(contextUsage, { ratio })`
+// ——按占用比例直接判「该压了」。Z 系采纳 #5 把阈值口径统一到 chat/compactionPolicy.js
+// （min(W×比例, W−输出预留−缓冲) + 双规则 + 失败上限）之后，生产调用点（ChatScreen /
+// useAutoCompact）全部改走 `shouldCompactAnyRule` / `shouldAutoCompactTokens`，
+// 该函数**已无生产消费者**（只剩测试在用，而测试测的正是「没有生产调用点」的东西）。
+// 留着的代价是「两套阈值口径并存」——恰好就是下面那句话要防的事，所以删掉。
 // 注：token 预算口径的压缩阈值统一由 chat/compactionPolicy.js 提供（Z 系采纳 #5：
-// min(W×比例, W−输出预留−缓冲) + 双规则 + 失败上限）。本模块不再自带阈值函数，避免两套口径。
+// min(W×比例, W−输出预留−缓冲) + 双规则 + 失败上限）。本模块不自带阈值函数，避免两套口径。
 
 // 单段文本的 token 估算（与消息同口径：同一估算器，避免两套数字互相打架）。
 export function estimateTextTokens(text) {
