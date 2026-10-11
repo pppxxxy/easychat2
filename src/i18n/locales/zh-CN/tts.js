@@ -25,4 +25,17 @@ export const tts = {
   'tts.providerLabel': '播报源',
   'tts.voices.default': '默认',
   'tts.volcanoHint': '火山引擎使用 Bearer; 签名头，请在语音控制台获取 Access Token 与 AppID。',
+
+  // 播报源显示名（providers.js 的 label 是中文常量，界面按 id 查这里的词条；
+  // 新增 provider 时记得同步补一条，否则回落常量 label）。
+  'tts.providerName.system': '系统引擎',
+  'tts.providerName.xiaomiMimo': '小米 MiMo',
+  'tts.providerName.siliconflow': '硅基流动',
+  'tts.providerName.iflytekSpark': '讯飞星火',
+  'tts.providerName.stepfun': '阶跃星辰',
+  'tts.providerName.tencentCloud': '腾讯云',
+  'tts.providerName.aliyun': '阿里云智能语音',
+  'tts.providerName.baidu': '百度智能云',
+  'tts.providerName.volcano': '火山引擎',
+  'tts.providerName.minimax': 'MiniMax',
 };
