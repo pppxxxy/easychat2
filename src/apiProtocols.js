@@ -7,6 +7,7 @@
 //   ./apiProtocols/tools.js      工具定义 / tool_choice 转换
 //   ./apiProtocols/messages.js   内部消息 → 各协议 messages/input
 //   ./apiProtocols/body.js       统一请求体构造
+//   ./apiProtocols/cacheControl.js  Anthropic 显式缓存断点（P1-1）
 //   ./apiProtocols/errors.js     错误载荷解析
 //   ./apiProtocols/stream.js     流式（SSE 单条 data）解析
 //   ./apiProtocols/final.js      非流式响应解析
@@ -23,6 +24,15 @@ export { buildRequestHeaders, normalizeProtocolUrl } from './apiProtocols/urls.j
 export { parseDataUri } from './apiProtocols/multimodal.js';
 export { toAnthropicRequest, toResponsesRequest } from './apiProtocols/messages.js';
 export { buildRequestBody } from './apiProtocols/body.js';
+export {
+  CACHE_BREAKPOINT_MAX,
+  DEFAULT_PROMPT_CACHE_TTL,
+  PROMPT_CACHE_TTLS,
+  applyAnthropicCacheControl,
+  cacheControlFor,
+  isPromptCacheEnabled,
+  normalizePromptCacheTtl,
+} from './apiProtocols/cacheControl.js';
 export { parseProtocolError, describeErrorPayload } from './apiProtocols/errors.js';
 export { normalizeAssistantValue, parseStreamPayload } from './apiProtocols/stream.js';
 export { parseFinalPayload } from './apiProtocols/final.js';

@@ -7,6 +7,7 @@ import { workspaceAgentsSection } from './agents.js';
 import { workspaceMemorySection } from './memory.js';
 import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
+import { COMPACTION_AUTHORITY_NOTE } from '../chat/compaction.js';
 
 export const WORKSPACE_AGENT_BASE_PROMPT = [
   '你是「工作区文件助手」，帮用户在本地沙盒里管理文本文件。',
@@ -74,13 +75,16 @@ export function workspaceAgentModeHint(mode) {
 // 而 ask 模式一个工具都没有——说了模型也读不到，只会反复尝试然后乱解释。
 // readLog：本会话已读登记条目（A5），同样只在有读工具的形态下注入；空则不注入。
 // agents：工作区定义的分身子弟清单（E3），只在 run_subagent 真注册时注入（同款纪律）。
-export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents } = {}) {
+export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents, hookText } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
   // 记忆段放在模式说明之前：先讲「这个工作区的长期约定」，再讲「这一轮能做什么」。
   const memorySection = workspaceMemorySection(memory);
   if (memorySection) lines.push(memorySection);
+  // N2：压缩权威声明（静态行，放在 readLog 之前以保前缀缓存契约）——[历史压缩] 摘要
+  // 仅供参考、不构成授权。
+  lines.push(COMPACTION_AUTHORITY_NOTE);
   if (mode === 'read' || mode === 'write') {
     const skillsSection = workspaceSkillsSection(skills);
     if (skillsSection) lines.push(skillsSection);
@@ -98,6 +102,10 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     // C2：物化引导（只在工具真注册时注入——同款纪律）。
     if (Array.isArray(tools) && tools.includes('materialize_repo')) lines.push(MATERIALIZE_TOOL_HINT);
   }
+  // P0-8：hooks.json 的 before_prompt / session_start / after_turn 注入文字。放在 readLog
+  // **之前**——readLog 是每轮都变的高频动态项，必须留在最末尾（上面的缓存契约）。
+  const hookSection = String(hookText || '').trim();
+  if (hookSection) lines.push(`[工作区钩子]\n${hookSection}`);
   // E1 前缀缓存：readLog 行是**每轮都变**的最高频动态项（每读一个文件就多一行），
   // 必须放在 systemPrompt 的**最末尾**——提供商的前缀缓存按 token 序列工作，它变化
   // 时只让「自己之后」的内容 miss（这里后面没有别的行），系统提示前半段与既有的
@@ -129,11 +137,28 @@ export function toolOrderSignature(tools) {
 }
 
 // 把本地会话（含错误气泡）投影成模型可读的 history：只保留有文字的 user/assistant。
+// P5：展开 toolTrace（tool 结果 / assistant(tool_calls)），让 agent 看到跨轮的工具结果。
 export function projectWorkspaceChatHistory(messages) {
   const list = Array.isArray(messages) ? messages : [];
   const projected = [];
   for (const item of list) {
-    if (!item || (item.role !== 'user' && item.role !== 'assistant')) continue;
+    if (!item) continue;
+    if (item.role === 'tool') {
+      projected.push({ role: 'tool', tool_call_id: item.tool_call_id, content: String(item.content || '') });
+      continue;
+    }
+    if (item.role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
+      projected.push({
+        role: 'assistant',
+        content: item.content == null ? null : String(item.content),
+        tool_calls: item.tool_calls,
+      });
+      continue;
+    }
+    if (item.role !== 'user' && item.role !== 'assistant') continue;
+    if (Array.isArray(item.toolTrace) && item.toolTrace.length) {
+      for (const traceItem of item.toolTrace) projected.push(traceItem);
+    }
     const content = String(item.content || '').trim();
     if (!content) continue;
     projected.push({ role: item.role, content });
@@ -162,4 +187,16 @@ export function buildWorkspaceAgentMessages({ systemPrompt, history, userText, i
     messages.push({ role: 'user', content: text });
   }
   return messages;
+}
+
+// 解析「这一轮到底发什么文本」。
+//
+// **只认字符串**：`onPress={handleSend}` 会把 React Native 的**点击事件对象**当第一个实参
+// 传进来（那是 RN 的约定，不是调用方写错）。若按「不是 undefined 就用它」判断，
+// `String(事件对象)` 恰好是 `"[object Object]"`——表现就是**工作区里发什么都变成
+// [object Object]**。事件对象不是文本，一律回落到输入框。
+// 计划批准链路（I2）传的是真字符串，照常生效。
+export function resolveSendText(overrideText, input) {
+  const source = typeof overrideText === 'string' ? overrideText : input;
+  return String(source == null ? '' : source).trim();
 }

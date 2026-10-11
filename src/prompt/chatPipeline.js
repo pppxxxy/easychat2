@@ -2,6 +2,7 @@ import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
 import { getMessagePromptText } from '../chat/chatMedia.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 import { buildSystemSections, composeSystemText, planSystemCache, splitSystemForCache } from './systemSections.js';
+import { expandHistoryWithTraces } from '../chat/toolTrace.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
 
@@ -20,10 +21,25 @@ function applyForPrompt(text, scripts, placement, depth) {
 
 function buildHistory(historyMessages, scripts) {
   const list = (Array.isArray(historyMessages) ? historyMessages : []).filter(
-    item => item && (item.role === 'user' || item.role === 'assistant')
+    item => item && (item.role === 'user' || item.role === 'assistant' || item.role === 'tool')
   );
   const total = list.length;
   return list.map((item, index) => {
+    // P5：工具轨迹消息原样透传（tool 结果 / assistant(tool_calls)），不走正则脚本。
+    if (item.role === 'tool') {
+      return {
+        role: 'tool',
+        tool_call_id: item.tool_call_id,
+        content: String(item.content == null ? '' : item.content),
+      };
+    }
+    if (item.role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
+      return {
+        role: 'assistant',
+        content: item.content == null ? null : String(item.content),
+        tool_calls: item.tool_calls,
+      };
+    }
     const isUser = item.role === 'user';
     const placement = isUser ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT;
     return {
@@ -60,7 +76,8 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
 
 export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, currentTimeText, scheduleText, locationText, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
-  const history = buildHistory(historyMessages, scripts);
+  // P5：展开历史里的工具轨迹（toolTrace → tool 消息），让 agent 看到跨轮的工具结果。
+  const history = buildHistory(expandHistoryWithTraces(historyMessages), scripts);
   const mediaActivationText = (Array.isArray(imageMessages) ? imageMessages : [])
     .map(item => applyForPrompt(
       getMessagePromptText(item),

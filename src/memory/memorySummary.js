@@ -11,6 +11,7 @@ import {
 
 import { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
 import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';
+import { normalizeCompactionFocus } from '../chat/compaction.js';
 
 export { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX };
 // 内置助手判定与「世界书记忆退休」共用同一份纯逻辑（见 memory/memoryRetire.js）。
@@ -111,15 +112,19 @@ export function shouldSummarize({ session, messages, settings, force = false, co
   return candidates.length > 0;
 }
 
-export function buildSummaryPrompt(messages, userName, memories = '') {
+export function buildSummaryPrompt(messages, userName, memories = '', focus = '') {
   const speakerForUser = String(userName || '').trim() || '用户';
   const lines = (Array.isArray(messages) ? messages : []).map(item => {
     const speaker = item.role === 'user' ? speakerForUser : '角色';
     return `${speaker}：${String(item.text || '').trim()}`;
   });
   const memoryText = String(memories || '').trim() || '（暂无已记录的记忆）';
+  // focus：用户在 /compact 后写的「这次要特别记住什么」。空 = 系统提示逐字节不变。
+  const focusText = normalizeCompactionFocus(focus);
+  const instruction = SUMMARY_INSTRUCTION.replace('{{memories}}', memoryText)
+    + (focusText ? `\n\n额外要求：这次总结请特别关注并优先保留以下内容——${focusText}` : '');
   return [
-    { role: 'system', content: SUMMARY_INSTRUCTION.replace('{{memories}}', memoryText) },
+    { role: 'system', content: instruction },
     { role: 'user', content: lines.join('\n') },
   ];
 }
@@ -165,10 +170,11 @@ export async function generateSummary({
   messages,
   userName,
   memories,
+  focus = '',
   expectedConfigId = '',
   expectedConfigFingerprint = '',
 }) {
-  const prompt = buildSummaryPrompt(messages, userName, memories);
+  const prompt = buildSummaryPrompt(messages, userName, memories, focus);
   const text = await sendChatMessage(prompt, {
     expectedConfigId,
     expectedConfigFingerprint,
@@ -453,6 +459,7 @@ export async function applySummary({
   updateCharacter,
    userName,
    scoped = false,
+   focus = '',
    expectedConfigId = '',
    expectedConfigFingerprint = '',
    getCurrentCharacter = null,
@@ -475,6 +482,7 @@ export async function applySummary({
      messages: list,
      userName,
      memories,
+     focus,
      expectedConfigId,
      expectedConfigFingerprint,
   });

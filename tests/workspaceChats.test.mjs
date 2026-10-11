@@ -279,3 +279,31 @@ test('I5 会话归档：normalize 老数据兜底 false + 存取往返 + 幂等'
   assert.equal(await setWorkspaceChatArchived('archive-a', 'nope', true), false);
   assert.equal(await setWorkspaceChatArchived('', chat.id, true), false);
 });
+
+test('N2 整表替换：覆盖式写入（压缩后落库用），不是追加', async () => {
+  const {
+    appendWorkspaceChatMessages,
+    createWorkspaceChat,
+    getWorkspaceChats,
+    replaceWorkspaceChatMessages,
+  } = loadWorkspaceStorage();
+
+  const chat = await createWorkspaceChat('compact-a');
+  await appendWorkspaceChatMessages('compact-a', chat.id, [
+    { id: 'm1', role: 'user', content: '原始一' },
+    { id: 'm2', role: 'assistant', content: '原始二' },
+    { id: 'm3', role: 'user', content: '原始三' },
+  ]);
+
+  const replaced = await replaceWorkspaceChatMessages('compact-a', chat.id, [
+    { id: 'sum', role: 'assistant', content: '[历史压缩] 摘要' },
+    { id: 'm3', role: 'user', content: '原始三' },
+  ]);
+  assert.ok(replaced, '替换成功返回会话对象');
+  const bucket = await getWorkspaceChats('compact-a');
+  assert.deepEqual(bucket.chats[0].messages.map(item => item.id), ['sum', 'm3'], '整表覆盖，不是追加');
+
+  // 不存在的会话 / 缺参数 → null，不改动
+  assert.equal(await replaceWorkspaceChatMessages('compact-a', 'nope', [{ id: 'x', role: 'user', content: 'x' }]), null);
+  assert.equal(await replaceWorkspaceChatMessages('', chat.id, []), null);
+});

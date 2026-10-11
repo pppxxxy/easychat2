@@ -17,6 +17,8 @@ export default function ChatSettingsModal({
   // D3：会话压缩（体积概览 + 进行中 + 触发回调）——数据仍由 ChatScreen 持有。
   compactInfo = null,
   compactBusy = false,
+  // P2-7：上下文占用明细（来自 useChatSend；null = 还没发过请求）。
+  contextBreakdown = null,
   onCompactSession,
 }) {
   const { theme, fonts, tokens } = useTheme();
@@ -86,6 +88,25 @@ export default function ChatSettingsModal({
               <Ionicons name="alert-circle-outline" size={16} color={theme.colors.primary} />
             ) : null}
           </TouchableOpacity>
+          {/* P2-7：上下文占用明细——按**本次真实发出的请求**分段（谁在吃窗口）。
+              百分比是「占本次请求」的份额，不是窗口占用率（后者见提示条）。 */}
+          <View style={styles.contextBlock}>
+            <Text style={styles.contextTitle}>{t('chat.context.title')}</Text>
+            {(!contextBreakdown || !contextBreakdown.segments || contextBreakdown.segments.length === 0) ? (
+              <Text style={styles.bodyHint}>{t('chat.context.empty')}</Text>
+            ) : contextBreakdown.segments.map(item => (
+              <Text key={item.key} style={styles.contextLine} numberOfLines={1}>
+                {t('chat.context.line', {
+                  label: t(`chat.context.segment.${item.key}`),
+                  tokens: item.tokens,
+                  percent: Math.round((contextBreakdown.total > 0 ? item.tokens / contextBreakdown.total : 0) * 100),
+                })}
+              </Text>
+            ))}
+            {contextBreakdown && contextBreakdown.segments && contextBreakdown.segments.length > 0 ? (
+              <Text style={styles.bodyHint}>{t('chat.context.note')}</Text>
+            ) : null}
+          </View>
         </View>
       </TouchableOpacity>
     </Modal>

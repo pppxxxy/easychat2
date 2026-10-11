@@ -434,7 +434,8 @@ test('Anthropic 协议：URL / 鉴权头 / system 顶层 / SSE 文本与思考�
     assert.equal(record.headers.Authorization, undefined);
     assert.equal(record.headers['anthropic-version'], '2023-06-01');
     const body = JSON.parse(record.body);
-    assert.equal(body.system, '你是助手');
+    // P1-1 起默认打断点：system 是块数组（文本不变，多一个 cache_control）。
+    assert.deepEqual(body.system, [{ type: 'text', text: '你是助手', cache_control: { type: 'ephemeral' } }]);
     assert.equal(body.messages[0].role, 'user');
     assert.equal(body.stream, true);
     assert.equal(result.text, '你好');

@@ -278,6 +278,36 @@ export function appendWorkspaceChatMessages(characterId, chatId, messages) {
   });
 }
 
+// N2：整表替换某会话的消息（压缩后落库用）——与 append 不同，这是覆盖式写入。
+// 归一化 + 尾部上限与 append 同口径；失败返回 null（压缩是增强，不破坏会话）。
+export function replaceWorkspaceChatMessages(characterId, chatId, messages) {
+  const key = String(characterId || '').trim();
+  const id = String(chatId || '').trim();
+  if (!key || !id) return Promise.resolve(null);
+  return workspaceChatsMutation.enqueue(async () => {
+    const store = await readChatsStore();
+    const bucket = store[key] || emptyWorkspaceChats();
+    const target = bucket.chats.find(item => item.id === id);
+    if (!target) return null;
+    const nextMessages = (Array.isArray(messages) ? messages : [messages])
+      .filter(item => item && item.id)
+      .map(normalizeWorkspaceChatMessage)
+      .slice(-WORKSPACE_CHAT_MESSAGE_LIMIT);
+    const nextChat = normalizeWorkspaceChat({
+      ...target,
+      messages: nextMessages,
+      title: target.title || deriveWorkspaceChatTitle(nextMessages),
+      updatedAt: Date.now(),
+    });
+    store[key] = {
+      activeId: bucket.activeId || id,
+      chats: upsertWorkspaceChat(bucket.chats.filter(item => item.id !== id), nextChat),
+    };
+    await writeChatsStore(store);
+    return nextChat;
+  });
+}
+
 // I5：归档/恢复某条会话。归档的会话不进主列表默认视图（可筛出），也不参与
 // D3 压缩扫描等后台任务——它是「收进抽屉」，不是删除。
 export function setWorkspaceChatArchived(characterId, chatId, archived) {

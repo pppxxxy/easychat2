@@ -58,3 +58,32 @@ export function serializeToolResult(result, limit = TOOL_RESULT_LIMIT, toolName 
   }
   return `${content.slice(0, headEnd)}\n…（中间省略 ${omitted} 字符，原始 ${content.length} 字符）…\n${content.slice(tailStart)}${guidance ? `\n（${guidance}）` : ''}`;
 }
+
+// O1：落盘后的替换文本——头尾各留 previewChars + 中段省略标注 + 指针（信息只移不丢）。
+export const TOOL_RESULT_PREVIEW_CHARS = 2000;
+
+export function formatPersistedToolResult(content, path, { previewChars = TOOL_RESULT_PREVIEW_CHARS } = {}) {
+  const text = String(content === undefined || content === null ? '' : content);
+  const head = text.slice(0, previewChars);
+  const tail = text.slice(Math.max(head.length, text.length - previewChars));
+  const omitted = Math.max(0, text.length - head.length - tail.length);
+  const pointer = `完整内容已存至 ${path}（工作区文件），可用 read_workspace_file 按 offset 精读任一段。`;
+  if (omitted <= 0) return `${text}\n（${pointer}）`;
+  return `${head}\n…（中间省略 ${omitted} 字符，原始 ${text.length} 字符）…\n${tail}\n（${pointer}）`;
+}
+
+// O1：带落盘的序列化。超限时先尝试 persist（宿主注入：写工作区 + 返回 { path }）；
+// 成功则用「头尾预览 + 指针」替换，失败则退回 D2 头尾保留。纯逻辑不碰存储。
+export async function serializeToolResultAsync(result, { limit = TOOL_RESULT_LIMIT, toolName = '', toolCallId = '', persist = null } = {}) {
+  const content = typeof result === 'string' ? result : String((result && result.content) || '');
+  if (content.length <= limit) return content;
+  if (typeof persist === 'function') {
+    try {
+      const stored = await persist(content, { toolName, toolCallId });
+      if (stored && stored.path) return formatPersistedToolResult(content, stored.path);
+    } catch (error) {
+      // 落盘失败退回头尾保留——「信息不丢」尽力而为。
+    }
+  }
+  return serializeToolResult(content, limit, toolName);
+}

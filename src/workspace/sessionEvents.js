@@ -15,13 +15,16 @@
 // 这里的「追加」= 读回 + 拼接 + 写回。事件行很小（每条 ~200B），千条级 = 200KB，
 // 每轮一次的读改写成本可接受；等文件真的变大再考虑分片（审查待办留痕）。
 
+import { SESSION_EVENTS_MAX_KB_DEFAULT, retentionOf, sessionEventsMaxBytes } from './retention.js';
+
 export const SESSIONS_DIR = '.easychat/sessions';
 export const SESSION_EVENT_TYPES = Object.freeze([
   'user', 'assistant', 'tool_call', 'tool_result',
   'plan_update', 'mode_change', 'compaction', 'branch_fork',
 ]);
-// 单文件保护上限：超过后不再追加（防止无限增长把工作区写爆）——如实返回 false。
-export const SESSION_EVENTS_MAX_BYTES = 512 * 1024;
+// 单文件保护上限：默认 512KB，**可配置**（`store.retention.sessionEventsMaxKb`，见
+// retention.js）；超过后不再追加（防止无限增长把工作区写爆）——如实返回 null。
+export const SESSION_EVENTS_MAX_BYTES = SESSION_EVENTS_MAX_KB_DEFAULT * 1024;
 
 export function sessionEventsPath(sessionId) {
   const id = String(sessionId || '').trim().replace(/[^A-Za-z0-9_-]/g, '_');
@@ -99,7 +102,8 @@ export async function appendSessionEvent(store, characterId, sessionId, type, pa
     } catch (error) {
       existing = ''; // 首次写入：文件不存在是常态
     }
-    if (existing.length > SESSION_EVENTS_MAX_BYTES) return null; // 到上限停止追加（如实失败）
+    // 上限取「生效口径」（store.retention，缺失 = 默认 512KB）：配置改了立即生效。
+    if (existing.length > sessionEventsMaxBytes(retentionOf(store))) return null; // 到上限停止追加（如实失败）
     const seq = existing ? existing.split('\n').filter(Boolean).length : 0;
     const event = createSessionEvent(type, payload, { seq });
     const line = serializeSessionEvent(event);

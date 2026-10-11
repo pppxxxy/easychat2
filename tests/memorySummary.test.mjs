@@ -81,6 +81,22 @@ test('总结提示词只记剧情与关键对话，排除习惯/口头禅且不�
   assert.ok(system.includes('之前发生过的事'));
 });
 
+test('总结提示词：关注点追加为额外要求；无关注点时逐字节不变', () => {
+  const messages = [{ role: 'user', text: '你好' }, { role: 'assistant', text: '你好呀' }];
+  const plain = memorySummary.buildSummaryPrompt(messages, '用户', '- 旧记忆');
+  const focused = memorySummary.buildSummaryPrompt(messages, '用户', '- 旧记忆', '重点保留 API 变更与未决问题');
+  assert.equal(plain[0].content.includes('额外要求'), false, '无关注点不出现额外要求');
+  assert.equal(focused[0].content.startsWith(plain[0].content), true, '有关注点 = 基础提示词 + 追加段');
+  assert.ok(focused[0].content.includes('重点保留 API 变更与未决问题'));
+  assert.ok(focused[0].content.includes('旧记忆'), '已知记忆仍在');
+  assert.deepEqual(focused[1], plain[1], '转写内容不受关注点影响');
+  assert.deepEqual(
+    memorySummary.buildSummaryPrompt(messages, '用户', '- 旧记忆', '   ')[0],
+    plain[0],
+    '纯空白关注点等同没有'
+  );
+});
+
 test('总结响应解析：记忆行、关键词行与占位过滤', () => {
   const response = memorySummary.parseSummaryResponse([
     '- 第一条记忆',

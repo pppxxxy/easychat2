@@ -67,6 +67,40 @@ test('PLAN_TOOL_DEFINITION：readOnly 纯回显 + schema 带状态枚举', () =>
   assert.match(String(PLAN_TOOL_DEFINITION.execute({}, {})), /计划为空/);
 });
 
+test('O0.1：同时多个 in_progress 被拒绝（回显 + 纠正提示，isError）', () => {
+  const rejected = PLAN_TOOL_DEFINITION.execute({}, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: 'B', status: 'in_progress' },
+  ] });
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content, /同时只能有 1 个 in_progress/);
+  assert.match(rejected.content, /\[>\] 1\. A/, '仍回显清单便于纠正');
+
+  // 恰好 1 个（或 0 个）in_progress → 正常回显（字符串，无 isError）
+  const ok = PLAN_TOOL_DEFINITION.execute({}, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: 'B', status: 'pending' },
+  ] });
+  assert.equal(typeof ok, 'string');
+});
+
+test('O0.3：onPlan 钩子收到归一后的清单；校验失败不落盘', () => {
+  const seen = [];
+  const options = { onPlan: steps => seen.push(steps) };
+  PLAN_TOOL_DEFINITION.execute(options, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: '  ', status: 'pending' },
+  ] });
+  assert.deepEqual(seen[0], [{ step: 'A', status: 'in_progress' }], '空白步骤被归一剔除');
+
+  // 校验失败（>1 in_progress）→ 不落盘
+  PLAN_TOOL_DEFINITION.execute(options, { plan: [
+    { step: 'A', status: 'in_progress' },
+    { step: 'B', status: 'in_progress' },
+  ] });
+  assert.equal(seen.length, 1);
+});
+
 test('提示词引导：工具真注册了才提 update_plan（与执行类同款纪律）', () => {
   const base = ['list_workspace_files', 'read_workspace_file'];
   const withPlan = buildWorkspaceAgentSystemPrompt({ mode: 'write', tools: [...base, 'update_plan'] });
@@ -109,7 +143,11 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
   assert.ok(panel.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
   assert.ok(panel.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
-  assert.ok(panel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  // 进度条已抽成 PlanProgressBar（ChatPanel 卡在架构棘轮基线上，自成一体的部件先出去
+  // 才腾得出余量）：文案在组件里，宿主只负责接线与折叠状态。
+  const bar = fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8');
+  assert.ok(bar.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');
+  assert.ok(panel.includes('<PlanProgressBar'), 'ChatPanel 接线到进度条组件');
   assert.ok(panel.includes('setPlanCollapsed'), '可收起');
   const clearCount = (panel.match(/setAgentPlan\(\[\]\)/g) || []).length;
   assert.ok(clearCount >= 2, '新对话与切对话两处都清空');
@@ -134,7 +172,10 @@ test('I2 计划批准衔接：判据纯函数 + 接线契约（effect 触发防 
   assert.ok(screen.includes('pendingPlanRun'), '批准走 state→effect 触发');
   assert.ok(screen.includes("handleSelectMode('write')"), '先切模式（持久化到存储）');
   assert.ok(screen.includes('handleSend(pendingPlanRun)'), '新渲染的 handleSend 发起（write 工具集）');
-  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）
-  assert.ok(screen.includes('if (overrideText === undefined)'), 'overrideText 路径有草稿保护');
-  assert.ok(screen.includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
+  // overrideText 路径不碰输入框/草稿/附件（用户可能正在输入别的话）。
+  // 判据是「**是字符串**」而不是「非 undefined」：`onPress={handleSend}` 会把点击事件对象
+  // 当第一个实参传进来，按「非 undefined」判断会让工作区发什么都变成 "[object Object]"
+  //（见 resolveSendText 的注释与回归测试）。
+  assert.ok(screen.includes("if (typeof overrideText !== 'string')"), 'overrideText 路径有草稿保护');
+  assert.ok(fs.readFileSync(path.resolve('src/workspace/screen/PlanProgressBar.js'), 'utf8').includes("t('workspace.chat.planApproval.action')"), '按钮文案进 i18n');
 });

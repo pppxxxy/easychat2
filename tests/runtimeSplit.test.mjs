@@ -59,7 +59,8 @@ test('useChatSend：后台完成时把回复写回它自己的会话', () => {
   assert.ok(SEND.includes('saveMessagesBySession,'), '从存储门面导入整体覆盖写盘');
   assert.ok(SEND.includes('async function persistBackgroundReply({'), '后台落库辅助函数');
   // 成功分支：当前会话走界面写入，否则走后台落库。
-  assert.ok(/if \(isCurrentSession\(\)\) \{\s*\n\s*setMessages\(current => replacePendingWithReply/.test(SEND), '当前会话写界面');
+  // （合并 P5 toolTrace 后 setMessages 回调用块体包裹，断言放宽到「当前会话分支内出现 replacePendingWithReply」。）
+  assert.ok(/if \(isCurrentSession\(\)\) \{[\s\S]{0,240}replacePendingWithReply\(current, pendingAssistantMessage\.id, replyParts\)/.test(SEND), '当前会话写界面');
   assert.ok(SEND.includes('await persistBackgroundReply({'), '非当前会话写回自己的会话');
 });
 

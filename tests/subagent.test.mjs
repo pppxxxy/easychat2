@@ -172,7 +172,7 @@ test('结论只取结论轮：中间轮的过渡语不并入（提示词压不�
 test('硬红线：只读**名字白名单**——run_subagent（同为 readOnly）被结构性挡下，不可能递归', async () => {
   const { runSubagent, SUBAGENT_TOOL_NAMES } = loadSubagent();
   assert.equal(SUBAGENT_TOOL_NAMES.includes('run_subagent'), false, '白名单永远不含递归入口');
-  assert.deepEqual([...SUBAGENT_TOOL_NAMES].sort(), ['list_workspace_files', 'read_workspace_file']);
+  assert.deepEqual([...SUBAGENT_TOOL_NAMES].sort(), ['list_workspace_files', 'read_workspace_file', 'search_workspace']);
 
   const calls = [];
   let round = 0;
@@ -260,8 +260,9 @@ test('接线契约：run_subagent 工具只读但不递归；能力清单含它�
   assert.ok(indexFile.includes('SUBAGENT_TOOL_DEFINITION'), '索引层聚合了子代理定义');
 
   const subagent = fs.readFileSync(path.resolve('src/agent/subagent.js'), 'utf8');
-  assert.ok(subagent.includes("SUBAGENT_TOOL_NAMES = Object.freeze(['list_workspace_files', 'read_workspace_file'])"),
-    '白名单是写死的只读两项');
+  assert.ok(subagent.includes("SUBAGENT_TOOL_NAMES = Object.freeze(['list_workspace_files', 'read_workspace_file', 'search_workspace'])"),
+    '只读白名单写死（含 search_workspace）');
+  assert.ok(subagent.includes('SUBAGENT_WRITE_TOOL_NAMES'), 'write 模式有独立写名单（仍不含 run_subagent）');
   assert.equal(/from\s+'[^']*registry[^']*'/.test(subagent), false,
     '子代理不得 import 全局注册表（结构上不可递归）');
 
@@ -300,6 +301,55 @@ test('E3 工具契约：task 支持数组、agent 可选、并发上限与防递
   assert.ok(source.includes('timeoutMs: 300000'), '超时 180s → 300s（并行批次按最慢一路算）');
   assert.ok(source.includes('SUBAGENT_TOOL_NAMES.includes(item.name)'), '名字白名单过滤保留（防递归未破坏）');
   // 档案 tools 只能收窄，不能扩大：执行前按 profile.tools 再过滤一次。
-  assert.ok(source.includes('readOnlyTools.filter(item => profile.tools.includes(item.name))'), '档案只收窄工具表');
+  assert.ok(source.includes('subagentTools.filter(item => profile.tools.includes(item.name))'), '档案只收窄工具表');
   assert.ok(source.includes("readWorkspaceAgents(options.store"), '档案每轮直读（改完下一轮生效）');
+});
+
+test('写子代理：write 模式放行写工具并逐写 confirm；拒绝不执行；read 模式看不到写工具', async () => {
+  const { runSubagent, SUBAGENT_WRITE_TOOL_NAMES } = loadSubagent();
+  assert.deepEqual(
+    [...SUBAGENT_WRITE_TOOL_NAMES].sort(),
+    ['create_workspace_dir', 'edit_workspace_file', 'write_workspace_file'],
+  );
+  assert.equal(SUBAGENT_WRITE_TOOL_NAMES.includes('run_subagent'), false, '写名单也不含递归入口');
+
+  const executed = [];
+  const writeTool = {
+    name: 'write_workspace_file',
+    description: 'write',
+    parameters: { type: 'object', properties: {} },
+    readOnly: false,
+    requiresConfirmation: true,
+    execute: async () => { executed.push('WRITE'); return { content: 'written' }; },
+  };
+  const streamWith = (id, finalText) => {
+    let round = 0;
+    return async () => {
+      round += 1;
+      return round === 1
+        ? { text: '', toolCalls: [{ id, name: 'write_workspace_file', arguments: '{}' }] }
+        : { text: finalText, toolCalls: [] };
+    };
+  };
+
+  const denied = await runSubagent({
+    task: '写文件', tools: [writeTool], store: {}, stream: streamWith('c1', '结论：未写。'),
+    mode: 'write', confirm: async () => false,
+  });
+  assert.equal(executed.length, 0, '拒绝后不执行');
+  assert.ok(denied.content.includes('结论'));
+
+  const approved = await runSubagent({
+    task: '写文件', tools: [writeTool], store: {}, stream: streamWith('c2', '结论：已写。'),
+    mode: 'write', confirm: async () => true,
+  });
+  assert.equal(executed.length, 1, '批准后执行一次');
+  assert.ok(approved.content.includes('结论'));
+
+  // read 模式（默认）：写工具不在白名单 → 模型调它时被挡下，不执行。
+  await runSubagent({
+    task: '写文件', tools: [writeTool], store: {}, stream: streamWith('c3', '结论：写工具不可用。'),
+    confirm: async () => true,
+  });
+  assert.equal(executed.length, 1, 'read 模式不执行写工具');
 });

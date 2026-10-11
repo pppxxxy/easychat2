@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
+import { TOOL_RESULT_LIMIT } from '../src/agent/messages.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -58,6 +59,8 @@ const apiStub = {
       finishReason: plan.finishReason || null,
       // E1：usage 透传测试用（不配置 = null，与真实端点不返回 usage 同形）。
       usage: plan.usage || null,
+      // P2-10：真实 streamChatCompletion 会带回「这次产出内容的模型」（降级后可能变）。
+      model: plan.model || '',
     };
   },
 };
@@ -144,6 +147,73 @@ test('工具轮：执行工具、回喂结果、下一轮累积返回', async ()
   ]);
 });
 
+test('O0.2：计划有未完成步骤且连续 3 轮未更新 update_plan → 轮末注入 nag', async () => {
+  fakeTools = [
+    { type: 'function', function: { name: 'update_plan', description: '', parameters: {} } },
+    { type: 'function', function: { name: 'read_file', description: '', parameters: {} } },
+  ];
+  // 轮 1：列计划（未完成）；轮 2-4：只读文件、不更新计划；轮 5：收尾。
+  streamPlan = [
+    { text: '', toolCalls: [{ id: 'p1', name: 'update_plan', arguments: '{"plan":[{"step":"A","status":"in_progress"}]}' }] },
+    { text: '', toolCalls: [{ id: 'r1', name: 'read_file', arguments: '{"path":"1"}' }] },
+    { text: '', toolCalls: [{ id: 'r2', name: 'read_file', arguments: '{"path":"2"}' }] },
+    { text: '', toolCalls: [{ id: 'r3', name: 'read_file', arguments: '{"path":"3"}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  // 第 5 轮请求里应带上一轮末注入的 nag（round 4 结束时计数达到 3）。
+  const last = streamCalls[4].messages;
+  assert.ok(
+    last.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))),
+    '达到阈值应注入 nag'
+  );
+  // 更早一轮（第 3 轮请求）不应有 nag。
+  const earlier = streamCalls[2].messages;
+  assert.equal(earlier.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))), false);
+});
+
+test('O0.2：计划全 done 时不注入 nag', async () => {
+  fakeTools = [
+    { type: 'function', function: { name: 'update_plan', description: '', parameters: {} } },
+    { type: 'function', function: { name: 'read_file', description: '', parameters: {} } },
+  ];
+  streamPlan = [
+    { text: '', toolCalls: [{ id: 'p1', name: 'update_plan', arguments: '{"plan":[{"step":"A","status":"done"}]}' }] },
+    { text: '', toolCalls: [{ id: 'r1', name: 'read_file', arguments: '{"path":"1"}' }] },
+    { text: '', toolCalls: [{ id: 'r2', name: 'read_file', arguments: '{"path":"2"}' }] },
+    { text: '', toolCalls: [{ id: 'r3', name: 'read_file', arguments: '{"path":"3"}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  const last = streamCalls[4].messages;
+  assert.equal(last.some(item => item.role === 'system' && /未完成步骤/.test(String(item.content))), false);
+});
+
+test('O1：超限工具结果经 persistToolResult 落盘，消息里只留指针', async () => {
+  const { runAgentTurn } = loadLoop();
+  streamPlan = [
+    { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const big = 'y'.repeat(TOOL_RESULT_LIMIT + 50);
+  runHandler = () => ({ content: big, isError: false });
+  const persisted = [];
+  await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    persistToolResult: async (content, meta) => {
+      persisted.push({ len: content.length, meta });
+      return { path: '.task_outputs/tool-results/c1.txt' };
+    },
+  });
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].len, big.length);
+  assert.equal(persisted[0].meta.toolCallId, 'c1');
+  const toolMsg = streamCalls[1].messages.find(item => item.role === 'tool');
+  assert.match(String(toolMsg.content), /\.task_outputs\/tool-results\/c1\.txt/);
+});
+
 test('assistant 空文本带 tool_calls 时 content 置 null', async () => {
   streamPlan = [
     { text: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
@@ -218,8 +288,8 @@ test('A1 预警不打扰提前收尾：模型按时给出结论就只调一次',
 test('E1 usage 透传：每轮 usage 经 onUsage 上抛（端点不返回时回调零次）', async () => {
   const toolCall = id => ({ id, name: 'read_file', arguments: '{}' });
   streamPlan = [
-    { text: 'r1', toolCalls: [toolCall('c1')], usage: { promptTokens: 100, completionTokens: 5, cachedTokens: 80 } },
-    { text: '完成', usage: { promptTokens: 200, completionTokens: 6, cachedTokens: 150 } },
+    { text: 'r1', toolCalls: [toolCall('c1')], model: 'model-primary', usage: { promptTokens: 100, completionTokens: 5, cachedTokens: 80 } },
+    { text: '完成', model: 'model-fallback', usage: { promptTokens: 200, completionTokens: 6, cachedTokens: 150 } },
   ];
   const { runAgentTurn } = loadLoop();
   const seen = [];
@@ -236,6 +306,9 @@ test('E1 usage 透传：每轮 usage 经 onUsage 上抛（端点不返回时回�
   );
   assert.equal(seen[1].round, 2);
   assert.equal(seen[1].promptTokens, 200);
+  // P2-10：模型名随每轮结果上抛——降级后记账才能按**真正产出的模型**记，而不是主模型。
+  assert.equal(seen[0].model, 'model-primary');
+  assert.equal(seen[1].model, 'model-fallback');
 
   // 端点不返回 usage（plan 不带 usage）→ 回调零次，主流程逐字不变
   streamCalls = []; // 计数从头开始（streamPlan 按 streamCalls.length 取下标）
@@ -416,4 +489,78 @@ test('I1 Steering 与轮次预算：新目标重置收束预警（允许再提�
     .map((item, i) => (item.role === 'system' && item.content === ROUND_BUDGET_WARNING ? i : -1))
     .filter(i => i >= 0);
   assert.ok(steerAt >= 0 && warnIndexes.some(i => i > steerAt), '顺序：先看到补充指令，再看到收束提醒');
+});
+
+test('P1：每轮请求前按预算清除旧工具结果（落盘 + 占位，配对不变）', async () => {
+  fakeTools = [{ type: 'function', function: { name: 'read_file', description: '', parameters: {} } }];
+  runHandler = () => ({ content: 'X'.repeat(500), isError: false });
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: 'r3', toolCalls: [{ id: 'c3', name: 'read_file', arguments: '{}' }] },
+    { text: 'r4', toolCalls: [{ id: 'c4', name: 'read_file', arguments: '{}' }] },
+    { text: 'r5', toolCalls: [{ id: 'c5', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const persisted = [];
+  const { runAgentTurn } = loadLoop();
+  const text = await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    contextBudgetBytes: 200,
+    persistToolResult: async (content, meta) => {
+      persisted.push({ length: String(content).length, meta });
+      return { path: `.task_outputs/${meta.toolCallId}` };
+    },
+  });
+  assert.equal(text, 'r1r2r3r4r5done');
+  assert.ok(persisted.length >= 1, '超预算时至少清了一条');
+  // 第 5 轮请求（index 4）时 c1 已被占位（最近 3 条 c2/c3/c4 受保护，c1 已消费且超门槛）
+  const round5 = streamCalls[4].messages;
+  const c1 = round5.find(item => item.role === 'tool' && item.tool_call_id === 'c1');
+  assert.match(String(c1.content), /已存至/, 'c1 内容被占位替换');
+  assert.match(String(c1.content), /c1/, '占位里带回落路径');
+  // 配对完整：tool 消息一条不少（只改 content，不拆散 tool_use↔tool_result）
+  assert.deepEqual(
+    round5.filter(item => item.role === 'tool').map(item => item.tool_call_id),
+    ['c1', 'c2', 'c3', 'c4'],
+  );
+});
+
+test('P1：无 persist 钩子时不清除（绝不写假指针）', async () => {
+  fakeTools = [{ type: 'function', function: { name: 'read_file', description: '', parameters: {} } }];
+  runHandler = () => ({ content: 'X'.repeat(500), isError: false });
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'r2', toolCalls: [{ id: 'c2', name: 'read_file', arguments: '{}' }] },
+    { text: 'r3', toolCalls: [{ id: 'c3', name: 'read_file', arguments: '{}' }] },
+    { text: 'r4', toolCalls: [{ id: 'c4', name: 'read_file', arguments: '{}' }] },
+    { text: 'r5', toolCalls: [{ id: 'c5', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read', contextBudgetBytes: 200 });
+  const round5 = streamCalls[4].messages;
+  const c1 = round5.find(item => item.role === 'tool' && item.tool_call_id === 'c1');
+  assert.equal(c1.content, 'X'.repeat(500), '无 persist 钩子 → 原文保留');
+});
+
+test('P5：onTranscript 回抛本轮追加的 agent 消息（含 tool）', async () => {
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  const { runAgentTurn } = loadLoop();
+  let transcript = null;
+  await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onTranscript: msgs => { transcript = msgs; },
+  });
+  assert.ok(Array.isArray(transcript), 'onTranscript 被调用');
+  assert.equal(transcript.length, 3);
+  assert.equal(transcript[0].role, 'assistant');
+  assert.ok(Array.isArray(transcript[0].tool_calls) && transcript[0].tool_calls[0].id === 'c1');
+  assert.equal(transcript[1].role, 'tool');
+  assert.equal(transcript[1].tool_call_id, 'c1');
+  assert.equal(transcript[2].role, 'assistant');
+  assert.equal(transcript[2].content, 'done');
 });

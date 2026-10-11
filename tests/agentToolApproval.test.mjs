@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   APPROVAL_ALWAYS,
   APPROVAL_DENIED,
+  APPROVAL_ONCE,
   APPROVAL_SESSION,
   describeToolApproval,
   requestToolApproval,
@@ -20,6 +21,8 @@ const t = (key, params) => {
   if (key === 'chat.tool.approval.allow') return '允许';
   if (key === 'chat.tool.approval.session') return '本次会话允许';
   if (key === 'chat.tool.approval.always') return '永远允许';
+  if (key === 'chat.tool.approval.once') return '允许这一次';
+  if (key === 'chat.tool.approval.askRuleNote') return '必须先问规则生效';
   return key;
 };
 
@@ -153,4 +156,35 @@ test('拒绝常量可用于上层区分「拒绝」与「失败」', () => {
   assert.equal(APPROVAL_DENIED, 'approval-denied');
   assert.equal(APPROVAL_SESSION, 'session');
   assert.equal(APPROVAL_ALWAYS, 'always');
+});
+
+test('ask 档：只给「拒绝 / 允许这一次」两个按钮，正文说明原因', async () => {
+  const alert = fakeAlert('choice', 1);
+  const decision = await requestToolApproval({
+    name: 'run_shell',
+    args: { command: 'git push origin main' },
+    t,
+    showAlert: alert,
+    askOnly: true,
+  });
+  assert.equal(decision, APPROVAL_ONCE);
+  const buttons = alert.calls[0].buttons;
+  assert.equal(buttons.length, 2, 'ask 档不给「本次会话 / 永远允许」——一次点击不能永久解除「必须先问」');
+  assert.ok(buttons.some(item => item.text === '允许这一次'));
+  assert.ok(!buttons.some(item => item.text === '永远允许'));
+  assert.match(alert.calls[0].body, /必须先问规则生效/, '正文必须说明为什么少了两个按钮');
+  assert.match(alert.calls[0].body, /git push origin main/, '命令原文照旧完整展示');
+
+  const denyAlert = fakeAlert('choice', 0);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'git push' }, t, showAlert: denyAlert, askOnly: true }),
+    APPROVAL_DENIED
+  );
+  // 默认（非 ask）仍是三选项，行为不变
+  const normalAlert = fakeAlert('choice', 2);
+  assert.equal(
+    await requestToolApproval({ name: 'run_shell', args: { command: 'ls' }, t, showAlert: normalAlert }),
+    APPROVAL_ALWAYS
+  );
+  assert.equal(normalAlert.calls[0].buttons.length, 3);
 });

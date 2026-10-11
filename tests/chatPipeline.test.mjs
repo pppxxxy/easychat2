@@ -539,3 +539,34 @@ test('filterRequestMedia：video_url 默认裁剪、allowVideo 时保留、混�
   assert.deepEqual(mixed[0].content.map(part => part.type), ['image_url'], '只裁视频、保留图片');
 });
 
+test('P5：buildRequestMessages 展开 toolTrace，tool 消息透传到请求', () => {
+  const messages = buildRequestMessages({
+    character,
+    historyMessages: [
+      { id: 'u1', role: 'user', text: '读一下 a.js' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        text: '读完了',
+        toolTrace: [
+          { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_workspace_file', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'c1', content: 'file body' },
+        ],
+      },
+    ],
+    userText: '再改一下',
+    userProfile: {},
+    globalPresets: [],
+  });
+  const tool = messages.find(item => item.role === 'tool');
+  assert.ok(tool, 'tool 结果透传');
+  assert.equal(tool.tool_call_id, 'c1');
+  assert.equal(tool.content, 'file body');
+  const callMsg = messages.find(item => item.role === 'assistant' && Array.isArray(item.tool_calls));
+  assert.ok(callMsg && callMsg.tool_calls[0].id === 'c1');
+  assert.ok(messages.indexOf(callMsg) < messages.indexOf(tool), 'tool_call 在 tool 结果之前');
+  // 助手终稿文本仍在（展示内容不受影响）
+  assert.ok(messages.some(item => item.role === 'assistant' && item.content === '读完了'));
+});
+
+

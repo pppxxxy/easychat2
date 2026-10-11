@@ -308,6 +308,31 @@ test('每模型 contextWindow：声明窗口收敛为非负整数，未声明为
   assert.equal(capabilitiesForModel(fractional, 'model-a').contextWindow, 4096, '小数向下取整');
 });
 
+test('降级模型（P0-7）：落盘即归一，未配置是空数组', () => {
+  const untouched = createApiConfig({ id: 'cfg-fb0', models: ['m1'], activeModel: 'm1' });
+  assert.deepEqual(untouched.fallbackModels, [], '未配置 = 空数组，请求路径不必再防字符串');
+
+  // 设置页里用户边打边存的是**原始字符串**：归一必须能收下它（逗号/中文逗号/分号/空格/换行）。
+  const typed = createApiConfig({
+    id: 'cfg-fb1',
+    models: ['m1'],
+    activeModel: 'm1',
+    fallbackModels: ' m2 , m3；m2\nm4 ',
+  });
+  assert.deepEqual(typed.fallbackModels, ['m2', 'm3', 'm4'], '去空去重保序，最多 3 个');
+
+  const arrayForm = createApiConfig({
+    id: 'cfg-fb2',
+    models: ['m1'],
+    activeModel: 'm1',
+    fallbackModels: ['m2', '', 'm2', null],
+  });
+  assert.deepEqual(arrayForm.fallbackModels, ['m2'], '数组形态同样归一（旧数据/程序化写入）');
+
+  // 归一后的配置再过一次归一必须稳定（读盘 → 保存 的幂等性）。
+  assert.deepEqual(createApiConfig(typed).fallbackModels, typed.fallbackModels);
+});
+
 test('空回复占位文本保持稳定判等', () => {
   assert.equal(String(` ${EMPTY_REPLY_TEXT} `).trim(), EMPTY_REPLY_TEXT);
 });

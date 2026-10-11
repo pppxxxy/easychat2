@@ -240,6 +240,9 @@ export async function runTool(call, ctx = {}) {
         characterId: ctx.characterId,
         sessionId: ctx.sessionId,
         workspaceMode: ctx.mode,
+        // 透传宿主审批钩子：需要「工具内部再审批」（如可写子代理的逐写确认）的工具有出口。
+        // 缺失时工具必须按「不可询问 = 拒绝」处理（与上面 requiresConfirmation 同款纪律）。
+        confirm: typeof ctx.confirm === 'function' ? ctx.confirm : null,
       })),
       timeoutPromise,
       abortPromise,

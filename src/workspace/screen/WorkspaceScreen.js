@@ -13,19 +13,29 @@
 // 不再出现跨面板的 Modal 叠 Modal。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, PanResponder, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
-import { getWorkspaceSettings } from '../../storage/workspace.js';
+import { getWorkspaceSettings, patchWorkspaceSettings } from '../../storage/workspace.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { createWorkspaceStore } from '../native.js';
+import {
+  DEFAULT_SPLIT_RATIO,
+  ratioFromDrag,
+  resolveWorkspaceLayout,
+  splitColumns,
+} from '../splitLayout.js';
 import ChatPanel from './ChatPanel.js';
 import FilesPanel from './FilesPanel.js';
 import GithubPanel from './GithubPanel.js';
 import TerminalPanel from './TerminalPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
+
+// 左栏宽度。**样式与两栏宽度解算共用同一个常量**——两处各写一个数，迟早会对不上
+//（改了样式忘了改解算，两栏之和就不再等于可用宽度）。
+const RAIL_WIDTH = 76;
 
 // 左栏五个领域键。顺序 = 使用频次：对话是主体，文件其次，GitHub / 终端再次，设置最后。
 const DOMAIN_KEYS = [
@@ -71,6 +81,9 @@ export default function WorkspaceScreen({ visible, onClose }) {
       try {
         const settings = await getWorkspaceSettings();
         if (!alive) return;
+        // P1-3：读回分隔条比例（null = 没存过，保持默认 0.5）。设置已经过归一化白名单，
+        // 非法值到这里已经是 null——不会把用户没选过的布局画出来。
+        if (settings.splitLayout) setSplitRatio(settings.splitLayout.ratio);
         try {
           storeRef.current = createWorkspaceStore(settings);
         } catch (error) {
@@ -94,8 +107,71 @@ export default function WorkspaceScreen({ visible, onClose }) {
     setPanel('chat');
   }, []);
 
+  // Android 返回键按**层级**退：子面板（文件/GitHub/终端/设置）先退回对话，在对话里才关掉
+  // 整个工作区。此前一律 onClose——在文件面板里按返回会直接把工作区关掉，层级被跳过一级。
+  const handleRequestClose = useCallback(() => {
+    if (panel === 'chat') onClose();
+    else backToChat();
+  }, [panel, onClose, backToChat]);
+
+  // P1：宽屏两栏。**所有数值判断都在 splitLayout.js 里**（拖拽/旋转/折叠屏展开会频繁重算，
+  // 判定逻辑必须能被 Node 直测）；这里只把结果画出来。
+  const { width: windowWidth } = useWindowDimensions();
+  const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO);
+  const layout = resolveWorkspaceLayout({ width: windowWidth, panel });
+  const contentWidth = Math.max(0, windowWidth - RAIL_WIDTH);
+  // 解算不出两栏（宽度不够）时退回单栏——不硬分两个都不可用的窄栏。
+  const columns = layout.twoPane ? splitColumns({ width: contentWidth, ratio: splitRatio }) : null;
+  const twoPane = columns !== null;
+
+  // 拖拽分隔条。用 ref 存「当前比例」与「当前可用宽度」，让 PanResponder 只建一次
+  // （把 splitRatio 放进 deps 会让它在每一帧拖动时重建）。
+  const ratioRef = useRef(splitRatio);
+  ratioRef.current = splitRatio;
+  const contentWidthRef = useRef(contentWidth);
+  contentWidthRef.current = contentWidth;
+  const dragStartRef = useRef(DEFAULT_SPLIT_RATIO);
+  const splitterResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => { dragStartRef.current = ratioRef.current; },
+    onPanResponderMove: (event, gesture) => {
+      setSplitRatio(ratioFromDrag({
+        startRatio: dragStartRef.current,
+        dx: gesture.dx,
+        width: contentWidthRef.current,
+      }));
+    },
+    // 只在**松手时**落盘：拖动过程中每一帧都写一次存储是没必要的 IO，
+    // 而且松手前崩溃留下的半截比例也没有意义。
+    onPanResponderRelease: () => {
+      patchWorkspaceSettings({ splitLayout: { ratio: ratioRef.current } }).catch(() => {});
+    },
+  }), []);
+
+  const renderChatPanel = () => (
+    <ChatPanel visible={visible} draft={draft} onOpenPanel={openFiles} />
+  );
+  // 非对话领域。**不接收 onClose**：导航是屏幕的职责（左栏切领域 + 返回键按层级退）。
+  const renderDomainPanel = id => (
+    <>
+      {id === 'files' ? (
+        <FilesPanel visible={visible} embedded initialSection={filesSection} />
+      ) : null}
+      {id === 'github' ? (
+        <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
+      ) : null}
+      {id === 'terminal' ? (
+        <TerminalPanel characterId={characterId} />
+      ) : null}
+      {id === 'settings' ? (
+        <WorkspaceSettingsPanel characterId={characterId} />
+      ) : null}
+    </>
+  );
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={handleRequestClose}>
       <View style={styles.container}>
         <View style={styles.topBar}>
           <Text style={styles.title}>{t('workspace.home.title')}</Text>
@@ -137,31 +213,28 @@ export default function WorkspaceScreen({ visible, onClose }) {
           </View>
 
           <View style={styles.content}>
-            {panel === 'chat' ? (
-              <ChatPanel
-                visible={visible}
-                onClose={onClose}
-                draft={draft}
-                onOpenPanel={openFiles}
-              />
-            ) : null}
-            {panel === 'files' ? (
-              <FilesPanel
-                visible={visible}
-                embedded
-                initialSection={filesSection}
-                onClose={backToChat}
-              />
-            ) : null}
-            {panel === 'github' ? (
-              <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
-            ) : null}
-            {panel === 'terminal' ? (
-              <TerminalPanel characterId={characterId} />
-            ) : null}
-            {panel === 'settings' ? (
-              <WorkspaceSettingsPanel characterId={characterId} onClose={backToChat} />
-            ) : null}
+            {/* P1：宽屏两栏。窄屏**逐字不变**（下面的 else 分支就是原来的条件渲染）；
+                宽屏时树形保持稳定——对话永远挂在同一个位置，切侧栏不会把 ChatPanel 卸载重建
+                （否则输入框里打了一半的话会丢）。 */}
+            {layout.wide ? (
+              <View style={styles.paneRow}>
+                <View style={twoPane ? { width: columns.left } : (panel === 'chat' ? styles.paneFill : styles.paneHidden)}>
+                  {renderChatPanel()}
+                </View>
+                {twoPane ? (
+                  <>
+                    <View style={styles.splitter} {...splitterResponder.panHandlers}>
+                      <View style={styles.splitterBar} />
+                    </View>
+                    <View style={{ width: columns.right }}>
+                      {renderDomainPanel(panel)}
+                    </View>
+                  </>
+                ) : (panel === 'chat' ? null : (
+                  <View style={styles.paneFill}>{renderDomainPanel(panel)}</View>
+                ))}
+              </View>
+            ) : (panel === 'chat' ? renderChatPanel() : renderDomainPanel(panel))}
           </View>
         </View>
       </View>
@@ -193,7 +266,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   mainRow: { flex: 1, flexDirection: 'row' },
   rail: {
-    width: 76,
+    width: RAIL_WIDTH,
     paddingTop: 10,
     paddingHorizontal: 6,
     borderRightWidth: tokens.border.thin,
@@ -218,4 +291,10 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   railLabelActive: { color: theme.colors.primary, fontWeight: '700' },
   railSpacer: { flex: 1 },
   content: { flex: 1 },
+  // P1：宽屏两栏。`paneHidden` 用于「宽屏 + 设置领域」——对话保持挂载（不丢草稿）但不参与布局。
+  paneRow: { flex: 1, flexDirection: 'row' },
+  paneFill: { flex: 1 },
+  paneHidden: { display: 'none' },
+  splitter: { width: 14, alignItems: 'center', justifyContent: 'center' },
+  splitterBar: { width: 3, flex: 1, borderRadius: 2, backgroundColor: theme.colors.divider, marginVertical: 8 },
 });

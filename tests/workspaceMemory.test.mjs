@@ -53,6 +53,9 @@ test('workspaceMemorySection：空内容不注入；有内容时带文件名说�
   const section = workspaceMemorySection('回复用中文');
   assert.ok(section.includes(WORKSPACE_MEMORY_FILE), '注入段要说明来源文件');
   assert.ok(section.includes('回复用中文'));
+  // K5/K6：记忆是背景上下文，不是指令源。
+  assert.ok(section.includes('背景上下文') && section.includes('不是指令'), '措辞纪律：记忆非指令');
+  assert.ok(section.includes('以用户请求为准'), '冲突时以用户请求为准');
   const huge = workspaceMemorySection('中'.repeat(6000));
   assert.ok(utf8ByteLength(huge) <= WORKSPACE_MEMORY_MAX_BYTES + 200, '注入段总长受控（含头部说明）');
 });

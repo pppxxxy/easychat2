@@ -10,6 +10,8 @@ import {
   buildResponsesToolChoice,
   buildResponsesTools,
 } from './tools.js';
+// P1-1：Anthropic 显式缓存断点（OpenAI 系是自动缓存，不需要）。
+import { applyAnthropicCacheControl, normalizePromptCacheTtl } from './cacheControl.js';
 
 function normalizeSampling(samplingParams) {
   const source = samplingParams && typeof samplingParams === 'object' ? samplingParams : {};
@@ -55,12 +57,20 @@ export function buildRequestBody({
 
   if (protocol === 'anthropic') {
     const { system, messages: turns } = toAnthropicRequest(messages);
+    // P1-1：显式缓存断点（system 尾 / tools 尾 / 历史稳定前缀）。关闭时逐字原样返回，
+    // 请求体与加这个特性之前完全一致。
+    const cached = applyAnthropicCacheControl({
+      system,
+      messages: turns,
+      tools: toolList.length ? buildAnthropicTools(toolList) : null,
+      ttl: normalizePromptCacheTtl(config && config.promptCacheTtl),
+    });
     const body = {
       model,
       max_tokens: sampling.maxTokens || 4096,
-      messages: turns,
+      messages: cached.messages,
     };
-    if (system) body.system = system;
+    if (cached.system) body.system = cached.system;
     if (thinkingEnabled) {
       const budget = anthropicThinkingBudget(level);
       body.thinking = { type: 'enabled', budget_tokens: budget };
@@ -72,7 +82,7 @@ export function buildRequestBody({
     if (sampling.topP !== null) body.top_p = sampling.topP;
     if (sampling.topK !== null) body.top_k = sampling.topK;
     if (toolList.length) {
-      body.tools = buildAnthropicTools(toolList);
+      body.tools = cached.tools || buildAnthropicTools(toolList);
       const choice = buildAnthropicToolChoice(toolChoice);
       if (choice) body.tool_choice = choice;
     }

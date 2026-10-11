@@ -96,6 +96,45 @@ export function isListableWorkspaceFile(path) {
   return isAllowedWorkspaceOutputFile(path);
 }
 
+// ---- 受保护的写入路径（2026-10-10）----
+//
+// 审计与快照类文件：**agent 不得改写**（只能由内部模块自己写）。
+// 覆盖它们等于抹掉审计线索与后悔药：
+//   · .easychat/sessions/     —— E4 会话事件流（审计线索，只写不回读）
+//   · .easychat/file-history/ —— J1 写前快照（「恢复错了再恢复一次」的依据）
+//   · .easychat/rollback/     —— H3 推送前基线（回滚远端改动的唯一依据）
+//
+// 为什么在**路径层**而不是权限规则层：写工具（write_workspace_file /
+// edit_workspace_file）不需要逐条确认，因此根本不走权限规则求值——放权限层等于没拦。
+// 为什么在**工具边界**而不是 store 层：fileHistory / sessionEvents / rollbackBaseline
+// 这些内部写入者直接调 store，必须继续能写。守卫只加在写工具的 execute 入口。
+//
+// 边界（如实说明，不假装完整）：run_shell 仍能改这些文件——那是需要用户逐条确认的
+// 通道，用户看得见命令原文。与 Claude Code「Bash 改的文件不进检查点」属同类平台边界。
+const PROTECTED_WRITE_PREFIXES = Object.freeze([
+  '.easychat/sessions/',
+  '.easychat/file-history/',
+  '.easychat/rollback/',
+]);
+
+// 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀。
+export function isProtectedWorkspacePath(path) {
+  const clean = String(path == null ? '' : path)
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(segment => segment && segment !== '.')
+    .join('/');
+  if (!clean) return false;
+  return PROTECTED_WRITE_PREFIXES.some(prefix => clean === prefix.slice(0, -1) || clean.startsWith(prefix));
+}
+
+export function assertWritableWorkspacePath(path) {
+  if (isProtectedWorkspacePath(path)) {
+    throw new Error(tActive('error.workspace.pathProtected'));
+  }
+  return path;
+}
+
 export function sandboxDirectory(root, characterId) {
   const base = String(root || '');
   const separator = base.endsWith('/') ? '' : '/';

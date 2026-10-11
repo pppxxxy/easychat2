@@ -11,10 +11,17 @@ export const SEARCH_DEFAULTS = Object.freeze({
   maxMatchesPerFile: 20,
   maxMatchesPerFileCap: 100,
   // 自有输出上限（8KB）：16KB 序列化头尾保留之前的更小护栏，避免中段省略把命中结果吃掉。
+  // 注意：工具执行路径会把该上限调高（见 SEARCH_TOOL_OUTPUT_CHARS），让超大结果走 O1 落盘
+  // 而非就地截断——纯函数默认值仍用于小结果与单测。
   maxOutputChars: 8 * 1024,
   // 总时间预算：防灾难性正则（ReDoS）拖死整轮 turn；超时返回已完成部分并标注。
   timeBudgetMs: 2000,
 });
+
+// O2/M1 追加：工具执行路径的输出硬上限。设得远高于序列化上限（16KB），使「搜索命中很多、
+// 结果很大」时由循环的 O1 落盘管道接管（整份存 .task_outputs/ + 消息里留预览+指针），
+// 而不是在工具内就地截断丢失中段。纯函数默认 8KB 仍用于常规小结果。
+export const SEARCH_TOOL_OUTPUT_CHARS = 1024 * 1024;
 
 function clampInt(value, fallback, min, max) {
   const n = Math.trunc(Number(value));
@@ -177,6 +184,8 @@ export const SEARCH_TOOL_DEFINITION = {
       regex,
       contextLines: args.contextLines,
       maxMatchesPerFile: args.maxMatchesPerFile,
+      // O2/M1：工具路径用高硬上限——超大结果交给循环的 O1 落盘管道（不就地截断丢中段）。
+      maxOutputChars: SEARCH_TOOL_OUTPUT_CHARS,
       startTime,
     });
     if (outcome.error === 'bad-regex') {
