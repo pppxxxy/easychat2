@@ -253,7 +253,8 @@ test('runWebFetch：重定向到内网时丢弃响应并报错', async () => {
   globalThis.XMLHttpRequest = RedirectToPrivateXHR;
   try {
     await assert.rejects(
-      () => runWebFetch({ url: 'https://attacker.example/r' }),
+      // 域名授权：本用例考的是重定向复核，给一个「允许一次」的注入桩让它走到请求那一步。
+      () => runWebFetch({ url: 'https://attacker.example/r', requestDomainApproval: () => 'once' }),
       error => error.fetchReason === 'redirect-private'
         && !String(error.message).includes('SECRET-PANEL')
     );
@@ -277,7 +278,7 @@ test('runWebFetch：正常最终 URL 不受复核影响（防过度拦截）', a
   }
   globalThis.XMLHttpRequest = NormalXHR;
   try {
-    const result = await runWebFetch({ url: 'https://example.com/r' });
+    const result = await runWebFetch({ url: 'https://example.com/r', allowedDomains: 'example.com' });
     assert.equal(result.host, 'example.com');
     assert.equal(result.title, '正常页面');
     assert.match(result.text, /hello/);
@@ -300,7 +301,7 @@ test('runWebFetch：responseURL 缺失时不误拦（RN 会 delete 该字段）'
   }
   globalThis.XMLHttpRequest = NoResponseUrlXHR;
   try {
-    const result = await runWebFetch({ url: 'https://example.com/r' });
+    const result = await runWebFetch({ url: 'https://example.com/r', allowedDomains: 'example.com' });
     assert.equal(result.title, '无最终URL');
   } finally {
     globalThis.XMLHttpRequest = originalXHR;

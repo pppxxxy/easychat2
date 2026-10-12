@@ -3,6 +3,11 @@ export const error = {
   'error.storage.chatLogReadFailed': '聊天记录读取失败，请稍后重试',
   'error.storage.summaryReadFailed': '记忆摘要读取失败，请稍后重试',
   'error.storage.sessionListReadFailed': '会话列表读取失败，请稍后重试',
+  // 孤儿扫描的第二条输入：角色库读不出时排除集就不可信（老版本按角色 id 存的消息键会被
+  // 误报成孤儿），必须和「会话列表读不出」一样明确失败。见 sessionList/orphans.js:53-86。
+  'error.storage.orphanCharacterLibraryReadFailed': '角色库读取失败，暂时无法判定丢失的对话，请稍后重试',
+  // sessionPlan.js 读侧三态缺失的留痕（只记诊断，不改返回类型、不加写守卫）。
+  'error.storage.sessionPlanReadFailed': '会话计划读取失败，已按「没有计划」返回（读不出 ≠ 确实没有计划）',
   'error.storage.sessionNotFound': '会话不存在',
   'error.storage.summaryBoundaryInvalid': '总结边界无效',
   'error.storage.summaryReset': '会话摘要已重置',
@@ -37,12 +42,24 @@ export const error = {
   'error.storage.mcpServersReadFailed': 'MCP 服务器列表读取失败，已中止保存以免已有服务器被清空，请稍后重试',
   'error.storage.chatOptionsReadFailed': '聊天与外观设置读取失败，已中止保存以免其余选项被重置，请稍后重试',
   'error.storage.permissionsReadFailed': '授权规则读取失败，已中止保存以免已记住的授权被覆盖，请稍后重试',
+  'error.storage.webFetchWhitelistReadFailed': '本地抓取白名单读取失败，已中止保存以免已记住的域名被覆盖，请稍后重试',
   'error.storage.personasReadFailed': '人设读取失败，已中止保存以免其余人设被覆盖，请稍后重试',
   'error.storage.globalPresetsReadFailed': '全局预设开关读取失败，已中止保存以免开关被整体重置，请稍后重试',
   'error.storage.proactiveSettingsReadFailed': '定时主动消息设置读取失败，已中止保存以免时段配置被清空，请稍后重试',
   'error.storage.sessionStatsReadFailed': '会话统计读取失败，已中止保存以免其他会话的统计被清空，请稍后重试',
   'error.storage.characterIndexReadFailed': '角色索引读取失败，已中止保存以免角色库被覆盖，请稍后重试',
   'error.storage.legacyMessagesReadFailed': '旧版聊天记录读取失败，已跳过迁移以免对话丢失，请稍后重试',
+  // 「读失败/形状坏 → 拒绝写回」（变体①）的补充文案。前四条对应 thinking / sampling /
+  // memorySummary / imageGen 四个整键覆盖的设置域：读不出原值时不再回落默认值，
+  // 而是中止保存，避免用户「随手改一个字段」就把整键覆盖成默认值。
+  'error.storage.thinkingSettingsReadFailed': '思考设置读取失败，已中止保存以免设置被重置，请稍后重试',
+  'error.storage.samplingSettingsReadFailed': '采样参数读取失败，已中止保存以免参数被重置，请稍后重试',
+  'error.storage.memorySummarySettingsReadFailed': '记忆总结设置读取失败，已中止保存以免设置被重置，请稍后重试',
+  'error.storage.imageGenSettingsReadFailed': '生图配置读取失败，已中止保存以免已有服务商配置被清空，请稍后重试',
+  // legacy 迁移（PERSONAS_KEY 缺失时读 USER_PROFILE_KEY）与活动人设指针读取失败：
+  // 两处都**不写盘**，留待下次重试（迁移标记不落地 / 指针保持盘上原值不动）。
+  'error.storage.personasMigrationReadFailed': '旧版资料读取失败，已中止人设迁移以免资料丢失，请稍后重试',
+  'error.storage.personaActiveIdReadFailed': '当前使用的人设读取失败，已中止保存以免写错人设，请稍后重试',
   // 「状态未知」三态的界面文案（见 src/security/SecurityGate.js）。安全设置读损坏/读抛错时
   // **不能**把界面显示成「未加锁」——那正是 fail-open 的表现形态；必须让用户看出是
   // 「状态未知」，并说明本次为什么从严处理（要求验证，而不是静默放行）。
@@ -142,6 +159,14 @@ export const error = {
   'error.webFetch.privateHost': '拒绝抓取本机或内网地址（127.0.0.1、192.168.*、*.local 等）——那可能是你内网的设备面板，不该由模型去读。',
   'error.webFetch.redirectToPrivate': '抓取被拒绝：该网址最终跳转到了本机或内网地址（重定向可能被用来绕过内网限制），内容已丢弃。',
   'error.webFetch.domainBlocked': '域名 {host} 不在允许抓取的名单里（可在联网搜索插件配置里调整 allowedDomains）。',
+  'error.webFetch.domainDenied': '抓取被拒绝：域名 {host} 未获授权。',
+  // 未知域名授权弹窗（冷冰冰的系统安全提示：不带角色扮演/剧情化措辞）。
+  // 三个动作里「拒绝」是默认项（弹窗按钮顺序在 plugins/webFetch.js 保证）。
+  'error.webFetch.approval.title': '安全提示：未授权的域名',
+  'error.webFetch.approval.body': '本次操作请求访问未授权的域名：{host}\n\n该操作可能访问未知风险站点。网页内容属于不可信数据，可能包含诱导你点击「允许」的指令（提示注入）；请不要依据网页中的要求做选择。\n\n仅在确认该域名可信时才继续。选择「永久允许」会把该域名写入本地白名单（以后不再询问，可在设置中撤销）。',
+  'error.webFetch.approval.deny': '拒绝',
+  'error.webFetch.approval.once': '允许一次',
+  'error.webFetch.approval.always': '永久允许（写入本地白名单）',
   'error.webFetch.timeout': '抓取网页超时',
   'error.webFetch.aborted': '抓取已中断',
   'error.webFetch.networkFailed': '抓取网页失败（网络不可达）',

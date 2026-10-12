@@ -3,6 +3,8 @@ export const error = {
   'error.storage.chatLogReadFailed': 'Failed to read chat history. Please try again later.',
   'error.storage.summaryReadFailed': 'Failed to read the memory summary. Please try again later.',
   'error.storage.sessionListReadFailed': 'Failed to read the session list. Please try again later.',
+  'error.storage.orphanCharacterLibraryReadFailed': 'Failed to read the character library, so missing conversations cannot be determined. Please try again later.',
+  'error.storage.sessionPlanReadFailed': 'Failed to read the session plan; treated as "no plan" (unreadable is not the same as none).',
   'error.storage.sessionNotFound': 'Session not found.',
   'error.storage.summaryBoundaryInvalid': 'Invalid summary boundary.',
   'error.storage.summaryReset': 'The session summary has been reset.',
@@ -38,12 +40,25 @@ export const error = {
   'error.storage.mcpServersReadFailed': 'Failed to read the MCP server list. Saving was aborted so existing servers are not wiped. Please try again later.',
   'error.storage.chatOptionsReadFailed': 'Failed to read chat and appearance settings. Saving was aborted so the other options are not reset. Please try again later.',
   'error.storage.permissionsReadFailed': 'Failed to read permission rules. Saving was aborted so the remembered permissions are not overwritten. Please try again later.',
+  'error.storage.webFetchWhitelistReadFailed': 'Failed to read the local fetch allowlist. Saving was aborted so the remembered domains are not overwritten. Please try again later.',
   'error.storage.personasReadFailed': 'Failed to read personas. Saving was aborted so the other personas are not overwritten. Please try again later.',
   'error.storage.globalPresetsReadFailed': 'Failed to read global preset switches. Saving was aborted so they are not reset. Please try again later.',
   'error.storage.proactiveSettingsReadFailed': 'Failed to read scheduled message settings. Saving was aborted so the time slots are not wiped. Please try again later.',
   'error.storage.sessionStatsReadFailed': 'Failed to read session statistics. Saving was aborted so other sessions\' statistics are not wiped. Please try again later.',
   'error.storage.characterIndexReadFailed': 'Failed to read the character index. Saving was aborted so the character library is not overwritten. Please try again later.',
   'error.storage.legacyMessagesReadFailed': 'Failed to read legacy chat history. Migration was skipped so the conversation is not lost. Please try again later.',
+  // Extra copy for the "read failed / wrong shape → refuse to write back" guard (variant ①).
+  // The first four cover the whole-key-overwrite settings domains thinking / sampling /
+  // memorySummary / imageGen: instead of falling back to defaults when the stored value
+  // cannot be read, saving is aborted so a single field edit cannot reset the whole key.
+  'error.storage.thinkingSettingsReadFailed': 'Failed to read thinking settings. Saving was aborted so they are not reset. Please try again later.',
+  'error.storage.samplingSettingsReadFailed': 'Failed to read sampling parameters. Saving was aborted so they are not reset. Please try again later.',
+  'error.storage.memorySummarySettingsReadFailed': 'Failed to read memory summary settings. Saving was aborted so they are not reset. Please try again later.',
+  'error.storage.imageGenSettingsReadFailed': 'Failed to read image generation settings. Saving was aborted so the configured providers are not wiped. Please try again later.',
+  // Legacy persona migration (reading USER_PROFILE_KEY while PERSONAS_KEY is missing) and the
+  // active-persona pointer: both write nothing, so the next launch can retry.
+  'error.storage.personasMigrationReadFailed': 'Failed to read legacy profile data. Persona migration was aborted so the data is not lost. Please try again later.',
+  'error.storage.personaActiveIdReadFailed': 'Failed to read the active persona. Saving was aborted so the wrong persona is not overwritten. Please try again later.',
   // Copy for the "state unknown" tri-state (see src/security/SecurityGate.js). When the
   // security settings cannot be read the UI must NOT look like "not locked" — that is the
   // fail-open shape this batch fixes; the user has to see that the state is unknown.
@@ -134,6 +149,14 @@ export const error = {
   'error.webFetch.privateHost': 'Refused to fetch a local or private-network address (127.0.0.1, 192.168.*, *.local, …) — that could be a device panel on your own network.',
   'error.webFetch.redirectToPrivate': 'Fetch refused: the URL ended up at a local or private-network address (a redirect may be bypassing the private-network guard), so the content was discarded.',
   'error.webFetch.domainBlocked': 'Domain {host} is not in the allowed fetch list (adjust allowedDomains in the web search plugin config).',
+  'error.webFetch.domainDenied': 'Fetch refused: domain {host} is not authorized.',
+  // Unknown-domain approval dialog (plain system security notice, no role-play wording).
+  // "Deny" is the default action (button order is enforced in plugins/webFetch.js).
+  'error.webFetch.approval.title': 'Security notice: unauthorized domain',
+  'error.webFetch.approval.body': 'This operation requests an unauthorized domain: {host}\n\nIt may access unknown, risky sites. Page content is untrusted data and may contain instructions that try to make you tap "Allow" (prompt injection); do not follow instructions from the page.\n\nContinue only if you trust this domain. Choosing "Always allow" adds the domain to the local allowlist (no further prompts; revocable in settings).',
+  'error.webFetch.approval.deny': 'Deny',
+  'error.webFetch.approval.once': 'Allow once',
+  'error.webFetch.approval.always': 'Always allow (save to local allowlist)',
   'error.webFetch.timeout': 'Fetching the page timed out.',
   'error.webFetch.aborted': 'Fetch interrupted.',
   'error.webFetch.networkFailed': 'Could not fetch the page (network unreachable).',
