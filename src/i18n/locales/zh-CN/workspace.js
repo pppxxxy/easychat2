@@ -2,6 +2,12 @@
   // 工作区主界面（改版）：左列入口 / 底部设置列表 / 综合设置 / 新建项目
   // 工作区对话历史（持久化会话）
 export const workspace = {
+  'marketPlugin.workspaceStats.name': '工作区统计',
+  'marketPlugin.workspaceStats.desc': '在设置面板显示工作区文件数，并提供 count_lines 工具统计某个文件的行数。',
+  'marketPlugin.todoList.name': '待办清单',
+  'marketPlugin.todoList.desc': '提供 append_todo 工具，把待办追加到 .easychat/TODO.md。',
+  'marketPlugin.dateBadge.name': '日期徽标',
+  'marketPlugin.dateBadge.desc': '在对话面板顶部显示当前日期徽标。',
   'workspace.capability.title': '工作区能力说明',
   'workspace.capability.intro': '角色可以在工作区里替你读写文件。完整流程是这样一圈：',
   'workspace.capability.step.receive': '接收你的请求（聊天里那句对话）。',

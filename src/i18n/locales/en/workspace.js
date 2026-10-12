@@ -2,6 +2,12 @@
   // Workspace home (revamped): left rail / bottom settings list / general settings / projects
   // Workspace chat history (persisted sessions)
 export const workspace = {
+  'marketPlugin.workspaceStats.name': 'Workspace stats',
+  'marketPlugin.workspaceStats.desc': 'Shows the workspace file count in the settings panel and provides a count_lines tool to count the lines of a file.',
+  'marketPlugin.todoList.name': 'Todo list',
+  'marketPlugin.todoList.desc': 'Provides an append_todo tool to append todos to .easychat/TODO.md.',
+  'marketPlugin.dateBadge.name': 'Date badge',
+  'marketPlugin.dateBadge.desc': 'Shows the current date badge at the top of the chat panel.',
   'workspace.capability.title': 'How the workspace works',
   'workspace.capability.intro': 'The assistant can read and write files for you inside the workspace. The full loop looks like this:',
   'workspace.capability.step.receive': 'It receives your request (the message you send in chat).',

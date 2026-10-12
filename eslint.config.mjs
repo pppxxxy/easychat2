@@ -143,7 +143,8 @@ export default [
       // 2026-10-12：src/settings/presets.js 已迁出——导出常量只留 id + nameKey/descriptionKey，
       // 名称/描述进 preset.builtin.* 词条；提示词搬到**未导出**的 BUILTIN_PROMPTS
       //（模型输入，按铁律不进 i18n，规则本来也不查未导出常量）。
-      'src/workspace/plugins/market.js',
+      // 2026-10-12：src/workspace/plugins/market.js 已迁出（market 项 name/description
+      // → *Key；manifest 抽成非导出常量——其内容为落盘元数据/模型提示词/插件代码）。
     ],
     // 插件命名空间用 local-i18n：ESLint flat config 不允许在两个配置对象里重复定义
     // 同一个插件名（"Cannot redefine plugin"），而本批必须与首批用**不同的 ignores**。
