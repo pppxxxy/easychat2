@@ -79,3 +79,16 @@ export {
   isOnboardingDone,
   completeOnboarding,
 } from './onboarding.js';
+// web_fetch 本地域名白名单（用户点「永久允许」才写入；可撤销）。
+// 只 re-export 存储侧 API；匹配口径在 plugins/webFetch.js（见该文件的授权闸门）。
+export {
+  WEB_FETCH_WHITELIST_KEY,
+  normalizeWhitelistDomain,
+  isWebFetchHostWhitelisted,
+  isWebFetchDomainWhitelisted,
+  getWebFetchWhitelist,
+  addWebFetchWhitelistDomain,
+  removeWebFetchWhitelistDomain,
+  clearWebFetchWhitelist,
+  getWebFetchWhitelistCount,
+} from './webFetchWhitelist.js';

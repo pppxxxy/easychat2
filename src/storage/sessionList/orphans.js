@@ -9,7 +9,7 @@ import {
   isMessageGroup,
   sortSessions,
 } from '../../context/sessionLibrary.js';
-import { getCharacterLibrary } from '../characters.js';
+import { getCharacterLibrary, isCharacterLibraryWriteBlocked } from '../characters.js';
 import { CORRUPT_BACKUP_SUFFIX } from '../io.js';
 import { tActive } from '../../i18n/index.js';
 import {
@@ -52,9 +52,30 @@ export async function findOrphanSessions() {
   const known = new Set(sessions.map(session => session.id));
   // 老版本按角色 id 存消息（messagesKey(characterId)），键的形状和会话键一样，
   // 会把它们当成孤儿。这里按角色库排除，避免把历史遗留键恢复成重复的对话。
-  const characters = await getCharacterLibrary().catch(() => []);
+  //
+  // ⚠️ 排除集读不出来时**必须抛错**，绝不能降级成空集：空集会让这条排除逻辑整体失效，
+  // 所有遗留消息键都进入 candidates ⇒ 用户在「会话恢复」里看到一批并不存在的孤儿，
+  // 点恢复还会按原 id 建出重复会话（restoreSessionInternal 沿用原 id 补回列表）。
+  // 纪律与上面 :48-51 对会话列表的处理完全一致：读不出就不判定，明确抛错让调用方提示
+  // 「读不到」，而不是伪装成「没有丢失的对话」；也与 sessionList/mutations.js 的
+  // 「读-改-写路径读不出必须中止」同一条。
+  //
+  // getCharacterLibrary 本身是 fail-closed 的（characters/index.js:432-450：先合写闸、
+  // 记诊断，再原样抛出），所以原来的 `.catch(() => [])` 只干了一件事——把抛出的错误吞掉。
+  // 但它**不是**「要么完整、要么抛」：索引里有、条目读不出的角色会从返回列表里消失
+  //（characters/index.js:288-294），同时合上写闸。写闸合上就说明这份列表可能缺 id，
+  // 排除集同样不可信 ⇒ 这里必须显式判断（写闸是写闸，不能拿它当抛错用）。
+  let characters;
+  try {
+    characters = await getCharacterLibrary();
+  } catch (error) {
+    throw new Error(tActive('error.storage.orphanCharacterLibraryReadFailed'));
+  }
+  if (isCharacterLibraryWriteBlocked() || !Array.isArray(characters)) {
+    throw new Error(tActive('error.storage.orphanCharacterLibraryReadFailed'));
+  }
   const characterIds = new Set(
-    (Array.isArray(characters) ? characters : []).map(item => String((item && item.id) || ''))
+    characters.map(item => String((item && item.id) || ''))
   );
   const candidates = ids.filter(id => !known.has(id) && !characterIds.has(id));
   if (candidates.length === 0) return [];

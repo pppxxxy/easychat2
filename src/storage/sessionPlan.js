@@ -6,17 +6,38 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { tActive } from '../i18n/index.js';
+import { recordDiagnostic } from './diagnostics.js';
 import { sessionPlanKey } from './sessionCore.js';
+
+// 读侧三态缺失的留痕。**定性已下调**：写侧两个 onPlan 都来自 planTool.js，而工具
+// 文档明确「plan 传整个清单的最新版本（不是增量）」⇒ 写是全量覆盖语义，不存在
+// 「读-改-写」链，所以这里**只留痕、不加写守卫**（加了只会把行为矩阵撑大而没有实际收益）。
+// 留痕的目的只有一个：让「读不出」与「确实没有计划」在诊断里可区分——本函数只有
+// 「清单」与「空数组」两种返回，调用方（workspace/screen/ChatPanel.js 的 recap 注入）
+// 无法自己分辨这两者。诊断文案走 i18n key（写法同 io.js:187 的
+// error.storage.readCorruptBackedUp）：recordDiagnostic 会先跑 maskSecrets
+//（diagnostics.js 的 mask），片段可能被替换甚至清空，所以「发生了什么」必须在 message 本身。
+// 包一层函数而不是模块级常量：tActive 要在**失败发生时**取值（语言可切换），
+// 同时模块级硬编码文案也被 lint 规则 local-i18n/no-hardcoded-chinese-text 禁止。
+function planReadFailedMessage() {
+  return tActive('error.storage.sessionPlanReadFailed');
+}
 
 export async function getSessionPlan(sessionId) {
   const id = String(sessionId || '');
   if (!id) return [];
+  const key = sessionPlanKey(id);
   try {
-    const raw = await AsyncStorage.getItem(sessionPlanKey(id));
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (Array.isArray(parsed)) return parsed;
+    // 合法 JSON 但不是清单：与「读不出」同形，同样留痕
+    recordDiagnostic('storage', new Error(planReadFailedMessage()), `getSessionPlan：${key}`);
+    return [];
   } catch (error) {
+    recordDiagnostic('storage', new Error(planReadFailedMessage()), `getSessionPlan：${key}`);
     return [];
   }
 }
