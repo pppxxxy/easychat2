@@ -18,7 +18,13 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import { DEFAULT_CHARACTER } from '../storage/characters.js';
-import { getSecuritySettings, subscribeSecuritySettings, verifyCharacterPasscode } from '../storage/security.js';
+import {
+  SECURITY_STATUS,
+  getSecuritySettings,
+  resolveAppLockPolicy,
+  subscribeSecuritySettings,
+  verifyCharacterPasscode,
+} from '../storage/security.js';
 import { authenticateBiometric, getBiometricAvailability } from './biometrics.js';
 import PinModal from './PinModal.js';
 
@@ -42,6 +48,13 @@ export default function SecurityGate({ navigationRef }) {
 
   const [securityLoaded, setSecurityLoaded] = useState(false);
   const [characterLocks, setCharacterLocks] = useState({});
+  // 「状态未知」= 安全设置读损坏/读抛错：我们不知道有没有锁（三态见 storage/security.js）。
+  // 这是**独立**于 appLocked 的一层拦截：即便应用锁因「设备没有可用验证手段」的安全阀
+  // 落不下来，未知态也绝不允许静默放行。
+  const [securityUnknown, setSecurityUnknown] = useState(false);
+  // 未知态下用户已明确确认（验证通过 / 点了「仍然继续」）——本次会话内不再重复拦截。
+  const [unknownAcknowledged, setUnknownAcknowledged] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [routeName, setRouteName] = useState('');
   const [appLocked, setAppLocked] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -58,18 +71,33 @@ export default function SecurityGate({ navigationRef }) {
 
   const loadSecurity = useCallback(async () => {
     let settings;
+    let status;
     try {
       settings = await getSecuritySettings();
+      status = settings.status;
     } catch (error) {
+      // 读取本身抛错与「结构损坏」同类：**状态未知**。
+      // 旧实现这里直接回落 `enabled: false`，等于把「读不出来」当成「没有锁」——
+      // 数据还在（storage 层已备份原始值），保护却被丢弃，是典型的 fail-open。
       settings = { appLock: { enabled: false, relockOnBackground: true }, characterLocks: {} };
+      status = SECURITY_STATUS.UNKNOWN;
     }
+    // 三态判据集中在 resolveAppLockPolicy（纯函数，见 storage/security.js）：
+    // 「未知」按最保守处理（要求验证），绝不静默放行。
+    const policy = resolveAppLockPolicy(status, settings.appLock);
     setCharacterLocks(settings.characterLocks);
-    appLockEnabledRef.current = settings.appLock.enabled;
-    relockRef.current = settings.appLock.relockOnBackground;
+    setSecurityUnknown(policy.unknown);
+    // 读到好数据就把「本次已确认未知」清掉：下次再损坏需要重新确认，不会一次确认永久放行。
+    if (!policy.unknown) setUnknownAcknowledged(false);
+    appLockEnabledRef.current = policy.requireUnlock;
+    relockRef.current = policy.relockOnBackground;
 
-    if (settings.appLock.enabled) {
+    if (appLockEnabledRef.current) {
       // 安全阀：设备后来移除了全部生物识别/锁屏凭据时，不把用户永久挡在门外。
+      // 注意这**不**等于「未知态放行」：securityUnknown 仍为真，下面的未知态拦截层
+      // 照旧生效（它只提供「重试读取」与显式确认，不给静默通过）。
       const availability = await getBiometricAvailability();
+      setBiometricAvailable(!!availability.available);
       if (!availability.available) {
         appLockEnabledRef.current = false;
         setAppLocked(false);
@@ -124,6 +152,9 @@ export default function SecurityGate({ navigationRef }) {
     if (result.success) {
       setAuthError('');
       setAppLocked(false);
+      // 设备主人已验证（生物识别/系统密码）：这与「应用锁解锁」等价，
+      // 未知态不必再拦一层（否则刚验完又被状态未知层挡住，用户会觉得锁坏了）。
+      setUnknownAcknowledged(true);
       return;
     }
     const cancelled = result.error === 'user_cancel'
@@ -134,6 +165,18 @@ export default function SecurityGate({ navigationRef }) {
 
   const runAppUnlockRef = useRef(runAppUnlock);
   runAppUnlockRef.current = runAppUnlock;
+
+  // 「状态未知」层里的「重新读取」：回到「还没处理过启动」的状态再读一次，
+  // 让 loadSecurity 重新判定要不要上锁（损坏数据被用户清理掉后就能自愈）。
+  const retrySecurity = useCallback(() => {
+    bootHandledRef.current = false;
+    setUnknownAcknowledged(false);
+    loadSecurity();
+  }, [loadSecurity]);
+
+  const acknowledgeUnknown = useCallback(() => {
+    setUnknownAcknowledged(true);
+  }, []);
 
   // 上锁事件触发一次验证（依赖刻意只放 securityLoaded/appLocked，避免重复弹窗）。
   useEffect(() => {
@@ -242,6 +285,11 @@ export default function SecurityGate({ navigationRef }) {
           </View>
           <Text style={styles.lockTitle}>{t('security.unlock.title')}</Text>
           <Text style={styles.lockHint}>{t('security.unlock.hint')}</Text>
+          {/* 状态未知时必须说清是「未知」而不是「未加锁」：用户看到的若是普通的
+              「已锁定」，会以为设置被读错了；这里显式说明成因与本次的从严取舍。 */}
+          {securityUnknown ? (
+            <Text style={styles.lockWarn}>{t('error.security.stateUnknownNotice')}</Text>
+          ) : null}
           {authError ? <Text style={styles.lockError}>{authError}</Text> : null}
           <TouchableOpacity
             style={[styles.unlockButton, authBusy && styles.buttonDisabled]}
@@ -257,6 +305,68 @@ export default function SecurityGate({ navigationRef }) {
               <Text style={styles.unlockButtonText}>{t('security.unlock.retry')}</Text>
             )}
           </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // 状态未知拦截层：安全设置读不出来 ⇒ 我们不知道有没有锁。
+  // 这里是**最后一道** fail-closed：即便上面的应用锁因「设备没有任何可用验证手段」的
+  // 安全阀落不下来，也绝不放行——只给「重新读取」，以及一次**显式**确认
+  //（生物识别可用时优先要求验证；连验证手段都没有时才给「仍然继续」，
+  // 因为那种设备上「要求解锁」只会把用户自己永久关在门外）。
+  // 关键区别：这是用户主动点出来的显式放行，不是静默把「未知」当成「未加锁」。
+  if (securityUnknown && !unknownAcknowledged) {
+    return (
+      <View style={[styles.fill, styles.lockBackdrop]}>
+        <View style={styles.lockCard}>
+          <View style={styles.lockIcon}>
+            <Ionicons name="help-circle-outline" size={30} color={theme.colors.danger} />
+          </View>
+          <Text style={styles.lockTitle}>{t('error.security.stateUnknownTitle')}</Text>
+          <Text style={styles.lockHint}>{t('error.security.stateUnknownHint')}</Text>
+          {authError ? <Text style={styles.lockError}>{authError}</Text> : null}
+          <TouchableOpacity
+            style={[styles.unlockButton, authBusy && styles.buttonDisabled]}
+            onPress={biometricAvailable ? () => runAppUnlockRef.current() : retrySecurity}
+            disabled={authBusy}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={biometricAvailable
+              ? t('error.security.stateUnknownVerify')
+              : t('error.security.stateUnknownRetry')}
+          >
+            {authBusy ? (
+              <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+            ) : (
+              <Text style={styles.unlockButtonText}>
+                {biometricAvailable
+                  ? t('error.security.stateUnknownVerify')
+                  : t('error.security.stateUnknownRetry')}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {biometricAvailable ? (
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={retrySecurity}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={t('error.security.stateUnknownRetry')}
+            >
+              <Text style={styles.secondaryButtonText}>{t('error.security.stateUnknownRetry')}</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={acknowledgeUnknown}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={t('error.security.stateUnknownContinue')}
+            >
+              <Text style={styles.secondaryButtonText}>{t('error.security.stateUnknownContinue')}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -342,6 +452,30 @@ function createStyles(theme, fonts, tokens) {
       color: theme.colors.danger,
       fontSize: fonts.scaled(12),
       textAlign: 'center',
+    },
+    // 「状态未知」的说明：与普通错误同色系但不抢解锁按钮的视觉焦点。
+    lockWarn: {
+      marginTop: 12,
+      color: theme.colors.danger,
+      fontSize: fonts.scaled(12),
+      textAlign: 'center',
+    },
+    secondaryButton: {
+      marginTop: 12,
+      minWidth: 160,
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.surfaceBorder,
+      backgroundColor: theme.colors.surfaceAlt,
+    },
+    secondaryButtonText: {
+      color: theme.colors.text,
+      fontSize: fonts.scaled(13),
+      fontWeight: '600',
     },
     unlockButton: {
       marginTop: 20,

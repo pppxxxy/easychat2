@@ -25,10 +25,16 @@ const secretsMock = {
   maskSecrets: text => String(text || '').replace(/sk-[a-zA-Z0-9]{8,}/g, '[API_KEY已隐藏]'),
 };
 
+// 可控开关：模拟「脱敏器模块加载失败」。用它验证 fail-closed 与「失败不被缓存」。
+let secretsLoadFails = false;
+
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return { __esModule: true, default: AsyncStorage };
-  if (request === './secrets.js' || request.endsWith('/secrets')) return secretsMock;
+  if (request === './secrets.js' || request.endsWith('/secrets')) {
+    if (secretsLoadFails) throw new Error('secrets module unavailable');
+    return secretsMock;
+  }
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -116,6 +122,73 @@ test('清空后读取为空', async () => {
   const list = await getDiagnostics();
   assert.deepEqual(list, []);
   assert.equal(store.has('@easychat2_diagnostics'), false);
+});
+
+// ---- 脱敏 fail-closed（回归：脱敏器不可用时曾回落原文，且失败被粘性缓存）----
+// 哨兵串刻意「一眼可辨」：它只要出现在诊断里，就是写了明文密钥。
+const SENTINEL = 'sk-SENTINEL-12345';
+
+test('脱敏器不可用：省略文本，绝不落原文', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  secretsLoadFails = true;
+  try {
+    await recordDiagnostic('api', new Error(`请求失败 ${SENTINEL}`), `上下文 ${SENTINEL}`);
+  } finally {
+    secretsLoadFails = false;
+  }
+  const list = await getDiagnostics();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].message.includes(SENTINEL), false, 'message 不得出现原文');
+  assert.equal(list[0].context.includes(SENTINEL), false, 'context 不得出现原文');
+  assert.ok(list[0].message.length > 0, '应留占位符（省略 ≠ 静默留空）');
+  assert.notEqual(list[0].message, `请求失败 ${SENTINEL}`, '绝不能回落原文');
+  assert.equal(
+    String(store.get('@easychat2_diagnostics')).includes(SENTINEL),
+    false,
+    '持久化里也不得出现原文'
+  );
+});
+
+test('脱敏器加载失败不被缓存：恢复后下一次调用会重试并真正脱敏', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  secretsLoadFails = true;
+  try {
+    await recordDiagnostic('api', new Error(`第一次 ${SENTINEL}`));
+  } finally {
+    secretsLoadFails = false;
+  }
+  // 第二次：模块已可加载。若失败被缓存（旧实现 maskSecretsLoaded 先置位），
+  // 这里仍然拿不到脱敏器 → 仍会看到哨兵原文。
+  await recordDiagnostic('api', new Error(`第二次 ${SENTINEL}`));
+  const list = await getDiagnostics();
+  const second = list[list.length - 1];
+  assert.equal(second.message.includes(SENTINEL), false, '第二次不得出现原文');
+  assert.ok(second.message.includes('[API_KEY已隐藏]'), '第二次应已重试并拿到脱敏器');
+});
+
+test('脱敏器抛错：同样 fail-closed，不落原文', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  const previousLoad = Module._load;
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === '@react-native-async-storage/async-storage') return { __esModule: true, default: AsyncStorage };
+    if (request === './secrets.js' || request.endsWith('/secrets')) {
+      return { maskSecrets: () => { throw new Error('masker boom'); } };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    const isolated = loadModule();
+    isolated.__resetDiagnosticsForTests();
+    await isolated.recordDiagnostic('api', new Error(`炸了 ${SENTINEL}`));
+    const list = await isolated.getDiagnostics();
+    assert.equal(list[0].message.includes(SENTINEL), false, '脱敏器抛错时不得回落原文');
+    assert.ok(list[0].message.length > 0);
+  } finally {
+    Module._load = previousLoad;
+  }
 });
 
 test('AsyncStorage 不可用时静默（不抛错）', async () => {

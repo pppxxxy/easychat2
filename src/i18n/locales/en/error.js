@@ -44,6 +44,15 @@ export const error = {
   'error.storage.sessionStatsReadFailed': 'Failed to read session statistics. Saving was aborted so other sessions\' statistics are not wiped. Please try again later.',
   'error.storage.characterIndexReadFailed': 'Failed to read the character index. Saving was aborted so the character library is not overwritten. Please try again later.',
   'error.storage.legacyMessagesReadFailed': 'Failed to read legacy chat history. Migration was skipped so the conversation is not lost. Please try again later.',
+  // Copy for the "state unknown" tri-state (see src/security/SecurityGate.js). When the
+  // security settings cannot be read the UI must NOT look like "not locked" — that is the
+  // fail-open shape this batch fixes; the user has to see that the state is unknown.
+  'error.security.stateUnknownTitle': 'Lock state cannot be confirmed',
+  'error.security.stateUnknownHint': 'The privacy settings could not be read (the data may be corrupted), so we cannot tell whether the app lock or character locks are on. To stay safe, possibly locked content is not shown right away.',
+  'error.security.stateUnknownRetry': 'Read again',
+  'error.security.stateUnknownVerify': 'Verify identity and continue',
+  'error.security.stateUnknownContinue': 'Continue anyway',
+  'error.security.stateUnknownNotice': 'Privacy settings state is unknown (read failed); treated as "on" to stay on the safe side.',
   'error.tts.invalidBaseUrl': 'Please enter a valid speech service URL.',
   'error.tts.wssUnsupported': 'This speech service uses WebSocket (wss), which this engine does not support yet. Please use another engine or an HTTP endpoint.',
   'error.tts.tencentSignerNotImplemented': 'Tencent Cloud speech signing (TC3-HMAC-SHA256) is not implemented yet, so this engine cannot be used for now.',
@@ -95,6 +104,15 @@ export const error = {
   'error.api.baseUrlMissing': 'Please fill in the API URL in Settings → API Configuration first.',
   'error.api.modelMissing': 'Please add and select a model in Settings → API Configuration first.',
   'error.api.invalidUrl': 'Please enter a valid HTTP(S) API URL.',
+  // 见 zh-CN 同名条目的说明：网络层错误 message 会直接展示给用户。
+  'error.api.unparseableResponse': 'The API returned content that could not be parsed.',
+  'error.api.networkFailed': 'The network request failed. Check your network connection or the API URL.',
+  'error.api.aborted': 'Generation stopped.',
+  'error.api.requestInterrupted': 'The request was interrupted.',
+  'error.api.responseError': 'The API returned an error.',
+  'error.api.timeoutNonstream': 'Timed out waiting for the response (non-streaming requests wait for the server to finish the whole reply). Check your network or the API URL, or try again later.',
+  'error.api.timeoutIdle': 'The request timed out. Check your network and try again.',
+  'error.api.timeoutFirstByte': 'Timed out waiting for the first response. Check your network or the API URL (reasoning models can be slow, so you can try again later).',
   'error.transcription.notConfigured': 'No speech-to-text service is configured.',
   'error.transcription.timeout': 'The transcription request timed out. Check your network and try again.',
   'error.transcription.networkFailed': 'The transcription request failed. Check your network.',
@@ -190,6 +208,11 @@ export const error = {
   'error.vectorMemory.apiKeyRequired': 'Please fill in the vector service API key first.',
   'error.vectorMemory.modelRequired': 'Please fill in the vector model first.',
   'error.vectorMemory.noValidVector': 'No valid vector was returned.',
+  // 见 zh-CN 同名条目的说明。
+  'error.vectorMemory.aborted': 'The vector request was interrupted.',
+  'error.vectorMemory.timeout': 'The vector request timed out.',
+  'error.vectorMemory.networkFailed': 'The vector service network request failed.',
+  'error.vectorMemory.unparseableResponse': 'The vector service returned an unparseable response.',
   'error.vectorMemory.httpAuth': 'Invalid or unauthorized API key.',
   'error.vectorMemory.httpRateLimited': 'Too many requests. Please try again later.',
   'error.vectorMemory.httpFailed': 'Vector service request failed (HTTP {status}).',
@@ -229,4 +252,18 @@ export const error = {
   'error.imageGen.pngInvalidSize': 'Invalid image dimensions.',
   'error.imageGen.pngUnsupportedChannels': 'Unsupported channel count: {channels}',
   'error.imageGen.pngPixelsInsufficient': 'Insufficient pixel data: expected {expected} bytes, got {actual}.',
+  // 见 zh-CN 同名条目的说明：AppContext 的状态守卫，message 直通 UI。
+  'error.context.characterNotLoaded': 'Characters have not finished loading yet.',
+  'error.context.characterNotFound': 'The character does not exist.',
+  'error.context.defaultCharacterUndeletable': 'The default character cannot be deleted.',
+  'error.context.noDeletableCharacters': 'There are no characters that can be deleted.',
+  'error.context.sessionNotLoaded': 'Sessions have not finished loading yet.',
+  'error.context.sessionNotFound': 'The session does not exist.',
+  'error.context.providerMissing': 'useApp must be used inside an AppProvider.',
+  // 见 zh-CN 同名条目的说明：memorySummary 的报错 message 直通 Alert。
+  'error.memory.summaryReadFailed': 'Failed to read the memory summary. Please try again later.',
+  'error.memory.noSummarizableMessages': 'There are no messages to summarize.',
+  'error.memory.summaryReset': 'The session summary has been reset.',
+  'error.memory.scopeChanged': 'The memory scope changed.',
+  'error.memory.characterUpdated': 'The character was updated while summarizing.',
 };
