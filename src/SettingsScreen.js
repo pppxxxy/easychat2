@@ -325,6 +325,7 @@ export default function SettingsScreen() {
   const apiMountedRef = useRef(true);
   const modelRequestRef = useRef(null);
   const modelSourceRef = useRef(null);
+  const modelFetchErrorRef = useRef(null); // 第 6 项：两个 URL 都失败时的最后一个 error（供提示透出真实原因）
   const [apiSaving, setApiSaving] = useState(false);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -733,23 +734,25 @@ export default function SettingsScreen() {
       .catch(() => {});
   }, []);
 
+  // 第 15 项：这三个开关都是「先改 UI、再写盘」，写失败必须回滚，否则开关停在
+  // 「看起来改了其实没写进去」的状态（重启后静默回退）。口径同 :819-828 toggleMoments、
+  // :843-851 toggleLocationAwareness（回读真实值）、TtsPanel.js:81-88 / TranscriptionPanel.js:74-79。
   const updateThinkingDisplay = useCallback(async display => {
     setThinkingDisplay(display);
     try {
       const current = await getThinkingSettings();
       await saveThinkingSettings({ ...current, display });
     } catch (error) {
+      getThinkingSettings().then(settings => setThinkingDisplay(settings.display)).catch(() => {});
       Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
-  const activeImageProvider = useMemo(
-    () => IMAGE_PROVIDERS.find(item => item.id === inlineImage.providerId) || null,
-    [inlineImage.providerId]
-  );
+  const activeImageProvider = useMemo(() => IMAGE_PROVIDERS.find(item => item.id === inlineImage.providerId) || null, [inlineImage.providerId]);
 
   const updateInlineImage = useCallback(async patch => {
-    const next = { ...inlineImageRef.current, ...patch };
+    const previous = inlineImageRef.current;
+    const next = { ...previous, ...patch };
     inlineImageRef.current = next;
     setInlineImage(next);
     try {
@@ -757,24 +760,20 @@ export default function SettingsScreen() {
       inlineImageRef.current = saved;
       setInlineImage(saved);
     } catch (error) {
+      inlineImageRef.current = previous;
+      setInlineImage(previous);
       Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
 
   // 就地编辑某个生图服务商的配置（地址/Key/模型/额外参数），立即落盘 @easychat2_image_gen。
   const updateImageGenProvider = useCallback(async (providerId, patch) => {
-    const providers = {
-      ...(imageGenRef.current || {}),
-      [providerId]: { ...((imageGenRef.current || {})[providerId] || {}), ...patch },
-    };
+    const providers = { ...(imageGenRef.current || {}), [providerId]: { ...((imageGenRef.current || {})[providerId] || {}), ...patch } };
     imageGenRef.current = providers;
     setImageGenProviders(providers);
     try {
       // 保留原有的 activeProvider，避免只写 providers 时把它重置掉。
-      const saved = await saveImageGenSettings({
-        activeProvider: imageGenActiveRef.current,
-        providers,
-      });
+      const saved = await saveImageGenSettings({ activeProvider: imageGenActiveRef.current, providers });
       const list = saved.providers || {};
       imageGenRef.current = list;
       setImageGenProviders(list);
@@ -828,12 +827,15 @@ export default function SettingsScreen() {
   }, [momentsEnabled]);
 
   const updateChatOption = useCallback(async (key, value) => {
-    const next = { ...chatOptionsRef.current, [key]: value };
+    const previous = chatOptionsRef.current;
+    const next = { ...previous, [key]: value };
     chatOptionsRef.current = next;
     setChatOptions(next);
     try {
       await saveChatOptions(next);
     } catch (error) {
+      chatOptionsRef.current = previous;
+      setChatOptions(previous);
       Alert.alert(t('common.error.saveFailed'), t('common.error.storageOrPermission'));
     }
   }, []);
@@ -874,14 +876,8 @@ export default function SettingsScreen() {
     };
   }, [loadUserProfile]);
 
-  const active = useMemo(
-    () => configs.find(item => item.id === activeId) || configs[0] || null,
-    [configs, activeId]
-  );
-  const activeVendor = useMemo(
-    () => getChatApiVendor(active && active.vendorId),
-    [active]
-  );
+  const active = useMemo(() => configs.find(item => item.id === activeId) || configs[0] || null, [configs, activeId]);
+  const activeVendor = useMemo(() => getChatApiVendor(active && active.vendorId), [active]);
 
   const invalidateModels = () => {
     const request = modelRequestRef.current;
@@ -1049,9 +1045,7 @@ export default function SettingsScreen() {
     apiBusyRef.current = true;
     setApiSaving(true);
     try {
-      const trimmedModels = (selected.models || [])
-        .map(item => String(item || '').trim())
-        .filter(Boolean);
+      const trimmedModels = (selected.models || []).map(item => String(item || '').trim()).filter(Boolean);
       const activeModel = trimmedModels.includes(selected.activeModel)
         ? selected.activeModel
         : trimmedModels[0];
@@ -1059,10 +1053,12 @@ export default function SettingsScreen() {
         item.id === selected.id
           ? {
               ...item,
-               name: String(item.name || '').trim() || '未命名配置',
-               baseUrl: String(item.baseUrl || '').trim(),
-               apiKey: String(item.apiKey || '').trim(),
-
+              // 空名保持空串落盘（不补「未命名配置」）：显示分支已用 `|| t('settings.api.unnamed')`
+              // 兜底（ApiSection.js:49、VectorSection.js:65、ModelPanelModal.js:58），保存时补中文会让
+              // 它永不触发 ⇒ 英文界面显示中文配置名，且随备份/恢复传播。落库不该带语言。
+              name: String(item.name || '').trim(),
+              baseUrl: String(item.baseUrl || '').trim(),
+              apiKey: String(item.apiKey || '').trim(),
               models: trimmedModels,
               activeModel,
             }
@@ -1167,6 +1163,7 @@ export default function SettingsScreen() {
     const fallback = /\/v1$/i.test(base) ? base.replace(/\/v1$/i, '') : `${base}/v1`;
     const urls = [`${base}/models`, `${fallback}/models`];
     let result = [];
+    let lastError = null;
     for (const url of urls) {
       if (!isCurrent()) return result;
       if (result.length) break;
@@ -1198,8 +1195,12 @@ export default function SettingsScreen() {
         if (Array.isArray(data?.data)) {
           result = [...new Set(data.data.map(item => String(item?.id || '')).filter(Boolean))];
         }
-      } catch (error) {}
+      } catch (error) { lastError = error; }
     }
+    // 两个 URL 都失败时才把最后一个 error 透给调用方（同一次请求里成功过就不透）：
+    // :1187-1194 用 t() 精心构造的 err.timeout/network/request/cancelled 否则**永远不显示**，
+    // 用户只看到「未检测到模型」，分不清地址错/密钥错/超时/确实无模型。
+    modelFetchErrorRef.current = result.length ? null : lastError;
     return result;
   };
 
@@ -1237,7 +1238,7 @@ export default function SettingsScreen() {
       setModelList(result);
       setModelModalVisible(true);
     } else {
-      Alert.alert(t('settings.api.noModelsDetected.title'), t('settings.api.noModelsDetected.body'));
+      Alert.alert(t('settings.api.noModelsDetected.title'), modelFetchErrorRef.current?.message || t('settings.api.noModelsDetected.body'));
     }
   };
 
@@ -1251,7 +1252,7 @@ export default function SettingsScreen() {
     if (!isCurrent()) return;
     endModelRequest();
     if (all.length === 0) {
-      Alert.alert(t('settings.api.noModelsDetected.title'), t('settings.api.noModelsDetected.body'));
+      Alert.alert(t('settings.api.noModelsDetected.title'), modelFetchErrorRef.current?.message || t('settings.api.noModelsDetected.body'));
       return;
     }
     const matched = query ? all.filter(model => model.toLowerCase().includes(query)) : all;
@@ -1769,7 +1770,6 @@ export default function SettingsScreen() {
           <VectorSection {...sectionProps} />
           </CollapsibleSection>
         </Card>
-
 
         <Card
           style={[styles.sectionCard, flashSection === 'workspace' && styles.sectionCardFlash]}

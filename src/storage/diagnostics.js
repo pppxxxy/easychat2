@@ -131,20 +131,52 @@ export function formatDiagnostics(list) {
     .join('\n\n');
 }
 
+// 损坏键的备份后缀。**权威定义在 io.js:11（CORRUPT_BACKUP_SUFFIX）**，这里刻意只写同一个
+// 字面量而**不 import**：io.js 已经依赖本模块（io.js:8 recordDiagnostic），再 require/import
+// 回去就是环，guard-structure 的循环依赖守卫会红（「请打破环：把公共依赖抽到第三方模块，
+// 或改用参数注入」）。同型先例：storage/backup.js:19 与 dataBackup.js:172 也是同一字面量。
+const CORRUPT_SUFFIX = '__corrupt_backup';
+
+// 结构损坏（JSON.parse 失败）时先留原始字节的副本再抛错：覆盖不可逆，同仓惯例见
+// io.js:180-199（backupCorruptValue）。
+// 只在本函数**已经拿到原始串**时备份：连 getItem 都抛错时手里没有字节，也就没得备份
+//（io.js 的 backupCorruptValue 在同一情形下同样只能返回 false）。
+// 这里不调 recordDiagnostic 记「已备份」：那会经 readCache 又回到失败分支（本函数正是它的
+// 失败路径），那条诊断必然被丢弃，还会绕一圈。证据就是 `<键>__corrupt_backup` 本身，加上
+// DiagnosticsModal 现在会显示的「读取失败」态。
+async function backupUnreadableDiagnostics(store, raw) {
+  if (typeof raw !== 'string' || !raw) return;
+  try {
+    await store.setItem(`${DIAGNOSTICS_KEY}${CORRUPT_SUFFIX}`, raw);
+  } catch (error) {
+  }
+}
+
+// 读诊断记录：**读失败绝不返回空数组**。
+// 旧实现在 catch 里 `cache = []`，而 `if (cache) return cache` 对 [] 为真 ⇒ 失败态被钉死在
+// 内存里，且 DiagnosticsModal 的 `loaded && entries.length === 0` 把它渲染成绿勾
+// 「暂无可查看的记录」——「读不出来」被说成「一切正常」；更糟的是随后任一次
+// recordDiagnostic 读到的 current 是 []，persist([entry]) 会把存储里几十条历史整份覆盖成
+// 一条，且不留下损坏副本。
+// 与 :40-58 对 maskSecrets 的论证完全同形：**缓存异常态等于把异常固化成常态**。故这里改为
+// 原样抛出、cache 保持 null（下次调用重试），由调用方区分「读失败」与「确实没有记录」。
 async function readCache() {
   if (cache) return cache;
   const store = getAsyncStorage();
   if (!store) {
+    // 没有存储（纯 Node 环境 / AsyncStorage 不可用）：既没有可读的原值，也没有被覆盖的风险。
     cache = [];
     return cache;
   }
+  const raw = await store.getItem(DIAGNOSTICS_KEY);
+  let parsed;
   try {
-    const raw = await store.getItem(DIAGNOSTICS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    cache = (Array.isArray(parsed) ? parsed : []).map(normalizeDiagnostic).slice(-MAX_ENTRIES);
+    parsed = raw ? JSON.parse(raw) : [];
   } catch (error) {
-    cache = [];
+    await backupUnreadableDiagnostics(store, raw);
+    throw error;
   }
+  cache = (Array.isArray(parsed) ? parsed : []).map(normalizeDiagnostic).slice(-MAX_ENTRIES);
   return cache;
 }
 
@@ -179,6 +211,9 @@ export function recordDiagnostic(kind, error, context = '') {
     lastAt = now;
     const entry = normalizeDiagnostic({ at: now, kind: safeKind, message, stack, context: ctx });
     const task = mutationQueue.then(async () => {
+      // readCache 读不出来时会抛错 ⇒ 本任务直接中止，**读不出原值就不写**
+      //（先例 storage/settings/chatOptions.js:19-33 的 assertReadableForMutation）。
+      // 代价是丢掉这一条新诊断；换来的是不把存储里的历史整份覆盖成一条（旧行为）。
       const current = await readCache();
       const next = [...current, entry].slice(-MAX_ENTRIES);
       cache = next;
@@ -197,16 +232,17 @@ export async function getDiagnostics() {
   return [...current];
 }
 
+// 清空诊断记录：**失败必须传得出去**。旧实现把 removeItem 的失败吞在内部（永不 reject），
+// 于是调用方写的 `.catch(() => {})` 是死代码，UI 还会把列表清成空 ⇒ 看起来清掉了，
+// 重启后日志「复活」。同时内存缓存只在**真正删掉之后**才清：删失败时保留缓存，
+// 界面与存储保持一致（与 readCache 的 fail-closed 同一条纪律）。
 export async function clearDiagnostics() {
-  cache = [];
-  lastSignature = '';
-  lastAt = 0;
   const task = mutationQueue.then(async () => {
     const store = getAsyncStorage();
-    if (!store) return;
-    try {
-      await store.removeItem(DIAGNOSTICS_KEY);
-    } catch (error) {}
+    if (store) await store.removeItem(DIAGNOSTICS_KEY);
+    cache = [];
+    lastSignature = '';
+    lastAt = 0;
   });
   mutationQueue = task.catch(() => {});
   return task;

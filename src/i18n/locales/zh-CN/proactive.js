@@ -7,6 +7,11 @@ export const proactive = {
   'proactive.type.greeting': '问好',
   'proactive.type.custom': '自定义',
   'proactive.notice.loadFailed': '读取互动设置失败，请重试。',
+  // 第 13 项：时间/消息类型/自定义提示词/衔接会话/enabled 全在 state 里，返回即丢 ⇒ 先拦一次。
+  'proactive.unsaved.title': '有未保存的修改',
+  'proactive.unsaved.body': '这些改动还没有保存，返回后会丢失。要放弃这些修改吗？',
+  'proactive.unsaved.keep': '继续编辑',
+  'proactive.unsaved.discard': '放弃并返回',
   'proactive.session.empty': '（空会话）',
   'proactive.session.new': '新建对话',
   'proactive.default.roleName': '角色',
@@ -14,6 +19,9 @@ export const proactive = {
   'proactive.notice.configMissingUrl': '所选 API 配置缺少地址，请先在设置页补全。',
   'proactive.notice.configMissingAuth': '所选 API 配置的鉴权头为空，请先在设置页补全。',
   'proactive.notice.saved': '已保存 {n} 个主动消息时间',
+  // 请求体快照生成失败时**不能**只说「已保存 N 个」：原生拿不到 requestJson 会退回简版请求体，
+  // 用户配的自定义提示词/消息类型/衔接会话/时间感知/角色作息全部失效（见 ProactivePanel 的 degraded）。
+  'proactive.notice.savedDegraded': '已保存 {n} 个主动消息时间，但有 {failed} 个的请求体生成失败，将退回简版请求（自定义提示词、消息类型、衔接会话不会生效），请重新保存。',
   'proactive.notice.saveFailed': '保存失败，请检查权限后重试。',
   'proactive.notice.notificationGranted': '通知权限已开启',
   'proactive.notice.notificationDenied': '未获得通知权限，通知将无法展示',

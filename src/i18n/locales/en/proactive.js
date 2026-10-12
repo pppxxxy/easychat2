@@ -7,6 +7,12 @@ export const proactive = {
   'proactive.type.greeting': 'Greeting',
   'proactive.type.custom': 'Custom',
   'proactive.notice.loadFailed': 'Failed to load proactive settings. Please try again.',
+  // Item 13: time / message type / custom prompt / linked session / enabled all live in state only,
+  // so leaving the panel loses them — confirm first.
+  'proactive.unsaved.title': 'Unsaved changes',
+  'proactive.unsaved.body': 'These changes have not been saved and will be lost if you go back. Discard them?',
+  'proactive.unsaved.keep': 'Keep editing',
+  'proactive.unsaved.discard': 'Discard and go back',
   'proactive.session.empty': '(empty session)',
   'proactive.session.new': 'New conversation',
   'proactive.default.roleName': 'Character',
@@ -14,6 +20,10 @@ export const proactive = {
   'proactive.notice.configMissingUrl': 'The selected API config has no URL. Complete it on the Settings page first.',
   'proactive.notice.configMissingAuth': 'The selected API config has an empty auth header. Complete it on the Settings page first.',
   'proactive.notice.saved': 'Saved {n} proactive message time(s)',
+  // A failed request-body snapshot must not be reported as a plain success: the native side falls
+  // back to a simplified request, so the custom prompt / message type / linked session are lost
+  // (see `degraded` in ProactivePanel).
+  'proactive.notice.savedDegraded': 'Saved {n} proactive message time(s), but {failed} could not build a request body and will fall back to a simplified request (custom prompt, message type and linked session will not apply). Please save again.',
   'proactive.notice.saveFailed': 'Save failed. Check permissions and try again.',
   'proactive.notice.notificationGranted': 'Notification permission granted',
   'proactive.notice.notificationDenied': 'Notification permission not granted; notifications won\'t be shown',

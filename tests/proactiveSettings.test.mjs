@@ -281,6 +281,23 @@ test('找不到角色的待写消息不 ack 删除，改为保留重试', () => 
   assert.match(bridge, /const acked = \[\.\.\.written, \.\.\.skipped\]/);
 });
 
+test('Context 未加载完成时：待写消息归入 deferred（不是四类全空）', () => {
+  // 契约（AppContext 的 ingestProactiveMessages 注释）：written / skipped / deferred 三类
+  // **互斥且穷尽**。未加载完成若返回四类全空，这批消息就不属于任何一类——调用方只要按
+  // 「全部 − deferred = 可 ack」判定消费（最自然的读法），就会把还没落库的消息从原生队列
+  // 里删掉（丢消息）。当前唯一调用方恰好「不 ack、下次重试」才没暴露，但那是运气不是契约。
+  const ctx = fs.readFileSync(path.resolve('src/context/AppContext.js'), 'utf8');
+  const start = ctx.indexOf('const ingestProactiveMessages = useCallback(');
+  assert.ok(start > 0, '未找到 ingestProactiveMessages');
+  const body = ctx.slice(start);
+  const branchStart = body.indexOf('if (!loadedRef.current) {');
+  assert.ok(branchStart > 0, '未找到「未加载完成」分支');
+  const branch = body.slice(branchStart, branchStart + 500);
+  assert.ok(branch.includes('deferred'), '未加载完成必须归入 deferred（保留重试）');
+  assert.ok(!branch.includes('deferred: []'), '不得再返回空的 deferred（那就是「未分类」）');
+  assert.ok(branch.includes('.filter(Boolean)'), 'deferred 装的是消息 id（无 id 的与正常路径同款忽略）');
+});
+
 test('通知跳转精确切到消息实际落到的会话', () => {
   const ctx = fs.readFileSync(path.resolve('src/context/proactiveIngest.js'), 'utf8');
   const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
