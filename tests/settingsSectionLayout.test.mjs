@@ -59,10 +59,18 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
   assert.equal(settingsSectionLabel('localmodel'), '本地模型', '搜索结果的分区名必须登记');
   assert.ok(settingsSectionLabel('about'), '关于的分区名保留');
 
-  // 五处同步之 offsets：新卡必须登记 onLayout（滚动定位用）
-  assert.ok(screen.includes('sectionOffsetsRef.current.localmodel'), '本地模型卡必须登记 onLayout 偏移');
+  // 五处同步之 offsets：收口后偏移登记只有 registerSection 一条路径，且 JSX 里 14 张卡的
+  // 登记顺序必须与 SECTION_RENDER_ORDER 逐条一致。此前 14 处各手写
+  // `sectionOffsetsRef.current.<id> = ...`：sampling 就是这么漏掉的（搜索命中它时只闪烁、
+  // 不滚动），而漏掉不会有任何报错——这条断言把它钉死。
+  const registered = [...screen.matchAll(/onLayout=\{registerSection\('(\w+)'\)\}/g)].map(m => m[1]);
+  assert.deepEqual(registered, order, 'JSX 里各卡的偏移登记顺序必须与 SECTION_RENDER_ORDER 完全一致');
+  assert.equal((screen.match(/sectionOffsetsRef\.current\.\w+ = event/g) || []).length, 0,
+    '禁止再手写 sectionOffsetsRef.current.<id> = ...（偏移登记只走 registerSection）');
   // 吸顶索引由渲染顺序数组推导（自动跟随，禁止另写一份）
   assert.ok(/stickyHeaderIndices = SECTION_RENDER_ORDER/.test(screen), '吸顶索引必须由 SECTION_RENDER_ORDER 推导');
+  // 单一事实源必须导出：其余处（含将来的纯数据模块 / 搜索索引）才能 import 它而不是再抄一份
+  assert.ok(/export const SECTION_RENDER_ORDER = \[/.test(screen), 'SECTION_RENDER_ORDER 必须导出');
 
   // 旧挂载点清理：关于卡不再含本地模型入口；新卡直连面板
   const about = read('src/settings/sections/AboutSection.js');

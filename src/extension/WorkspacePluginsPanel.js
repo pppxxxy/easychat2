@@ -23,7 +23,7 @@ import {
   uninstallPlugin,
   listMarket,
 } from '../workspace/plugins/index.js';
-import PluginSlot from '../workspace/screen/PluginSlot.js';
+import PluginSlot, { UNWIRED_SLOT_KINDS } from '../workspace/screen/PluginSlot.js';
 
 export default function WorkspacePluginsPanel() {
   const { theme, fonts, tokens } = useTheme();
@@ -101,7 +101,17 @@ export default function WorkspacePluginsPanel() {
   }, [busy, store, reload, t]);
 
   const market = listMarket();
-  const slotRows = runtime && runtime.registry ? runtime.registry.render('settings.row') : [];
+  // 槽位渲染：接线的 kind 正常画（settings.row = 槽位演示区）；**未接线的 kind 也要如实列出**
+  // ——注册成功、校验通过却在任何界面都不出现，才是真正的假接线（此前 chat.header 等 5 种
+  // 就是这个状态）。未接线行用 kind 当分组标题（技术标识，故意不翻译，不是给终端用户看的
+  // 文案），等真实界面接上后把 PluginSlot.js 的 SLOT_RENDER_POINTS 改成渲染点即可。
+  const wiredRows = runtime && runtime.registry ? runtime.registry.render('settings.row') : [];
+  const unwiredGroups = runtime && runtime.registry
+    ? UNWIRED_SLOT_KINDS
+      .map(kind => ({ kind, contributions: runtime.registry.render(kind) }))
+      .filter(item => item.contributions.length > 0)
+    : [];
+  const hasSlots = wiredRows.length > 0 || unwiredGroups.length > 0;
 
   return (
     <View style={styles.container}>
@@ -134,10 +144,20 @@ export default function WorkspacePluginsPanel() {
           </View>
         ))}
 
-        {slotRows.length > 0 ? (
+        {hasSlots ? (
           <>
             <Text style={styles.section}>{t('workspace.plugins.slotDemo')}</Text>
-            <PluginSlot kind="settings.row" contributions={slotRows} />
+            {wiredRows.length > 0
+              ? <PluginSlot kind="settings.row" contributions={wiredRows} />
+              : null}
+            {unwiredGroups.map(group => (
+              <View key={group.kind}>
+                {/* 未接线槽位：kind 是技术标识，故意不翻译——它标的是「这里还没落点」，
+                    不是给终端用户读的界面文案。 */}
+                <Text style={styles.slotKind}>{group.kind}</Text>
+                <PluginSlot kind={group.kind} contributions={group.contributions} />
+              </View>
+            ))}
           </>
         ) : null}
 
@@ -179,6 +199,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   body: { padding: 14, gap: 10 },
   hint: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17) },
   section: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 8 },
+  // 未接线槽位的分组标题：用技术标识（kind）而不是词条，样式上刻意弱于真正的分区标题。
+  slotKind: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), fontWeight: '700', marginTop: 4 },
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
   card: {
     padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface,

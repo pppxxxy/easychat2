@@ -259,5 +259,10 @@ test('退旧接线：文件历史的指路条一路接到「历史」面板（�
   const panel = read('src/workspace/screen/FilesPanel.js');
   assert.match(panel, /onOpenHistory=\{onOpenHistory\}/, 'FilesPanel 透传');
   const screen = read('src/workspace/screen/WorkspaceScreen.js');
-  assert.match(screen, /onOpenHistory=\{\(\) => setPanel\('history'\)\}/, 'WorkspaceScreen 接到历史面板');
+  // 收口（2026-10-12）：单屏把「切到历史面板」抽成 openHistory 一处，再交给领域表
+  //（DOMAIN_PANELS.files → onOpenHistory）与 ChatPanel——三处各写一遍内联箭头时，
+  // 漏掉哪一处都不会报错，只是那条指路条点了没反应。
+  assert.match(screen, /const openHistory = useCallback\(\(\) => setPanel\('history'\), \[\]\)/, 'WorkspaceScreen 有统一的 openHistory');
+  assert.match(screen, /onOpenHistory=\{props\.openHistory\}/, '领域表把 openHistory 交给文件面板');
+  assert.match(screen, /onOpenHistory=\{openHistory\}/, '对话面板也走同一个 openHistory');
 });

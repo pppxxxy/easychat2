@@ -472,7 +472,11 @@ test('设置面板接线：Python 小节在；run_python 存在但被三层门�
   const execDefs = fs.readFileSync(path.resolve('src/workspace/toolDefs/execTools.js'), 'utf8');
   const tools = fs.readFileSync(path.resolve('src/workspace/tools.js'), 'utf8');
   assert.ok(panel.includes('<PythonSection'), '设置面板挂上 Python 小节');
-  assert.ok(screen.includes('characterId={characterId}'), '角色 id 传进设置面板');
+  // 收口（2026-10-12）：领域面板改由 DOMAIN_PANELS 按 id 取渲染器，参数统一从 props 传，
+  // 所以这里断言的是「领域表把当前角色 id 交给设置面板」这条接线本身。
+  assert.ok(screen.includes('characterId={props.characterId}'), '角色 id 传进设置面板');
+  assert.ok(/settings: props => <WorkspaceSettingsPanel characterId=\{props\.characterId\}/.test(screen),
+    '设置面板由领域表渲染（而不是散在别处的分支）');
 
   // 工具定义本身：独立开关 + 逐条确认 + 更长超时（模型调用会自我了断）
   assert.ok(execDefs.includes("name: 'run_python'"), 'agent 工具表里有 run_python');

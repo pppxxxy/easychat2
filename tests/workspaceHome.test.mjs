@@ -136,8 +136,20 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   // 面板分发：单屏按 panel 分发。P1 起抽成 renderChatPanel / renderDomainPanel 两个函数
   //（宽屏两栏复用同一对函数，避免两套分发各写一遍）——契约没变，只是从内联条件变成具名分发。
   assert.ok(SCREEN.includes("panel === 'chat'"), '对话与其他领域互斥');
-  assert.ok(SCREEN.includes("id === 'files'") && SCREEN.includes("id === 'github'"), '领域面板由单屏分发');
   assert.ok(SCREEN.includes('renderDomainPanel') && SCREEN.includes('renderChatPanel'), '分发函数存在');
+  // 收口（2026-10-12）：领域清单只有 DOMAIN_KEYS 一份，renderDomainPanel 从 DOMAIN_PANELS
+  // 按 id 取渲染器（此前是 5 个 `id === 'x'` 分支与 DOMAIN_KEYS 各写一份清单）。
+  const domainKeys = [...SCREEN.matchAll(/\{ id: '(\w+)', icon:/g)].map(m => m[1]);
+  const tableText = (/const DOMAIN_PANELS = \{([\s\S]*?)\n\};/.exec(SCREEN) || ['', ''])[1];
+  const panelKeys = [...tableText.matchAll(/^ {2}(\w+): props =>/gm)].map(m => m[1]);
+  assert.deepEqual(
+    panelKeys.sort(),
+    domainKeys.filter(id => id !== 'chat').sort(),
+    'DOMAIN_PANELS 必须与 DOMAIN_KEYS 一一对应（chat 除外）——否则左栏能点开一个空白面板',
+  );
+  for (const component of ['FilesPanel', 'GithubPanel', 'TerminalPanel', 'GitHistoryPanel', 'WorkspaceSettingsPanel']) {
+    assert.ok(tableText.includes(`<${component}`), `${component} 必须由领域表渲染（而不是散在别处）`);
+  }
 
   assert.ok(PANEL.includes('initialSection = '), '文件面板接受 initialSection');
   assert.ok(PANEL.includes("if (section === 'viewer')"), 'viewer 定位');
@@ -234,13 +246,13 @@ test('Stage 4：对话面板内嵌设置层，设置面板收编语言/模式/�
   assert.ok(CHAT.includes('settingsOpen ? ('), '对话面板内嵌设置层');
   assert.ok(!CHAT.includes('<Modal'), '对话面板不再有 Modal');
 
-  assert.ok(SCREEN.includes('initialSection={filesSection}'), '深链 section 传给文件面板');
+  assert.ok(SCREEN.includes('initialSection={props.filesSection}'), '深链 section 传给文件面板');
   assert.ok(SCREEN.includes('setFilesSection(String(section'), 'openFiles 记录 section');
 });
 
 test('跨面板交接：GitHub 工作台 → 对话面板输入框', () => {
   assert.ok(SCREEN.includes('handoffToChat'), '单屏持有交接回调');
-  assert.ok(SCREEN.includes('onHandoff={handoffToChat}'), 'GitHub 面板接上交接');
+  assert.ok(SCREEN.includes('onHandoff={props.handoffToChat}'), 'GitHub 面板接上交接');
   assert.ok(SCREEN.includes('draft={draft}'), '草稿传给对话面板');
   assert.ok(SCREEN.includes("setPanel('chat')"), '交接后切到对话面板');
   assert.ok(CHAT.includes('consumedDraftRef'), '对话面板消费草稿（token 去重）');

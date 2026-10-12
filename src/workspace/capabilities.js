@@ -62,6 +62,31 @@ export const CAPABILITY_TITLE_KEY = 'workspace.capability.title';
 export const CAPABILITY_INTRO_KEY = 'workspace.capability.intro';
 export const CAPABILITY_LIMITS_TITLE_KEY = 'workspace.capability.limitsTitle';
 
+// 三类「按开关注册」的能力（shell / python / git）的**唯一判定**：工具清单与界面标志都从
+// 它派生。此前 shell/python 的判定在 activeWorkspaceTools 与 capabilityViewModel 里各写一遍，
+// 而 git 更糟——判定只存在于工具清单里，界面侧连标志都没有；一旦两处漂移，卡片就会说
+// 「开着」而工具根本不存在（:116 记的那次 shellAvailable 事故正是这一类）。
+// 与 native.js 的门控逐条对应：
+//   shell  ← shellGateReason（开关 + 可改模式 + 应用内根 + 原生模块可用）
+//   python ← pythonAgentGateReason（同上，换开关与原生桥）
+//   git    ← gitGateReason（开关 + 应用内根）。两处**有意的**差别：不要求可改模式（只读模式
+//            正好用来回看自己改过什么），也没有「原生模块不可用」这一层（isomorphic-git 是
+//            纯 JS，随包打进 bundle）。但模式总闸仍然管着它——ask 模式一个工具都不注册
+//            （见 workspace/agentToolSetup.js），所以这里要带上 modeOn，否则又会出现
+//            「卡片说开着、清单里没有」。
+function switchedCapabilities(source, { shellAvailable = false, pythonAvailable = false } = {}) {
+  const appRoot = !source.location || source.location.kind !== 'saf';
+  const writeMode = source.mode === 'write';
+  const modeOn = writeMode || source.mode === 'read';
+  return {
+    appRoot,
+    writeMode,
+    shell: writeMode && appRoot && source.allowCommandExecution === true && shellAvailable === true,
+    python: writeMode && appRoot && source.allowPythonExecution === true && pythonAvailable === true,
+    git: modeOn && appRoot && source.allowLocalGit === true,
+  };
+}
+
 // 当前生效的工具清单（用于界面如实列出「现在到底开了哪些」）。
 // settings 为归一化后的工作区设置；shellAvailable / pythonAvailable 表示原生模块是否可用。
 //
@@ -86,17 +111,18 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
   // run_remote_build 有远端副作用、export_workspace_docx 会写盘、三个写工具会改文件：仅 write。
   const tools = WORKSPACE_TOOL_NAMES
     .filter(name => writeMode || !WRITE_ONLY_WORKSPACE_TOOL_NAMES.includes(name));
-  const appRoot = !source.location || source.location.kind !== 'saf';
-  if (writeMode && appRoot && source.allowCommandExecution === true && shellAvailable) {
+  // 三个开关（shell / python / git）的判定只有一份，见 switchedCapabilities。
+  const gates = switchedCapabilities(source, { shellAvailable, pythonAvailable });
+  if (gates.shell) {
     tools.push(SHELL_TOOL_NAME);
   }
-  if (writeMode && appRoot && source.allowPythonExecution === true && pythonAvailable) {
+  if (gates.python) {
     tools.push(PYTHON_TOOL_NAME);
   }
-  // W7：本地版本控制（只读三件套）。条件必须与 native.js 的 gitGateReason **逐条一致**
-  //（开关 + 应用内根），否则卡片会说「开着」而注册表里没有它——这张卡片最该避免的误导。
-  // 不与模式耦合：read 模式下正好用来回看自己改过什么。
-  if (appRoot && source.allowLocalGit === true) {
+  // W7：本地版本控制（只读三件套）。条件必须与 native.js 的 gitGateReason 一致
+  //（开关 + 应用内根，不要求可改模式），否则卡片会说「开着」而注册表里没有它——
+  // 这张卡片最该避免的误导。
+  if (gates.git) {
     tools.push('git_status', 'git_diff', 'git_log');
   }
   // MCP（含内置 GitHub）：连上就有，read 模式给只读类、write 模式给全部——清单由调用方
@@ -111,13 +137,13 @@ export function activeWorkspaceTools(settings, { shellAvailable = false, pythonA
 // 界面用的渲染模型：把上面两段结构 + 当前状态拼成可直接渲染的键列表。
 // 不在这里做翻译，交给调用方用 t() 渲染（i18n 的单一来源仍在 locales）。
 //
-// enabled 两个标志必须与 activeWorkspaceTools 的**判断条件完全一致**（含原生可用性）：
-// 说明里写「开着」而工具清单里没有它，就是这张卡片最该避免的那种误导。
-// 早先 shellEnabled 漏了 shellAvailable 这一项，原生模块缺失时会说「开着」而工具不存在。
+// 三个 enabled 标志（shell / python / git）与 activeWorkspaceTools 的**判断条件完全同源**
+//（都来自 switchedCapabilities，含原生可用性与模式总闸）：说明里写「开着」而工具清单里没有
+// 它，就是这张卡片最该避免的那种误导。早先 shellEnabled 漏了 shellAvailable，原生模块缺失
+// 时会说「开着」而工具不存在；git 则连标志都没有（第三处平行定义）——两处都在本次收口。
 export function capabilityViewModel(settings, { shellAvailable = false, pythonAvailable = false, mcpToolNames = [] } = {}) {
   const source = settings && typeof settings === 'object' ? settings : {};
-  const appRoot = !source.location || source.location.kind !== 'saf';
-  const writeMode = source.mode === 'write';
+  const gates = switchedCapabilities(source, { shellAvailable, pythonAvailable });
   return {
     titleKey: CAPABILITY_TITLE_KEY,
     introKey: CAPABILITY_INTRO_KEY,
@@ -125,7 +151,10 @@ export function capabilityViewModel(settings, { shellAvailable = false, pythonAv
     limitsTitleKey: CAPABILITY_LIMITS_TITLE_KEY,
     limits: CAPABILITY_LIMITS.map(limit => ({ id: limit.id, labelKey: limit.labelKey })),
     tools: activeWorkspaceTools(source, { shellAvailable, pythonAvailable, mcpToolNames }),
-    shellEnabled: writeMode && appRoot && source.allowCommandExecution === true && shellAvailable === true,
-    pythonEnabled: writeMode && appRoot && source.allowPythonExecution === true && pythonAvailable === true,
+    shellEnabled: gates.shell,
+    pythonEnabled: gates.python,
+    // W7 第三处平行定义收口：git 与 shell/python 同一口径（此前只有工具清单里有判定，
+    // 界面侧拿不到标志，谁想在卡片上写「本地版本控制：开」都无从判断）。
+    gitEnabled: gates.git,
   };
 }

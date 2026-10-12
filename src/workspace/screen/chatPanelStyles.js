@@ -35,51 +35,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   searchInput: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12), marginLeft: 6, padding: 0 },
   searchCount: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 8 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingBottom: 8,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  title: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800' },
-  exitButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
+  // 顶栏 / 左栏（topBar、title、exitButton、rail、railItem、railLabel、railSpacer）的样式
+  // **不在这里**：单屏化之后它们是 WorkspaceScreen 自己的东西（那里有一份完整定义）。
+  // 这里曾照抄过一份，ChatPanel 一个都没用（`styles.topBar` / `styles.railItem` 在
+  // ChatPanel 里搜不到），纯死拷贝——两份同名样式漂移起来极难发现（改了不生效的那一份）。
+  // 只留 mainRow：ChatPanel 真的在用（它是「左栏 + 聊天列」那行，embedded 模式下左栏由
+  // WorkspaceScreen 提供，所以两边同形但各自持有）。
   mainRow: { flex: 1, flexDirection: 'row' },
-  rail: {
-    width: 76,
-    paddingTop: 10,
-    paddingHorizontal: 6,
-    borderRightWidth: tokens.border.thin,
-    borderRightColor: theme.colors.divider,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  railItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: tokens.radius.md,
-    marginBottom: 6,
-  },
-  railLabel: {
-    color: theme.colors.textMuted,
-    fontSize: fonts.scaled(10),
-    lineHeight: fonts.scaled(14),
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  // 预留位：把后续入口接在这里，保持左列重心在顶部。
-  railSpacer: { flex: 1 },
   chatColumn: { flex: 1 },
   filesLink: {
     flexDirection: 'row',
@@ -112,8 +74,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bubbleUser: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   bubbleAssistant: { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceBorder },
   bubbleError: { borderColor: theme.colors.danger || theme.colors.surfaceBorder },
-  // W1：历史压缩说明是「系统的动作」，不是模型说的话——虚线边框与普通气泡区分开。
-  bubbleCompaction: { borderColor: theme.colors.divider, borderStyle: 'dashed' },
+  // W1：压缩行（历史压缩说明 / 会话投影里的 compaction 行）是「系统的动作」，不是模型说的话
+  // ——虚线描边与普通气泡区分开。**这个键只定义一次**：此前文件里有两处 bubbleCompaction
+  //（一处只有颜色+虚线、另一处多了 borderWidth），JS 对象字面量后写者胜，所以第一处永远是
+  // 死代码——改它不生效，是最难查的那种「改了没反应」。
+  bubbleCompaction: { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, borderStyle: 'dashed' },
   bubbleText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
   statusBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 4 },
   statusText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginLeft: 6, flex: 1 },
@@ -196,8 +161,6 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   sendButtonDisabled: { opacity: 0.5 },
   stopButton: { backgroundColor: theme.colors.surfaceBorder },
-  // W1：压缩行（会话投影里的 compaction 行）用虚线描边区分于普通气泡。
-  bubbleCompaction: { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, borderStyle: 'dashed' },
 });
 
 

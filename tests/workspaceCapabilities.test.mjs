@@ -221,6 +221,59 @@ test('W7：开了本地版本控制且应用内根时，卡片如实列出三个
   assert.equal(activeWorkspaceTools({ mode: 'read' }).includes('git_status'), false, '开关关着不列');
 });
 
+// git 门控此前有**三处**平行定义（native.js 的 gitGateReason / 工具清单 / 界面标志），
+// 而界面侧那处根本不存在（只有 shell/python 两个标志）。现在三者同源：gitEnabled 与
+// 「清单里有没有 git_status」必须恒等，否则卡片会像当年 shellEnabled 那样说谎。
+test('capabilityViewModel：gitEnabled 与工具集口径一致（第三处平行定义已收口）', () => {
+  const on = { mode: 'read', allowLocalGit: true };
+  const model = capabilityViewModel(on, {});
+  assert.equal(model.gitEnabled, true);
+  assert.ok(model.tools.includes('git_status'));
+
+  const external = capabilityViewModel({ ...on, location: SAF_ROOT }, {});
+  assert.equal(external.gitEnabled, false, '外部根下不可用（与 gitGateReason 的 EXTERNAL_ROOT 一致）');
+  assert.equal(external.tools.includes('git_status'), false);
+
+  const off = capabilityViewModel({ mode: 'read' }, {});
+  assert.equal(off.gitEnabled, false, '开关关着不列');
+  assert.equal(off.tools.includes('git_status'), false);
+
+  // 不要求可改模式（read 模式正好用来回看自己改过什么），也不依赖原生模块
+  //（isomorphic-git 是纯 JS，没有「原生模块不可用」这一层）。
+  const readOnlyNoNative = capabilityViewModel(on, { shellAvailable: false, pythonAvailable: false });
+  assert.equal(readOnlyNoNative.gitEnabled, true);
+  // 但 ask 模式一个工具都不注册，标志也必须跟着灭。
+  const ask = capabilityViewModel({ mode: 'ask', allowLocalGit: true }, {});
+  assert.equal(ask.gitEnabled, false, 'ask 模式不注册任何工作区工具（agentToolSetup 的总闸）');
+  assert.deepEqual(ask.tools, []);
+});
+
+// 三个标志与工具清单**恒等**：这条断言把「说明说开着、清单里没有」这类漂移挡在门禁上，
+// 而不是等用户看到卡片在说谎。判定现在只有 switchedCapabilities 一份。
+test('capabilityViewModel：shell/python/git 三个标志与工具清单恒等（判定只许有一份）', () => {
+  const cases = [
+    { mode: 'write', location: APP_ROOT, allowCommandExecution: true, allowPythonExecution: true, allowLocalGit: true },
+    { mode: 'write', location: SAF_ROOT, allowCommandExecution: true, allowPythonExecution: true, allowLocalGit: true },
+    { mode: 'read', location: APP_ROOT, allowCommandExecution: true, allowPythonExecution: true, allowLocalGit: true },
+    { mode: 'ask', location: APP_ROOT, allowCommandExecution: true, allowPythonExecution: true, allowLocalGit: true },
+    { mode: 'write', location: APP_ROOT },
+    {},
+  ];
+  const availabilities = [
+    { shellAvailable: true, pythonAvailable: true },
+    { shellAvailable: false, pythonAvailable: false },
+  ];
+  for (const settings of cases) {
+    for (const availability of availabilities) {
+      const label = `${JSON.stringify(settings)} / ${JSON.stringify(availability)}`;
+      const model = capabilityViewModel(settings, availability);
+      assert.equal(model.shellEnabled, model.tools.includes('run_shell'), `shell 口径漂移：${label}`);
+      assert.equal(model.pythonEnabled, model.tools.includes('run_python'), `python 口径漂移：${label}`);
+      assert.equal(model.gitEnabled, model.tools.includes('git_status'), `git 口径漂移：${label}`);
+    }
+  }
+});
+
 test('2026-10-11：MCP 工具（含 GitHub）如实进能力卡清单（去重、跳过空名）', () => {
   const withMcp = activeWorkspaceTools(
     { mode: 'read' },
