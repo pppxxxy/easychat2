@@ -125,6 +125,10 @@ const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version |
 // （GitHub 之后），「关于」按用户预期殿底；语言移到关于之前（可发现性由搜索 + 默认展开保障）。
 const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'autoBackup', 'language', 'about'];
 
+// Android 的吸顶索引占位：必须是**同一个**冻结数组（稳定引用）。若写成每次渲染新建的
+// `[]`，这个 prop 每帧都算「变了」，同样会把 ScrollView 推进吸附路径。
+const NO_STICKY_HEADERS = Object.freeze([]);
+
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
 // 每项标注适用模型；只有选「自定义」才露出字段名输入框。
@@ -1409,9 +1413,19 @@ export default function SettingsScreen() {
 
   // 折叠头吸顶：只把「已收起」的卡设为 sticky（展开的卡较高，吸顶会遮挡其内容）。
   // 子节点顺序：0=页头，1..N=各卡（顺序见模块级 SECTION_RENDER_ORDER）。
-  const stickyHeaderIndices = SECTION_RENDER_ORDER
-    .map((id, index) => (isSectionOpen(id) ? null : index + 1))
-    .filter(value => value !== null);
+  //
+  // **只在 iOS 启用**（用户报告：切到设置界面即原生闪退）。Android 上 ScrollView 只要
+  // stickyHeaderIndices 非空就会走吸附路径：React.Children.toArray 重排子节点 key，且
+  // removeClippedSubviews 被迫关闭；在**同一次渲染里既换子节点又换该数组**时原生层闪退
+  // （facebook/react-native#25157，记忆页筛选/置顶触发过同一崩溃，见 MemoryScreen 的同款
+  // 门控）。本页进入时必然满足该条件：api / persona 先按「未配置」默认展开，随后几个
+  // async 加载把它们收起，language 卡则恒为展开——子节点与索引同时改。
+  const stickyHeaderIndices = useMemo(() => {
+    if (Platform.OS !== 'ios') return NO_STICKY_HEADERS;
+    return SECTION_RENDER_ORDER
+      .map((id, index) => (isSectionOpen(id) ? null : index + 1))
+      .filter(value => value !== null);
+  }, [sectionOpen, configs, activeId, userName, userPersona]);
 
   // 各卡片内容已拆到 settings/sections/*；这里汇总它们需要的状态与回调，
   // 一次展开传入，避免每张卡重复接线。

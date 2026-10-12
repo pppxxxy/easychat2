@@ -64,8 +64,12 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
 
   // 五处同步之 offsets：新卡必须登记 onLayout（滚动定位用）
   assert.ok(screen.includes('sectionOffsetsRef.current.localmodel'), '本地模型卡必须登记 onLayout 偏移');
-  // 吸顶索引由渲染顺序数组推导（自动跟随，禁止另写一份）
-  assert.ok(/stickyHeaderIndices = SECTION_RENDER_ORDER/.test(screen), '吸顶索引必须由 SECTION_RENDER_ORDER 推导');
+  // 吸顶索引由渲染顺序数组推导（自动跟随，禁止另写一份）。允许包在平台门控里
+  //（Android 必须走空数组，见文件末尾的 #25157 守卫），但推导源只能是同一份数组。
+  assert.ok(
+    /stickyHeaderIndices[\s\S]{0,400}?SECTION_RENDER_ORDER\n?\s*\.map\(/.test(screen),
+    '吸顶索引必须由 SECTION_RENDER_ORDER 推导',
+  );
 
   // 旧挂载点清理：关于卡不再含本地模型入口；新卡直连面板
   const about = read('src/settings/sections/AboutSection.js');
@@ -91,4 +95,35 @@ test('API 折叠头不再显示配置方名（2026-10-07 裁决），仅保留�
   const summaryText = /<Text style=\{styles\.collapseSummary\}[^>]*>\{([^}]*)\}<\/Text>/.exec(apiHead);
   assert.ok(summaryText && summaryText[1].includes('settings.summary.unconfigured'),
     'API 头唯一的摘要文本只允许「未配置」提示（配置名/模型名不得回流）');
+});
+
+// 吸顶索引的平台门控（2026-10-12，用户报告「切到设置界面即闪退」）。
+// 根因：Android 上 ScrollView 只要 stickyHeaderIndices 非空就会走吸附路径——RN 会
+// React.Children.toArray 重排子节点 key、并强制关闭 removeClippedSubviews；在**同一次渲染
+// 里既换子节点又换该数组**时原生层闪退（facebook/react-native#25157）。记忆页 2026-10-06
+// 已按此修过（943dbde1），设置页是当时唯一剩下的漏网处：进入时 api/persona 先按「未配置」
+// 默认展开，随后几个 async 加载把它们收起（language 恒展开），必然同时改动两者。
+test('吸顶索引只在 iOS 启用：设置页与记忆页都按平台门控，且 Android 分支用稳定引用', () => {
+  for (const file of ['src/SettingsScreen.js', 'src/MemoryScreen.js']) {
+    const source = read(file);
+    const at = source.indexOf('const stickyHeaderIndices');
+    assert.ok(at > 0, `${file} 应仍有 stickyHeaderIndices 派生值`);
+    const block = source.slice(at, at + 800);
+    assert.ok(
+      /Platform\.OS === 'ios'|Platform\.OS !== 'ios'/.test(block),
+      `${file}：stickyHeaderIndices 必须按平台门控（Android 走空数组），否则重蹈 #25157 原生闪退`,
+    );
+  }
+
+  const settings = read('src/SettingsScreen.js');
+  // 定义而不用 = 假修复：消费处必须真的接上这个派生值。
+  assert.ok(settings.includes('stickyHeaderIndices={stickyHeaderIndices}'), '设置页吸顶必须实际接线');
+  // Android 分支的返回值必须是**同一个**冻结数组：每渲染新建的 [] 会让该 prop 每帧都变。
+  assert.ok(
+    /const NO_STICKY_HEADERS = Object\.freeze\(\[\]\)/.test(settings),
+    '设置页需要一个模块级冻结的空数组常量（稳定引用）',
+  );
+  assert.ok(/Platform\.OS !== 'ios'\) return NO_STICKY_HEADERS/.test(settings),
+    'Android 分支必须返回该常量而不是新建的字面量数组',
+  );
 });
