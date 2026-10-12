@@ -37,7 +37,7 @@ test('上限常量就是 60 秒（文案「最多 60 秒」与代码必须同一
   assert.ok(MIN_DURATION_MS > 0 && MIN_DURATION_MS < MAX_DURATION_MS);
 });
 
-test('超限分支不得再 discardFile（丢内容的根因就是它）', () => {
+test('超限分支不得再 discardFile，且要把「因上限而停」如实带出去（不丢内容）', () => {
   // 取 classifyRecordingDuration 的注释块之后、stop 结束之前的源码，断言 discardFile 只
   // 出现在 tooShort 分支里。直接按分支切片，避免误伤注释里对 discardFile 的提及。
   const tooShortAt = SOURCE.indexOf("if (duration === 'tooShort')");
@@ -45,9 +45,40 @@ test('超限分支不得再 discardFile（丢内容的根因就是它）', () =>
   assert.ok(tooShortAt > 0 && tooLongAt > tooShortAt, '两个分支都在');
   const tooShortBranch = SOURCE.slice(tooShortAt, tooLongAt);
   assert.ok(tooShortBranch.includes('discardFile'), '过短仍然丢弃（那是用户没打算录）');
-  const tooLongBranch = SOURCE.slice(tooLongAt, SOURCE.indexOf('const uri = await persistVoiceFile'));
+  // 超限分支的切片：从 tooLong 判据到**正常路径**的落盘行。同一句在超限分支里也出现一次
+  // （缩进更深），所以按「行首 4 空格」锚定正常路径那一行；找不到边界时退化为整段源码。
+  const normalPersistAt = SOURCE.search(/\n {4}const uri = await persistVoiceFile\(sourceUri\);/);
+  const tooLongBranch = normalPersistAt > tooLongAt
+    ? SOURCE.slice(tooLongAt, normalPersistAt)
+    : SOURCE.slice(tooLongAt);
   assert.ok(!tooLongBranch.includes('discardFile'), '超限分支不得丢弃已录内容');
-  assert.ok(tooLongBranch.includes("throw new Error(t('chat.voice.error.tooLong'))"), '超限仍如实提示');
+  // 2026-10-12：超限分支此前是 throw（宿主进 catch ⇒ 已录内容白录），现改为**保留并返回**，
+  // 由 stoppedByLimit 让宿主提示「已到 60 秒上限，已自动停止并保留录音」。
+  assert.ok(!tooLongBranch.includes('throw new Error'), '超限不再抛错（抛错会把已录内容挡在 catch 里）');
+  assert.ok(tooLongBranch.includes('markStoppedByLimit(true)'), '标上「因上限而停」');
+  assert.ok(tooLongBranch.includes('persistVoiceFile(sourceUri)'), '超限同样落盘保留');
+  assert.ok(tooLongBranch.includes('stoppedByLimit: true'), '返回值带 stoppedByLimit');
+});
+
+test('接线：stoppedByLimit 从 hook 暴露给宿主（否则用户不知道「为什么突然停了」）', () => {
+  assert.ok(SOURCE.includes('const [stoppedByLimit, setStoppedByLimit] = useState(false);'), 'hook 里有这个状态');
+  assert.ok(SOURCE.includes('const stoppedByLimitRef = useRef(false);'), 'ref 供宿主在 stop() 返回后同步读');
+  assert.ok(SOURCE.includes('markStoppedByLimit(false);'), '每次 start 先清上一次的标志（否则手动停会被误报）');
+  assert.ok(SOURCE.includes('stoppedByLimit: stoppedByLimitRef.current'), '正常路径从 ref 现读（自动停止刚置位）');
+  assert.ok(SOURCE.includes('return { recording, available: true, start, stop, cancel, stoppedByLimit };'), '返回值暴露给宿主');
+
+  // 宿主提示接线：两个宿主都要在 stop() 之后提示，并复用同一对词条。
+  for (const host of ['src/ChatScreen.js', 'src/workspace/screen/ChatPanel.js']) {
+    const source = fs.readFileSync(path.resolve(host), 'utf8');
+    assert.ok(source.includes('audio.stoppedByLimit'), `${host} 读到了这个标志`);
+    assert.ok(source.includes("t('chat.voice.autoStop.title')"), `${host} 有可见提示`);
+  }
+  // 提示文案与上限同一口径，且中英都在（缺一边会被 i18n 一致性测试拦下）。
+  const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/chat.js'), 'utf8');
+  const en = fs.readFileSync(path.resolve('src/i18n/locales/en/chat.js'), 'utf8');
+  assert.ok(zh.includes("'chat.voice.autoStop.title': '已到 60 秒上限'"), '中文提示写明 60 秒上限');
+  assert.ok(en.includes("'chat.voice.autoStop.title': 'Reached the 60-second limit'"), '英文提示同步');
+  assert.ok(zh.includes("'chat.voice.autoStop.body'") && en.includes("'chat.voice.autoStop.body'"), '正文中英齐备');
 });
 
 test('接线：到 MAX_DURATION_MS 自动停止（经 ref 转发调 stop，拿得到 uri）', () => {

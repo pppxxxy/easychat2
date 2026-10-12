@@ -952,8 +952,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     </>
   );
 
-  // 文件面板（工作区单屏内的「文件」领域）：不自套 Modal、不自带顶栏——那是单屏的职责。
-  // 面板内二级层是铺满面板的 View（styles.layer）：全局唯一 Modal 在 WorkspaceScreen（守卫钉着）。
+  // 文件面板（工作区单屏内的「文件」领域）：不自套 Modal、不自带顶栏——那是单屏的职责；面板内二级层是铺满面板的 View（styles.layer），全局唯一 Modal 在 WorkspaceScreen（守卫钉着）。
   return (
     <View style={styles.root}>
       <View style={styles.container}>
@@ -1101,9 +1100,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
 
           {renderFileBrowser()}
 
-          {/* 「调参」折叠卡已删除：思考强度 + 上下文占用在对话面板的 ⚙ 设置里各有一行同款
-              可交互控件（同一份数据两处显示必然漂移），且它们是 agent 参数，放在「文件」
-              领域本身是范畴错误。收敛到单一来源（P4-2）。 */}
+          {/* 「调参」折叠卡已删除：思考强度 + 上下文占用在对话面板的 ⚙ 设置里各有一行同款可交互控件
+              （同一份数据两处显示必然漂移），且它们是 agent 参数，放在「文件」领域本身是范畴错误（P4-2）。 */}
           </>
           )}
         </ScrollView>
@@ -1289,7 +1287,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
           </View>
         ) : null}
 
+        {/* embedded：历史层由本面板渲染（不套 Modal）——工作区唯一的 Modal 在 WorkspaceScreen。 */}
         <FileHistorySheet
+          embedded
           visible={historyOpen}
           onClose={() => { setHistoryOpen(false); setHistoryPath(''); }}
           onOpenHistory={onOpenHistory}
@@ -1308,7 +1308,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  // root 不留内边距（否则绝对定位的二级层会被垫下去、露出下层正文）；layer = 面板内二级层。
+  // root 不留内边距（否则绝对定位的二级层会被垫下去、露出下层正文）；layer = 面板内二级层；overlay 见 FileHistorySheet。
   root: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 },
   layer: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.background },

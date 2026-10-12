@@ -473,6 +473,10 @@ export const chat = {
   'chat.voice.error.micPermission': '需要麦克风权限才能发送语音',
   'chat.voice.error.tooShort': '说话时间太短',
   'chat.voice.error.tooLong': '语音时长超限（最多 60 秒）',
+  // 到上限自动停止是**保留**录音（不丢内容），所以提示说的是「发生了什么 + 内容还在」，
+  // 不是报错。数字与 MAX_DURATION_MS 同一口径（60 秒）。
+  'chat.voice.autoStop.title': '已到 60 秒上限',
+  'chat.voice.autoStop.body': '录音已自动停止，已录内容会照常保留并发送。',
   'chat.voice.unavailable': '语音不可用',
   'chat.voice.stopA11y': '停止播放语音',
   'chat.voice.playA11y': '播放语音',

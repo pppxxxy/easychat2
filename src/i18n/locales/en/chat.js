@@ -474,6 +474,10 @@ export const chat = {
   'chat.voice.error.micPermission': 'Microphone permission is required to send voice messages',
   'chat.voice.error.tooShort': 'The recording is too short',
   'chat.voice.error.tooLong': 'Voice message exceeds the limit (max 60 seconds)',
+  // 到上限自动停止是**保留**录音（不丢内容），所以提示说的是「发生了什么 + 内容还在」，
+  // 不是报错。数字与 MAX_DURATION_MS 同一口径（60 秒）。
+  'chat.voice.autoStop.title': 'Reached the 60-second limit',
+  'chat.voice.autoStop.body': 'Recording stopped automatically; what you recorded is kept and will be sent as usual.',
   'chat.voice.unavailable': 'Voice unavailable',
   'chat.voice.stopA11y': 'Stop voice playback',
   'chat.voice.playA11y': 'Play voice message',

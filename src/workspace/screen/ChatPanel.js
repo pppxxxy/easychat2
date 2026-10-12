@@ -1063,6 +1063,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     setVoiceBusy(true);
     try {
       const audio = await recorder.stop();
+      // 到 60 秒上限是 hook 自动停的（用户没按停）：必须如实告知，否则用户只看到「突然停了」。
+      if (audio && audio.stoppedByLimit) {
+        Alert.alert(t('chat.voice.autoStop.title'), t('chat.voice.autoStop.body'));
+      }
       if (!audio || !audio.uri) return;
       // 语音转文字来源：走角色运行期解析层的单一入口（专属转写配置优先，失效回落全局；
       // 「复用聊天来源」这一档也跟着角色的专属聊天 API）。
@@ -1086,15 +1090,11 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   }, []);
 
   // I2：overrideText——批准链路带确认文本发起。判据必须是「是不是字符串」而不是「是不是 undefined」：
-  // 发送按钮是 onPress={handleSend}，RN 会把点击事件对象当第一实参传进来，它不是 undefined，
-  // String(事件) = "[object Object]"（工作区发啥都变成它）；非字符串一律当没传（用输入框内容）。
-  // 解析收敛到纯函数 resolveSendText（src/workspace/chat.js，有行为回归测试）——发送/草稿保护/`/compact`
-  // 三处判据共用同一实现，不再各处内联。
+  // onPress={handleSend} 会把点击事件对象当第一实参传进来（它不是 undefined，String(事件) =
+  // "[object Object]"）⇒ 非字符串一律当没传（用输入框内容）。解析收敛到纯函数 resolveSendText
+  // （src/workspace/chat.js，有行为回归测试）——发送/草稿保护/`/compact` 三处共用，不再各处内联。
   const handleSend = useCallback(async overrideText => {
-    // onPress={handleSend} 会把 press 事件当第一参传入；overrideText 只认**字符串**
-    // （批准链路传字符串）——其余（含事件对象）一律当「无覆盖」，用输入框内容。
-    // 文本解析收敛到纯函数 resolveSendText（src/workspace/chat.js，行为测试在
-    // tests/workspaceChat.test.mjs）；判据只在这里算一次，下面三处共用。
+    // overrideText 只认**字符串**（批准链路传字符串），其余（含 press 事件对象）一律当「无覆盖」。
     const hasOverride = typeof overrideText === 'string';
     const text = resolveSendText(overrideText, input);
     // N2：手动压缩命令 `/compact`（工作区会话）。

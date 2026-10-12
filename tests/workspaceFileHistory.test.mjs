@@ -243,9 +243,17 @@ test('J1 二期接线：文件面板打开「文件历史」，sheet 走 list/re
   assert.ok(panel.includes("setHistoryPath(''); setHistoryOpen(true);"), '工具栏有总览入口（路径为空 = 看全部有历史的文件）');
   assert.ok(panel.includes('path={historyPath}'), '把路径传给 sheet');
   assert.ok(panel.includes('visible={historyOpen}'), '开关与路径分开（总览时 path 为空但面板要开）');
+  // 2026-10-12：宿主改成 embedded 形态——文件面板自己不再间接挂 Modal（那是三层 z 轴堆叠的
+  // 复发路径，而 guard-structure 的面板判据是文件级的，看不见这层间接挂载）。
+  assert.ok(panel.includes('embedded\n          visible={historyOpen}'), '面板以 embedded 形态调用（不套 Modal）');
   assert.ok(panel.includes('onRestored={() => {'), '恢复后有回调（刷新列表 + 关掉过期预览）');
 
   const sheet = fs.readFileSync(path.resolve('src/workspace/FileHistorySheet.js'), 'utf8');
+  // embedded 形态：宿主容器渲染这一层，本组件不自套 Modal；visible=false 时整个不渲染
+  //（浮层是 absoluteFill，留着会吃掉宿主的点击）。
+  assert.ok(sheet.includes('embedded = false,'), 'sheet 有 embedded 档（默认 Modal 形态不变）');
+  assert.ok(sheet.includes('if (embedded) {') && sheet.includes('if (!visible) return null;'), 'embedded 且不可见时不渲染浮层');
+  assert.ok(sheet.includes('<Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>'), '默认形态仍是自套 Modal（其他宿主不受影响）');
   assert.ok(sheet.includes('listFileHistoryPaths(store, characterId)'), '总览走 listFileHistoryPaths');
   assert.ok(sheet.includes('listFileHistory(store, characterId, activePath'), '单文件走 listFileHistory');
   assert.ok(sheet.includes('restoreFileHistory(store, characterId, entry.id, { currentContent: current })'), '恢复走 restoreFileHistory 并带上当前内容（可逆）');

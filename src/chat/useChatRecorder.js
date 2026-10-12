@@ -50,6 +50,18 @@ export default function useChatRecorder() {
   const startedAtRef = useRef(0);
   // 到上限的自动停止计时器：手动停 / 取消 / 卸载都必须清掉，否则会对着已停的录音再停一次。
   const autoStopTimerRef = useRef(null);
+  // 「这一段是因为到 60 秒上限才停的」——宿主（ChatScreen / ChatPanel）据此给用户一条可见提示。
+  //
+  // 为什么要有这个标志：自动停止发生在 hook 里（没有 UI），用户看到的是「录音突然停了」而
+  // 没有任何解释；手动按停与到上限自动停走的是同一条 stop()，宿主分不出来。同时用 state 与
+  // ref：ref 供宿主在 stop() 返回后**同步**读（避免 setState 的批处理延迟），state 供需要时
+  // 参与渲染的宿主订阅。
+  const [stoppedByLimit, setStoppedByLimit] = useState(false);
+  const stoppedByLimitRef = useRef(false);
+  const markStoppedByLimit = useCallback(value => {
+    stoppedByLimitRef.current = value;
+    setStoppedByLimit(value);
+  }, []);
 
   const ensurePermission = useCallback(async () => {
     const lib = getAudioModule();
@@ -81,9 +93,11 @@ export default function useChatRecorder() {
     recorder.record();
     recorderRef.current = recorder;
     startedAtRef.current = Date.now();
+    // 新一段录音：先清上一次的「到上限」标志，否则宿主会把手动停也当成自动停来提示。
+    markStoppedByLimit(false);
     setRecording(true);
     return true;
-  }, [ensurePermission]);
+  }, [ensurePermission, markStoppedByLimit]);
 
   // 结束录音：返回落盘后的音频描述；过短则丢弃并抛错。
   const stop = useCallback(async () => {
@@ -110,13 +124,18 @@ export default function useChatRecorder() {
       await discardFile(sourceUri);
       throw new Error(t('chat.voice.error.tooShort'));
     }
-    // 超上限**不 discard**：只提示，已录内容照常落盘返回（见 classifyRecordingDuration 的说明）。
+    // 超上限**不 discard**，也不抛错：抛错会把宿主推进 catch 分支，已录内容就白录了。
+    // 标上 stoppedByLimit 让宿主如实告知（「已到 60 秒上限，已自动停止并保留录音」）。
+    // 正常路径走不到这里（计时器到点就自动停了）；计时器被后台/掉帧拖延时也不该删用户的整段话。
     if (duration === 'tooLong') {
-      throw new Error(t('chat.voice.error.tooLong'));
+      markStoppedByLimit(true);
+      const uri = await persistVoiceFile(sourceUri);
+      return { uri, durationMs: elapsed, mime: 'audio/m4a', stoppedByLimit: true };
     }
     const uri = await persistVoiceFile(sourceUri);
-    return { uri, durationMs: elapsed, mime: 'audio/m4a' };
-  }, [t]);
+    // stoppedByLimit 从 ref 现读：自动停止计时器可能刚刚才置位，state 还没刷新到这次闭包里。
+    return { uri, durationMs: elapsed, mime: 'audio/m4a', stoppedByLimit: stoppedByLimitRef.current };
+  }, [t, markStoppedByLimit]);
   // 自动停止要调 stop 本身（否则拿不到 uri、也走不到落盘），故经 ref 转发，避开 useCallback 的自引用。
   const stopRef = useRef(null);
   stopRef.current = stop;
@@ -132,6 +151,8 @@ export default function useChatRecorder() {
     const recorder = recorderRef.current;
     const timer = setTimeout(() => {
       autoStopTimerRef.current = null;
+      // 先置标志再停：stop() 会把这个标志原样带进返回值，宿主据此提示（顺序反了就读不到）。
+      markStoppedByLimit(true);
       // 手动停/取消已先跑过则 recorderRef 已清空，stop() 自行短路，不会二次停止。
       if (recorderRef.current === recorder) stopRef.current?.();
     }, MAX_DURATION_MS);
@@ -141,7 +162,7 @@ export default function useChatRecorder() {
       clearTimeout(timer);
       if (autoStopTimerRef.current === timer) autoStopTimerRef.current = null;
     };
-  }, [recording]);
+  }, [recording, markStoppedByLimit]);
 
   const cancel = useCallback(async () => {
     if (autoStopTimerRef.current) {
@@ -177,7 +198,7 @@ export default function useChatRecorder() {
     })();
   }, []);
 
-  return { recording, available: true, start, stop, cancel };
+  return { recording, available: true, start, stop, cancel, stoppedByLimit };
 }
 
 export { MIN_DURATION_MS, MAX_DURATION_MS };
