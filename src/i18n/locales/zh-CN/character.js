@@ -160,6 +160,10 @@ export const character = {
   'character.detail.world.hint': '按关键词在发送前注入提示词；点条目编辑，右侧开关控制启用。',
   'character.detail.world.empty': '暂无世界书条目。',
   'character.detail.world.entryFallback': '条目 {n}',
+  // 条目摘要（cardHelpers.worldEntryMeta 的 strings）：不传就退化成模块内的中文兜底，
+  // 英文界面会漏中文。'常驻' 复用早已写好却零消费的 character.editor.world.constant。
+  'character.detail.world.metaKeywords': '关键词：{keys}',
+  'character.detail.world.metaNoKeys': '未设置关键词',
   'character.detail.world.unsafeMeta': '{count} 个关键词疑似回溯，已跳过',
   'character.detail.world.add': '添加世界书条目',
   'character.detail.world.editTitle': '编辑世界书条目',
@@ -249,9 +253,12 @@ export const character = {
   'character.library.delete.detail.join': '、',
   'character.library.delete.detail.memories': '{count} 条记忆',
   'character.library.delete.detail.moments': '{count} 条动态',
-  'character.library.delete.fail.partialFull': '关联动态和记忆已删除，但角色删除失败，请重试。',
-  'character.library.delete.fail.partialMoments': '关联动态删除失败，角色未删除，请重试。',
-  'character.library.delete.fail.partialSessions': '关联动态已删除，但记忆删除失败，角色未删除，请重试。',
+  // 关联清理失败（删除顺序调整后：角色**已经删掉**，失败的是不可逆的清理那一步，
+  // 所以文案不能再说「角色未删除」——那是旧顺序下的状态，现在不可能出现）。
+  // 数据没丢：动态还在动态页、记忆还在记忆页，用户可手动删一次。
+  'character.library.delete.fail.cleanupBoth': '角色已删除，但关联动态与记忆清理失败（{reason}）。它们仍留在动态页与记忆页，可稍后手动删除。',
+  'character.library.delete.fail.cleanupMoments': '角色已删除，但关联动态清理失败（{reason}）。动态仍留在动态页，可稍后手动删除。',
+  'character.library.delete.fail.cleanupSessions': '角色已删除，但关联记忆清理失败（{reason}）。记忆仍留在记忆页，可稍后手动删除。',
   'character.library.delete.introBatch': '将删除选中的 {count} 个角色。',
   'character.library.delete.introSingle': '确定删除「{name}」吗？',
   'character.library.delete.onlyCharacter': '仅删角色',
@@ -317,4 +324,10 @@ export const character = {
   'character.overrides.transcription': '专属语音转文字 API',
   'character.overrides.missing': '所选配置（{id}）已不存在，本项已回落全局。请重新选择或改回「跟随全局」。',
   'character.overrides.saveFailed': '专属配置保存失败，请检查存储空间或权限。',
+  // 整表损坏（storage/characterOverrides.js 的 ForMutation 读）：写路径必须中止，
+  // 否则一次「改一项」会把该角色其余专属配置连同其他角色的一起清掉（P0-2）。
+  'character.overrides.readFailed': '专属配置读取失败，已中止保存以免该角色其余专属配置被清空，请稍后重试。',
+  // 界面读不出专属配置时**不能**渲染成「配过 0 项」：那会让用户以为没配过，
+  // 接着改一项就把原来配过的覆盖掉（P1-4）。
+  'character.overrides.loadFailed': '专属配置读取失败，为避免误覆盖，这里暂不显示、也不允许修改本角色的专属配置。请稍后重新进入本页。',
 };

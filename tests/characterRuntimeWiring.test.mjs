@@ -410,3 +410,22 @@ test('接线：角色编辑页装配了「专属配置」折叠区', () => {
   assert.ok(source.includes("from './CharacterOverridesSection.js'"), '必须引入专属配置组件');
   assert.ok(source.includes('<CharacterOverridesSection characterId='), '必须装配它并带上角色 id');
 });
+
+// P1-4 的结构回归锚。仓库没有组件渲染基建（react-native 在 Node 下 import 不进来），
+// 所以照 tests/uiSheet.test.mjs 的两层法：**行为**由 storage 侧的
+// getCharacterOverridesStatus 三态测试覆盖（tests/characterRuntimeConfig.test.mjs），
+// 这里只钉「界面不得再把读失败当成没配过」这个已修复的回归。
+test('P1-4 结构锚：专属配置读失败必须明说，不得当成「没配过」', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'src/character/CharacterOverridesSection.js'), 'utf8');
+  assert.ok(source.includes('getCharacterOverridesStatus(id)'), '必须走三态读（ok/missing/corrupt）');
+  assert.equal(
+    source.includes('getCharacterOverrides(id)'),
+    false,
+    '不得再用「读不到就 catch 成 null → 按空覆盖渲染」的旧写法（读失败会静默显示成「配过 0 项」）'
+  );
+  assert.ok(source.includes('if (loadFailed)'), '读失败必须走单独分支');
+  assert.ok(
+    source.includes("t('character.overrides.loadFailed')"),
+    '读失败必须渲染可见提示（与 saveFailed 同族），绝不静默留白'
+  );
+});

@@ -102,6 +102,17 @@ test('worldEntryMeta：常驻 / 关键词 / 内容摘要 / 未设置', () => {
   assert.equal(worldEntryMeta({}), '未设置关键词');
 });
 
+// 界面必须把 strings 传进来：不传就走上面那些中文兜底，英文界面会漏中文。
+// 常驻用的是早已写好却零消费的 character.editor.world.constant。
+test('worldEntryMeta：传 strings 时三条分支都走词条，不再漏中文兜底', () => {
+  const strings = { constant: 'Always on', keywords: 'Keys: {keys}', noKeys: 'No keys' };
+  assert.equal(worldEntryMeta({ constant: true }, strings), 'Always on');
+  assert.equal(worldEntryMeta({ keys: ['a', 'b'] }, strings), 'Keys: a、b');
+  assert.equal(worldEntryMeta({}, strings), 'No keys');
+  // 内容摘要本来就是数据本身，与语言无关，传 strings 也不该被替换
+  assert.equal(worldEntryMeta({ content: '  body  ' }, strings), 'body');
+});
+
 test('gridRowIndex：网格定位按行号折算（回归：numColumns 下半部分越界闪退）', () => {
   // 2 列：项序号 0..9 折成行 0..4；越界区（项序号 ≥ 行数）必须落在合法行内
   assert.equal(gridRowIndex(0, 2), 0);

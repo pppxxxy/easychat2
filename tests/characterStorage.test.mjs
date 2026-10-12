@@ -1745,6 +1745,29 @@ test('语音转文字设置：损坏时备份并抛错，不静默覆盖', async
   await assert.rejects(() => storage.getTranscriptionSettings(), /语音转文字设置读取失败/);
 });
 
+// 形状异常（status=ok 但值不是普通对象）与 corrupt **后果同族**：save 是整键覆盖，
+// 一次读失败/结构不对就会把用户配好的转写服务连同 API Key 引用一起清掉。
+// 所以读、写必须用**同一个**判据：getter 认为「这份数据不可用」时，守卫也绝不能认为「可写」
+// （先例 src/storage/settings/mcpServers.js:188-198：形状判据折进 status，读、写共用）。
+// 这里逐个形状钉住「两边都拒」+「盘上逐字节不变」。
+test('语音转文字设置：形状异常（null/数组/字符串/数字）时读与写都拒绝，盘上逐字节不变', async () => {
+  const storage = loadStorage();
+  for (const raw of ['null', '[]', '"just-a-string"', '42']) {
+    store.clear();
+    store.set('@easychat2_transcription', raw);
+    await assert.rejects(() => storage.getTranscriptionSettings(), /语音转文字设置读取失败/);
+    await assert.rejects(
+      () => storage.saveTranscriptionSettings({
+        activeId: 'stt-1',
+        configs: [{ id: 'stt-1', baseUrl: 'https://stt.test', apiKey: 'sk-secret-value' }],
+      }),
+      /语音转文字设置读取失败/,
+      `${raw}：形状异常时保存必须拒绝，不得整键覆盖`
+    );
+    assert.equal(store.get('@easychat2_transcription'), raw, `${raw}：拒绝写之后盘上必须逐字节不变`);
+  }
+});
+
 test('setSessionPinned：会话队列内读-改-写，保留并发新建的会话行', async () => {
   const storage = loadStorage();
   const first = await storage.startNewSession('character-pin');

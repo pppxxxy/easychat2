@@ -6,6 +6,10 @@
 // iOS 惯性滚动内容还会滑进 padding 区被裁。
 // 同时钉住：characterStyles.container 的 padding 是 CharacterDetailScreen 的
 // ScrollView 依赖，不许「顺手清理」。
+//
+// 2026-10 追加：characterStyles 是单个对象字面量，同键定义两次时**后键覆盖前键**，
+// 于是「indexOf 第一个匹配」式的样式断言会静默钉在死定义上（flex 与 characterCardName
+// 都发生过）。因此这里加了顶层键查重 + 按名字取定义体的取值器，样式断言一律走它。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,6 +33,62 @@ test('库列表 FlatList：style 无 padding 语义，内容内边距走 content
   assert.ok(!FLAT_LIST.includes('style={styles.container}'), '外框不得再挂带 padding 的 container（反模式回潮）');
 });
 
+// ---- characterStyles 是**单个对象字面量**：同名键后一份静默覆盖前一份 ----
+// 取顶层键名（2 空格缩进，嵌套键是 4 空格以上，注释行以 `//` 开头不会被 \w+ 命中）。
+function topLevelStyleNames(source) {
+  const names = [];
+  const re = /^ {2}([A-Za-z_$][\w$]*):/gm;
+  let match = re.exec(source);
+  while (match !== null) {
+    names.push(match[1]);
+    match = re.exec(source);
+  }
+  return names;
+}
+
+// 取某个顶层样式的定义体（单行定义取整行，多行定义取到 2 空格缩进的 `},`）。
+function topLevelStyleBody(source, name) {
+  const start = source.indexOf(`\n  ${name}: {`);
+  assert.ok(start > 0, `characterStyles 缺 ${name} 定义`);
+  const lineEnd = source.indexOf('\n', start + 1);
+  const firstLine = source.slice(start, lineEnd);
+  if (firstLine.includes('},')) return firstLine;
+  const end = source.indexOf('\n  },', start);
+  assert.ok(end > start, `${name} 的定义未按 2 空格缩进闭合（格式变了？）`);
+  return source.slice(start, end);
+}
+
+// P0-1 回归守卫（2026-10）：同键定义两次时，前一份是**死定义**，而下面那些
+// `STYLES.indexOf(...)` 式的断言会静默钉在死定义上，测试全绿而线上是错的。
+// 实发两例：flex（:7 死 / :13 生效）与 characterCardName（白字死 / 主题色生效）。
+test('characterStyles：顶层样式键不得重复（对象字面量后键覆盖前键，前一份是死定义）', () => {
+  const names = topLevelStyleNames(STYLES);
+  const seen = new Set();
+  const duplicated = [];
+  names.forEach(name => {
+    if (seen.has(name)) duplicated.push(name);
+    else seen.add(name);
+  });
+  assert.deepEqual(duplicated, [], `顶层样式键重复（后键会覆盖前键）：${duplicated.join('、')}`);
+  // 前置：正则确实读到了顶层键（失配时上面会「零重复」假绿）
+  assert.ok(names.includes('flex'), '前置：扫描必须能读到顶层键 flex');
+  assert.ok(names.includes('characterCardName'), '前置：扫描必须能读到顶层键 characterCardName');
+});
+
+// 名字唯一渲染在 CharacterLibraryScreen 的 characterCardNameOverlay 里，同处两段
+// 深色遮罩（rgba(12,12,24,…)）之内 ⇒ 必须是白字 + 描边阴影。曾被子键覆盖成
+// theme.colors.text，而 light 主题的 text 是 #1c1c2e（近黑字压深色遮罩，几乎读不出）。
+test('characterStyles：characterCardName 必须是深色遮罩上的白字（P0-1 回归）', () => {
+  const body = topLevelStyleBody(STYLES, 'characterCardName');
+  assert.ok(body.includes("color: '#ffffff'"), '名字压在深色遮罩上，必须白字（不得用 theme.colors.text）');
+  assert.ok(body.includes('textShadowColor'), '白字必须带描边阴影，否则亮头像上仍读不出');
+  assert.ok(!body.includes('theme.colors.text'), '不得回落到主题正文色');
+  // 前置：这个名字确实处在深色遮罩之下（否则上面的白字要求就失去前提）
+  assert.ok(/rgba\(12,\s*12,\s*24/.test(topLevelStyleBody(STYLES, 'characterCardScrimDeep')),
+    '前置：characterCardScrimDeep 应是深色遮罩');
+  assert.ok(SCREEN.includes('styles.characterCardNameOverlay'), '前置：渲染点在 characterCardNameOverlay 内');
+});
+
 test('characterStyles：listContent 含四向内边距（底 24 对齐记忆页）', () => {
   const start = STYLES.indexOf('listContent:');
   assert.ok(start > 0, 'characterStyles 缺 listContent 定义');
@@ -36,11 +96,13 @@ test('characterStyles：listContent 含四向内边距（底 24 对齐记忆页�
   assert.ok(line.includes('paddingHorizontal: 18'), '横向内边距 18（与旧版一致）');
   assert.ok(line.includes('paddingTop: 18'), '顶部内边距 18（承接旧版 frame padding）');
   assert.ok(line.includes('paddingBottom: 24'), '底部净空 24（对齐记忆页 listContent）');
-  // flex 外框：铺满 + 背景色，无任何 padding
-  const flexStart = STYLES.indexOf('flex: {');
-  assert.ok(flexStart > 0, 'characterStyles 缺 flex 外框定义');
-  const flexLine = STYLES.slice(flexStart, STYLES.indexOf('}', flexStart));
-  assert.ok(!flexLine.includes('padding'), 'flex 外框不得带 padding');
+  // flex 外框：铺满 + 背景色，无任何 padding。
+  // 这里必须钉在**生效**的那份定义上：此前 flex 定义过两次，`STYLES.indexOf('flex: {')`
+  // 命中的是前一份死定义，这条断言因此形同虚设。顶层键唯一性由上面的重复键守卫保证。
+  const flexBody = topLevelStyleBody(STYLES, 'flex');
+  assert.ok(flexBody.includes('flex: 1'), 'flex 外框必须铺满');
+  assert.ok(flexBody.includes('backgroundColor'), 'flex 外框必须带背景色');
+  assert.ok(!flexBody.includes('padding'), 'flex 外框不得带 padding');
 });
 
 test('container 的 padding 保留：CharacterDetailScreen 的 ScrollView 依赖它', () => {

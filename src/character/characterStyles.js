@@ -4,7 +4,6 @@
 import { Platform, StyleSheet } from 'react-native';
 
 export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create({
-  flex: { flex: 1, backgroundColor: theme.colors.background },
   // container 的 padding 被 CharacterDetailScreen 的 ScrollView 依赖，不能动；
   // 库列表（FlatList）走无 padding 的 flex 外框 + listContent 内容内边距
   // （padding 挂 style 是 RN 明确告诫的反模式：Android 静止时生效但 JS 滚动度量
@@ -477,6 +476,12 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     flexDirection: 'row',
     alignItems: 'center',
   },
+  // 名字压在封面上：**必须白字 + 描边阴影**，因为唯一渲染点
+  // （CharacterLibraryScreen 的 characterCardNameOverlay）就在
+  // characterCardScrim / characterCardScrimDeep 两段深色遮罩之内（rgba(12,12,24,…)）。
+  // 曾在这里被同名键覆盖成 theme.colors.text：浅色主题 text = #1c1c2e，
+  // 等于近黑字压深色遮罩，名字在浅色主题下几乎读不出来（P0-1）。
+  // 不要「顺手」把颜色改回 theme.colors.text——那正是被删掉的死定义。
   characterCardName: {
     color: '#ffffff',
     fontSize: 13,
@@ -529,24 +534,6 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     justifyContent: 'center',
     borderWidth: tokens.border.thin,
     borderColor: 'rgba(255,255,255,0.25)',
-  },
-  characterCardNameBar: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderTopWidth: tokens.border.thin,
-    borderTopColor: theme.colors.surfaceBorder,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  characterCardName: {
-    color: theme.colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-    maxWidth: '100%',
-    textShadowColor: theme.colors.primaryAlpha(0.15),
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   removeText: { color: theme.colors.dangerSoft, fontWeight: '700' },
 
