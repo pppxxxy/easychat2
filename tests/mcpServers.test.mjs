@@ -298,7 +298,7 @@ test('设置页接线：卡片 / sectionProps / 搜索索引 / i18n 中英齐', 
   assert.ok(section.includes("t('settings.mcp.add.action')"), '添加入口');
   assert.ok(section.includes("t('settings.mcp.riskHint')"), '安全边界明示');
   const search = fs.readFileSync(path.resolve('src/settings/searchIndex.js'), 'utf8');
-  assert.ok(search.includes("mcpservers: 'MCP 服务器'"), 'section 标签');
+  assert.ok(search.includes("mcpservers: 'settings.mcp.title'"), 'section 标签指向 i18n key');
   assert.ok(search.includes("sectionId: 'mcpservers'"), '搜索项');
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/settings.js'), 'utf8');
   const en = fs.readFileSync(path.resolve('src/i18n/locales/en/settings.js'), 'utf8');

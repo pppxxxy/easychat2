@@ -93,6 +93,14 @@ export const error = {
   'error.api.timeoutFirstByte': '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）',
   'error.api.timeoutIdle': '请求超时，请检查网络后重试',
   'error.api.timeoutNonstream': '等待响应超时（非流式请求需服务端算完整篇再回包），请检查网络或 API 地址，可稍后重试',
+  // 2026-10-12：AppContext 的不变量错误（此前是 23 处 `throw new Error('中文')`）。
+  // 「会话不存在」复用既有的 error.storage.sessionNotFound，不另造同义 key。
+  'error.app.charactersNotLoaded': '角色尚未加载完成',
+  'error.app.characterNotFound': '角色不存在',
+  'error.app.defaultCharacterUndeletable': '默认角色不可删除',
+  'error.app.noDeletableCharacters': '没有可删除的角色',
+  'error.app.sessionsNotLoaded': '会话尚未加载完成',
+  'error.app.providerMissing': 'useApp 必须在 AppProvider 内使用',
   'error.transcription.notConfigured': '未配置语音转写服务',
   'error.transcription.timeout': '转写请求超时，请检查网络后重试',
   'error.transcription.networkFailed': '转写请求失败，请检查网络',

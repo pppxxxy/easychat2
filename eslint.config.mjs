@@ -81,7 +81,8 @@ export default [
       'src/chat/useSessionMessages.js',
       'src/chat/useSessionSwitch.js',
       'src/ChatScreen.js',
-      'src/context/AppContext.js',
+      // 2026-10-12：src/context/AppContext.js 已迁出——23 处 `throw new Error('中文')`
+      // 全改 tActive（新增 error.app.* 词条；「会话不存在」复用 error.storage.sessionNotFound）。
       'src/DiagnosticsModal.js',
       'src/GroupEditForm.js',
       'src/imageGen/index.js',
@@ -186,6 +187,9 @@ export default [
       'src/navigation/routeNames.js',
       'src/plugins/registry.js',
       'src/prompt/chatPipeline.js',
+      // 2026-10-12：settings/searchIndex.js 的**标签**已全部迁走（label → labelKey，
+      // 复用卡片自己的 settings.<x>.* 键，分区名同理）。留在这里只剩 keywords——
+      // 那些是「用户会输入什么」的匹配词，中英混排、不该翻译。
       'src/settings/searchIndex.js',
       'src/workspace/assistant.js',
       'src/workspace/chat.js',
@@ -213,7 +217,9 @@ export default [
       'src/onboarding/disclaimerContent.js',
       'src/onboarding/onboardingContent.js',
       'src/plugins/providers.js',
-      'src/settings/presets.js',
+      // 2026-10-12：src/settings/presets.js 已迁出——导出常量只留 id + nameKey/descriptionKey，
+      // 名称/描述进 preset.builtin.* 词条；提示词搬到**未导出**的 BUILTIN_PROMPTS
+      //（模型输入，按铁律不进 i18n，规则本来也不查未导出常量）。
       'src/storage/characters/shared.js',
       'src/tts/providers.js',
       'src/vectorMemory/providers.js',

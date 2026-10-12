@@ -5,8 +5,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { GAMES } from '../src/games/games.js';
-import GLOBAL_PRESETS, { GLOBAL_PRESETS as NAMED } from '../src/settings/presets.js';
+import GLOBAL_PRESETS, {
+  GLOBAL_PRESETS as NAMED,
+  builtinGlobalPresets,
+  builtinPresetPrompts,
+} from '../src/settings/presets.js';
 import { isStaleReply } from '../src/chat/chatRace.js';
+import { localeSource } from './helpers/localeSource.mjs';
 
 test('内置游戏表：id 唯一、字段齐全、HTML 可渲染', () => {
   const ids = GAMES.map(game => game.id);
@@ -41,12 +46,37 @@ test('游戏清单：两款抽象名是刻意命名（规避版权风险），�
   assert.ok(source.includes('刻意抽象化的名字'), 'games.js 顶部应保留命名意图说明');
 });
 
-test('全局预设：id 唯一、字段齐全、默认导出与具名导出一致', () => {
+test('全局预设：id 唯一、成品字段齐全、默认导出与具名导出一致', () => {
   assert.equal(GLOBAL_PRESETS, NAMED);
   const ids = GLOBAL_PRESETS.map(preset => preset.id);
   assert.equal(new Set(ids).size, ids.length);
-  for (const preset of GLOBAL_PRESETS) {
+  for (const preset of builtinGlobalPresets()) {
     assert.ok(preset.name && preset.description && preset.prompt, preset.id);
+  }
+});
+
+test('内置预设的文案走 i18n，提示词不进词条表（模型输入不翻译）', () => {
+  // 导出常量只带 key：名称/描述是用户可见文案，必须随语言切换。
+  for (const def of GLOBAL_PRESETS) {
+    assert.ok(def.nameKey && def.descriptionKey, `${def.id} 需要 nameKey/descriptionKey`);
+    assert.equal(def.name, undefined, `${def.id} 不应把名称硬编码在导出常量里`);
+    assert.equal(def.prompt, undefined, `${def.id} 的提示词不得放进导出常量（会被当成待迁移文案）`);
+  }
+  // 提示词仍在（只是搬到了未导出的表里），且**不得**出现在任何语言包里。
+  const prompts = builtinPresetPrompts();
+  assert.equal(Object.keys(prompts).length, GLOBAL_PRESETS.length, '每条预设都要有提示词');
+  const zh = localeSource('src/i18n/locales/zh-CN');
+  const en = localeSource('src/i18n/locales/en');
+  assert.ok(!zh.includes(prompts.immersive), '提示词不得进 zh-CN 词条表');
+  assert.ok(!en.includes(prompts.immersive), '提示词不得进 en 词条表');
+  assert.ok(!en.includes(prompts.kaomoji.slice(0, 24)), '长提示词同样不得进词条表');
+  // 名称/描述则必须在两个语言包里都有（漏译会退回中文 key）。
+  const zhPreset = readFileSync(path.resolve('src/i18n/locales/zh-CN/preset.js'), 'utf8');
+  const enPreset = readFileSync(path.resolve('src/i18n/locales/en/preset.js'), 'utf8');
+  for (const def of GLOBAL_PRESETS) {
+    assert.ok(zhPreset.includes(`'${def.nameKey}'`), `zh-CN 缺 ${def.nameKey}`);
+    assert.ok(enPreset.includes(`'${def.nameKey}'`), `en 缺 ${def.nameKey}`);
+    assert.ok(enPreset.includes(`'${def.descriptionKey}'`), `en 缺 ${def.descriptionKey}`);
   }
 });
 

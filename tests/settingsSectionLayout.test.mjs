@@ -15,6 +15,7 @@ import path from 'node:path';
 import { localeSource } from './helpers/localeSource.mjs';
 
 import { SETTINGS_SEARCH_INDEX, settingsSectionLabel } from '../src/settings/searchIndex.js';
+import { translate } from '../src/i18n/index.js';
 
 const read = relativePath => fs.readFileSync(path.resolve(relativePath), 'utf8');
 
@@ -54,10 +55,12 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
   // 五处同步之搜索索引：sectionId 必须都在渲染顺序内，否则搜索跳错/吸顶错位
   for (const entry of SETTINGS_SEARCH_INDEX) {
     assert.ok(order.includes(entry.sectionId),
-      `搜索条目「${entry.label}」的 sectionId=${entry.sectionId} 必须在 SECTION_RENDER_ORDER 内`);
+      `搜索条目「${entry.labelKey}」的 sectionId=${entry.sectionId} 必须在 SECTION_RENDER_ORDER 内`);
   }
-  assert.equal(settingsSectionLabel('localmodel'), '本地模型', '搜索结果的分区名必须登记');
-  assert.ok(settingsSectionLabel('about'), '关于的分区名保留');
+  // 分区名走 i18n（labelKey），测试传 zh-CN 的 t 看译名。
+  const t = key => translate('zh-CN', key);
+  assert.equal(settingsSectionLabel('localmodel', t), '本地模型', '搜索结果的分区名必须登记');
+  assert.ok(settingsSectionLabel('about', t), '关于的分区名保留');
 
   // 五处同步之 offsets：新卡必须登记 onLayout（滚动定位用）
   assert.ok(screen.includes('sectionOffsetsRef.current.localmodel'), '本地模型卡必须登记 onLayout 偏移');

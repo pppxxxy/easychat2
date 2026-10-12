@@ -430,7 +430,7 @@ export default function SettingsScreen() {
   const [flashSection, setFlashSection] = useState('');
   const flashTimerRef = useRef(null);
 
-  const searchResults = useMemo(() => searchSettings(searchQuery), [searchQuery]);
+  const searchResults = useMemo(() => searchSettings(searchQuery, { t }), [searchQuery, t]);
 
   const navigateToSection = id => {
     toggleSection(id, true);
@@ -1608,13 +1608,13 @@ export default function SettingsScreen() {
                   <View style={styles.searchResults}>
                     {searchResults.map((item, index) => (
                       <TouchableOpacity
-                        key={`${item.sectionId}-${item.label}-${index}`}
+                        key={`${item.sectionId}-${item.labelKey}-${index}`}
                         style={styles.searchResultRow}
                         onPress={() => navigateToSection(item.sectionId)}
                         activeOpacity={0.75}
                       >
-                        <Text style={styles.searchResultLabel}>{item.label}</Text>
-                        <Text style={styles.searchResultSection}>{settingsSectionLabel(item.sectionId)}</Text>
+                        <Text style={styles.searchResultLabel}>{t(item.labelKey)}</Text>
+                        <Text style={styles.searchResultSection}>{settingsSectionLabel(item.sectionId, t)}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>

@@ -4,6 +4,14 @@ export const settings = {
   'settings.title': '设置',
   'settings.search.placeholder': '搜索设置项，例如：流式 / 温度 / 备份',
   'settings.search.empty': '没有找到匹配的设置项。',
+  // 2026-10-12：搜索索引里「没有现成卡片键可复用」的少数条目标签（其余标签一律复用卡片
+  // 自己的 settings.<x>.* 键，见 settings/searchIndex.js 的 labelKey）。
+  'settings.search.apiKey': 'API Key',
+  'settings.search.apiSaveDelete': '保存 / 删除配置',
+  'settings.search.personaName': '人设名称',
+  'settings.search.personaAvatar': '头像',
+  'settings.search.githubToken': 'GitHub 令牌',
+  'settings.search.pinHint': '密码提示',
   'settings.search.a11yOpen': '搜索设置项',
   'settings.search.a11yClose': '关闭设置搜索',
   'settings.experience.title': '对话体验',

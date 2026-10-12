@@ -49,6 +49,9 @@ import {
   withUpdatedCharacter,
 } from './characterLibrary.js';
 import { resolveActiveSessionId, sortSessions } from './sessionLibrary.js';
+// 不变量错误的文案走 i18n：这些错误会经 UI 的 catch 弹给用户（CharacterDetailScreen 等
+// 会把 error.message 直接显示），硬编码中文时英文用户看到中文。
+import { tActive } from '../i18n/index.js';
 import { materializeDefaultArtwork } from '../character/defaultCharacterAssets.js';
 import { ingestProactiveMessagesInto } from './proactiveIngest.js';
 
@@ -221,13 +224,13 @@ export function AppProvider({ children }) {
 
   const updateCharacter = useCallback(async patch => {
     if (!loadedRef.current) {
-      throw new Error('角色尚未加载完成');
+      throw new Error(tActive('error.app.charactersNotLoaded'));
     }
     const targetId = patch?.id || activeIdRef.current;
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
       if (!snapshot.list.some(item => item.id === targetId)) {
-        throw new Error('角色不存在');
+        throw new Error(tActive('error.app.characterNotFound'));
       }
       const { list, character } = withUpdatedCharacter(snapshot.list, targetId, patch);
       applyList(list);
@@ -238,7 +241,7 @@ export function AppProvider({ children }) {
 
   const switchCharacter = useCallback(async id => {
     if (!loadedRef.current) {
-      throw new Error('角色尚未加载完成');
+      throw new Error(tActive('error.app.charactersNotLoaded'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
@@ -248,7 +251,7 @@ export function AppProvider({ children }) {
         Date.now()
       );
       if (!found) {
-        throw new Error('角色不存在');
+        throw new Error(tActive('error.app.characterNotFound'));
       }
       if (id === snapshot.activeId) return character;
       applyList(list);
@@ -261,7 +264,7 @@ export function AppProvider({ children }) {
 
   const addCharacter = useCallback(async character => {
     if (!loadedRef.current) {
-      throw new Error('角色尚未加载完成');
+      throw new Error(tActive('error.app.charactersNotLoaded'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
@@ -278,16 +281,16 @@ export function AppProvider({ children }) {
 
   const deleteCharacter = useCallback(async (id, options = {}) => {
     if (!loadedRef.current) {
-      throw new Error('角色尚未加载完成');
+      throw new Error(tActive('error.app.charactersNotLoaded'));
     }
     if (id === DEFAULT_CHARACTER.id) {
-      throw new Error('默认角色不可删除');
+      throw new Error(tActive('error.app.defaultCharacterUndeletable'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
       const result = withDeletedCharacter(snapshot.list, id, snapshot.activeId);
       if (!result.removed) {
-        throw new Error('角色不存在');
+        throw new Error(tActive('error.app.characterNotFound'));
       }
       applyList(result.list);
       activeIdRef.current = result.activeId;
@@ -306,13 +309,13 @@ export function AppProvider({ children }) {
 
   const pinCharacter = useCallback(async (id, pinned) => {
     if (!loadedRef.current) {
-      throw new Error('角色尚未加载完成');
+      throw new Error(tActive('error.app.charactersNotLoaded'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
       const result = withPinnedCharacter(snapshot.list, id, pinned);
       if (!result.found) {
-        throw new Error('角色不存在');
+        throw new Error(tActive('error.app.characterNotFound'));
       }
       applyList(result.list);
       await runWithRollback(snapshot, restore, () =>
@@ -324,19 +327,19 @@ export function AppProvider({ children }) {
 
   const deleteCharacters = useCallback(async (ids, options = {}) => {
     if (!loadedRef.current) {
-      throw new Error('角色尚未加载完成');
+      throw new Error(tActive('error.app.charactersNotLoaded'));
     }
     const list = (Array.isArray(ids) ? ids : []).map(String)
       .filter(id => id && id !== DEFAULT_CHARACTER.id);
     if (list.length === 0) {
-      throw new Error('没有可删除的角色');
+      throw new Error(tActive('error.app.noDeletableCharacters'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotState();
       // 默认角色不可删，删掉其余全部角色后仍会保留默认角色，因此这里不再拦截“全选删除”。
       const result = withDeletedCharacters(snapshot.list, list, snapshot.activeId);
       if (result.removedCount === 0) {
-        throw new Error('角色不存在');
+        throw new Error(tActive('error.app.characterNotFound'));
       }
       applyList(result.list);
       activeIdRef.current = result.activeId;
@@ -464,7 +467,7 @@ export function AppProvider({ children }) {
 
   const ensureCharacterSession = useCallback(async (characterId, opening = null) => {
     if (!loadedRef.current) {
-      throw new Error('会话尚未加载完成');
+      throw new Error(tActive('error.app.sessionsNotLoaded'));
     }
     return enqueueMutation(async () => {
       const targetId = String(characterId || '');
@@ -515,13 +518,13 @@ export function AppProvider({ children }) {
 
   const switchSession = useCallback(async id => {
     if (!loadedRef.current) {
-      throw new Error('会话尚未加载完成');
+      throw new Error(tActive('error.app.sessionsNotLoaded'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotSessions();
       const target = snapshot.sessions.find(session => session.id === id);
       if (!target) {
-        throw new Error('会话不存在');
+        throw new Error(tActive('error.storage.sessionNotFound'));
       }
       if (id === snapshot.activeSessionId) return target;
       applyActiveSessionId(id);
@@ -532,12 +535,12 @@ export function AppProvider({ children }) {
 
   const pinSession = useCallback(async id => {
     if (!loadedRef.current) {
-      throw new Error('会话尚未加载完成');
+      throw new Error(tActive('error.app.sessionsNotLoaded'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotSessions();
       if (!snapshot.sessions.some(session => session.id === id)) {
-        throw new Error('会话不存在');
+        throw new Error(tActive('error.storage.sessionNotFound'));
       }
       try {
         // 交给存储层在会话队列内读-改-写：用内存旧快照整表覆盖会打回并发写入
@@ -558,12 +561,12 @@ export function AppProvider({ children }) {
 
   const cloneSession = useCallback(async id => {
     if (!loadedRef.current) {
-      throw new Error('会话尚未加载完成');
+      throw new Error(tActive('error.app.sessionsNotLoaded'));
     }
     return enqueueMutation(async () => {
       const snapshot = snapshotSessions();
       if (!snapshot.sessions.some(session => session.id === id)) {
-        throw new Error('会话不存在');
+        throw new Error(tActive('error.storage.sessionNotFound'));
       }
       const copy = await cloneSessionStorage(id);
       applySessions([...sessionsRef.current, copy]);
@@ -573,7 +576,7 @@ export function AppProvider({ children }) {
 
   const deleteSession = useCallback(async id => {
     if (!loadedRef.current) {
-      throw new Error('会话尚未加载完成');
+      throw new Error(tActive('error.app.sessionsNotLoaded'));
     }
     return enqueueMutation(async () => {
       try {
@@ -592,7 +595,7 @@ export function AppProvider({ children }) {
 
   const deleteSessions = useCallback(async (ids, excludedCharacterIds = []) => {
     if (!loadedRef.current) {
-      throw new Error('会话尚未加载完成');
+      throw new Error(tActive('error.app.sessionsNotLoaded'));
     }
     const targets = (Array.isArray(ids) ? ids : [])
       .map(id => String(id || ''))
@@ -732,7 +735,7 @@ export function AppProvider({ children }) {
 export function useApp() {
   const ctx = useContext(AppContext);
   if (!ctx) {
-    throw new Error('useApp 必须在 AppProvider 内使用');
+    throw new Error(tActive('error.app.providerMissing'));
   }
   return ctx;
 }

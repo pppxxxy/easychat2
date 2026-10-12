@@ -37,4 +37,25 @@ export const preset = {
   'preset.memory.configDefault': '默认（当前接口）',
   'preset.memory.maxEntriesLabel': '长记忆保留上限（条）',
   'preset.memory.title': '记忆总结',
+  // 2026-10-12：9 条内置全局预设的名称与描述（此前硬编码在 settings/presets.js 的导出
+  // 常量里，英文用户看到中文）。**提示词不在这里**——它是发给模型的输入，按仓库铁律
+  // 不翻译（见 tests/i18n.test.mjs 的「不翻译提示词」断言）。
+  'preset.builtin.immersive.name': '沉浸扮演',
+  'preset.builtin.immersive.description': '始终以角色身份和世界观回应，不跳出角色。',
+  'preset.builtin.noUserAct.name': '不代替我发言',
+  'preset.builtin.noUserAct.description': '不替用户说话或行动，只描写角色与环境的反应。',
+  'preset.builtin.richSenses.name': '增强感官描写',
+  'preset.builtin.richSenses.description': '加入视觉、听觉、触觉、气味等细节，让场景更生动。',
+  'preset.builtin.noRepeat.name': '不复述不总结',
+  'preset.builtin.noRepeat.description': '不复述或改写用户内容，直接推进剧情。',
+  'preset.builtin.concise.name': '控制篇幅',
+  'preset.builtin.concise.description': '每次回复控制在一到三段，避免冗长。',
+  'preset.builtin.paragraphs.name': '自然分段',
+  'preset.builtin.paragraphs.description': '让对白与叙述合理分段，不要把文字挤成一坨。',
+  'preset.builtin.zhCn.name': '始终简体中文',
+  'preset.builtin.zhCn.description': '无论输入使用何种语言，始终用简体中文回复。',
+  'preset.builtin.characterState.name': '角色状态',
+  'preset.builtin.characterState.description': '在每次回复末尾附带角色的心情、好感度与内心想法。',
+  'preset.builtin.kaomoji.name': '颜文字',
+  'preset.builtin.kaomoji.description': '根据语境与角色性格，自然地搭配可爱的颜文字。',
 };

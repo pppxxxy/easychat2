@@ -2,7 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import GLOBAL_PRESETS from '../settings/presets.js';
+import { builtinGlobalPresets } from '../settings/presets.js';
 import { tActive } from '../i18n/index.js';
 import { backupCorruptValue, readJsonStatus } from './io.js';
 
@@ -35,10 +35,10 @@ function normalizePresetList(presets) {
 
 export async function getGlobalPresets() {
   const stored = await readJsonStatus(PRESET_LIST_KEY);
-  if (stored.status === 'missing') return GLOBAL_PRESETS.map(normalizePreset);
+  if (stored.status === 'missing') return builtinGlobalPresets().map(normalizePreset);
   if (stored.status === 'corrupt') {
     await backupCorruptValue(PRESET_LIST_KEY);
-    return GLOBAL_PRESETS.map(normalizePreset);
+    return builtinGlobalPresets().map(normalizePreset);
   }
   try {
     return normalizePresetList(stored.value);
@@ -56,7 +56,7 @@ export async function getGlobalPresets() {
       } catch (entryError) {}
     });
     await backupCorruptValue(PRESET_LIST_KEY);
-    return kept.length > 0 ? kept : GLOBAL_PRESETS.map(normalizePreset);
+    return kept.length > 0 ? kept : builtinGlobalPresets().map(normalizePreset);
   }
 }
 

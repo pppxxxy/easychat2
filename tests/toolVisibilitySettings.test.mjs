@@ -43,8 +43,9 @@ test('设置分区接线：卡片存在、由扩展分区渲染、清单从 chat
 
 test('设置搜索能命中「工具提示」并指向扩展分区（否则折叠卡里翻不到）', () => {
   const index = read('src/settings/searchIndex.js');
-  assert.ok(index.includes("label: '工具使用提示'"), '搜索索引必须收录本分区');
-  assert.ok(/sectionId: 'extensions', label: '工具使用提示'/.test(index), '必须挂在扩展分区下');
+  // 标签走 i18n key（2026-10-12 收敛）：索引里认键，措辞在 settings 词条里。
+  assert.ok(index.includes("labelKey: 'settings.toolNotice.sectionTitle'"), '搜索索引必须收录本分区');
+  assert.ok(/sectionId: 'extensions', labelKey: 'settings\.toolNotice\.sectionTitle'/.test(index), '必须挂在扩展分区下');
   assert.ok(index.includes("'隐藏工具'"), '关键词要覆盖用户会输入的词');
 });
 
