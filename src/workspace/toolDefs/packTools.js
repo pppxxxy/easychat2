@@ -2,6 +2,11 @@
 //
 // export_extension_pack：只读——收集工作区扩展，返回包的 JSON 文本（模型可自行写文件分享）。
 // install_extension_pack：可写——把包里的扩展文件写入工作区（默认不覆盖已有）。
+//
+// 为什么 install_extension_pack 必须逐条确认（requiresConfirmation）：
+// 包里能带 `.easychat/hooks.json`，而它的 before_tool / before_prompt 是**工具前门与
+// 提示词注入面**——装一个来源不明的包 = 让第三方改写「哪些工具能被拦下」以及往
+// 系统提示里塞指令。这与 run_shell / git_discard 同级，属于必须让用户看着原文点头的动作。
 
 import { collectWorkspacePack, installWorkspacePack, serializePack } from '../packs.js';
 
@@ -36,8 +41,13 @@ export const INSTALL_PACK_TOOL_DEFINITION = {
   name: 'install_extension_pack',
   description: '安装一个扩展包（export_extension_pack 产出的 JSON）：把其中的 skills / commands / '
     + 'agents / teams / hooks 文件写入工作区。默认**不覆盖**已存在的同名文件（幂等）；'
-    + '要覆盖传 overwrite=true。pack 可以是 JSON 字符串或对象。',
+    + '要覆盖传 overwrite=true。安装会改写工作区扩展，其中 hooks.json 会介入工具调用与系统提示，'
+    + '所以每次安装都会先请用户确认；审计/快照等受保护路径会被拒绝并如实报错。'
+    + 'pack 可以是 JSON 字符串或对象。',
   readOnly: false,
+  // 写 .easychat/hooks.json 等扩展文件 = 改写工具前门与提示词注入面，
+  // 必须像 run_shell / run_python / git_discard 一样逐条确认（见文件头说明）。
+  requiresConfirmation: true,
   // 批量写扩展文件：可能超过默认 15s 兜底，显式声明更长超时。
   timeoutMs: 60000,
   parameters: {

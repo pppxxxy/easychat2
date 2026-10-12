@@ -71,6 +71,65 @@ test('isPrivateHost：空主机名视为不可信', () => {
   assert.equal(isPrivateHost('example.com'), false);
 });
 
+// P0 回归（2026-10-12）：内网判定必须**先归一化再判网段**，不能靠字面前缀正则。
+//
+// 事故形态：旧实现是 13 条 `^127\.` / `^f[cd][0-9a-f]{2}:` 之类的字面正则。
+// `[::ffff:127.0.0.1]` 去方括号后是 `::ffff:127.0.0.1`——既不以 fc/fd 开头、
+// 也不匹配 `^127\.`，于是**放行**；整数形式 2130706433、八进制 0177.0.0.1 同理。
+// 这些写法都足以探测用户内网，包括本应用自己的 127.0.0.1 本地 API 服务（fail-open）。
+test('P0 回归：内网判定认写法归一（IPv4 整数/八进制/十六进制、::ffff: 映射、展开 IPv6）', () => {
+  const bypasses = [
+    'http://[::ffff:127.0.0.1]/',
+    'http://2130706433/',
+    'http://0177.0.0.1/',
+    'http://[::ffff:7f00:1]/',
+    'http://0x7f.0.0.1/',
+    'http://127.1/',
+    'http://[0:0:0:0:0:0:0:1]/',
+    'http://[::1]:8080/x',
+    'http://[::ffff:192.168.1.1]/',
+    'http://[fc00::1]/',
+    'http://[fe80::1]/',
+    'http://[::]/',
+    'http://localhost./',
+    'http://10.0.0.1/',
+    'http://1.2.3.4.5/', // 看着像数字地址却解析不出来 → fail-closed
+    'http://08.1.1.1/', // 前导 0 后跟 8（非法八进制）→ 不猜十进制，fail-closed
+  ];
+  for (const url of bypasses) {
+    const result = normalizeFetchUrl(url);
+    assert.equal(result.ok, false, `${url} 必须被拒绝`);
+    assert.equal(result.reason, 'private', `${url} 应按私有地址拒绝`);
+  }
+
+  // 归一化后的形态要能被看见（白名单比对与错误文案都靠它）：
+  // 同一个地址的两种写法（点分十进制 / 十六进制段）必须折成同一个 host。
+  assert.equal(normalizeFetchUrl('http://0x08080808/').host, '8.8.8.8');
+  assert.equal(normalizeFetchUrl('http://[::ffff:8.8.8.8]/').host, '::ffff:808:808');
+  assert.equal(
+    normalizeFetchUrl('http://[::ffff:8.8.8.8]/').host,
+    normalizeFetchUrl('http://[::ffff:808:808]/').host,
+    'IPv4 映射的两种写法是同一个地址'
+  );
+  assert.equal(isPrivateHost('::ffff:7f00:1'), true, '归一化形态直接判定也要拦住');
+  assert.equal(isPrivateHost('2130706433'), true);
+  assert.equal(isPrivateHost('router.local.'), true, '尾点写法是同一个名字');
+  assert.equal(isPrivateHost('2606:4700::1111'), false);
+
+  // 反向断言：公网地址不得被过度拦截（守卫收紧后最容易犯的错是「一律拒绝」）。
+  const allowed = [
+    'http://8.8.8.8/',
+    'http://172.32.0.1/',
+    'https://example.com/',
+    'http://[2606:4700:4700::1111]/',
+    'http://198.51.100.7:8080/x',
+    'http://[::ffff:8.8.8.8]/',
+  ];
+  for (const url of allowed) {
+    assert.equal(normalizeFetchUrl(url).ok, true, `${url} 是公网地址，不得被拦截`);
+  }
+});
+
 test('域名白名单：为空放行；配置后只放行命中域名（含子域）', () => {
   assert.deepEqual(parseAllowedDomains(''), []);
   assert.deepEqual(parseAllowedDomains('a.com, b.com；c.com d.com'), ['a.com', 'b.com', 'c.com', 'd.com']);
@@ -129,6 +188,12 @@ test('runWebFetch：准入失败在发请求之前抛错（本机 / 白名单外
   // 我们自己的错误文案——顺序不变量因此可测。
   await assert.rejects(
     () => runWebFetch({ url: 'http://127.0.0.1:8080/secret' }),
+    error => error.fetchReason === 'private'
+  );
+  // 归一化写法同样必须在发请求之前被拦下（Node 里没有 XMLHttpRequest，
+  // 顺序错了这里会以 ReferenceError 失败，而不是悄悄发出一次内网请求）。
+  await assert.rejects(
+    () => runWebFetch({ url: 'http://[::ffff:127.0.0.1]/secret' }),
     error => error.fetchReason === 'private'
   );
   await assert.rejects(
