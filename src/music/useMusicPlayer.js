@@ -9,6 +9,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+// 锁屏/通知栏媒体标题的兜底文案走 i18n：它是**系统界面可见**的，
+// 硬编码中文会在英文系统的通知栏里显示中文。用 tActive 同步取词（非 hook 上下文也可用）。
+import { tActive } from '../i18n/index.js';
 
 const UPDATE_INTERVAL_MS = 100;
 
@@ -88,8 +91,11 @@ export function useMusicPlayer() {
     // 每次载入都重新应用倍速：replace 之后播放器的 rate 会回到 1。
     applyRate(player);
     try {
-      // 锁屏媒体控制 + 前台服务保活；title 缺失时用文件名兜底。
-      player.setActiveForLockScreen(true, { title: String(item.name || '正在播放') });
+      // 锁屏媒体控制 + 前台服务保活；title 缺失时用 i18n 的「正在播放」兜底
+      // （系统通知栏/锁屏直接显示这个标题，必须随界面语言）。
+      player.setActiveForLockScreen(true, {
+        title: String(item.name || tActive('music.player.nowPlayingFallback')),
+      });
     } catch (error) {}
     if (autoPlay) {
       try {

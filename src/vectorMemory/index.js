@@ -83,7 +83,8 @@ export function chunkMessages(messages, options = {}) {
 }
 
 function createVectorAbortError() {
-  const error = new Error('向量请求已中断');
+  // 用户主动取消：canceled=true 让调用方静默处理（不弹错误提示）。
+  const error = new Error(tActive('error.vectorMemory.aborted'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -98,13 +99,13 @@ function xhrPostJson({ url, headers, body, timeoutMs, signal = null }) {
     signal,
     timeoutMs,
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    onTimeoutError: () => new Error('向量请求超时'),
+    onTimeoutError: () => new Error(tActive('error.vectorMemory.timeout')),
     onAbortError: () => createVectorAbortError(),
-    onAbortEventError: () => new Error('向量请求已中断'),
-    onNetworkError: () => new Error('向量服务网络请求失败'),
+    onAbortEventError: () => new Error(tActive('error.vectorMemory.aborted')),
+    onNetworkError: () => new Error(tActive('error.vectorMemory.networkFailed')),
     onHttpError: status => new Error(mapEmbeddingError(status)),
     parse: xhr => JSON.parse(xhr.responseText || '{}'),
-    onParseError: () => new Error('向量服务返回无法解析'),
+    onParseError: () => new Error(tActive('error.vectorMemory.unparseableResponse')),
   });
 }
 

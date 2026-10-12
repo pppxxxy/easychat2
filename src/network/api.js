@@ -22,7 +22,7 @@ import { tActive } from '../i18n/index.js';
 import { trimMessagesToContext } from '../localModel/localContext.js';
 // 超时策略（纯函数，见 requestTimeout.js）：首字节 / 空闲 / 非流式三档。流式未吐字放宽，
 // 非流式（压缩摘要/记忆总结/制卡）另给阈值——它没有「首字节」这回事。
-import { isFirstBytePhase, timeoutMessage, timeoutMsFor, timeoutPhase } from './requestTimeout.js';
+import { isFirstBytePhase, timeoutMsFor, timeoutPhase } from './requestTimeout.js';
 // 参数被拒判定（400/422）：见 requestErrors.js——它决定 400/422 是否可降级换模型。
 import { isParamRejectedError } from './requestErrors.js';
 // P0-7 下半：降级链的判定层（纯函数，见同目录 fallbackModels.js）。
@@ -42,8 +42,8 @@ export function trimOnlineMessages(messages, { contextWindow = 0, reserveOutputT
   return result.removedCount > 0 ? result.messages : list;
 }
 
-// 接口没有收到内容时的占位文本。调用方可用它区分“真的没回复”，
-// 避免把这段占位当成角色的真实回复（例如写入动态评论）。
+// 接口没有收到内容时的占位文本。调用方用**相等比较**识别它（useBookComments.js、
+// runDiary.js 等），故不能改走 tActive——生成时中文、比较时英文会漏判。
 export const EMPTY_REPLY_TEXT = '没有收到回复。';
 // 旧版哨兵文案：isConfigChangedError 仍兼容匹配它（老会话/旧调用方抛出的实例）。
 export const CONFIG_CHANGED_ERROR = '模型来源已切换，请重新发送';
@@ -177,11 +177,11 @@ export function normalizeAssistantContent(value) {
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   // 复用共享错误解析：error.message + metadata.raw（OpenRouter 上游真凶）。
-  return describeErrorPayload(payload.error) || '接口返回错误。';
+  return describeErrorPayload(payload.error) || tActive('error.api.responseError');
 }
 
 export function createAbortError() {
-  const error = new Error('已停止生成。');
+  const error = new Error(tActive('error.api.aborted'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -533,7 +533,7 @@ async function requestOnce(messages, options, attempt) {
           return;
         }
         if (!sawPayloadData && parseFailures > 0) {
-          fail(new Error('接口返回了无法解析的内容。'));
+          fail(new Error(tActive('error.api.unparseableResponse')));
           xhr.abort();
           return;
         }
@@ -549,7 +549,8 @@ async function requestOnce(messages, options, attempt) {
       const phase = timeoutPhase({ stream, sawFirstByte });
       const waitingFirstByte = isFirstBytePhase(phase);
       idleTimer = setTimeout(() => {
-        const timeoutError = new Error(timeoutMessage(phase));
+        const timeoutError = new Error(tActive(phase === 'nonstream' ? 'error.api.timeoutNonstream'
+          : (phase === 'idle' ? 'error.api.timeoutIdle' : 'error.api.timeoutFirstByte')));
         // 结构化标记（P0-7）：降级链靠字段判定「值不值得换模型重试」，不看文案。
         timeoutError.timeout = true;
         timeoutError.firstByte = waitingFirstByte;
@@ -753,17 +754,19 @@ async function requestOnce(messages, options, attempt) {
         fullText = parsed.text;
         finishWithConfig(() => succeed(makeResult()));
       } catch (error) {
-        fail(new Error('接口返回了无法解析的内容。'));
+        fail(new Error(tActive('error.api.unparseableResponse')));
       }
     };
 
     xhr.onerror = () => {
-      const networkError = new Error('网络请求失败，请检查网络或 API 地址。');
+      const networkError = new Error(tActive('error.api.networkFailed'));
       // 结构化标记（P0-7）：网络不可达是可降级失败（换模型/换线路都可能成功）。
       networkError.network = true;
       fail(networkError);
     };
-    xhr.onabort = () => fail(canceled ? createAbortError() : new Error('请求已中断。'));
+    xhr.onabort = () => fail(canceled
+      ? createAbortError()
+      : new Error(tActive('error.api.requestInterrupted')));
 
     if (settled) return;
     try {

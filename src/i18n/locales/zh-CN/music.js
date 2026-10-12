@@ -33,6 +33,8 @@ export const music = {
   'music.a11y.markHere': '在当前进度打点',
   'music.a11y.deleteTrigger': '删除 {time} 的打点',
   'music.player.mark': '在此打点',
+  // 锁屏/通知栏媒体标题的兜底：曲名缺失时显示，属**系统界面可见**文案。
+  'music.player.nowPlayingFallback': '正在播放',
   'music.triggers.hint': '时间轴打点（点按跳转，角色评论会在这里出现）',
   'music.save.failed.title': '保存失败',
   'music.save.failed.body': '打点没能保存，请重试。',
@@ -78,4 +80,8 @@ export const music = {
   'music.playlists.filterHint': '正在查看「{name}」：{count} 首',
   'music.playlists.filterEmpty.title': '这个歌单还是空的',
   'music.playlists.filterEmpty.body': '在曲库点歌曲右侧的「⋯」，就能把它加进这个歌单。',
+  // 导入歌曲的默认名（music/importMusic.js 的 musicDisplayName）：文件名解析不出
+  // 曲名时用它，**会直接落库并显示在曲库列表/锁屏标题里**（不是一次性提示词）。
+  // 取舍：英文界面下导入会存英文名（与其它「默认名」一致），中文界面下仍是「未命名歌曲」。
+  'music.unnamed': '未命名歌曲',
 };

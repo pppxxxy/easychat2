@@ -100,4 +100,8 @@ export const books = {
   'books.notice.openingExternal': '即将打开外部链接：{url}',
   'books.notice.continueOpen': '继续打开',
   'books.outro.openExternal': '即将打开外部链接。',
+  // 导入书籍的默认名（books/importBook.js 的 bookDisplayName）：文件名解析不出
+  // 书名时用它，**会直接落库并出现在书架列表里**（不是一次性提示词）。
+  // 取舍：英文界面下导入会存英文名（与其它「默认名」一致），中文界面下仍是「未命名书籍」。
+  'books.unnamed': '未命名书籍',
 };

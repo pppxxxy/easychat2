@@ -29,4 +29,11 @@ export const common = {
   'common.on': '开',
   'common.off': '关',
   'common.unnamedCharacter': '未命名角色',
+  // ---- AIGC 合规标识（aigc/attribution.js）----
+  // 这三条是**合规文案**，此前硬编码中文，英文界面下也显示中文。它们是导出文件
+  // 与告警正文里的显式标识，必须随界面语言切换。
+  'common.aigc.notice': '本内容由 AI 生成',
+  'common.aigc.exportNotice': '—— 本卡片内容由 AI 生成（EasyChat2 制卡）',
+  // {keywords} 是命中的 IP 名称列表（顿号分隔）。插值而不是拼接：英文语序不同。
+  'common.aigc.ipNotice': '生成的卡片中检测到可能与知名 IP 相似的名称：{keywords}。AI 生成内容与既有作品相似可能存在版权风险，请自行确认有权使用后再保存或传播，相关责任由你自行承担。若内容涉及真实人物姓名，请额外注意肖像权与名誉风险。',
 };

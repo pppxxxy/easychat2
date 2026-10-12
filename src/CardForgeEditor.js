@@ -581,7 +581,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.hint}>{t('forge.hint')}</Text>
-          <Text style={styles.aigcNotice}>{t('forge.aigc.notice', { notice: AIGC_NOTICE_TEXT })}</Text>
+          <Text style={styles.aigcNotice}>{t('forge.aigc.notice', { notice: AIGC_NOTICE_TEXT() })}</Text>
           {isValidAigcMeta(form[AIGC_META_FIELD]) ? (
             <Text style={styles.aigcBadge}>{t('forge.aigc.badge', { code: form[AIGC_META_FIELD].contentCode || '' })}</Text>
           ) : null}

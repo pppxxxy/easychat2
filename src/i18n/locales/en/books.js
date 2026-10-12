@@ -100,4 +100,6 @@ export const books = {
   'books.notice.openingExternal': 'About to open external link: {url}',
   'books.notice.continueOpen': 'Continue',
   'books.outro.openExternal': 'About to open an external link.',
+  // 见 zh-CN 同名条目的说明：导入书籍的默认名，会落库并显示在书架列表里。
+  'books.unnamed': 'Untitled book',
 };

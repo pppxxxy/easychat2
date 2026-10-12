@@ -31,9 +31,13 @@ export async function readAudioFileBase64(uri) {
 }
 
 // 展示名去掉扩展名；落盘文件的扩展名另行从原始文件名/枚举类型推导。
+//
+// 取舍（2026-10）：解析不出曲名时回退到 i18n 的「未命名歌曲」。这是**会落库的数据**
+// ——英文界面下导入会存 "Untitled song"（与仓库其它「默认名」一致，不因之后切换语言
+// 改写已存记录），换来的是曲库列表与锁屏标题在英文界面下不再出现中文。
 export function musicDisplayName(fileName) {
   const name = String(fileName || '').replace(/\.[a-z0-9]{1,8}$/i, '').trim();
-  return name || '未命名歌曲';
+  return name || tActive('music.unnamed');
 }
 
 export function musicFileExtension(fileName, mime) {
