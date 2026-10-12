@@ -112,6 +112,9 @@ export default [
       'src/onboarding/onboardingContent.js', // 教程内容（AGENTS.md 明列例外）
       'src/storage/characters/shared.js',    // 内置助手的人设名与系统提示（角色卡内容）
       'src/workspace/gitCheckpoint.js',      // CHECKPOINT_FALLBACK_MESSAGE 写入 git 提交信息（持久数据）
+      // 2026-10-12：法务免责声明。条款实质与法律效力相关，英文版须经法务审校后方可上线，
+      // 不宜由开发机翻；待法务提供英文文本后再迁 i18n。故暂列永久豁免（非「不该翻译」）。
+      'src/onboarding/disclaimerContent.js',
       // 2026-10-12：settings/searchIndex.js 的**标签**已全部迁走（label → labelKey，
       // 复用卡片自己的 settings.<x>.* 键，分区名同理）。留在这里只剩 keywords——
       // 那些是「用户会输入什么」的匹配词，中英混排、不该翻译。
@@ -135,7 +138,6 @@ export default [
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       // 2026-10-12：src/network/apiVendors.js 已迁出（vendor/protocol name/note → *Key；
       // 风险提示数组 → key 数组；新增 apiVendor 词条域）。
-      'src/onboarding/disclaimerContent.js',
       // 2026-10-12：src/tts/providers.js 已迁出（label→labelKey 复用 tts.providerName.*；
       // field.label/placeholder→*Key；unsupportedNote→unsupportedNoteKey）。
       // 2026-10-12：src/plugins/providers.js 已迁出（provider/keyLink 的 label → 仅 labelKey，
