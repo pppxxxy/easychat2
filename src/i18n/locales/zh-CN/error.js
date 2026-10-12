@@ -140,6 +140,7 @@ export const error = {
   'error.webFetch.badUrl': '网址无效（要写完整的 http:// 或 https:// 地址）。',
   'error.webFetch.badScheme': '只支持 http / https 网址。',
   'error.webFetch.privateHost': '拒绝抓取本机或内网地址（127.0.0.1、192.168.*、*.local 等）——那可能是你内网的设备面板，不该由模型去读。',
+  'error.webFetch.redirectToPrivate': '抓取被拒绝：该网址最终跳转到了本机或内网地址（重定向可能被用来绕过内网限制），内容已丢弃。',
   'error.webFetch.domainBlocked': '域名 {host} 不在允许抓取的名单里（可在联网搜索插件配置里调整 allowedDomains）。',
   'error.webFetch.timeout': '抓取网页超时',
   'error.webFetch.aborted': '抓取已中断',
@@ -268,6 +269,12 @@ export const error = {
   'error.backup.mediaInvalid': '备份媒体路径或内容无效',
   'error.storage.characterLibraryRecovering': '角色库仍在恢复中，请稍后重试。',
   'error.storage.draftMissingCharacterId': '草稿缺少角色 id',
+  // 密钥保险箱「读不回」的提示：storage/secretStore.js 的 SECRET_UNAVAILABLE_KEY 标记为真时，
+  // UI 必须说清「密钥需要重新填写」。为什么不能用「请先填写 API 密钥」这类通用文案：
+  // 用户明明配过，通用文案会让他以为是自己没配（旧行为更糟——显示 `secure:v1:...` 引用串，
+  // 或显示空框诱导用户保存后覆盖掉盘上的引用）。必须区分「没配」与「读不回」，
+  // 见 secretStore.js 文件头的两条读侧纪律。
+  'error.storage.secretsUnavailable': '安全存储不可用，密钥需重新填写',
   'error.cardExport.invalidPng': '头像不是合法的 PNG 文件',
   'error.cardExport.invalidPngExport': '头像不是合法的 PNG 文件，无法写入 PNG 角色卡；请改用 PNG 头像或导出 JSON。',
   'error.share.emptyBitmap': '位图为空，无法生成图片',

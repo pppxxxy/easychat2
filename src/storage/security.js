@@ -112,9 +112,35 @@ async function readSecurity() {
       characterLocks: {},
     };
   }
-  const raw = stored.status === 'ok' && stored.value && typeof stored.value === 'object'
-    ? stored.value
-    : {};
+  // 「合法 JSON 但形状不是预期对象」是真实存在的**第四态**：readJsonStatus 只保证
+  // JSON.parse 成功（status === 'ok'），**不保证值是我们约定的对象**——null、字符串、
+  // 数字、数组都会走到这里。旧实现只筛 `typeof === 'object'`（漏掉 Array.isArray），
+  // 却在下一行把 `stored.status === 'ok'` **无条件**翻译成 SECURITY_STATUS.OK：
+  // 形状被丢弃、状态却仍宣称「完好」⇒ getSecuritySettings 把 OK 交给 SecurityGate，
+  // resolveAppLockPolicy 得出 requireUnlock: false ⇒ **用户以为锁着，实际直接进入**，
+  // 且 characterLocks = {} ⇒ 全部角色锁名单一并消失。
+  //
+  // 这正是本文件 :35-38 判据宣判为缺陷的那件事（「未知必须能被调用方看见，而不是被
+  // 默认值抹平」），只是触发条件从「非法 JSON」缩小到了「合法 JSON 但形状不对」；
+  // :150-154 也写明名单被整键覆盖的后果是**锁静默失效**而非「少一条记录」。
+  //
+  // 先例（同仓已确立的正确写法，本模块是唯一「声明了 unknown 态却漏判形状」的）：
+  // src/storage/settings/tts.js:52 与 :107、globalPresets.js:90、
+  // src/storage/settings/characters/index.js:64,70 都显式判
+  // `value === null || typeof value !== 'object' || Array.isArray(value)` 并归入 corrupt。
+  const shapeOk = stored.status === 'ok' && stored.value
+    && typeof stored.value === 'object' && !Array.isArray(stored.value);
+  if (stored.status === 'ok' && !shapeOk) {
+    await backupCorruptValue(SECURITY_KEY);
+    // 返回形状与上面的 corrupt 分支**逐字一致**（不引入第三种形状）：
+    // 归入 UNKNOWN 后由 resolveAppLockPolicy 走 fail-closed（requireUnlock: true）。
+    return {
+      status: SECURITY_STATUS.UNKNOWN,
+      appLock: normalizeAppLock(null),
+      characterLocks: {},
+    };
+  }
+  const raw = shapeOk ? stored.value : {};
   return {
     status: stored.status === 'ok' ? SECURITY_STATUS.OK : SECURITY_STATUS.MISSING,
     appLock: normalizeAppLock(raw.appLock),

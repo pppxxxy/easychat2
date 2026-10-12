@@ -15,6 +15,19 @@
 // 脱敏双保险：本模块是密钥进出内存的存储边界，遍历到 SECRET_FIELDS 的明文时顺手登记到
 // secrets 模块的登记表，供诊断日志脱敏。使用点（api/imageGen/tts/webSearch/vector）仍各自登记，
 // 这里兜住「新接入的密钥字段只走了存储边界、忘了在使用点登记」的漏网情况。
+//
+// —— 读侧的两条「读不回」纪律（逐行审查：两条不可逆缺陷）——
+// 1) **保留引用，绝不回落空串**：引用还在、值却读不回（Keystore 读失败 / 生物识别失效 /
+//    记录被系统清除）时，标量字段与 hydrateSecretObject（:134-140）采取**同一条**处置——
+//    原样保留 `secure:v1:...` 引用串 + 记一条诊断。为什么不能回落 `''`：UI 会渲染成
+//    「空密钥框」，用户随手一存，写侧 protectValue 的判据 `item && !isSecretRef(item)`
+//    对 `''` 为假 ⇒ 既不写 SecureStore 也不保护，直接把 `''` 明文落盘覆盖盘上的引用
+//    ⇒ 旧记录成永久孤儿 ⇒ **密钥不可逆丢失**，且诊断里零记录。
+// 2) **引用串不得越出内存边界**：`isSecretStoreAvailable()` 为假时读侧**不能原样返回**
+//    （写侧 protectSecrets 原样返回是**有意的**降级：保持明文、不丢密钥，是安全的）。
+//    读侧原样返回会把内部引用当凭据交给调用方（io.js 的 readJsonWithSecrets 调用方会拼出
+//    `Authorization: Bearer secure:v1:...` 发给服务商）。所以此时**置空 + 标记**
+//    SECRET_UNAVAILABLE_KEY，并记同一条诊断口径——见 blankUnresolvedRefs 的注释。
 
 import { registerSecretValues } from './secrets.js';
 import { recordDiagnostic } from './diagnostics.js';
@@ -33,6 +46,15 @@ export const SECRET_FIELDS = new Set(['apiKey', 'appSecretKey', 'secretKey', 'gi
 export const SECRET_OBJECT_FIELDS = new Map([['headers', ['@easychat2_mcp_servers']]]);
 const REF_PREFIX = 'secure:v1:';
 const SECURE_STORE_PREFIX = 'easychat2_secret_';
+
+// 「读不回」的统一标记：hydrate 结果里挂上它，UI 据此提示「安全存储不可用，密钥需重新填写」。
+// 刻意做成**非枚举**属性（Object.defineProperty，见 blankUnresolvedRefs）：
+// - 它要能穿透 JSON/对象展开以外的常规读取（调用方 `payload[KEY] === true` 即可判断）；
+// - 但不能被 JSON.stringify 带进存储、也不能污染 `deepEqual`/`Object.keys` 这类结构断言
+//   （既有测试大量用 deepEqual 比对 hydrate 结果）。
+// 用一个模块级常量而不是散落的字面量：① 与 ①（引用保留）共用**同一套**「读不回」语义，
+// 不造两套标记；② 调用方/测试从这里 import，避免各写一份字符串而漂移。
+export const SECRET_UNAVAILABLE_KEY = '__secretUnavailable';
 
 let secureStoreModule;
 let secureStoreLoaded = false;
@@ -132,11 +154,17 @@ async function hydrateSecretObject(source, namespace, path) {
       continue;
     }
     const text = await readSecret(refId(value));
-    if (text) {
+    if (text !== null && text !== '') {
       registerSecretValues([text]);
       out[name] = text;
     } else {
+      // 与标量分支共用**同一条**诊断口径（error.message 一致，只有 context 更具体）：
+      // 「读不回」是一个语义，不该因为字段是对象值就换一套说法。
+      // 判据从 `if (text)` 改为 `text !== null && text !== ''`：readSecret 现在用 null 表示
+      // 「读不回」，而 `''` 是「确实存了空串」——两者都不还原（空头值没有意义），
+      // 但只有前者是异常，必须留痕 + 打标记。
       recordDiagnostic('secrets', new Error('secure-store 引用无法还原'), `请求头丢失：${namespace}/${childPath(path, name)}`);
+      markSecretUnavailable(out);
     }
   }
   return out;
@@ -165,17 +193,26 @@ async function writeSecret(id, value) {
   secretCache.set(id, value);
 }
 
+// 读一条安全存储记录。**返回值必须能区分「确实存了空串」与「读不回」**：
+// 旧实现在 store 不存在 / getItemAsync 抛错 / 记录为 null 三条失败路径上**一律 return ''**，
+// 调用方（hydrate）无从区分，于是把「值读不回」静默写成了空串——见文件头两条纪律。
+// 现在统一返回 **null = 读不回（失败）**，`''` 只表示「这条记录确实是空串」。
+// 兼容面：readSecureValue 仍按旧契约对外返回字符串（见那里），本函数不外露 null。
 async function readSecret(id) {
   if (secretCache.has(id)) return secretCache.get(id);
   const store = getSecureStore();
-  if (!store) return '';
+  if (!store) return null;
   try {
     const value = await store.getItemAsync(SECURE_STORE_PREFIX + id);
-    const resolved = value === null || value === undefined ? '' : String(value);
+    // null/undefined = 记录不存在（引用成了孤儿），同样是「读不回」，**不缓存**：
+    // 缓存会把一次失败钉死成常态（先例 diagnostics.js:40-58 对 maskSecrets 的论证），
+    // 且 Keystore 短暂不可用后恢复时，进程内缓存会继续喂旧结论。
+    if (value === null || value === undefined) return null;
+    const resolved = String(value);
     secretCache.set(id, resolved);
     return resolved;
   } catch (error) {
-    return '';
+    return null;
   }
 }
 
@@ -194,8 +231,12 @@ export async function writeSecureValue(id, value) {
   await writeSecret(String(id), String(value));
 }
 
+// 对外保留旧契约：返回字符串（读不回时为 ''）。单角色锁密码（security.js:308）的判据是
+// 「空 = 没设过密码」，它**不能**拿到 null，否则调用方每次都要多写一层判空。
+// 内部 hydrate 路径一律走 readSecret 以保留 null（见那里的注释）。
 export async function readSecureValue(id) {
-  return readSecret(String(id));
+  const value = await readSecret(String(id));
+  return value === null ? '' : value;
 }
 
 export async function removeSecureValue(id) {
@@ -239,12 +280,21 @@ async function protectValue(value, namespace, path) {
   return value;
 }
 
+// 「读不回」标记要能**冒泡到最外层**：调用方拿到的是整份 payload（io.js 的
+// readJsonWithSecrets 返回值），它不可能去遍历深层节点找标记。所以每一层算完子节点后
+// 检查子节点是否带标记，带则把自己也标记上（hasSecretUnavailable 只读不建）。
+function hasSecretUnavailable(value) {
+  return !!value && typeof value === 'object' && value[SECRET_UNAVAILABLE_KEY] === true;
+}
+
 async function hydrateValue(value, namespace, path) {
   if (Array.isArray(value)) {
     const out = [];
     for (let index = 0; index < value.length; index += 1) {
       const segment = arraySegment(value[index], index);
-      out.push(await hydrateValue(value[index], namespace, childPath(path, segment)));
+      const child = await hydrateValue(value[index], namespace, childPath(path, segment));
+      if (hasSecretUnavailable(child)) markSecretUnavailable(out);
+      out.push(child);
     }
     return out;
   }
@@ -252,8 +302,22 @@ async function hydrateValue(value, namespace, path) {
     const out = {};
     for (const [key, item] of Object.entries(value)) {
       if (SECRET_FIELDS.has(key) && isSecretRef(item)) {
-        out[key] = await readSecret(refId(item));
-        registerSecretValues([out[key]]);
+        // 与 hydrateSecretObject（:134-140）**对齐**：读不回时**保留原引用串**（`out[key] = item`），
+        // 记同一条诊断，绝不写 `''`。判据用 `!== null` 而不是真值判断：`''` 是「确实存了空串」
+        // 这一种**成功**结果，不能与「读不回」混为一谈（后者才是必须留痕的异常）。
+        const secret = await readSecret(refId(item));
+        if (secret !== null) {
+          out[key] = secret;
+          registerSecretValues([secret]);
+        } else {
+          // 保留引用串，不用空串：空串会让 UI 显示空密钥框，用户随手一存就把盘上的引用
+          // 覆盖成 `''` 明文（写侧 `item && !isSecretRef(item)` 对 '' 为假），旧记录成永久孤儿。
+          // 引用串本身**不是**凭据，登记脱敏即可（避免它出现在错误文本里）。
+          out[key] = item;
+          registerSecretValues([item]);
+          recordDiagnostic('secrets', new Error('secure-store 引用无法还原'), `密钥引用无法还原：${namespace}/${childPath(path, key)}`);
+          markSecretUnavailable(out);
+        }
       } else if (isScopedSecretObject(key, namespace) && isPlainObject(item)) {
         out[key] = await hydrateSecretObject(item, namespace, childPath(path, key));
       } else {
@@ -264,7 +328,63 @@ async function hydrateValue(value, namespace, path) {
         }
         out[key] = await hydrateValue(item, namespace, childPath(path, key));
       }
+      if (hasSecretUnavailable(out[key])) markSecretUnavailable(out);
     }
+    return out;
+  }
+  return value;
+}
+
+// 在 hydrate 结果上挂「读不回」标记。用 defineProperty 而非赋值，理由见
+// SECRET_UNAVAILABLE_KEY 的注释（不可被 JSON 序列化带走、不污染 deepEqual 断言）。
+// 已有标记就跳过：同一个 payload 里多处读不回只挂一次，也避免重复 defineProperty。
+function markSecretUnavailable(out) {
+  if (!out || typeof out !== 'object') return out;
+  if (Object.prototype.hasOwnProperty.call(out, SECRET_UNAVAILABLE_KEY)) return out;
+  Object.defineProperty(out, SECRET_UNAVAILABLE_KEY, {
+    value: true,
+    enumerable: false,
+    writable: true,
+    configurable: true,
+  });
+  return out;
+}
+
+// 安全存储不可用时的读侧兜底：**扫描残留引用串，就地置空**。
+// 为什么必须置空而不是原样返回：引用串 `secure:v1:<id>` 是**内部寻址标识、不是凭据**，
+// 而调用方（io.js:70-79 的 readJsonWithSecrets/readJsonStatusWithSecrets）拿到的就是
+// 「可以直接用的明文密钥」——它会拼出 `Authorization: Bearer secure:v1:...` 发给服务商
+// （api.js:77-79 只做 String(source.apiKey || '') 拼接，**网络层没有任何引用串守卫**）。
+// 也就是说原样返回 = 把内部引用泄漏成凭据，且用户看到 `secure:v1:xxx` 会以为自己配过。
+// 置空（而不是删键）是刻意的：字段仍在、值为空 ⇒ UI 的「请先填写 API 密钥」判据
+//（api.js:281 `!config.apiKey`）能正常触发，用户被明确要求重新填写；
+// 配合 SECRET_UNAVAILABLE_KEY 标记，界面可以给出比「密钥为空」更准确的提示。
+// 与 ① 的分工：① 存储**可用**、只是某条记录读不回 ⇒ 保留引用 + 留痕（可逆、可自愈）；
+// ② 存储**整体不可用**、连解引用能力都没有 ⇒ 置空 + 标记 + 留痕（**绝不外泄引用串**）。
+// 两处共用同一个标记与同一条诊断口径（'secure-store 引用无法还原'），不造两套语义。
+function blankUnresolvedRefs(value, namespace, path) {
+  if (Array.isArray(value)) {
+    return value.map((item, index) => blankUnresolvedRefs(item, namespace, childPath(path, arraySegment(item, index))));
+  }
+  if (value && typeof value === 'object') {
+    const out = {};
+    let blanked = false;
+    for (const [key, item] of Object.entries(value)) {
+      if (isSecretRef(item)) {
+        out[key] = '';
+        blanked = true;
+        // 引用串登记脱敏：它不该出现在任何错误文本里（虽然本身不是凭据，
+        // 但泄漏它等于告诉外界「这台设备上有一条 id 为 X 的安全存储记录」）。
+        registerSecretValues([item]);
+        recordDiagnostic('secrets', new Error('secure-store 引用无法还原'), `密钥引用无法还原：${namespace}/${childPath(path, key)}`);
+        continue;
+      }
+      const next = blankUnresolvedRefs(item, namespace, childPath(path, key));
+      out[key] = next;
+      if (hasSecretUnavailable(next)) blanked = true;
+    }
+    // 标记同样要冒泡到最外层（调用方只看得见顶层 payload）。
+    if (blanked) markSecretUnavailable(out);
     return out;
   }
   return value;
@@ -272,12 +392,21 @@ async function hydrateValue(value, namespace, path) {
 
 // 写盘前：把明文密钥搬进安全存储，payload 中替换为引用。
 export async function protectSecrets(namespace, payload) {
+  // 写侧原样返回是**有意的**降级：保持明文（不丢密钥、不阻断保存），
+  // 与读侧的置空**语义相反但都是对的**——写侧怕丢数据，读侧怕泄漏凭据。见文件头纪律 2。
   if (!isSecretStoreAvailable()) return payload;
   return protectValue(payload, namespace, '');
 }
 
 // 读盘后：把引用回填为明文密钥，供内存业务逻辑使用。
 export async function hydrateSecrets(namespace, payload) {
-  if (!isSecretStoreAvailable()) return payload;
+  if (!isSecretStoreAvailable()) {
+    // 不能原样返回：那会让引用串以「明文密钥」的身份流进网络层（见 blankUnresolvedRefs 注释）。
+    recordDiagnostic('secrets', new Error('secure-store 引用无法还原'), `安全存储不可用，已置空引用字段：${namespace}`);
+    const blanked = blankUnresolvedRefs(payload, namespace, '');
+    // 即使这一份 payload 里没有引用串（全是 legacy 明文），也要打标记：
+    // 调用方据此知道「本进程的安全存储不可用」，UI 提示「安全存储不可用，密钥需重新填写」。
+    return markSecretUnavailable(blanked);
+  }
   return hydrateValue(payload, namespace, '');
 }

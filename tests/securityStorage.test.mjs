@@ -127,6 +127,51 @@ test('读取状态三态：ok / missing / unknown 必须能区分开', async () 
   assert.notEqual(broken.status, mod.SECURITY_STATUS.MISSING);
 });
 
+// 第四态：**合法 JSON 但形状不是预期对象**。readJsonStatus 只保证 JSON.parse 成功
+// （status === 'ok'），**不保证值是我们约定的对象**——null / 字符串 / 数字 / 数组都会
+// 以 'ok' 返回。上面那个用例喂的是 '{not json'（**非法** JSON ⇒ 走 corrupt 分支），
+// 恰好绕开了这条路径：形状不合法时旧实现只筛 `typeof === 'object'`（漏掉数组），
+// 却把 'ok' 无条件翻译成 SECURITY_STATUS.OK ⇒ requireUnlock: false ⇒ **锁静默失效**，
+// 且 characterLocks = {} ⇒ 角色锁名单一并消失。所以这里逐个喂「合法但形状不对」的值。
+test('第四态：合法 JSON 但形状不是对象，必须归入 unknown 而不是 ok', async () => {
+  const mod = loadSecurity();
+  // 形状合法的对照组在前（防过度修正）：正常对象仍必须是 OK。
+  store.set(KEY, JSON.stringify({ appLock: { enabled: true }, characterLocks: { 'char-1': true } }));
+  const good = await mod.getSecuritySettings();
+  assert.equal(good.status, mod.SECURITY_STATUS.OK, '形状合法时仍必须是 OK');
+  assert.equal(good.appLock.enabled, true);
+
+  const samples = ['null', '[]', '123', '"str"'];
+  for (const sample of samples) {
+    const m = loadSecurity();
+    // 先写入一份「看起来锁着」的正常配置，再把它替换成形状不对的合法 JSON，
+    // 这样如果状态被折叠成 OK，下面就会读到一个「未加锁」的默认值 —— 正是 fail-open。
+    store.set(KEY, JSON.stringify({ appLock: { enabled: true }, characterLocks: { 'char-1': true } }));
+    await m.getSecuritySettings();
+    store.set(KEY, sample);
+    const settings = await m.getSecuritySettings();
+    assert.equal(settings.status, m.SECURITY_STATUS.UNKNOWN, `${sample}：合法 JSON 但形状不对 ⇒ unknown`);
+    assert.notEqual(settings.status, m.SECURITY_STATUS.OK, `${sample}：绝不能折叠成 ok`);
+    assert.notEqual(settings.status, m.SECURITY_STATUS.MISSING, `${sample}：也绝不能折叠成 missing`);
+    // 状态必须是 fail-closed 的：未知 ⇒ 要求解锁，绝不静默放行。
+    const policy = m.resolveAppLockPolicy(settings.status, settings.appLock);
+    assert.equal(policy.unknown, true, `${sample}：UI 要能看出状态未知`);
+    assert.equal(policy.requireUnlock, true, `${sample}：未知必须要求解锁（否则就是锁静默失效）`);
+    assert.equal(policy.relockOnBackground, true, `${sample}：未知时按最保守处理`);
+    // 与既有 corrupt 分支的处置保持一致（不引入第三种形状）。
+    assert.deepEqual(settings.characterLocks, {}, `${sample}：characterLocks 与 corrupt 分支同形`);
+    assert.equal(settings.appLock.enabled, false, `${sample}：读路径给 UI 的默认值不变`);
+    assert.ok(store.has(`${KEY}__corrupt_backup`), `${sample}：形状不对的原始值已备份`);
+    assert.equal(store.get(KEY), sample, `${sample}：原值未被默认值覆盖`);
+  }
+
+  // 三态不被压平：missing 仍然是 missing。
+  const fresh = loadSecurity();
+  const missing = await fresh.getSecuritySettings();
+  assert.equal(missing.status, fresh.SECURITY_STATUS.MISSING, 'missing 仍返回 MISSING');
+  assert.deepEqual(missing.characterLocks, {});
+});
+
 test('resolveAppLockPolicy：未知态按最保守处理（要求验证，绝不放行）', async () => {
   const mod = loadSecurity();
   // 未知 ⇒ 即使默认值是「未加锁」，也必须要求验证。

@@ -132,6 +132,7 @@ export const error = {
   'error.webFetch.badUrl': 'Invalid URL (include the full http:// or https:// address).',
   'error.webFetch.badScheme': 'Only http / https URLs are supported.',
   'error.webFetch.privateHost': 'Refused to fetch a local or private-network address (127.0.0.1, 192.168.*, *.local, …) — that could be a device panel on your own network.',
+  'error.webFetch.redirectToPrivate': 'Fetch refused: the URL ended up at a local or private-network address (a redirect may be bypassing the private-network guard), so the content was discarded.',
   'error.webFetch.domainBlocked': 'Domain {host} is not in the allowed fetch list (adjust allowedDomains in the web search plugin config).',
   'error.webFetch.timeout': 'Fetching the page timed out.',
   'error.webFetch.aborted': 'Fetch interrupted.',
@@ -260,6 +261,9 @@ export const error = {
   'error.backup.mediaInvalid': 'Invalid backup media path or content.',
   'error.storage.characterLibraryRecovering': 'The character library is still being restored. Please try again later.',
   'error.storage.draftMissingCharacterId': 'The draft is missing a character ID.',
+  // Same wording as the zh-CN entry: distinguishes "never configured" from "could not be read back"
+  // (see storage/secretStore.js SECRET_UNAVAILABLE_KEY).
+  'error.storage.secretsUnavailable': 'Secure storage is unavailable. Please re-enter your keys.',
   'error.cardExport.invalidPng': 'The avatar is not a valid PNG file.',
   'error.cardExport.invalidPngExport': 'The avatar is not a valid PNG file, so the PNG character card cannot be written. Use a PNG avatar or export JSON instead.',
   'error.share.emptyBitmap': 'The bitmap is empty, so no image can be generated.',
