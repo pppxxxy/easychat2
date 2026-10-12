@@ -158,7 +158,16 @@ export default function xhrRequest(options) {
 
     xhr.onload = () => {
       if (xhr.status < 200 || xhr.status >= 300) {
-        finish(reject, onHttpError(xhr.status));
+        const httpError = onHttpError(xhr.status);
+        // 结构化状态码：**判定必须看 `httpStatus`，不能看本地化文案**。
+        // onHttpError 的错误文案由调用方用 tActive 生成，随语言切换而变（同一输入
+        // 在不同语言下行为不同），拿它做正则匹配就是「文案即协议」。先例：
+        // src/network/api.js:700 在 requestOnce 的 onload 里同样把 xhr.status 挂到
+        // 错误对象的 httpStatus 上，供 429/5xx 重试与 401/403 确定性失败分流。
+        // 这里统一补挂，调用方无需各自重复；已有 httpStatus 的（调用方自己挂了）
+        // 不覆盖，保持调用方语义优先。
+        if (httpError && httpError.httpStatus === undefined) httpError.httpStatus = xhr.status;
+        finish(reject, httpError);
         return;
       }
       try {

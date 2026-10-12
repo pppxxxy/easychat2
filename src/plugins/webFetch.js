@@ -210,6 +210,31 @@ function classifyHost(raw) {
 }
 
 // 纯函数：归一化后的主机是否本机 / 内网。**fail-closed**：解析不出来也算私有。
+//
+// ⚠️ 已知缺口（DNS rebinding，**尚未堵死，不要以为这里已经安全**）：
+// 本判定全程发生在 **DNS 解析之前**，判的是**字面主机名**，不是**实际连过去的对端 IP**。
+// `kind === 'name'`（普通域名）只比对字面 `localhost` 与 `.local / .internal /
+// .localhost` 三条后缀；对 `http://attacker.example/`（三条后缀都不命中）这里会
+// **放行**，随后 OkHttp 才去做 DNS 解析 —— 若该域名的 A 记录指向 `127.0.0.1`，
+// 请求就落在回环上（本仓 `localModel/localApiServer.js` 就监听回环），内网内容被读回。
+// 这就是「判定对象 ≠ 实际连接对象」：我们判的是字符串，系统连的是解析结果。
+//
+// 三个必须记住的结论：
+//   1) 这一条**不需要任何重定向**，一次解析就够了；
+//   2) 因此 runWebFetch 里基于 `xhr.responseURL` 的最终 URL 复核**对它完全无效**
+//      —— 没有跳转时 responseURL 就等于原 URL，复核必然通过；
+//   3) **JS 层拿不到对端 IP**（XHR 不暴露 socket 地址），所以纯 JS 无法闭环。
+//
+// 确定性修法（**需 native 侧改动，本波只留档、未实现**）：在 Android 侧用
+// `OkHttpClientProvider.setOkHttpClientFactory`（ReactAndroid 的
+// `OkHttpClientProvider.kt:28` 是 public）注入一个带 DNS **解析后复核**的
+// `Dns`/`Interceptor`（解析出 IP 后按网段复核，命中内网即拒绝），
+// 或 iOS 侧对应改 `RCTHTTPRequestHandler`。产品层面的等价缓解是
+// **默认要求白名单**（allowedDomains 非空才允许抓取）——那属于产品决策，
+// 不在本次修复范围。在 native 拦截器落地之前，这里的 fail-closed 只覆盖
+// 「字面就是内网地址」，**不覆盖「域名解析后才变成内网」**。
+// 先例：src/localModel/adapter.js:278 的 fail-closed 也是在拿不到确定信息时
+// 选择拒绝而不是放行；本缺口拿不到对端 IP，属于「信息不足」而非「判定通过」。
 function isPrivateHostInfo(info) {
   if (info.kind === 'invalid') return true;
   if (info.kind === 'ipv4') return isPrivateIpv4Int(info.ipv4);
@@ -355,6 +380,51 @@ function createAbortError() {
   return error;
 }
 
+// 纯函数：重定向后的**最终 URL** 复核（SSRF 第二道闸，修法 (b)）。
+//
+// 背景：上面的 normalizeFetchUrl 只判**初始 URL**，而 RN 的 XMLHttpRequest
+// **默认自动跟随 3xx**，且 JS 层关不掉：
+//   · Libraries/Network/XMLHttpRequest.js:633-647 的 sendRequest 参数表**没有**
+//     `followRedirects` 位；
+//   · Android 侧 OkHttpClientProvider.kt:48-51 用 OkHttp 默认值，全仓 grep
+//     `followRedirects` **0 命中**。
+// ⇒ `https://attacker.example/r` 回 `302 Location: http://127.0.0.1:<port>/...`
+// 时，OkHttp 会自己跟过去并把内网内容读回来（本仓 localModel/localApiServer.js
+// 就监听回环）。所以「只判初始 URL」= 判定对象 ≠ 实际连接对象。
+//
+// 为什么用 responseURL：XMLHttpRequest.js:343-354 确认最终 URL 会被回填到
+// `xhr.responseURL`（没有该字段时是 `delete`，取到 undefined）。这是 JS 层
+// 唯一能拿到的「实际落点」信号。
+//
+// ⚠️ **必须留档的边界（不要以为这条堵死了重定向绕过）**：
+// `responseURL` 是**最终 URL**，不是**跳转链**。只复核最终 URL 会漏掉
+// `A(公网) → B(内网) → C(公网)` 这种「中途落到内网、最终又跳回公网」的链
+// —— OkHttp 会把整条链跟完，中途那次请求已经打到内网上了，而最终 URL 看着是公网。
+// 本复核只堵「**最终 URL 落在内网**」；中途落到内网再跳回公网**仍可绕过**。
+// 彻底堵死需 **native 侧**：用 `OkHttpClientProvider.setOkHttpClientFactory`
+// （ReactAndroid 的 `OkHttpClientProvider.kt:28` 是 public）注入一个
+// `followRedirects(false)` 的 client，再由 JS 自己逐跳校验 Location。
+// **本波只做 (b)（JS 层可做的部分），不声称已彻底堵死。**
+//
+// 口径与初始判定完全一致（同一套 classifyHost/isPrivateHostInfo）：不另立标准，
+// 否则两条闸门会出现「初始判定说私网、复核说公网」的分叉。**fail-closed**：
+// 拿不到 responseURL（undefined / 空串 / 解析不出来）时不阻断——见下面注释说明
+// 为什么这里不能 fail-closed，以及它对应的残余风险。
+export function isPrivateRedirectTarget(rawUrl) {
+  const text = String(rawUrl === undefined || rawUrl === null ? '' : rawUrl).trim();
+  // 取不到最终 URL 时**放行**（返回 false）：RN 在 responseURL 缺失时是
+  // `delete this.responseURL`，属正常路径（例如某些重定向实现不回报），
+  // 把它当私网会让所有这类响应直接失败（过度拦截，比原缺口更糟）。
+  // 残余风险如实记录：此时退回到「只有初始 URL 判定」这一层保护。
+  if (!text) return false;
+  const normalized = normalizeFetchUrl(text);
+  // 复用 normalizeFetchUrl 的同一套判定（含 fail-closed 口径）：它已经会因
+  // 私网主机返回 reason==='private'。所以「最终 URL 落在内网」在这里就是 !ok。
+  // 解析不出来（reason 为 invalid / scheme）同样按私有处理 —— fail-closed，
+  // 与 normalizeFetchUrl 里 `info.kind === 'invalid'` 的处理保持一致。
+  return !normalized.ok;
+}
+
 // IO：抓取 + 提取。准入失败在**发请求之前**抛出（不发无谓的请求，也不泄露内网探测）。
 export async function runWebFetch({ url, allowedDomains = '', signal = null } = {}) {
   const normalized = normalizeFetchUrl(url);
@@ -371,6 +441,9 @@ export async function runWebFetch({ url, allowedDomains = '', signal = null } = 
     error.fetchReason = 'blocked';
     throw error;
   }
+  // 重定向复核用的槽位：parse 在 onload 里跑，是唯一能同时看到「最终 URL」与
+  // 「响应体」的时刻。复核不通过就抛错，错误经 onParseError 冒泡出去。
+  const redirectGuard = { finalUrl: '' };
   const html = await vendorXhr({
     method: 'GET',
     url: normalized.url,
@@ -383,8 +456,21 @@ export async function runWebFetch({ url, allowedDomains = '', signal = null } = 
     onAbortEventError: () => new Error(tActive('error.webFetch.aborted')),
     onNetworkError: () => new Error(tActive('error.webFetch.networkFailed')),
     onHttpError: status => new Error(tActive('error.webFetch.httpFailed', { status })),
-    parse: xhr => String(xhr.responseText || ''),
-    onParseError: () => new Error(tActive('error.webFetch.parseFailed')),
+    parse: xhr => {
+      // 修法 (b)：请求**已经发完**了，所以这里不是「阻止请求」而是「丢弃响应」。
+      // 时序上的取舍：重定向复核只能在拿到响应后做（responseURL 那时才回填），
+      // 无法提前。因此本闸门的作用是**不把内网内容交给模型**，而不是不发出请求。
+      redirectGuard.finalUrl = String((xhr && xhr.responseURL) || '');
+      if (isPrivateRedirectTarget(redirectGuard.finalUrl)) {
+        const error = new Error(tActive('error.webFetch.redirectToPrivate'));
+        error.fetchReason = 'redirect-private';
+        throw error;
+      }
+      return String(xhr.responseText || '');
+    },
+    onParseError: error => (error && error.fetchReason === 'redirect-private'
+      ? error
+      : new Error(tActive('error.webFetch.parseFailed'))),
   });
   const source = String(html || '');
   const clipped = source.length > WEB_FETCH_HTML_MAX_CHARS

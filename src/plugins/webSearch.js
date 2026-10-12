@@ -188,8 +188,20 @@ export async function runWebSearch({ query, config, maxResults, signal = null })
     } catch (error) {
       if (error && error.name === 'AbortError') throw error;
       lastError = error;
-      // 4xx 是确定性失败（密钥/权限/配额），重试没有意义，还会触发风控
-      if (error && /HTTP 4\d\d/.test(error.message || '')) {
+      // 4xx 是确定性失败（密钥/权限/配额），重试没有意义，还会触发风控。
+      //
+      // 判据必须是**结构化状态码**，不能是本地化文案：这里原先用**正则去匹配
+      // error.message**（即本地化的错误文案），而 message 来自
+      // `tActive('error.webSearch.httpFailed', { status })` —— 于是「重试与否」
+      // 变成了「当前语言与文案模板」的函数：切到英文、或有人改一版文案，那条
+      // 正则就失配，401/403/429 会被再打一次（触发风控）；反过来，任何恰好含
+      // 「HTTP 4xx」字面形态的 5xx 文案又会走「不重试」，把可恢复的失败当确定性失败。
+      // 状态码由 vendorHttp 挂在 error.httpStatus 上（先例：src/network/api.js:700
+      // 在 requestOnce 里同样用 httpStatus 分流 429/5xx 与 401/403）。
+      // 文案从此只用于展示。缺失 httpStatus 时按「可重试」处理（重试次数有
+      // MAX_RETRIES 兜底，且不影响错误语义）。
+      const status = Number(error && error.httpStatus);
+      if (Number.isFinite(status) && status >= 400 && status < 500) {
         callTimes.push(Date.now());
         throw error;
       }
