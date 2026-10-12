@@ -45,19 +45,13 @@ import {
   readLatestRollbackSnapshot,
   writeRollbackSnapshot,
 } from '../rollbackBaseline.js';
-import {
-  formatSkippedList,
-  readRepoManifest,
-  writeRepoManifest,
-} from '../repoImport.js';
+import { formatSkippedList } from '../repoImport.js';
 import {
   canDeleteRepo,
   createRepo,
   deleteRepo,
   fetchTokenScopes,
-  listBranches,
   listRepos,
-  listTree,
   renameRepo,
   repoWebUrl,
 } from '../github/restApi.js';
@@ -66,6 +60,7 @@ import BuildSection from './github/BuildSection.js';
 import useGithubBuild from './github/useGithubBuild.js';
 import useGithubHistory from './github/useGithubHistory.js';
 import useRepoPull from './github/useRepoPull.js';
+import useRepoBranch from './github/useRepoBranch.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
 const ERROR_KEYS = {
@@ -110,17 +105,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [pullBranch, setPullBranch] = useState('main');
 
   const [rollbackInfo, setRollbackInfo] = useState(null);
-  // B1 分支选择器：三态（loading / error / chips）；seq 防「快速切仓库时旧响应
-  // 后到」把新仓库的分支列表盖回去（网络乱序是常态，不能靠响应先后）。
-  const [branchOptions, setBranchOptions] = useState([]);
-  const [branchBusy, setBranchBusy] = useState(false);
-  const [branchError, setBranchError] = useState(false);
-  const [branchOverLimit, setBranchOverLimit] = useState(false);
-  const branchSeqRef = useRef(0);
-  // C1 清单先行：快速检出的清单（1 次 API 出全树）+ 截断标记 + 检出中状态。
-  const [manifestEntries, setManifestEntries] = useState([]);
-  const [manifestTruncated, setManifestTruncated] = useState(false);
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  // B1 分支选择器 / C1 清单先行 / 快速检出的状态与动作已外提到 github/useRepoBranch.js。
   // C3 批量推送（Trees API 单提交）进行中状态。
   const [pushBusy, setPushBusy] = useState(false);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
@@ -180,6 +165,31 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     openCommitDiff,
     submitCreatePr,
   } = useGithubHistory({ current, token, pullBranch, describeError, mountedRef, t });
+
+  // B1 分支选择器 / B2 默认分支对齐 / C1 清单缓存 / 快速检出的状态与动作已外提到 github/useRepoBranch.js。
+  const {
+    branchOptions,
+    branchBusy,
+    branchError,
+    branchOverLimit,
+    manifestEntries,
+    manifestTruncated,
+    checkoutBusy,
+    quickCheckout,
+  } = useRepoBranch({
+    characterId,
+    storeRef,
+    current,
+    pullBranch,
+    token,
+    describeError,
+    mountedRef,
+    t,
+    setPullBranch,
+    setCurrent,
+    setSubdir,
+    setSnapshotPaths,
+  });
 
   const refreshLocal = useCallback(async (ownerId = characterId) => {
     const store = storeRef && storeRef.current;
@@ -293,86 +303,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     [allFiles, current, repoPrefix, snapshotPaths]
   );
 
-  // C1：载入该仓库的清单缓存（快速检出写入；缺失 = 没做过快速检出，行为与旧版一致）。
-  useEffect(() => {
-    let alive = true;
-    if (!current) {
-      setManifestEntries([]);
-      setManifestTruncated(false);
-      return () => { alive = false; };
-    }
-    const store = storeRef && storeRef.current;
-    (async () => {
-      try {
-        const manifest = await readRepoManifest(store, characterId, {
-          owner: current.owner,
-          repo: current.repo,
-          branch: current.branch || current.defaultBranch,
-        });
-        if (!alive) return;
-        setManifestEntries(manifest && Array.isArray(manifest.entries) ? manifest.entries : []);
-        setManifestTruncated(Boolean(manifest && manifest.truncated));
-      } catch (error) {
-        if (alive) {
-          setManifestEntries([]);
-          setManifestTruncated(false);
-        }
-      }
-    })();
-    return () => { alive = false; };
-  }, [characterId, current, storeRef]);
-
-  // B1：选中仓库后拉分支列表（最多 2 页 = 200 个；超过只提示手动输入）。
-  // 失败不阻塞——输入框始终可用（清单三态里的「失败」就是一行提示）。
-  useEffect(() => {
-    const owner = current ? current.owner : '';
-    const repo = current ? current.repo : '';
-    branchSeqRef.current += 1;
-    const seq = branchSeqRef.current;
-    if (!owner || !repo) {
-      setBranchOptions([]);
-      setBranchBusy(false);
-      setBranchError(false);
-      setBranchOverLimit(false);
-      return undefined;
-    }
-    let alive = true;
-    setBranchBusy(true);
-    setBranchError(false);
-    setBranchOverLimit(false);
-    setBranchOptions([]);
-    (async () => {
-      try {
-        const first = await listBranches({ token, owner, repo });
-        let names = first;
-        let over = false;
-        if (first.length >= 100) {
-          const second = await listBranches({ token, owner, repo, page: 2 });
-          names = [...first, ...second];
-          over = second.length >= 100;
-        }
-        if (!alive || branchSeqRef.current !== seq) return;
-        setBranchOptions(names.map(name => ({ name })));
-        setBranchOverLimit(over);
-      } catch (error) {
-        if (!alive || branchSeqRef.current !== seq) return;
-        setBranchError(true);
-      } finally {
-        if (alive && branchSeqRef.current === seq) setBranchBusy(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [current, token]);
-
-  // B2：分支输入框与该仓库的真实默认分支对齐（normalizeRepo.defaultBranch——
-  // 硬编码 'main' 会让默认分支叫 develop 的仓库直接 404）。已拉取过的仓库
-  // （current.branch 有值 = 当前本地副本的分支）优先它，别把用户切过的分支
-  // 重置回默认；换仓库时同步重置，不带旧分支名。
-  useEffect(() => {
-    const initial = String((current && (current.branch || current.defaultBranch)) || '').trim();
-    setPullBranch(initial || 'main');
-  }, [current]);
-
   // 搜索：过滤当前仓库树的全部文件（本地副本全量路径匹配，不区分大小写）。
   const searchResults = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -428,53 +358,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   // 拉取当前仓库的分支快照到本地副本（codeload zipball → 文本文件落盘）。
   // 与 Stage 0 的修复同一条链路：目录条目已跳过、父路径被文件占用有明确报错、
   // 一次导入只记一条汇总历史（批内挂起逐文件记录）。带进度与取消（取消即回滚）。
-  // C1 快速检出：1 次 Trees API 秒开全树——清单落盘缓存、树立即可见（未物化
-  // 文件带云朵角标），并把清单设为「已同步」基线（与完整拉取同语义：远程已有）。
-  // 之后要么按需物化（点开即拉），要么随时「拉取快照」批量落盘。
-  const quickCheckout = useCallback(async () => {
-    if (!current || checkoutBusy) return;
-    const store = storeRef && storeRef.current;
-    if (!store) return;
-    const branch = String(pullBranch || current.branch || current.defaultBranch || '').trim();
-    if (!branch) return;
-    setCheckoutBusy(true);
-    try {
-      const { entries, truncated } = await listTree({
-        token,
-        owner: current.owner,
-        repo: current.repo,
-        ref: branch,
-      });
-      if (entries.length === 0) {
-        Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
-        return;
-      }
-      await writeRepoManifest(store, characterId, {
-        owner: current.owner,
-        repo: current.repo,
-        branch,
-      }, { entries, truncated });
-      if (mountedRef.current) {
-        setManifestEntries(entries);
-        setManifestTruncated(truncated);
-        setCurrent(prev => (prev ? { ...prev, branch } : prev));
-        setSubdir(`repos/${current.owner}/${current.repo}/${branch}/`);
-      }
-      // 基线 = 清单里的文件（「已同步」语义与完整拉取一致：远程已存在这些文件）。
-      try {
-        const paths = entries.filter(item => item.type !== 'tree').map(item => item.path);
-        await setRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`, { paths });
-        if (mountedRef.current) setSnapshotPaths(paths);
-      } catch (error) {}
-      if (truncated && mountedRef.current) {
-        Alert.alert(t('workspace.github.title'), t('workspace.github.checkout.truncated'));
-      }
-    } catch (caught) {
-      Alert.alert(t('workspace.github.title'), describeError(caught));
-    } finally {
-      if (mountedRef.current) setCheckoutBusy(false);
-    }
-  }, [characterId, checkoutBusy, current, describeError, pullBranch, storeRef, t, token]);
+  // C1 快速检出的状态与动作已外提到 github/useRepoBranch.js。
 
   // 拉取（重拉远端快照到本地副本）域：进度/ETA/前台提示、覆盖确认、跳过清单。
   // 状态与动作已外提到 github/useRepoPull.js。
