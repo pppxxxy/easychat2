@@ -16,12 +16,18 @@
     "src/workspace/screen/FilesPanel.js 1312 → 1213（2026-10-12，审查待办第 3 项的第二刀）：「环境与配置下载」（下载中心）弹层的整段 JSX 外提到同目录 files/CatalogSheet.js——纯展示组件，接收 styles/t 与既有 state/handler 作 props，渲染树逐字不变；状态与写入编排仍留在面板（避免连带改动钉住它们的源码断言）。净减 99 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/FilesPanel.js 1309 → 1210（2026-10-12，审查待办第 3 项的第二刀，来自 m1012m16）：「环境与配置下载」弹层的整段 JSX 外提到同目录 files/CatalogSheet.js（纯展示组件，接收 styles/t 与既有 state/handler；渲染树逐字不变，状态与写入编排仍留在面板）。与本次的样式表外提叠加后净减 99 行；再按合并后实测值校正 1213 → 1210。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/FilesPanel.js 1213 → 1083（2026-10-12，审查待办第 3 项的第三刀）：下载中心的**状态与写入编排**（写入/套餐一键/自定义 URL 下载 + 弹层状态）外提到同目录 files/useCatalogDownloads.js（hook），面板只解构状态与动作；依赖 storeRef/characterId/mountedRef/files/refresh/t 由面板注入，行为逐字不变。净减 130 行。行数基线不留余量，故同步下调（无上调）。",
-    "src/workspace/screen/FilesPanel.js 1210 → 1080（2026-10-12，审查待办第 3 项的第三刀，来自 m1012m17）：下载中心的状态与写入编排外提到 files/useCatalogDownloads.js（hook），面板只解构状态与动作、行为逐字不变；与本次合并叠加后按实测值校正（对方记 1083，实测 1080）。行数基线不留余量，故同步下调（无上调）。",
+"src/workspace/screen/FilesPanel.js 1210 → 1080（2026-10-12，审查待办第 3 项的第三刀，来自 m1012m17）：下载中心的状态与写入编排外提到 files/useCatalogDownloads.js（hook），面板只解构状态与动作、行为逐字不变；与本次合并叠加后按实测值校正（对方记 1083，实测 1080）。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/GithubPanel.js 1808 → 1698（2026-10-12，审查待办第 3 项的第四刀，来自 m1012m18）：云构建（H1：Actions 触发 + 最近构建列表 + 日志）整段外提——状态与动作到 github/useGithubBuild.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入），展示层到 github/BuildSection.js；工具栏入口（setBuildLog/refreshBuildRuns）仍由面板调 hook 返回值。净减 110 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
     "src/SettingsScreen.js 2352 → 2350（2026-10-12，合并 d1012d1）：SECTION_RENDER_ORDER 的定义搬到 settings/sectionOrder.js（纯数据、零依赖，供 searchIndex.js 与设置页共用同一个数组对象——留在设置页里会与 searchIndex.js 成环，guard-structure 判红），设置页里「8 行注释 + 数组字面量」换成 3 行 re-export，净减 2 行；autoBackup 一项已在 sectionOrder.js 同步补齐（键序与 JSX 的 15 张卡逐条一致）。行数基线不留余量，故同步下调（无上调）。",
     "src/ChatScreen.js 3162 → 3163（2026-10-12，合并 d1012d1，**上调**）：录音到 60 秒上限是 hook 自动停的（用户没按停），本次在 recorder.stop() 之后加了一条如实提示（audio.stoppedByLimit → Alert，含 2 行说明注释），+6 行真实逻辑；同一提交里对方把 4 处过时注释重排，-5 行，净 +1。这是棘轮协议【2】的正常出口（与代码改动同一次提交 + 写清理由 + 结构仍可长期维护），不是挪代码/压注释凑数。",
     "src/workspace/screen/GithubPanel.js 1698 → 1618（2026-10-12，审查待办第 3 项的第五刀，来自 m1012m19）：E5 提交历史 / 单提交 diff / PR 创建的状态与动作外提到 github/useGithubHistory.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入）；JSX 仍留在面板（含分页「加载更多」按钮）。净减 80 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
-    "src/MemoryScreen.js 1035 → 956（2026-10-12，审查待办第 3 项的第六刀，来自 m1012m20）：看屏幕对话（screenWatch）的管理（加载 / 拆分有内容 vs 空 / 删除 / 一键清理）外提到 memory/useScreenWatchThreads.js（hook）；存储与纯逻辑仍在 screenWatch/threads.js 与 memory/memoryBuckets.js。净减 79 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。"
+    "src/MemoryScreen.js 1035 → 956（2026-10-12，审查待办第 3 项的第六刀，来自 m1012m20）：看屏幕对话（screenWatch）的管理（加载 / 拆分有内容 vs 空 / 删除 / 一键清理）外提到 memory/useScreenWatchThreads.js（hook）；存储与纯逻辑仍在 screenWatch/threads.js 与 memory/memoryBuckets.js。净减 79 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。",
+    "src/MemoryScreen.js 956 → 926（2026-10-12，审查待办第 3 项的第七刀，来自 m1012m21）：孤儿会话恢复（扫出「消息还在、会话没了」的对话 + 挑角色恢复）外提到 memory/useOrphanRecovery.js（hook，依赖 loaded/refreshSessions/t 由面板注入）；存储读取仍在 storage/sessions.js 与 storage/personas.js。净减 30 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。",
+    "src/MemoryScreen.js 926 → 798（2026-10-12，审查待办第 3 项的第八刀，来自 m1012m22）：列表视图模型（会话/看屏幕 threads 的筛选、时间分档、分组展开态、iOS 吸顶组头、筛选 chips、preview 兜底）外提到 memory/useMemoryListView.js（hook，依赖 sessions/characters/activeThreads/memoryFilter/editing 由面板注入）；纯逻辑仍在 memory/memoryBuckets.js。净减 128 行，行为不变（hook 内部调用顺序与依赖与原块逐一对应；该文件无测试引用，仅靠 lint 与全量回归兜底）。**降至 798 行（≤ 800），本次起移出行数基线**（棘轮启动以来第二个离开基线的文件）。",
+    "src/CardForgeEditor.js 1338 → 1073（2026-10-12，审查待办第 3 项的第九刀，来自 m1012m23）：底部的样式工厂 createStyles 外提到 cardForge/editorStyles.js（纯数据，只依赖 theme/fonts/tokens），与既有的 chatStyles.js / filesPanelStyles.js 同因同法；组件与 AssistButton 各自 useMemo 调用处不变，渲染树逐字不变。净减 265 行。合并后实测 1073（对方分支记 1074：那边把两处 AssistButton 的 props 展开成多行，合并保留紧凑写法并保留 main 的危险正则标记，故差 1 行）。另：editorStyles.js 补回了 entryUnsafe——extraction 分支基于旧版漏了这个键，而 main 的 f1ff705d 已让组件使用 styles.entryUnsafe，漏键不报错但标记会静默不显示。行数基线不留余量，故同步下调（无上调）。",
+    "src/books/BookReaderView.js 1114 → 901（2026-10-12，审查待办第 3 项的第十刀，来自 m1012m24）：底部的样式工厂 createStyles 与它引用的两个模块常量 READER_INSET_TOP/READER_INSET_BOTTOM 一起外提到 books/bookReaderStyles.js（纯数据，只依赖 theme/fonts/tokens）；组件 useMemo 调用处不变，渲染树逐字不变。净减 213 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
+    "src/ProactivePanel.js 886 → 744（2026-10-12，审查待办第 3 项的第十一刀，来自 m1012m25）：底部的样式工厂 createStyles 外提到 proactive/proactivePanelStyles.js（纯数据，只依赖 theme/fonts）。净减 142 行，行为不变。**降至 744 行（≤ 800），本次起移出行数基线**（棘轮启动以来第三个离开基线的文件）。",
+    "src/CardForgeScreen.js 902 → 839（2026-10-12，审查待办第 3 项的第十二刀，来自 m1012m26）：底部的样式工厂 createStyles 外提到 cardForge/cardForgeScreenStyles.js（纯数据，只依赖 theme/fonts/tokens）。净减 63 行，行为不变。行数基线不留余量，故同步下调（无上调）。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3163,
@@ -32,15 +38,13 @@
     "src/character/CharacterDetailScreen.js": 1714,
     "src/workspace/screen/FilesPanel.js": 1080,
     "src/chat/chatStyles.js": 1375,
-    "src/CardForgeEditor.js": 1338,
+    "src/CardForgeEditor.js": 1073,
     "src/music/MusicScreen.js": 1182,
-    "src/books/BookReaderView.js": 1114,
-    "src/MemoryScreen.js": 956,
+    "src/books/BookReaderView.js": 901,
     "src/ImageGenScreen.js": 997,
     "src/character/CharacterLibraryScreen.js": 945,
     "src/workspace/WorkspaceSettingsSheet.js": 910,
-    "src/CardForgeScreen.js": 902,
-    "src/ProactivePanel.js": 886
+    "src/CardForgeScreen.js": 839
   },
   "allowedCycles": []
 }

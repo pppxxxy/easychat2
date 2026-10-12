@@ -75,7 +75,8 @@ test('图像生成：动态模型名必须单行中间省略且配置按钮可�
 
 test('制卡工坊：三按钮组可收缩、文字单行截断（字体放大下标题不得归零）', () => {
   const source = read('CardForgeScreen.js');
-  const actLine = source.slice(source.indexOf('action: {'), source.indexOf('}', source.indexOf('action: {')));
+  const styles = read('cardForge', 'cardForgeScreenStyles.js');
+  const actLine = styles.slice(styles.indexOf('action: {'), styles.indexOf('}', styles.indexOf('action: {')));
   assert.ok(actLine.includes('flexShrink: 1'), 'action 必须可收缩');
   const count = (source.match(/style=\{styles\.actionText\} numberOfLines=\{1\}/g) || []).length;
   assert.equal(count, 3, '三颗按钮文字都要 numberOfLines={1}');
