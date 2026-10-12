@@ -5,11 +5,15 @@ import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
 
+// 打包/校验层的**唯一权威**媒体目录白名单（dataBackup.js）。这里用真模块而不是手抄一份：
+// 下面既断言 backup.js 导出的就是**这个对象**（re-export，不是副本），也用它当棘轮的基准。
+import { BACKUP_MEDIA_DIRECTORIES as PACKABLE_MEDIA_DIRECTORIES } from '../src/storage/dataBackup.js';
+
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [] }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], packableDirectories = null }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -68,7 +72,18 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
   };
   const dataBackup = {
     BACKUP_MAX_BYTES: 64 * 1024 * 1024,
-    buildBackupPayload: input => input,
+    // 目录白名单直接用真模块那一份：backup.js 现在从 dataBackup.js 派生（re-export），
+    // 桩里给别的数组就测不出「两边是同一个对象」了。
+    BACKUP_MEDIA_DIRECTORIES: PACKABLE_MEDIA_DIRECTORIES,
+    // 默认桩原样透传。传了 packableDirectories 才模拟真实打包层的目录白名单过滤
+    //（dataBackup.js 的 isAllowedMediaPath），用于验证「白名单一旦变窄 → 文件被丢掉」不再静默。
+    buildBackupPayload: input => (packableDirectories
+      ? {
+        ...input,
+        media: (input.media || []).filter(item => packableDirectories
+          .some(directory => String(item.path).startsWith(`${directory}/`))),
+      }
+      : input),
     planBackupImport: (payload, mode) => ({
       valid: true,
       mode: mode === 'replace' ? 'replace' : 'merge',
@@ -370,4 +385,153 @@ test('importBackup：不含 opaqueRaw 的旧备份照常导入', async () => {
   ]), 'merge');
   assert.equal(storage.get('@easychat2_old'), JSON.stringify({ legacy: true }));
   assert.equal(result.opaqueCount, 0);
+});
+
+// ---- 媒体目录清单的单一事实源（2026-10-12 建立，2026-10 修 P0 后收紧为「同一份」）----
+// 背景：清单此前手写在 exportBackup 的 for 循环里，而**打包层还有第二道白名单**
+//（dataBackup.js 的 BACKUP_MEDIA_DIRECTORIES，恢复侧校验也用它）。两处漂移时，收集到的
+// 文件会在 buildBackupPayload 里被静默丢掉——用户的音乐库与书籍只有恢复时才发现没进备份，
+// 且恢复侧还会拒收含这些路径的包（不可逆）。本批把两份清单合一：backup.js 只 re-export
+// dataBackup.js 那一份。下面这组断言把「清单 ⊇ 所有已注册媒体目录」「缺口为空集」
+// 「两份是同一个对象」都钉在门禁上。
+
+// 从产出方源码里取目录常量（books/music/localModel/screenWatch 都要 expo 模块，Node 里
+// 直接 import 会炸；仓库既有的源码钉桩范式就是读源码）。
+function constantIn(file, name) {
+  const source = fs.readFileSync(path.resolve(file), 'utf8');
+  const match = new RegExp(`(?:export\\s+)?const\\s+${name}\\s*=\\s*'([^']+)'`).exec(source);
+  assert.ok(match, `${file} 里找不到常量 ${name}（常量被改名/搬走时，备份清单也要跟着走）`);
+  return match[1];
+}
+
+// 扫 `${FileSystem.documentDirectory || ''}NAME/` 这一种形状的字面量目录（常量间接的由上面
+// 的常量表覆盖）。新增媒体目录若写成这种形状而没登记，下面的断言会直接变红。
+function scanLiteralMediaDirs() {
+  const re = /`\$\{FileSystem\.documentDirectory\s*(?:\|\|\s*''\s*)?\}([A-Za-z0-9][A-Za-z0-9_-]*)\//g;
+  const found = new Set();
+  const walk = dir => {
+    for (const entry of fs.readdirSync(path.resolve(dir), { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) {
+        const source = fs.readFileSync(path.resolve(full), 'utf8');
+        let match;
+        const matcher = new RegExp(re.source, 'g');
+        while ((match = matcher.exec(source))) found.add(match[1]);
+      }
+    }
+  };
+  walk('src');
+  return found;
+}
+
+test('导出侧媒体清单：覆盖所有已注册的媒体目录（常量产出的）', () => {
+  const backup = loadBackup({ storage: new Map(), files: new Map() });
+  const list = [...backup.BACKUP_MEDIA_DIRECTORIES];
+  const owners = [
+    { file: 'src/cardForge/mediaPaths.js', constant: 'AVATAR_DIRECTORY' },
+    { file: 'src/cardForge/mediaPaths.js', constant: 'FORGE_MEDIA_DIRECTORY' },
+    { file: 'src/books/library.js', constant: 'BOOKS_DIR_NAME' },
+    { file: 'src/music/library.js', constant: 'MUSIC_DIR_NAME' },
+    // characters 曾被当成「历史遗留、已无写入方」而差点被删掉——实际写入方在
+    // storage/characters/payload.js：正文超过 512KB 的角色卡**只**把正文写进这个目录
+    //（writeCharacterPayload），删掉它等于让大角色卡正文永远进不了备份。这条断言把它钉住。
+    { file: 'src/storage/characters/payload.js', constant: 'CHARACTER_PAYLOAD_DIRECTORY' },
+  ];
+  for (const owner of owners) {
+    const dir = constantIn(owner.file, owner.constant);
+    assert.ok(list.includes(dir), `${owner.file} 的 ${owner.constant}（${dir}）必须登记进 BACKUP_MEDIA_DIRECTORIES`);
+  }
+  // 刻意不登记的目录：必须在清单外，且理由写在 dataBackup.js 的清单注释里
+  const excluded = [
+    { file: 'src/screenWatch/capture.js', constant: 'SCREEN_WATCH_DIR_NAME', why: '临时截图（滚动清扫）' },
+    { file: 'src/localModel/modelManager.js', constant: 'LOCAL_MODEL_DIRECTORY', why: '模型权重可重新下载' },
+    { file: 'src/chat/compaction.js', constant: 'COMPACTION_TRANSCRIPT_DIR', why: '会话压缩归档是可由会话重建的中间产物' },
+  ];
+  for (const owner of excluded) {
+    const dir = constantIn(owner.file, owner.constant);
+    assert.equal(list.includes(dir), false, `${dir} 不入备份（${owner.why}），不得登记`);
+  }
+  // workspace/ 的根目录名没有导出常量（`${base}workspace/`，见 workspace/native.js），
+  // 只能直接钉字面量：它同样属于刻意排除项（体积可达 GB，是否入备份属产品决策）。
+  assert.equal(list.includes('workspace'), false, 'workspace/ 不入备份（体积可达 GB，属产品决策）');
+});
+
+test('导出侧媒体清单：字面量写出的目录也必须有归属（登记或写明理由）', () => {
+  const backup = loadBackup({ storage: new Map(), files: new Map() });
+  const list = [...backup.BACKUP_MEDIA_DIRECTORIES];
+  // 例外表（目前**空**）：加进来之前先想清楚——这是在把用户内容排除在备份外。
+  // 2026-10 修 P0 前这里挂着 'chat-videos'（理由是「打包白名单还没有它」），那正是本次要
+  // 消灭的漂移：现在两份清单合一，chat-videos/ 已登记，聊天视频随备份走。
+  const NOT_BACKED_UP = {};
+  for (const dir of scanLiteralMediaDirs()) {
+    assert.ok(
+      list.includes(dir) || NOT_BACKED_UP[dir],
+      `${dir}/ 有写入方却不在 BACKUP_MEDIA_DIRECTORIES 里：要么登记（用户内容要能备份），`
+      + '要么在 NOT_BACKED_UP 里写明理由（并同步 dataBackup.js 的清单注释）',
+    );
+  }
+  assert.ok(
+    list.includes('avatars') && list.includes('chat-images') && list.includes('voice')
+      && list.includes('stickers') && list.includes('chat-videos'),
+    '字面量扫描出的核心目录都必须在清单里',
+  );
+});
+
+// 棘轮：导出清单与打包层白名单（dataBackup.js）之间**不许再有缺口**。
+// 2026-10 修 P0 之前缺口是 {music, books}：文件在导出侧被收集，却在打包时被
+// isAllowedMediaPath 静默丢掉——用户只有恢复时才发现音乐库与书籍没进备份（不可逆），
+// 而恢复侧还用同一份窄白名单**拒收**含这些路径的包。清单合一后缺口收紧成**空集**，只许保持为空。
+test('导出清单 vs 打包白名单：缺口必须是空集（只许收窄）', () => {
+  const backup = loadBackup({ storage: new Map(), files: new Map() });
+  const list = [...backup.BACKUP_MEDIA_DIRECTORIES];
+  const gap = list.filter(dir => !PACKABLE_MEDIA_DIRECTORIES.includes(dir));
+  assert.deepEqual(gap, [],
+    '导出清单里有目录不在打包白名单（dataBackup.js）里：文件会被静默丢掉。'
+    + '清单只能有一份——把目录加到 dataBackup.js 的 BACKUP_MEDIA_DIRECTORIES，而不是只加到导出侧。');
+  // 打包白名单里的目录必须都真的会被收集（否则「允许导入」却永远导不出）
+  for (const dir of PACKABLE_MEDIA_DIRECTORIES) {
+    assert.ok(list.includes(dir), `${dir}/ 在打包白名单里但导出侧从不收集，两边口径不一致`);
+  }
+});
+
+// 结构断言：两份清单是**同一份**（backup.js 只 re-export dataBackup.js 的常量）。
+// 这条比「内容相等」更强：将来有人再手抄第二份数组，即使内容一时相同也会立刻变红。
+test('两份清单是同一份：backup.js 只 re-export，不再维护第二份字面量数组', () => {
+  const backup = loadBackup({ storage: new Map(), files: new Map() });
+  assert.equal(backup.BACKUP_MEDIA_DIRECTORIES, PACKABLE_MEDIA_DIRECTORIES,
+    'backup.js 导出的必须是 dataBackup.js 的**同一个对象**（re-export），不是副本或内容相同的第二份');
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  assert.match(source, /export\s*\{\s*BACKUP_MEDIA_DIRECTORIES\s*\}/,
+    'backup.js 必须以 re-export 的形式派生清单（export { BACKUP_MEDIA_DIRECTORIES }）');
+  for (const dir of PACKABLE_MEDIA_DIRECTORIES) {
+    assert.equal(source.includes(`'${dir}'`), false,
+      `backup.js 里不该再出现目录名字面量 '${dir}'：清单只在 dataBackup.js 维护，这里必须派生`);
+  }
+});
+
+test('打包层过滤掉的文件必须计入 unreadableMedia（不再静默丢失）', async () => {
+  const storage = new Map([['@easychat2_a', JSON.stringify({ a: 1 })]]);
+  const files = new Map([
+    ['file:///doc/avatars/x.jpg', 'X'],
+    ['file:///doc/music/song.mp3', 'M'],
+  ]);
+  const directories = {
+    'file:///doc/avatars/': ['x.jpg'],
+    'file:///doc/stickers/': [],
+    'file:///doc/chat-images/': [],
+    'file:///doc/voice/': [],
+    'file:///doc/characters/': [],
+    'file:///doc/card-forge/': [],
+    'file:///doc/music/': ['song.mp3'],
+    'file:///doc/books/': [],
+  };
+  // 这里**人为**把打包白名单调窄（模拟将来有人又拆出第二份清单）：music/ 会被过滤掉。
+  // 真实白名单已与导出清单合一（见上面的棘轮测试），这道兜底仍要保证「丢文件」看得见。
+  const backup = loadBackup({ storage, files, directories, packableDirectories: ['avatars', 'stickers', 'chat-images', 'voice', 'characters', 'card-forge'] });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  assert.equal(result.mediaCount, 2, '导出侧确实收集到了两个文件');
+  assert.equal(result.payload.media.length, 1, '打包层只放行了一个');
+  assert.deepEqual(result.unreadableMedia, ['music/song.mp3'], '被白名单丢掉的文件必须出现在 unreadableMedia 里');
+  assert.equal(result.incomplete, true, '丢文件 = 备份不完整，必须告知用户');
 });
