@@ -266,6 +266,42 @@ export function isViewportRichHtml(text) {
   return rootInline.some(block => /position\s*:\s*fixed/i.test(block));
 }
 
+// ---- 卡片内链接的处置（纯函数，便于单测） ----
+//
+// 背景（2026-10-12）：卡片内的链接此前**点了没反应也没提示**——WebView 把导航交给
+// onShouldStartLoadWithRequest，而那里只有「首次加载」一个分支，其余一律 return false：
+// 相对链接 / 锚点 / mailto: / javascript: 全部静默吞掉。用户只知道「点了没用」。
+//
+// 这里只做**判定**，不碰 WebView：宿主按 kind 决定「交系统打开」还是「明确提示」。
+// 注意 host 永远不该放行 WebView 自己导航——卡片是 file:// 或内联 data: 源，
+// 放行等于让远端页面顶掉卡片，还可能带走 baseURI 里的本地上下文。
+
+// 交系统打开的外部 scheme。刻意**不含** file/blob/data/javascript：那些是本地与代码执行面，
+// 让卡片里的链接驱动它们没有合理场景（javascript: 更等于把命令执行面交给正文）。
+const RICH_HTML_EXTERNAL_SCHEMES = new Set(['http', 'https', 'mailto', 'tel', 'sms', 'geo']);
+const RICH_HTML_SCHEME_PATTERN = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+
+// 归一化：去掉首尾空白与内嵌控制字符（HTML 里常见的换行/制表，\u0000-\u0020 全清）。
+// 不清理就会被 "java\nscript:..." 这类写法绕过 scheme 判定。
+export function normalizeRichHtmlLink(raw) {
+  return String(raw == null ? '' : raw).replace(/[\u0000-\u0020]+/g, '');
+}
+
+// 返回 { kind: 'external' | 'blocked' | 'empty', scheme, url }：
+// - external：http/https/mailto/tel/sms/geo，交系统 Linking 打开（WebView 自己不放行）；
+// - blocked：相对链接 / 页内锚点 / file: / blob: / data: / javascript: 等，必须给用户明确反馈；
+// - empty：空串（点了个没有 href 的 <a>），静默忽略即可。
+export function classifyRichHtmlLink(raw) {
+  const url = normalizeRichHtmlLink(raw);
+  if (!url) return { kind: 'empty', scheme: '', url: '' };
+  const match = url.match(RICH_HTML_SCHEME_PATTERN);
+  // 没有 scheme 就是相对链接或页内锚点（#section / ./a.html / ../x.png）。
+  if (!match) return { kind: 'blocked', scheme: '', url };
+  const scheme = match[1].toLowerCase();
+  if (RICH_HTML_EXTERNAL_SCHEMES.has(scheme)) return { kind: 'external', scheme, url };
+  return { kind: 'blocked', scheme, url };
+}
+
 // 完整文档之外的正文要保留：包进 body，用 pre-wrap 维持换行。
 function toPreambleHtml(text, position) {
   const value = String(text || '').trim();

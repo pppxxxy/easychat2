@@ -1939,16 +1939,16 @@ if (!isCurrent() || controller.signal.aborted) return false;
   const onEditUserMessage = useCallback(targetId => {
     messageActionsRef.current.editUserMessage?.(targetId);
   }, []);
-
   // I1：运行中的补充指令入队。判定（能不能入队）在 chat/steeringSend.js 的纯函数里，
   // 这里只负责「入队 + 给用户一句如实提示」；没有队列/空文本一律 false，不假装成功。
+  // 失败时**必须**给一句可见提示（复用 noLoop 词条）：宿主只在成功时才清空输入框，
+  // 静默返回 false 会让用户看到「点了发送、字还在、什么也没发生」。
   const pushSteering = useCallback(rawText => {
     const queue = steeringRef.current;
     const text = String(rawText === undefined || rawText === null ? '' : rawText).trim();
-    if (!queue || !text) return false;
-    if (!queue.push(text)) return false;
-    setSteeringNote(tRef.current('chat.send.steering.note'));
-    return true;
+    const queueFull = !queue || !text || !queue.push(text);
+    setSteeringNote(tRef.current(queueFull ? 'chat.send.steering.noLoop' : 'chat.send.steering.note'));
+    return !queueFull;
   }, []);
 
   return {

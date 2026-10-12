@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Linking, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import {
@@ -8,6 +8,7 @@ import {
   RICH_HTML_SCROLL_THRESHOLD,
   buildRichHtmlCommandBridge,
   buildRichHtmlDocument,
+  classifyRichHtmlLink,
   isViewportRichHtml,
   resolveViewportCardHeight,
 } from './richHtml.js';
@@ -162,13 +163,40 @@ export default function RichHtmlMessage({
      }
   }, [viewportDocument]);
 
+  // 卡片内链接的处置。**任何情况下都不放行 WebView 自己导航**（返回 false）：卡片源是
+  // file:// 或内联 data:，放行等于让远端页面顶掉卡片。判定交给纯函数 classifyRichHtmlLink，
+  // 这里只做「交系统打开 / 明确提示」两个动作——此前非 http 的分支直接 return false，
+  // 用户点相对链接、锚点、mailto: 全是毫无反应也无提示。
+  const handleCardLink = useCallback(rawUrl => {
+    const link = classifyRichHtmlLink(rawUrl);
+    if (link.kind === 'empty') return;
+    if (link.kind === 'external') {
+      // 系统打不开（无浏览器/无邮件客户端）也要说清楚，否则又是一次静默失败。
+      Linking.openURL(link.url).catch(() => {
+        Alert.alert(t('chat.richHtml.linkFailed.title'), t('chat.richHtml.linkFailed.body'));
+      });
+      return;
+    }
+    Alert.alert(
+      t('chat.richHtml.linkUnsupported.title'),
+      t('chat.richHtml.linkUnsupported.body', {
+        // 有 scheme 就如实报 scheme（用户看得懂「javascript」这类），相对链接则说明是相对地址。
+        scheme: link.scheme || t('chat.richHtml.linkUnsupported.relative'),
+      })
+    );
+  }, [t]);
+
   const onShouldStartLoadWithRequest = useCallback(request => {
-    if (loadedRef.current) return false;
+    if (loadedRef.current) {
+      // 首帧之后还来的导航请求 = 用户在卡片里点了链接：一律拦下交给 handleCardLink。
+      handleCardLink(request && request.url);
+      return false;
+    }
     loadedRef.current = true;
     const url = String(request && request.url || '');
     if (source && source.uri) return !url || url === source.uri;
     return !url || url === 'about:blank' || url.startsWith('data:');
-  }, [source]);
+  }, [handleCardLink, source]);
 
   if (!WebViewComponent) return null;
   if (sourceError) {
@@ -220,7 +248,9 @@ export default function RichHtmlMessage({
         allowFileAccess={!!source.uri}
         allowsFullscreenVideo={allowFullscreenVideo}
         setSupportMultipleWindows={false}
-        onOpenWindow={() => {}}
+        // target="_blank" 的链接不会走 onShouldStartLoadWithRequest，只会来 onOpenWindow；
+        // 以前这里是空函数 ⇒ 这类链接同样点了没反应。收进同一处置。
+        onOpenWindow={event => handleCardLink(event && event.nativeEvent && event.nativeEvent.targetUrl)}
         scrollEnabled={contentScrollable}
         nestedScrollEnabled={contentScrollable}
         injectedJavaScriptBeforeContentLoaded={commandBridge}

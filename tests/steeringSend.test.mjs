@@ -75,3 +75,20 @@ test('工作区发送回归：onPress={handleSend} 传的 press 事件不得被�
     '旧的 undefined 判断已移除（它会放行 press 事件 → [object Object]）'
   );
 });
+
+// E 回归（2026-10-12）：pushSteering 失败必须留下可见提示。
+//
+// 症状：pushSteering 在「没有队列」或「入队被拒」时静默 return false。宿主（ChatScreen）
+// 只在成功时才清空输入框 ⇒ 失败时用户看到的是「点了发送、字还在、什么也没发生」。
+// 判定本身是纯函数（上面几条），这里钉的是**反馈**：两条失败路径都要 setSteeringNote。
+test('pushSteering 失败路径必须给出可见提示（不许静默 return false）', () => {
+  const src = fs.readFileSync(path.resolve('src', 'chat', 'useChatSend.js'), 'utf8');
+  const at = src.indexOf('const pushSteering = useCallback(');
+  assert.ok(at > 0, 'pushSteering 仍在');
+  const body = src.slice(at, src.indexOf('}, []);', at));
+  assert.ok(body.includes('setSteeringNote('), '失败也要写提示（steeringNote 是宿主渲染的那条）');
+  assert.ok(body.includes('chat.send.steering.noLoop'), '复用已有的 noLoop 词条（不新增词条）');
+  assert.ok(body.includes('chat.send.steering.note'), '成功路径仍报「已入队」');
+  // 失败分支不得再是裸 return false（那就又回到静默）
+  assert.equal(/if \(![^)]*\) return false;/.test(body), false, '失败分支不能再裸 return false');
+});

@@ -43,8 +43,10 @@ import { pushRepoSnapshot } from '../repoPush.js';
 import {
   applyRollbackSnapshot,
   buildRollbackPayload,
+  formatRollbackUnrestorableLines,
   listRollbackSnapshots,
   readLatestRollbackSnapshot,
+  rollbackUnrestorableReport,
   writeRollbackSnapshot,
 } from '../rollbackBaseline.js';
 import {
@@ -1059,12 +1061,10 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
       if (mountedRef.current) setRollbackInfo(null);
       return;
     }
-    const entries = Array.isArray(payload.entries) ? payload.entries : [];
-    const restorableCount = entries.filter(item => typeof item.content === 'string').length;
-    const lostCount = entries.length - restorableCount;
-    const lostNote = lostCount > 0
-      ? `\n\n${t('workspace.github.rollback.lostNote', { count: lostCount })}`
-      : '';
+    const restorableCount = (Array.isArray(payload.entries) ? payload.entries : []).filter(item => typeof item.content === 'string').length;
+    // D：不可恢复项**执行前**列清楚（只给数量＝让用户先点下去再吃结果）。清单与原因词条键都由 rollbackBaseline 的纯函数算。
+    const lost = rollbackUnrestorableReport(payload);
+    const lostNote = formatRollbackUnrestorableLines(lost, (key, params) => t(key, params), t('workspace.github.rollback.lostTitle'));
     Alert.alert(
       t('workspace.github.rollback.confirmTitle'),
       t('workspace.github.rollback.confirmBody', {
