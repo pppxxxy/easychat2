@@ -241,8 +241,13 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
                 promise.resolve(false)
                 return
             }
+            // 不能写 .asSequence()：TextUtils.SimpleStringSplitter 同时实现 Iterable<String>
+            // 与 Iterator<String>，而 Kotlin 对这两种接收者都有 asSequence() 重载 →
+            // 「Overload resolution ambiguity」（CI 里 :app:compileReleaseKotlin 直接失败），
+            // 后面的 map/any 因接收者类型未定，连 lambda 参数 it 也变成 Unresolved reference。
+            // toList() 只定义在 Iterable 上，没有二义；后续 map/any 的接收者是 List，同样唯一。
             val enabled = TextUtils.SimpleStringSplitter(':').apply { setString(raw) }
-                .asSequence()
+                .toList()
                 .map { it.trim() }
                 .any { it.equals(expected, ignoreCase = true) }
             promise.resolve(enabled)
