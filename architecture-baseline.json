@@ -32,12 +32,13 @@
     "src/workspace/WorkspaceSettingsSheet.js 910 → 768（2026-10-12，大文件拆分第十九刀）：设置行（rows）与动作行（actionRows）两份纯元数据数组外提到 workspace/settingsRows.js（buildSettingsRows/buildActionRows，无 JSX、无状态）；面板只留渲染与状态编排。**降至 768 行（≤ 800），本次起移出行数基线**（棘轮启动以来第八个离开基线的文件）。",
     "src/music/MusicScreen.js 990 → 762（2026-10-12，大文件拆分第二十刀）：三个域外提为 hook——歌单（music/useMusicPlaylists.js）、播放设置/倍速/音频片段（music/useMusicPlayerSettings.js）、时间轴打点（music/useMusicTriggers.js）；依赖 items/setRate/current/positionMs/generate/setItems/t 由面板注入，渲染与回调接线不变。**降至 762 行（≤ 800），本次起移出行数基线**（棘轮启动以来第九个离开基线的文件）。",
     "src/workspace/screen/GithubPanel.js 1618 → 1469（2026-10-12，六大文件第一刀，m1012m30）：拉取域外提到 screen/github/useRepoPull.js（hook）——拉取进度/ETA/前台提示、覆盖确认 confirmPullOverwrite、跳过清单读取与状态；依赖 characterId/storeRef/current/pullBranch/token/describeError/refreshLocal/mountedRef/t 与 setCurrent/setSubdir/setSnapshotPaths 由面板注入。仍 > 800，基线随之下调到实际值。",
-    "src/workspace/screen/GithubPanel.js 1469 → 1353（2026-10-12，六大文件第二刀，m1012m30）：分支与物化域外提到 screen/github/useRepoBranch.js（hook）——分支列表三态 + 竞态防护、默认分支对齐、清单缓存载入、快速检出 quickCheckout；依赖 characterId/storeRef/current/pullBranch/token/describeError/mountedRef/t 与 setPullBranch/setCurrent/setSubdir/setSnapshotPaths 由面板注入。仍 > 800，基线随之下调到实际值。"
+    "src/workspace/screen/GithubPanel.js 1469 → 1353（2026-10-12，六大文件第二刀，m1012m30）：分支与物化域外提到 screen/github/useRepoBranch.js（hook）——分支列表三态 + 竞态防护、默认分支对齐、清单缓存载入、快速检出 quickCheckout；依赖 characterId/storeRef/current/pullBranch/token/describeError/mountedRef/t 与 setPullBranch/setCurrent/setSubdir/setSnapshotPaths 由面板注入。仍 > 800，基线随之下调到实际值。",
+    "src/workspace/screen/GithubPanel.js 1353 → 1154（2026-10-12，六大文件第三刀，m1012m30）：推送域外提到 screen/github/useRepoPush.js（hook）——批量推送 pushBatch、删除安全确认门 confirmPushDiff、一键回滚 rollbackLastPush、一键交接 handoffPush、手动确认基线 markSynced；依赖 characterId/storeRef/current/pullBranch/token/describeError/refreshLocal/mountedRef/t/onHandoff/diff/repoId/allFiles/repoPrefix 与 setSnapshotPaths/setRollbackInfo 由面板注入。仍 > 800，基线随之下调到实际值。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3162,
     "src/SettingsScreen.js": 2344,
-    "src/workspace/screen/GithubPanel.js": 1353,
+    "src/workspace/screen/GithubPanel.js": 1154,
     "src/chat/useChatSend.js": 1974,
     "src/workspace/screen/ChatPanel.js": 1765,
     "src/character/CharacterDetailScreen.js": 1714,

@@ -373,14 +373,16 @@ test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
 });
 
 test('GithubPanel：快照 diff + 一键交接给助手推送', () => {
+  // 推送/回滚/交接动作已外提到 github/useRepoPush.js。
+  const PUSH_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPush.js'), 'utf8');
   assert.ok(PANEL_SRC.includes('diffRepoSnapshot('), '待同步由快照 diff 算出（不是假数字）');
-  assert.ok(PANEL_SRC.includes('getRepoSnapshot(') && PANEL_SRC.includes('setRepoSnapshot('), '基线读写存储域');
-  assert.ok(PANEL_SRC.includes('localRepoPaths('), '拉取成功后用实际清单刷新基线');
+  assert.ok(PANEL_SRC.includes('getRepoSnapshot(') && PUSH_SRC.includes('setRepoSnapshot('), '基线读写存储域');
+  assert.ok(PUSH_SRC.includes('localRepoPaths('), '拉取成功后用实际清单刷新基线');
   assert.ok(PANEL_SRC.includes('workspace.github.push.none'), '无待同步时如实显示');
   assert.ok(PANEL_SRC.includes('workspace.github.push.contentNote'), '如实标注「内容改动判定不了」');
-  assert.ok(PANEL_SRC.includes('workspace.github.push.handoff') && PANEL_SRC.includes('onHandoff('),
+  assert.ok(PANEL_SRC.includes('workspace.github.push.handoff') && PUSH_SRC.includes('onHandoff('),
     '一键交接把指令交给对话面板');
-  assert.ok(PANEL_SRC.includes('workspace.github.push.instructionHead'), '交接指令含仓库与分支');
+  assert.ok(PUSH_SRC.includes('workspace.github.push.instructionHead'), '交接指令含仓库与分支');
   assert.ok(PANEL_SRC.includes('workspace.github.push.markSynced'), '推送成功后手动确认新基线');
   // 本面板不直连推送：写远端一律经助手 + 逐条确认（面板里不得出现 MCP 推送调用）。
   assert.ok(!PANEL_SRC.includes('push_files'), '面板不直接调 GitHub 推送');

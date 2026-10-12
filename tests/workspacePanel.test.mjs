@@ -238,9 +238,11 @@ test('E5 历史浏览与 PR 接线：面板走 restApi、大 diff 截断、PR �
 
 test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清单落盘 / 查看入口', () => {
   const github = readSource('src/workspace/screen/GithubPanel.js');
+  // 推送动作已外提到 github/useRepoPush.js：基线注入与超限提示读新文件。
+  const pushHook = readSource('src/workspace/screen/github/useRepoPush.js');
   // G1：推送前读基线并注入（「曾经物化过」的证据）——缺失时传空数组（removed 恒空）
-  assert.ok(github.includes('await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`)'), '推送前读基线');
-  assert.ok(github.includes('baselinePaths,'), '基线传入 pushRepoSnapshot');
+  assert.ok(pushHook.includes('await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`)'), '推送前读基线');
+  assert.ok(pushHook.includes('baselinePaths,'), '基线传入 pushRepoSnapshot');
   // G2：拉取完成后写清单（成功路径）；面板挂载读取（跨会话保留）
   // 拉取域已外提到 github/useRepoPull.js：写/读清单与顺序契约读新文件。
   const pull = readSource('src/workspace/screen/github/useRepoPull.js');
@@ -253,7 +255,7 @@ test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清�
   const writeSkippedAt = pull.indexOf('await writePullSkipped(');
   assert.ok(clearManifestAt > 0 && writeSkippedAt > clearManifestAt, '清单只在成功路径写');
   // G 系超限记账：完成提示带「过大未参与同步」（不静默）
-  assert.ok(github.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');
+  assert.ok(pushHook.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');
 });
 
 test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照顺序', () => {
@@ -269,11 +271,12 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
   // H2：diff 用 DiffView（unified 文本输入——E5 commit 详情升级）
   assert.ok(github.includes('<DiffView'), 'diff 走 DiffView 组件');
   assert.ok(github.includes('unified={historyDiff.text}'), 'unified 文本作为输入');
-  // H3：推送成功写基线 + 回滚入口 + 应用恢复
-  assert.ok(github.includes('writeRollbackSnapshot(store, characterId, payload)'), '推送成功写回滚基线');
-  assert.ok(github.includes('applyRollbackSnapshot('), '回滚应用到本地');
+  // H3：推送成功写基线 + 回滚入口 + 应用恢复（写/读/应用已外提到 github/useRepoPush.js）
+  const pushHook = readSource('src/workspace/screen/github/useRepoPush.js');
+  assert.ok(pushHook.includes('writeRollbackSnapshot(store, characterId, payload)'), '推送成功写回滚基线');
+  assert.ok(pushHook.includes('applyRollbackSnapshot('), '回滚应用到本地');
   assert.ok(github.includes("t('workspace.github.rollback.action')"), '回滚入口（快照存在才显示）');
-  assert.ok(github.includes('readLatestRollbackSnapshot(store, characterId)'), '回滚读最新快照');
+  assert.ok(pushHook.includes('readLatestRollbackSnapshot(store, characterId)'), '回滚读最新快照');
   // 顺序契约（repoPush）：基线拉取在确认之后——用户取消就不拉（不白费网络）
   const push = readSource('src/workspace/repoPush.js');
   const confirmAt = push.indexOf('const proceed = await confirm({ diff, baselineMissing })');
@@ -294,7 +297,8 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
 // 这里是**结构守卫**：安全网的三个要素（永久删除警示 / 无基线说明 / 异常量二次确认）
 // 被静默删掉时立刻红，而不是等真机上误删才发现。
 test('G1 确认弹窗安全网：警示 + 无基线说明 + 异常删除量二次确认，三者缺一不可', () => {
-  const panel = readSource('src/workspace/screen/GithubPanel.js');
+  // 确认门已外提到 github/useRepoPush.js。
+  const panel = readSource('src/workspace/screen/github/useRepoPush.js');
   const push = readSource('src/workspace/repoPush.js');
   // ① 弹窗按「永久删除」警示与「保留原样」数量组织文案
   assert.ok(panel.includes('workspace.github.push.confirmDeleteWarn'), '必须警示删除不可逆');

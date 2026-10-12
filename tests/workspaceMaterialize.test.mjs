@@ -201,11 +201,13 @@ test('materialize_repo：单次上限 25（默认与 limit 收敛）+ 剩余量�
 
 test('C3 批量推送接线：面板按钮 + 一次确认 + truncated 安全失败 + 绝不 force', () => {
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.ok(github.includes('pushRepoSnapshot({'), '面板直连 Trees API 单提交链路');
+  // 推送动作已外提到 github/useRepoPush.js；按钮文案仍在面板。
+  const pushHook = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPush.js'), 'utf8');
+  assert.ok(pushHook.includes('pushRepoSnapshot({'), '面板直连 Trees API 单提交链路');
   assert.ok(github.includes("t('workspace.github.push.batch')"), '批量推送按钮');
-  assert.ok(github.includes('confirmPushDiff'), '一次确认框（问不到用户 = 不推送）');
-  assert.ok(github.includes("t('workspace.github.push.doneBody'"), '成功报告 commit sha');
-  assert.ok(github.includes("t('workspace.github.push.truncated')"), 'truncated 拒绝 + 引导 handoff');
+  assert.ok(pushHook.includes('confirmPushDiff'), '一次确认框（问不到用户 = 不推送）');
+  assert.ok(pushHook.includes("t('workspace.github.push.doneBody'"), '成功报告 commit sha');
+  assert.ok(pushHook.includes("t('workspace.github.push.truncated')"), 'truncated 拒绝 + 引导 handoff');
 
   const push = fs.readFileSync(path.resolve('src/workspace/repoPush.js'), 'utf8');
   assert.ok(push.includes("reason: 'truncated'"), '清单不完整时拒绝推送（完整树会误删看不见的文件）');
