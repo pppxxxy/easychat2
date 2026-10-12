@@ -154,11 +154,13 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
 test('P4-2：思考强度与上下文占用收敛到单一来源（对话面板 ⚙），文件面板不再重复', () => {
   const files = readSource('src/workspace/screen/FilesPanel.js');
   const sheet = readSource('src/workspace/WorkspaceSettingsSheet.js');
+  // 设置行元数据已外提，行 id 断言读新文件。
+  const rows = readSource('src/workspace/settingsRows.js');
   // 单一来源：对话面板的设置面板里两行都在，且都是可交互的
-  assert.ok(sheet.includes("id: 'thinking'"), '思考强度行在设置面板');
+  assert.ok(rows.includes("id: 'thinking'"), '思考强度行在设置面板');
   assert.ok(sheet.includes('onSelectThinking'), '思考强度可改（不是只读回显）');
   assert.ok(sheet.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
-  assert.ok(sheet.includes("id: 'usage'"), '上下文占用行在设置面板');
+  assert.ok(rows.includes("id: 'usage'"), '上下文占用行在设置面板');
   assert.ok(sheet.includes("t('workspace.panel.context.usage', {"), '占用文案走词条（token 数与百分比）');
   assert.ok(sheet.includes("t('workspace.panel.context.empty')"), '无会话有空态文案');
   // 文件面板不得再出现第二处：那里是「文件」领域，调 agent 参数属于范畴错误，

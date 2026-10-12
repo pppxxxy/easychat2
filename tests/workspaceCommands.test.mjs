@@ -170,8 +170,9 @@ test('接线契约：ChatPanel 建议条 + 发送时展开；设置面板命令�
   assert.ok(panel.includes('userText: outgoingText'), '请求用展开文本、气泡用原文');
   assert.ok(panel.includes('installSampleCommands(storeRef.current, characterId)'), '安装示例接线');
 
-  const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
-  assert.ok(sheet.includes("id: 'commands'"), '设置面板有命令行');
+  // 设置行的元数据（含 id）已外提到 settingsRows.js，行 id 断言读新文件。
+  const rows = fs.readFileSync(path.resolve('src/workspace/settingsRows.js'), 'utf8');
+  assert.ok(rows.includes("id: 'commands'"), '设置面板有命令行');
 
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/workspace.js'), 'utf8');
   const en = fs.readFileSync(path.resolve('src/i18n/locales/en/workspace.js'), 'utf8');

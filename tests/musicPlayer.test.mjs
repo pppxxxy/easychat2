@@ -178,7 +178,9 @@ test('播放控件：左右三角是上一首/下一首，跳时间交给 -15 / 
   assert.ok(screen.includes('pickShuffleIndex(items.length, currentIndex)'), '随机下一首');
   assert.ok(screen.includes('status.finished'), '播完触发');
   assert.ok(screen.includes('finishedHandledRef'), '防重入（结束会多次推送状态）');
-  assert.ok(screen.includes('getMusicPlayerSettings') && screen.includes('saveMusicPlayerSettings'),
+  // 播放方式与倍速的持久化已外提到该 hook。
+  const playerSettings = read('src/music/useMusicPlayerSettings.js');
+  assert.ok(playerSettings.includes('getMusicPlayerSettings') && playerSettings.includes('saveMusicPlayerSettings'),
     '播放方式与倍速都要持久化');
   // 需求 2：倍速
   assert.ok(screen.includes('cycleRate') && screen.includes('formatMusicRate'), '倍速切换与显示');

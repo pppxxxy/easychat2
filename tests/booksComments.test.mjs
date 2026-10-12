@@ -29,15 +29,17 @@ test('useBookComments：评论链路与守卫齐全', () => {
 
 test('BookReaderView：页面摘录与接话接线', () => {
   const source = readSource('src/books/BookReaderView.js');
+  // 两个生成入口的按钮已外提到评论弹层组件，文案断言读新文件。
+  const commentsModal = readSource('src/books/BookCommentsModal.js');
   assert.ok(source.includes('pageText(reader.lines, reader.page'), '评论摘录必须取当前页行文本');
   assert.ok(source.includes('blockIndex: reader.blockIndex') && source.includes('anchorText'),
     '请求必须带位置（块号+锚文本）');
   assert.ok(source.includes('ensureCharacterSession'), '接话前必须确保该角色会话存在');
   assert.ok(source.includes('navigation.navigate(ROUTE_NAMES.chat)'), '接话切到聊天页（路由名走常量）');
   // 两个生成入口都要在，且文案里带的是具体角色名（原来是一句「让TA聊聊这一页」）
-  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(source),
+  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(commentsModal),
     '本页入口存在且带角色名');
-  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(source),
+  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(commentsModal),
     '整章入口存在且带角色名');
   assert.ok(source.includes('handleCommentChapter'), '整章评论按当前章取摘录');
   assert.ok(source.includes('setShowComments(false)'), '接话离开前关闭评论面板');

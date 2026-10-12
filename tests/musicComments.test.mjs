@@ -33,9 +33,11 @@ test('useMusicComments：评论链路与守卫齐全', () => {
 
 test('MusicScreen：触发评估与接话接线', () => {
   const source = readSource('src/music/MusicScreen.js');
-  assert.ok(source.includes('collectTriggersToCross') && source.includes('isSeekJump')
-    && source.includes('resolveFiredIdsAtPosition'), '触发判定必须复用 triggers.js 纯函数');
-  assert.ok(source.includes('firedRef.current.has(trigger.id)'), '同一次播放内同一打点不得重复触发');
+  // 触发评估（越过打点判定 + 去重）已外提到该 hook。
+  const triggers = readSource('src/music/useMusicTriggers.js');
+  assert.ok(triggers.includes('collectTriggersToCross') && triggers.includes('isSeekJump')
+    && triggers.includes('resolveFiredIdsAtPosition'), '触发判定必须复用 triggers.js 纯函数');
+  assert.ok(triggers.includes('firedRef.current.has(trigger.id)'), '同一次播放内同一打点不得重复触发');
   assert.ok(source.includes('ensureCharacterSession'), '接话前必须确保该角色会话存在');
   assert.ok(source.includes('navigation.navigate(ROUTE_NAMES.chat)'), '接话切到聊天页（路由名走常量）');
   assert.ok(source.includes("kind: 'opening'"), '开播自动请求开场评论');

@@ -45,6 +45,8 @@ import { zhCN } from '../src/i18n/locales/zh-CN.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FORGE_EDITOR_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeEditor.js'), 'utf8');
 const FORGE_SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardForgeScreen.js'), 'utf8');
+// 模型交互（整卡问答/字段辅助/模拟对话）已外提到该 hook，相关断言读新文件。
+const FORGE_REQUESTS_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'cardForge', 'useForgeRequests.js'), 'utf8');
 const PREVIEW_MODAL_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'CardPreviewModal.js'), 'utf8');
 
 test('新会话包含引导与第一题', () => {
@@ -537,7 +539,7 @@ test('制卡编辑器每个字段提供辅助生成', () => {
   assert.ok(FORGE_EDITOR_SOURCE.includes('onAssistPrompt(prompt, controller.signal)'));
   assert.ok(FORGE_EDITOR_SOURCE.includes('[appliedKey]: text'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('sendAssistPrompt'));
-  assert.ok(FORGE_SCREEN_SOURCE.includes('FIELD_ASSIST_SYSTEM'));
+  assert.ok(FORGE_REQUESTS_SOURCE.includes('FIELD_ASSIST_SYSTEM'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('onAssistPrompt={sendAssistPrompt}'));
 });
 
@@ -684,8 +686,8 @@ test('预览弹窗支持多轮模拟对话、清空且不落库', () => {
 });
 
 test('模拟对话经真实聊天管道组装并受配置指纹保护', () => {
-  assert.ok(FORGE_SCREEN_SOURCE.includes('buildRequestMessages'));
-  assert.ok(FORGE_SCREEN_SOURCE.includes('const character = draftToCharacterPatch(draft, { composedPrompt })'));
+  assert.ok(FORGE_REQUESTS_SOURCE.includes('buildRequestMessages'));
+  assert.ok(FORGE_REQUESTS_SOURCE.includes('const character = draftToCharacterPatch(draft, { composedPrompt })'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('onSimulateChat={simulateChat}'));
   assert.ok(FORGE_SCREEN_SOURCE.includes('expectedConfigFingerprint'));
 });

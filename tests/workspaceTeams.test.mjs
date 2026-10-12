@@ -120,14 +120,16 @@ test('接线契约：ChatPanel 每轮直读团队并传入；设置面板可安�
   assert.ok(panel.includes('teams,'), 'teams 传进提示组装');
 
   const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
-  assert.ok(sheet.includes("id: 'teams'"), '设置面板有团队行');
+  // 设置行元数据已外提，行 id 断言读新文件。
+  const rows = fs.readFileSync(path.resolve('src/workspace/settingsRows.js'), 'utf8');
+  assert.ok(rows.includes("id: 'teams'"), '设置面板有团队行');
   assert.ok(sheet.includes('onInstallSampleTeams'), '安装示例按钮接线');
 
   const tool = fs.readFileSync(path.resolve('src/workspace/toolDefs/teamTool.js'), 'utf8');
   assert.ok(tool.includes('loadPersistentBlackboard') && tool.includes('savePersistentBlackboard'), 'run_team 跨会话黑板接线');
 
   // 团队记忆查看器（跨会话黑板）：设置面板有行、宿主把快照与清空动作传进去。
-  assert.ok(sheet.includes("id: 'board'"), '设置面板有团队记忆行');
+  assert.ok(rows.includes("id: 'board'"), '设置面板有团队记忆行');
   assert.ok(panel.includes('boardTopics={boardSnapshot}') && panel.includes('onClearBoard={handleClearBoard}'), '团队记忆快照与清空接线');
 
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/workspace.js'), 'utf8');
