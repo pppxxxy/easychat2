@@ -9,13 +9,14 @@
     "src/SettingsScreen.js 2328 → 2344（2026-10，图片识别 OCR 模型）：设置页新增「图片识别（OCR）模型」卡片（描述提示词是多行输入、另有接口配置/模型名/输出上限/超时/并发/附原图/看屏幕来源共 8 个控件）。卡片本体已拆到 settings/sections/ImageRecognitionCard.js，配置域已拆到 settings/useImageRecognitionSettings.js，设置页只留 hook 调用、一行折叠摘要与 4 行装配；剩余 16 行是这张卡在设置页里无法再外移的接线（hook 调用 + 摘要 + 装配 + import）。",
     "src/chat/useChatSend.js 1994 → 1992（2026-10，同一批）：OCR 接线（识别 → 描述注入 → 是否附原图 → 降级判定）抽到 chat/imageRecognitionSend.js，视频附件预处理抽到 chat/videoSend.js，图片识别配置解析复用 imageRecognition 引擎。棘轮只许收紧，故随本次拆分同步下调。",
     "src/chat/useChatSend.js 1992 → 1991、src/ChatScreen.js 3168 → 3163、src/workspace/screen/ChatPanel.js 1768 → 1766（2026-10，角色专属配置）：四类消费点（聊天 API / OCR / TTS+音声 / 转写）改为调唯一解析层 character/runtimeConfig.js，转写与群聊记账的旧读取块被解析层的单次调用取代，净减行数。棘轮只许收紧，故同步下调（无上调）。",
-    "src/chat/useChatSend.js 1991 → 1975（2026-10，工具使用提示隐藏开关）：工具过程气泡的挂出/更新/清除、隐藏判定与「可见性从哪来」的接线全部抽到 chat/toolBubbleView.js（新叶子 chat/toolNoticeVisibility.js 负责判定与归一化），发送路径只留 createToolBubbleApplier 装配 + 事件驱动；事件→状态映射改为复用已有的 toolBubbleState，删掉了重写一遍的分支。棘轮只许收紧，故同步下调（无上调）。"
+    "src/chat/useChatSend.js 1991 → 1975（2026-10，工具使用提示隐藏开关）：工具过程气泡的挂出/更新/清除、隐藏判定与「可见性从哪来」的接线全部抽到 chat/toolBubbleView.js（新叶子 chat/toolNoticeVisibility.js 负责判定与归一化），发送路径只留 createToolBubbleApplier 装配 + 事件驱动；事件→状态映射改为复用已有的 toolBubbleState，删掉了重写一遍的分支。棘轮只许收紧，故同步下调（无上调）。",
+    "src/chat/useChatSend.js 1975 → 1974（2026-10-12，工具权限规则合并）：permissionRules 接线改为「钩子规则 + 用户存储规则」合并（合并逻辑在 chat/toolApprovalFlow.js，hooks.js 保持存储无关），接线本身压成单行后净减 1 行。棘轮只许收紧，故同步下调（无上调）。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3163,
     "src/SettingsScreen.js": 2344,
     "src/workspace/screen/GithubPanel.js": 1984,
-    "src/chat/useChatSend.js": 1975,
+    "src/chat/useChatSend.js": 1974,
     "src/workspace/screen/ChatPanel.js": 1766,
     "src/character/CharacterDetailScreen.js": 1714,
     "src/workspace/screen/FilesPanel.js": 1552,

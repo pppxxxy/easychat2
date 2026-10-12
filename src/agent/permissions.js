@@ -111,32 +111,92 @@ function globToRegExp(pattern) {
   return new RegExp(`${out}$`);
 }
 
+// 与 workspace/paths.js 的 normalizeWorkspacePath **同口径**的归一，但**不抛错、不依赖 i18n**。
+//
+// ⚠️ P0-3（2026-10-12）：为什么必须归一 —— 规则看的是 A 串、实际落盘的是 B 路径：
+//   ".easychat\hooks.json"    规则不命中 → store 把 `\` 折成 `/` 后落到 .easychat/hooks.json（绕过）
+//   ".easychat/./hooks.json"  规则不命中 → store 丢掉 `.` 段后落到同一路径（绕过）
+//   "src\a.js"                同上
+// ⇒ 同一威胁模型下的第三处路径实现。paths.js:42-64 的注释记录过上一次同类事故
+//   （gitFs 与主沙盒两处实现，修一处漏一处），这次不能再漏。
+//
+// 为什么**不**直接 import workspace/paths.js 的 normalizeWorkspacePath：
+//   本模块是**零依赖叶子**（无 import、无 i18n，见文件头），而那个函数会 throw 且依赖 tActive
+//   ⇒ 引进来会给权限引擎装上 i18n 依赖，也让「pattern 写错」从「不匹配」变成「抛异常」。
+//   所以这里只做匹配所需的**纯归一**，且失败一律返回 null。
+//
+// fail-closed：归一失败（含 \0、超长）返回 null，调用方判为**不匹配** —— 绝不因归一失败而放行。
+// 先例 src/localModel/adapter.js:278（判不准就从严）。
+const MAX_MATCH_PATH_LENGTH = 1024;
+
+function normalizeForMatch(text) {
+  const raw = String(text == null ? '' : text);
+  if (raw.includes('\u0000') || raw.length > MAX_MATCH_PATH_LENGTH) return null;
+  const unified = raw.replace(/\\/g, '/').trim();
+  const segments = [];
+  for (const segment of unified.split('/')) {
+    if (!segment || segment === '.') continue;
+    segments.push(segment);
+  }
+  if (segments.length === 0) return null;
+  // 绝对路径标记**保留**：工作区路径恒为相对，`/x` 与 `x` 必须是两个不同的串。
+  // （否则用户写 allow 规则 `/secret/**` 会意外命中 `secret/x` —— allow 的放宽方向不安全。）
+  return (unified.startsWith('/') ? '/' : '') + segments.join('/');
+}
+
 // 路径 glob：`*` 只匹配单层（不跨 /），`**` 匹配任意层级（含零层）；
 // 不支持 ? 等其它语法（保持最小可预期集，写错的 pattern 宁可匹配不上）。
 // 大小写敏感：规则语义不该随「Android 敏感 / 桌面不敏感」的平台差异漂移。
+// pattern 与 target **都**先归一（见 normalizeForMatch），两侧同口径才不会一绕就过。
 export function pathMatchesGlob(pattern, target) {
-  const source = String(pattern == null ? '' : pattern).trim();
-  if (!source) return false;
-  const clean = text => text.replace(/^\.\//, '').replace(/\/+$/, '');
-  const cleaned = clean(source);
+  const cleaned = normalizeForMatch(pattern);
+  if (cleaned === null) return false;
   if (cleaned === '**') return true;
-  return globToRegExp(cleaned).test(clean(String(target == null ? '' : target).trim()));
+  const subject = normalizeForMatch(target);
+  if (subject === null) return false;
+  return globToRegExp(cleaned).test(subject);
 }
 
 // 单一定义：shell 元字符（**不含空白**——空白是正常的参数分隔，不是多效果信号）。
 // 下面两个判据问的是两个不同的问题，但共用这一份清单，避免清单各自漂移。
 const SHELL_META = ';|&><)(';
 const META_CLASS = SHELL_META.replace(/[\\\]^]/g, '\\$&');
-const META_RE = new RegExp(`[${META_CLASS}]`);
+// 词边界判据（BOUNDARY_RE）与多效果判据（MULTI_EFFECT_RE）**刻意分开**，理由见下。
 const BOUNDARY_RE = new RegExp(`^[\\s${META_CLASS}]`);
 
-// 「这条命令只有一个效果」：整串不含 shell 元字符——`npm install express` 是，`npm install && rm -rf /` 不是。
+// 「多效果」判据 = shell 元字符 + **命令分隔符**（换行 / 回车 / 反引号 / `$(` / `${`）。
+//
+// ⚠️ P0-1（2026-10-12）：为什么**不能**把 `\s` 整体塞进 SHELL_META——
+// SHELL_META 同时喂给 BOUNDARY_RE（词边界），而词边界里的空白是**正常**的：
+// `npm install` 命中 `npm install express` 靠的正是那个空格。把 `\s` 塞进去，
+// 「多了一个参数」也会被算成「第二个效果」⇒ allow 规则永远命不中，用户点多少次
+// 「永远允许」都还在弹框（过度拦截）。所以两份判据必须分开：BOUNDARY_RE 原样不动，
+// 多效果判据单独补分隔符。
+//
+// 事故形态（实测复现，allow 的第三种绕过）：用户点「永远允许」⇒ 存
+// `{effect:'allow', match:'npm install express'}` ⇒ 下轮模型发
+// `"npm install express\nrm -rf /"` ⇒ 旧的 isSimpleCommand 只测 SHELL_META（`\n` 不在
+// 清单里）⇒ 判成「只有一个效果」⇒ commandPrefixMatches 里 haystack.slice(needle.length)
+// 是 `"\nrm -rf /"`，BOUNDARY_RE 的 `\s` **命中 `\n`** ⇒ 返回 allow ⇒ 不弹框直接执行两条命令。
+// 反引号与 `$(` / `${` 同型：前者是命令替换，后两者是命令替换 / 参数展开，内层命令照样执行。
+//
+// 为什么「换行 = 命令分隔符」在本项目里是**既有事实**而不是理论担忧：
+// src/workspace/shellSession.js:114 的 wrapShellCommand 用 parts.join('\n') 把
+// export 前缀 / cd / 用户命令 / 捕获退出码 / exit 拼成**一条** `sh -c` 脚本。
+//
+// fail-closed 方向照 src/localModel/adapter.js:278（判不准就从严）。
+const MULTI_EFFECT_EXTRA = '\\n\\r`';
+const MULTI_EFFECT_RE = new RegExp(`[${META_CLASS}${MULTI_EFFECT_EXTRA}]|\\$\\(|\\$\\{`);
+
+// 「这条命令只有一个效果」：整串不含 shell 元字符、也不含命令分隔符——
+// `npm install express` 是（多一个参数不算），`npm install && rm -rf /` 不是，
+// `npm install express\nrm -rf /` 也不是（换行分隔的两条命令）。
 // 只对 shell 命令成立（args.code 是源码，不是 shell 语境，见 ruleMatches 里的 effect 分派）。
 // 只有 **allow** 规则走这里：allow 是「不必再问」的承诺，宽一寸就等于放行了没被审过的第二条命令。
 // deny/ask 绝不能跟着改窄——workspace/hooks.js:288-293 的 before_shell deny 复用同一个
 // commandPrefixMatches，改窄会让 `rm -rf x && ...` 不再被拦（安全不回退）。
 function isSimpleCommand(command) {
-  return !META_RE.test(String(command == null ? '' : command));
+  return !MULTI_EFFECT_RE.test(String(command == null ? '' : command));
 }
 
 // 命令前缀匹配（词边界）：`npm install` 命中 `npm install express`，

@@ -138,6 +138,23 @@ const PROTECTED_WRITE_PREFIXES = Object.freeze([
   '.easychat/sessions/',
   '.easychat/file-history/',
   '.easychat/rollback/',
+  // ⚠️ P1-4（2026-10-12）：hooks.json 是**权限面**，必须一起保护。
+  //
+  // hooks.js:24-25 曾断言「agent 可读写 —— 它只能**收紧**不能放宽」。那句**不成立**：
+  // 写工具（write_workspace_file / edit_workspace_file）不逐条确认，把内容写成 `{}`
+  // 就**抹掉用户全部预置禁令** —— 清空就是最彻底的放宽（实测：
+  // [{deny run_shell rm -rf},{ask run_shell git push}] → []，而 withDefaultHooks
+  // 只补 after_write/after_edit 两个默认提醒，**不补** before_* 规则）。
+  //
+  // 为什么它属于这一档（而不是「顶多不生效」）：仓库自己已承认它是权限面 ——
+  // packs.js:152-157 与 packTools.js:6-9 明确写「包里能带 .easychat/hooks.json，
+  // 而它的 before_tool / before_prompt 是**工具前门与提示词注入面**」，并为此给
+  // install_extension_pack 加了 requiresConfirmation: true。**同一个文件，走「安装包」
+  // 要用户点头，走「写文件」却无声覆盖** —— 两个入口的威胁模型不一致，这里是补齐。
+  //
+  // 连带（已核对）：installWorkspacePack 会一并被拦，但 packs.js 已备好
+  // assertWritableWorkspacePath 的 catch 分支，会记进 errors 而不是静默跳过 ⇒ 行为可接受。
+  '.easychat/hooks.json',
 ]);
 
 // 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀。
@@ -147,6 +164,12 @@ const PROTECTED_WRITE_PREFIXES = Object.freeze([
 // 大小写由实际文件系统决定；`isProtectedWorkspacePath` 若按大小写敏感判前缀，
 // `.easychat/SESSIONS/x.jsonl` 这类变体就会绕过守卫（写入后与真实目录同名不同串）。
 // 判据侧一律折成小写：宁可多拦一个变体，不可漏放一个。
+//
+// ⚠️ 两种条目形态（2026-10-12 P1-4 加 hooks.json 时暴露）：
+//   · 以 `/` 结尾 = **目录前缀**：本身（去掉尾斜杠）与其中的任何路径都受保护；
+//   · 不以 `/` 结尾 = **精确文件**：只保护该文件本身。
+// 不能对两者都用 startsWith —— `.easychat/hooks.json.bak` 会因前缀相同被误拦
+//（那是另一个文件，用户/agent 正常备份它不该被拒），属**过度拦截**。
 export function isProtectedWorkspacePath(path) {
   const clean = String(path == null ? '' : path)
     .replace(/\\/g, '/')
@@ -155,7 +178,11 @@ export function isProtectedWorkspacePath(path) {
     .join('/')
     .toLowerCase();
   if (!clean) return false;
-  return PROTECTED_WRITE_PREFIXES.some(prefix => clean === prefix.slice(0, -1) || clean.startsWith(prefix));
+  return PROTECTED_WRITE_PREFIXES.some(prefix => (
+    prefix.endsWith('/')
+      ? clean === prefix.slice(0, -1) || clean.startsWith(prefix)
+      : clean === prefix
+  ));
 }
 
 export function assertWritableWorkspacePath(path) {
@@ -182,6 +209,13 @@ export function assertWritableWorkspacePath(path) {
 //
 // 为什么放这里（而不是各后端各写一份）：store.js 与 safStore.js 此前各有一份隐形清单，
 // 且**已经不一致**（safStore 漏了 board）。判据集中一处，两个后端共用。
+//
+// ⚠️ P2-7：与上面的 PROTECTED_WRITE_PREFIXES **不是同一份清单**，且**有意如此**：
+// 写保护是「agent 不许写」（审计/快照/基线 + hooks.json），隐形是「不进列表枚举」。
+// 两者**方向不同**：board 与 task_outputs 允许内部直写（board_write / O1 落盘），
+// 但不该被枚举（模型走 board_read / 按 offset 精读，不看原始文件）。
+// ⇒ **PROTECTED ⊄ HIDDEN 是刻意设计**，不是漏同步；改动任一份时请先读这两段注释。
+// （历史上的不一致是「两个后端各写一份」造成的，那已经收敛；这一处是清单**用途**不同。）
 export const HIDDEN_LIST_PREFIXES = Object.freeze([
   '.easychat/sessions/',
   '.easychat/file-history/',

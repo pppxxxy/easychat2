@@ -129,7 +129,7 @@ test('sandboxDirectory 与 resolveWorkspaceUri', () => {
 
 // ---- 受保护的写入路径（审计与快照，2026-10-10）----
 
-test('isProtectedWorkspacePath：三个审计/快照目录全拦，相邻的 agent 资产不拦', () => {
+test('isProtectedWorkspacePath：审计/快照目录 + hooks.json 全拦，相邻的 agent 资产不拦', () => {
   // 受保护：事件流 / 写前快照 / 推送基线
   assert.equal(isProtectedWorkspacePath('.easychat/sessions/s1.jsonl'), true);
   assert.equal(isProtectedWorkspacePath('.easychat/file-history/index.json'), true);
@@ -142,14 +142,25 @@ test('isProtectedWorkspacePath：三个审计/快照目录全拦，相邻的 age
   assert.equal(isProtectedWorkspacePath('./.easychat/sessions/s.jsonl'), true);
   assert.equal(isProtectedWorkspacePath('.easychat//sessions//s.jsonl'), true);
 
-  // 不拦：agent 必须能写自己的技能/命令/分身/钩子/环境，以及普通项目文件
+  // ⚠️ P1-4（2026-10-12）：hooks.json 是**权限面**，必须一起保护。
+  // 此前这条断言写的是 `false`（「agent 必须能写自己的钩子」），而 hooks.js 的注释
+  // 「它只能收紧不能放宽」**不成立**：写工具不逐条确认，写成 `{}` 就抹掉用户全部预置禁令。
+  // 同一文件走「安装包」要 requiresConfirmation，走「写文件」却无声覆盖 —— 两个入口的
+  // 威胁模型不一致（packs.js:152-157 自己写它是「工具前门与提示词注入面」）。
+  assert.equal(isProtectedWorkspacePath('.easychat/hooks.json'), true);
+  // 归一化变体同样要拦住（与上面三个目录同口径）
+  assert.equal(isProtectedWorkspacePath('.easychat\\hooks.json'), true);
+  assert.equal(isProtectedWorkspacePath('./.easychat/./hooks.json'), true);
+
+  // 不拦：agent 必须能写自己的技能/命令/分身/环境，以及普通项目文件
   assert.equal(isProtectedWorkspacePath('.easychat/skills/x/SKILL.md'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/commands/x.md'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/agents/x.md'), false);
-  assert.equal(isProtectedWorkspacePath('.easychat/hooks.json'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/env.json'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/pull-skipped.json'), false);
-  // 前缀相似但不是同一目录：不能误伤
+  // 前缀相似但不是同一文件：不能误伤
+  assert.equal(isProtectedWorkspacePath('.easychat/hooks.json.bak'), false);
+  assert.equal(isProtectedWorkspacePath('.easychat/hooks-notes.md'), false);
   assert.equal(isProtectedWorkspacePath('.easychat/sessions-notes.md'), false);
   assert.equal(isProtectedWorkspacePath('notes/sessions/s.jsonl'), false);
   assert.equal(isProtectedWorkspacePath(''), false);
@@ -171,7 +182,7 @@ test('P1 回归：受保护前缀判定大小写不敏感（SAF 按显示名匹�
     assert.throws(() => assertWritableWorkspacePath(path), /不允许改写/);
   }
   // 仍然不误伤相邻资产（大小写变体也一样）
-  assert.equal(isProtectedWorkspacePath('.easychat/HOOKS.json'), false);
+  assert.equal(isProtectedWorkspacePath('.easychat/HOOKS.json'), true, 'hooks.json 大小写变体同样要拦');
   assert.equal(isProtectedWorkspacePath('.easychat/Skills/x/SKILL.md'), false);
 });
 

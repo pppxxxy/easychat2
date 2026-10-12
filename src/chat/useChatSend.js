@@ -35,7 +35,7 @@ import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 // 工具过程气泡：事件→状态映射、隐藏判定与状态变换都在 toolBubbleView.js（唯一来源）。
 import { createToolBubbleApplier, toolBubbleState } from './toolBubbleView.js';
-import { approveToolCall } from './toolApprovalFlow.js';
+import { approveToolCall, readToolPermissionRules } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
 // O1 超限结果落盘（M 系）+ 工作区钩子事件面（D 系：注入/预置禁令，取代旧的 shellHookDenyRules）。
 import { persistToolResult } from '../workspace/taskOutputs.js';
@@ -725,9 +725,8 @@ export default function useChatSend({
                 // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
                 signal: controller.signal,
               }),
-              // P1：工作区钩子的 deny / ask 规则，每次调用时直读（本轮内 agent 改了
-              // hooks.json 也立即生效）。deny 在 runTool 里直接拒绝，ask 并进审批链。
-              permissionRules: () => readHookPermissionRules(hookStore, character.id),
+              // P1：钩子规则 + 用户存储规则合并（只给钩子规则会让写工具上的手写 deny 变死键）。
+              permissionRules: async () => readToolPermissionRules(await readHookPermissionRules(hookStore, character.id)),
               // ask_user：任务中途向用户提选择题（跨平台 Alert）。
               onAskUser: payload => promptUserChoice({
                 ...payload,

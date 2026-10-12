@@ -513,12 +513,11 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
   assert.equal(editDenied.isError, true, 'edit 同样被拦（不只是 write）');
   assert.match(editDenied.content, /不允许改写/);
 
-  // agent 仍要能写自己的技能 / 命令 / 分身 / 钩子（T4/T5/T6/E3 的自我演进通路）
+  // agent 仍要能写自己的技能 / 命令 / 分身（T4/T5/T6/E3 的自我演进通路）
   for (const path of [
     '.easychat/skills/demo/SKILL.md',
     '.easychat/commands/demo.md',
     '.easychat/agents/demo.md',
-    '.easychat/hooks.json',
   ]) {
     const allowed = await runTool(
       { name: 'write_workspace_file', arguments: JSON.stringify({ path, content: 'x' }) },
@@ -526,6 +525,26 @@ test('审计/快照文件不可被写工具改写，相邻的 agent 资产不受
     );
     assert.equal(allowed.isError, false, `${path} 应仍可写`);
   }
+
+  // ⚠️ P1-4（2026-10-12）：hooks.json 从「应仍可写」改成**必须被拦**。
+  // 此前它在这条白名单里，而 hooks.js 的注释「agent 可读写——只能收紧不能放宽」**不成立**：
+  // 写工具不逐条确认，写成 `{}` 就抹掉用户全部预置禁令（清空 = 最彻底的放宽）。
+  // 同一文件走「安装包」要 requiresConfirmation，走「写文件」却无声覆盖 —— 威胁模型不一致。
+  const hooksDenied = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: '.easychat/hooks.json', content: '{}' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(hooksDenied.isError, true, 'hooks.json 是权限面，写工具不得覆盖它');
+  assert.match(hooksDenied.content, /不允许改写/);
+
+  const hooksEditDenied = await runTool(
+    {
+      name: 'edit_workspace_file',
+      arguments: JSON.stringify({ path: '.easychat/hooks.json', find: 'a', replace: 'b' }),
+    },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1' },
+  );
+  assert.equal(hooksEditDenied.isError, true, 'edit 同样被拦（不只是 write）');
 });
 
 // P1 回归（2026-10-11）：**所有**带 path 的写类工具都必须守住受保护路径。
@@ -603,10 +622,60 @@ test('P1 回归：ask 规则让「不需确认的工具」也走审批；问不�
 test('P1 回归：宿主把 permissionRules 接到 runAgentTurn 上（否则规则等于没接）', () => {
   const loop = fs.readFileSync(path.resolve('src/agent/loop.js'), 'utf8');
   assert.ok(loop.includes('permissionRules'), 'loop.js 必须把 permissionRules 透传给 runTool');
+  // ⚠️ P0-2（2026-10-12）：必须是 readToolPermissionRules（钩子规则 + 用户存储规则合并）。
+  // 此前两处宿主都只接 readHookPermissionRules ⇒ 设置页手写的 deny 对「不逐条确认的工具」
+  // 是死键（它们走不到 approveToolCall，唯一求值入口就是这里）。
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('permissionRules: () => readHookPermissionRules('), '工作区宿主必须接上钩子规则');
+  assert.ok(
+    /permissionRules:\s*async\s*\(\)\s*=>\s*readToolPermissionRules\(/.test(panel),
+    '工作区宿主必须接上「钩子 + 存储」合并后的规则',
+  );
+  assert.ok(
+    !/permissionRules:\s*\(\)\s*=>\s*readHookPermissionRules\(/.test(panel),
+    '工作区宿主不得只接钩子规则（会让手写 deny 失效）',
+  );
   const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
-  assert.ok(chat.includes('permissionRules: () => readHookPermissionRules('), '聊天宿主必须接上钩子规则');
+  assert.ok(
+    /permissionRules:\s*async\s*\(\)\s*=>\s*readToolPermissionRules\(/.test(chat),
+    '聊天宿主必须接上「钩子 + 存储」合并后的规则',
+  );
+  assert.ok(
+    !/permissionRules:\s*\(\)\s*=>\s*readHookPermissionRules\(/.test(chat),
+    '聊天宿主不得只接钩子规则（会让手写 deny 失效）',
+  );
+});
+
+// ⚠️ P0-0（2026-10-12）：宿主接的是 **async** 读盘函数，而 registry 曾经**不 await** 它。
+// 不 await 拿到 Promise ⇒ Array.isArray(Promise) 恒 false ⇒ if 分支永不进入 ⇒ ruleVerdict 恒 null
+// ⇒ 2026-10-11 那次「让 deny 对任意工具生效」的修复**从未生效**。
+// 测试此前全绿是因为用例传的是**同步数组**，而生产传的是 **async 函数** —— 形状不一致的缺口。
+// 这条用 **async 函数**做输入，把「必须 await」钉成不变量。
+test('P0-0 回归：permissionRules 是 async 函数时规则仍然生效（registry 必须 await）', async () => {
+  registerWorkspaceTools({ root, fileSystem });
+  const rules = hookRulesFromJson({
+    before_tool: [{ tool: 'write_workspace_file', match: '**/*.md', message: '不许改 md', effect: 'deny' }],
+  });
+  // async 函数 = 生产形状（readToolPermissionRules / readHookPermissionRules 都是 async）
+  const denied = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'async/a.md', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: async () => rules },
+  );
+  assert.equal(denied.isError, true, 'async permissionRules 的 deny 必须生效（漏 await 时这里会是 false）');
+  assert.match(denied.content, /before_tool/);
+
+  // 反向：async 返回空数组不得误拦
+  const allowed = await runTool(
+    { name: 'write_workspace_file', arguments: JSON.stringify({ path: 'async/a.txt', content: 'x' }) },
+    { mode: AGENT_MODES.WRITE, characterId: 'c1', permissionRules: async () => [] },
+  );
+  assert.equal(allowed.isError, false, 'async 空规则不得误拦');
+
+  // 源码锚点：await 必须在，且必须 await 的是函数调用结果（防有人改回同步写法）
+  const registry = fs.readFileSync(path.resolve('src/agent/tools/registry.js'), 'utf8');
+  assert.ok(
+    /await\s+ctx\.permissionRules\(\)/.test(registry),
+    'registry 必须 await ctx.permissionRules()（宿主接的是 async 函数）',
+  );
 });
 
 test('P1 回归：所有带 path 的写类工具都守住审计/快照路径（从真实定义表派生）', async () => {
