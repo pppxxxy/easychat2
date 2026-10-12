@@ -16,14 +16,16 @@ import {
   CHARACTER_LIST_COLLAPSE_LIMIT,
   LARGE_IMPORT_BYTES,
   MAX_IMPORT_BYTES,
-  NO_CARD_DATA_MESSAGE,
+  NO_CARD_DATA_MESSAGE_KEY,
 } from '../src/character/cardHelpers.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 test('导入体积阈值与格式化', () => {
   assert.equal(LARGE_IMPORT_BYTES, 2 * 1024 * 1024);
   assert.equal(MAX_IMPORT_BYTES, 32 * 1024 * 1024);
   assert.equal(CHARACTER_LIST_COLLAPSE_LIMIT, 10);
-  assert.ok(NO_CARD_DATA_MESSAGE.includes('角色卡'));
+  assert.equal(NO_CARD_DATA_MESSAGE_KEY, 'character.detail.importNoCardData');
+  assert.ok(zhCN['character.detail.importNoCardData'].includes('角色卡'));
   assert.equal(isLargeImport(LARGE_IMPORT_BYTES + 1), true);
   assert.equal(isLargeImport(LARGE_IMPORT_BYTES), false);
   assert.equal(formatImportSize(0), '');

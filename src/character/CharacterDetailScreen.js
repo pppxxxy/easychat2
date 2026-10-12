@@ -69,7 +69,7 @@ import {
 } from './editors.js';
 import {
   MAX_IMPORT_BYTES,
-  NO_CARD_DATA_MESSAGE,
+  NO_CARD_DATA_MESSAGE_KEY,
   assetLooksLike,
   buildCharacterFormState,
   buildCharacterPatch,
@@ -674,7 +674,7 @@ setWorldInfo(next.worldInfo);
       }
 
       if (treatAsPng && parsed === null) {
-        Alert.alert(t('character.detail.importEmpty.title'), NO_CARD_DATA_MESSAGE);
+        Alert.alert(t('character.detail.importEmpty.title'), t(NO_CARD_DATA_MESSAGE_KEY));
         return;
       }
 

@@ -94,9 +94,9 @@ export default function AcquireSection({
                 onPress={() => onRewriteSource(source)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel={t('localModel.a11y.useSource', { name: source.name })}
+                accessibilityLabel={t('localModel.a11y.useSource', { name: t(source.nameKey) })}
               >
-                <Text style={[styles.sourceChipText, downloadDraft.sourceId === source.id && styles.sourceChipTextActive]}>{source.name}</Text>
+                <Text style={[styles.sourceChipText, downloadDraft.sourceId === source.id && styles.sourceChipTextActive]}>{t(source.nameKey)}</Text>
               </TouchableOpacity>
             ))}
           </View>

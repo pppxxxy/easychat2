@@ -15,8 +15,8 @@ export function stripMemorySummaryEntries(worldInfo) {
     .filter(entry => !String((entry && entry.comment) || '').trim().startsWith(MEMORY_SUMMARY_PREFIX));
 }
 
-export const NO_CARD_DATA_MESSAGE =
-  '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。';
+// 「图片里没有角色卡数据」的提示文案只留 key，由消费方（CharacterDetailScreen）t() 翻译。
+export const NO_CARD_DATA_MESSAGE_KEY = 'character.detail.importNoCardData';
 export const LARGE_IMPORT_BYTES = 2 * 1024 * 1024;
 export const MAX_IMPORT_BYTES = 32 * 1024 * 1024;
 export const CHARACTER_LIST_COLLAPSE_LIMIT = 10;

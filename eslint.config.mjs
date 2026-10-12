@@ -104,6 +104,14 @@ export default [
       'src/navigation/routeNames.js',
       'src/plugins/registry.js',
       'src/prompt/chatPipeline.js',
+      // 2026-10-12（m1012m14）：以下原列在 (a) 待迁移，核实后确认是**内容/数据/提示词**，
+      // 中文是其正确形态、翻译反而有害，故改判为永久豁免：
+      'src/aigc/attribution.js',             // AIGC 合规标识随卡片数据导出（GB 45438），非界面文案
+      'src/chat/voiceMessages.js',           // VOICE_PLACEHOLDER_TEXT 是发给模型的占位文本（模型输入）
+      'src/memory/memoryBuckets.js',         // label 是 labelKey 的中文兜底（非 React 消费方/纯逻辑测试）
+      'src/onboarding/onboardingContent.js', // 教程内容（AGENTS.md 明列例外）
+      'src/storage/characters/shared.js',    // 内置助手的人设名与系统提示（角色卡内容）
+      'src/workspace/gitCheckpoint.js',      // CHECKPOINT_FALLBACK_MESSAGE 写入 git 提交信息（持久数据）
       // 2026-10-12：settings/searchIndex.js 的**标签**已全部迁走（label → labelKey，
       // 复用卡片自己的 settings.<x>.* 键，分区名同理）。留在这里只剩 keywords——
       // 那些是「用户会输入什么」的匹配词，中英混排、不该翻译。
@@ -120,27 +128,18 @@ export default [
       // 新增工具文件也自动在内——这正是我们要的，工具描述不该翻成英文界面语言。
       'src/workspace/toolDefs/**',
       // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
-      'src/aigc/attribution.js',
-      'src/character/cardHelpers.js',
-      'src/chat/reactiveCompact.js',
-      'src/chat/voiceMessages.js',
       'src/games/games.js',
       'src/imageGen/providers.js',
-      'src/localModel/modelCatalog.js',
-      'src/localModel/modelState.js',
-      'src/memory/memoryBuckets.js',
+      // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
+      // 2026-10-12：src/localModel/modelCatalog.js 已迁出（CATALOG_PROVIDERS 为死导出，已删）。
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
-      'src/onboarding/onboardingContent.js',
       'src/plugins/providers.js',
       // 2026-10-12：src/settings/presets.js 已迁出——导出常量只留 id + nameKey/descriptionKey，
       // 名称/描述进 preset.builtin.* 词条；提示词搬到**未导出**的 BUILTIN_PROMPTS
       //（模型输入，按铁律不进 i18n，规则本来也不查未导出常量）。
-      'src/storage/characters/shared.js',
       'src/tts/providers.js',
-      'src/vectorMemory/providers.js',
-      'src/workspace/gitCheckpoint.js',
       'src/workspace/plugins/market.js',
     ],
     // 插件命名空间用 local-i18n：ESLint flat config 不允许在两个配置对象里重复定义

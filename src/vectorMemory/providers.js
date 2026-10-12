@@ -3,7 +3,6 @@ import { tActive } from '../i18n/index.js';
 export const VECTOR_PROVIDERS = [
   {
     id: 'openai-embeddings',
-    label: 'OpenAI 兼容',
     labelKey: 'vectorProvider.openaiEmbeddings',
     baseUrl: 'https://api.openai.com/v1',
     endpoint: '/embeddings',
