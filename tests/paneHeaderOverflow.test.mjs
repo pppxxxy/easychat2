@@ -60,10 +60,11 @@ test('拓展 Stack 十个子面板全部经 PaneHeader 渲染（含此前未覆�
 
 test('图像生成：动态模型名必须单行中间省略且配置按钮可收缩', () => {
   const source = read('ImageGenScreen.js');
+  const styles = read('imageGen', 'imageGenScreenStyles.js');
   assert.ok(source.includes('ellipsizeMode="middle"'), '模型名应中间省略（头尾可辨认）');
-  const keyLine = source.slice(source.indexOf('keyButtonText: {'), source.indexOf('}', source.indexOf('keyButtonText: {')));
+  const keyLine = styles.slice(styles.indexOf('keyButtonText: {'), styles.indexOf('}', styles.indexOf('keyButtonText: {')));
   assert.ok(keyLine.includes('maxWidth: 150'), '模型名文本应有 maxWidth 上限');
-  const cfgLine = source.slice(source.indexOf('configButton: {'), source.indexOf('}', source.indexOf('configButton: {')));
+  const cfgLine = styles.slice(styles.indexOf('configButton: {'), styles.indexOf('}', styles.indexOf('configButton: {')));
   assert.ok(cfgLine.includes('flexShrink: 1'), '配置按钮必须可收缩');
   // keyButtonText 的 Text 元素（JSX 跨行）：取渲染处片段，断言 style 与
   // numberOfLines 同时在场

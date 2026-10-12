@@ -13,6 +13,7 @@
     "src/ChatScreen.js",
     "src/ExtensionScreen.js",
     "src/ImageGenScreen.js",
+    "src/imageGen/imageGenScreenStyles.js",
     "src/LocalModelPanel.js",
     "src/MemoryScreen.js",
     "src/memory/SessionRow.js",
