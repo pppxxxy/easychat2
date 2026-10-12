@@ -139,6 +139,10 @@ export async function runWorkflow({
       }
     });
   }
+  // 中止时不能报 ok:true 的部分成功：plan.order 里未执行的步骤结果为空，合并文本会出现空【步骤】。
+  if (signal && signal.aborted) {
+    return { ok: false, results, order: plan.order, errors: [...errors, '已中止'], failed };
+  }
   if (failed.length > 0) {
     return { ok: false, results, order: plan.order, errors, failed };
   }

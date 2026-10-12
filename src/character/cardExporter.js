@@ -82,10 +82,10 @@ function mapWorldEntry(entry) {
       scan_depth: source.scanDepth === null || source.scanDepth === undefined
         ? null
         : (Number.isFinite(Number(source.scanDepth)) ? Number(source.scanDepth) : null),
-       boundary: source.boundary ? String(source.boundary) : '',
-     },
-     boundary: source.boundary ? String(source.boundary) : '',
-   };
+    },
+    // 自定义字段 boundary 只在条目顶层出现一次（此前在 extensions 里误插了一份重复且缩进错位）。
+    boundary: source.boundary ? String(source.boundary) : '',
+  };
 }
 
 function mapRegexScript(script) {

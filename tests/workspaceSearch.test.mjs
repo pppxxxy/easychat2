@@ -198,8 +198,9 @@ test('list_workspace_files：命中上限时附截断告警行', async () => {
   const out = await listDef.execute({}, { mode: AGENT_MODES.READ, characterId: 'c1' });
   assert.match(out, /a\.js\nb\.js/);
   // 截断告警行来自 store 的权威 truncated 标记（listTruncationNotice 按结果规模
-  // 推断不出这个合成场景：只有 2 个文件），两处措辞统一为「文件数达到上限 N 条」。
-  assert.match(out, /本列表可能不完整——文件数达到上限 2000 条/);
+  // 推断不出这个合成场景：只有 2 个文件）。措辞为通用护栏提示——truncated 现在同时
+  // 覆盖「文件数上限」与「目录深度上限」两种成因。
+  assert.match(out, /本列表可能不完整——已达列表护栏（文件数或目录深度）/);
 });
 
 test('list_workspace_files：桩 store 只有旧方法时无截断标记（向后兼容）', async () => {

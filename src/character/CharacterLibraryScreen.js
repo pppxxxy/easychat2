@@ -37,6 +37,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { CHARACTER_LIST_COLLAPSE_LIMIT, gridRowIndex } from './cardHelpers.js';
+import { confirmDeleteAll } from './libraryDeleteConfirm.js';
 
 // 角色库网格列数。FlatList 在 numColumns>1 时，scrollToIndex 的 index 按「行」计数，
 // 定位滑块给的是「项」序号，需经 gridRowIndex 折算，否则下半部分会越界闪退。
@@ -383,16 +384,7 @@ export default function CharacterLibraryScreen() {
   };
 
   const promptConfirmAllDelete = () => {
-    Alert.prompt
-      ? Alert.prompt(t('character.library.prompt.title'), t('character.library.prompt.body'), value => {
-        // 确认词固定为「删除」二字，不随界面语言变化。
-        if (String(value || '').trim() === '删除') {
-          confirmSelectedDelete(selectedIds);
-        } else {
-          Alert.alert(t('character.library.prompt.mismatch.title'), t('character.library.prompt.mismatch.body'));
-        }
-      })
-      : Alert.alert(t('character.library.prompt.unsupported.title'), t('character.library.prompt.unsupported.body'));
+    confirmDeleteAll({ t, onConfirm: () => confirmSelectedDelete(selectedIds) });
   };
 
   const onDeleteCharacter = item => {

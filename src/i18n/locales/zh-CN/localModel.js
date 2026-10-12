@@ -85,7 +85,8 @@ export const localModel = {
   'localModel.card.more': '更多操作',
   'localModel.download.title': '下载中（{count}）',
   'localModel.download.queued': '排队中',
-  'localModel.download.failed': '下载失败，可取消后重试',
+  'localModel.download.failed': '下载失败',
+  'localModel.download.retry': '重试',
   'localModel.download.cancel': '取消',
   // ---- 模型中心 / 引擎状态（v5 Stage C 预览对齐）----
   'localModel.badge.current': '当前',

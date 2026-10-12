@@ -620,9 +620,11 @@ test('P1 回归：宿主把 permissionRules 接到 runAgentTurn 上（否则规�
   const loop = fs.readFileSync(path.resolve('src/agent/loop.js'), 'utf8');
   assert.ok(loop.includes('permissionRules'), 'loop.js 必须把 permissionRules 透传给 runTool');
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('permissionRules: () => readHookPermissionRules('), '工作区宿主必须接上钩子规则');
+  assert.ok(panel.includes('readHookPermissionRules(storeRef.current, characterId)')
+    && panel.includes('getEffectivePermissionRules()'), '工作区宿主必须接上钩子规则 + 存储规则');
   const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
-  assert.ok(chat.includes('permissionRules: () => readHookPermissionRules('), '聊天宿主必须接上钩子规则');
+  assert.ok(chat.includes('readHookPermissionRules(hookStore, character.id)')
+    && chat.includes('getEffectivePermissionRules()'), '聊天宿主必须接上钩子规则 + 存储规则');
 });
 
 test('P1 回归：所有带 path 的写类工具都守住审计/快照路径（从真实定义表派生）', async () => {

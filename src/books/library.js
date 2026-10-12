@@ -6,7 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { backupCorruptValue, CORRUPT_BACKUP_SUFFIX, createMutationQueue, readJsonStatus } from '../storage/io.js';
 import { mergeChapterProgress, normalizeChapterProgress } from './chapterProgress.js';
 import { tActive } from '../i18n/index.js';
 
@@ -132,6 +132,8 @@ async function writeBookCollection(items) {
     const activeIds = new Set(ids);
     const staleKeys = keys.filter(key => (
       String(key).startsWith(`${BOOK_ITEM_PREFIX}::`)
+      // 排除损坏备份键：__corrupt_backup 是原始数据的抢救副本，不能被清扫误删。
+      && !String(key).endsWith(CORRUPT_BACKUP_SUFFIX)
       && !activeIds.has(String(key).slice(`${BOOK_ITEM_PREFIX}::`.length))
     ));
     if (staleKeys.length > 0) await AsyncStorage.multiRemove(staleKeys);

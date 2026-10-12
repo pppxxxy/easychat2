@@ -161,19 +161,6 @@ function formatApiError(text, status) {
   return trimmed.slice(0, 300);
 }
 
-export function normalizeAssistantContent(value) {
-  if (typeof value === 'string') return value;
-  if (!Array.isArray(value)) return '';
-  return value
-    .map(part => {
-      if (typeof part === 'string') return part;
-      if (part && typeof part.text === 'string') return part.text;
-      if (part && typeof part.content === 'string') return part.content;
-      return '';
-    })
-    .join('');
-}
-
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   // 复用共享错误解析：error.message + metadata.raw（OpenRouter 上游真凶）。
@@ -214,7 +201,8 @@ export function extractUsage(payload) {
   // prompt_tokens 合法为 0（全命中缓存），用 `||` 会把它跳过并误取 input_tokens，
   // 于是缓存命中率 Σcached/Σprompt 可能 >100%。OpenAI/DeepSeek 的 prompt_tokens 是
   // 「含缓存」的全量（存在就以它为准）；Anthropic 的 input_tokens 不含缓存，并入 prompt。
-  const has = value => Number.isFinite(Number(value));
+  // 显式排除 null/undefined/空串：Number(null)===0 且有限，会把「显式发 null」误判为存在。
+  const has = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
   const rawPrompt = has(source.prompt_tokens)
     ? num(source.prompt_tokens)
     : num(source.input_tokens);
@@ -491,8 +479,8 @@ async function requestOnce(messages, options, attempt) {
       // 必须忽略，否则会把用户主动停止误记成「请求已中断」污染诊断日志。
       if (settled) return undefined;
       // 中止与配置切换是预期的控制流，不进诊断日志；其余失败记录一次（脱敏）。
-      const message = String((error && error.message) || '');
-      if (message !== CONFIG_CHANGED_ERROR && !isCanceledError(error)) {
+      // 用 isConfigChangedError（含 error.code）判据，不比对文案——英文界面文案不同，比对中文哨兵会误记。
+      if (!isConfigChangedError(error) && !isCanceledError(error)) {
         recordDiagnostic('api', error, '聊天接口请求失败');
       }
       return settle(reject, error);
@@ -622,7 +610,7 @@ async function requestOnce(messages, options, attempt) {
       if (Array.isArray(parsed.toolCalls) && parsed.toolCalls.length) {
         mergeToolCallDeltas(parsed.toolCalls);
       }
-      if (parsed.finishReason) finishReason = parsed.finishReason;
+      if (parsed.finishReason && finishReason === null) finishReason = parsed.finishReason;
 
       const delta = parsed.text;
       if (!delta) return;
@@ -642,6 +630,9 @@ async function requestOnce(messages, options, attempt) {
       }
       if (trimmed.startsWith(':')) return;
       if (!trimmed.startsWith('data:')) return;
+      // 只有真正的内容（data: 行）才把「等首字节」降级为「空闲」：注释/保活行（`: ping`）
+      // 不算，否则服务端先发保活会让长思考请求的阈值从 120s 掉到 30s、被误判超时并进降级链。
+      sawFirstByte = true;
       tryDispatch();
       dataLines.push(trimmed.slice(5).trim());
     };
@@ -649,7 +640,6 @@ async function requestOnce(messages, options, attempt) {
     const drainIncremental = () => {
       const incoming = (xhr.responseText || '').slice(consumed);
       if (!incoming) return;
-      sawFirstByte = true;
       consumed = (xhr.responseText || '').length;
       lineBuffer += incoming;
       const lines = lineBuffer.split('\n');
@@ -749,7 +739,7 @@ async function requestOnce(messages, options, attempt) {
         if (Array.isArray(parsed.toolCalls) && parsed.toolCalls.length) {
           mergeToolCallDeltas(parsed.toolCalls);
         }
-        if (parsed.finishReason) finishReason = parsed.finishReason;
+      if (parsed.finishReason && finishReason === null) finishReason = parsed.finishReason;
         fullText = parsed.text;
         finishWithConfig(() => succeed(makeResult()));
       } catch (error) {

@@ -134,8 +134,10 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
     };
   }, [songId]);
 
-  const generate = useCallback(async ({ kind, atMs = 0, note = '' }) => {
-    const currentSong = songRef.current;
+  const generate = useCallback(async ({ kind, atMs = 0, note = '', song: songOverride = null }) => {
+    // 显式传入目标歌时以它为准：切歌是「setCurrentId 后同步调用」，此刻 songRef 还指向上一首
+    // （render 期才赋值），不传就会把开场评论写到旧歌上。
+    const currentSong = songOverride || songRef.current;
     if (!currentSong || generatingRef.current) return false;
     const character = (charactersRef.current || []).find(item => item.id === characterIdRef.current);
     if (!character) {

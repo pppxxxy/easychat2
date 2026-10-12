@@ -40,7 +40,7 @@ export async function saveCharacterState(list, activeId, deletedIds, clearVector
       try {
         await clearVectorIndex(id);
       } catch (error) {
-        if (__DEV__) console.warn('[vector] character cleanup failed', error);
+        if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] character cleanup failed', error);
       }
     }
   }

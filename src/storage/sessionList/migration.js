@@ -3,9 +3,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { buildPreview, sortSessions } from '../../context/sessionLibrary.js';
+import { DEFAULT_CHARACTER } from '../characters.js';
 import { readLegacyMessages } from './mutations.js';
 import {
   enqueueSessionMutation,
+  LEGACY_MESSAGES_KEY,
   legacySessionId,
   messagesKey,
   requireSessions,
@@ -51,7 +53,13 @@ async function migrateLegacyMessagesInternal(characters) {
     // 即使保存失败也不会先删源数据。
     for (const session of migrated) {
       const characterId = String(session.characterId || '');
-      if (characterId) await AsyncStorage.removeItem(messagesKey(characterId));
+      if (!characterId) continue;
+      await AsyncStorage.removeItem(messagesKey(characterId));
+      // 默认角色的旧数据可能来自整包键（readLegacyMessages 的回退），一并清掉，
+      // 否则该键永久残留（existingIds 已含 legacy id，不会再迁，但源数据也删不掉）。
+      if (characterId === DEFAULT_CHARACTER.id) {
+        await AsyncStorage.removeItem(LEGACY_MESSAGES_KEY);
+      }
     }
   }
   return migrated;

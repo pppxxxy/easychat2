@@ -26,7 +26,9 @@ const MCP_TOOL_TIMEOUT_MS = 45000;
 const MCP_RESULT_CHAR_LIMIT = 16000;
 // 第三方命名空间形态：`<slug>__`。用于全量摘除时识别（比 includes('__') 精确，
 // 不会误伤其它域恰好带双下划线的工具名）。
-const MCP_NAMESPACE_PATTERN = /^[a-z0-9][a-z0-9-]*__/;
+// 字符集与工具名允许的 [a-zA-Z0-9_-] 对齐：server id 未必是纯小写 slug（导入配置 /
+// 手改存储），此前只认小写导致这类服务器的工具在删除/禁用后残留在注册表里。
+const MCP_NAMESPACE_PATTERN = /^[a-zA-Z0-9_-]+__/;
 
 // 工具名前缀：内置 github 保持 `github_`（兼容既有工具名与用户配置）；
 // 第三方服务器 `<id>__`（命名空间隔离，两台同名工具不打架）。

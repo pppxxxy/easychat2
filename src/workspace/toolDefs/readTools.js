@@ -57,7 +57,7 @@ export const READ_ONLY_TOOL_DEFINITIONS = [
         // store 的 truncated 标记是权威值。两者取并集，避免桩后端只有旧方法时漏报。
         const notice = listTruncationNotice(list)
           || (truncated
-            ? `（注意：本列表可能不完整——文件数达到上限 ${WORKSPACE_LIMITS.MAX_FILES} 条。用 subdir 指定子目录可看到其余部分）`
+            ? '（注意：本列表可能不完整——已达列表护栏（文件数或目录深度）。用 subdir 指定子目录可看到其余部分）'
             : '');
         return notice ? `${body}\n\n${notice}` : body;
       });

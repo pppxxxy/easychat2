@@ -42,10 +42,13 @@ test('作息面板：角色选择 + 启用/分套开关 + 三个子编辑器 + �
 });
 
 test('对话注入：读取角色作息并附带当前时间（同一时刻，保证同日）', () => {
-  assert.ok(SEND.includes('getCharacterSchedule(scheduleCharacterId)'));
-  assert.ok(SEND.includes('buildSchedulePrompt(schedule, { date: requestNow, characterId: scheduleCharacterId })'));
-  assert.ok(SEND.includes('buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive, requestNow)'));
-  assert.ok(SEND.includes('scheduleText,'));
+  // 单聊/群聊共用的注入计算已抽到 chatInjections.js（useChatSend 行数棘轮）；断言跟着去新文件。
+  const inject = read('src/chat/chatInjections.js');
+  assert.ok(inject.includes('getCharacterSchedule(characterId)'));
+  assert.ok(inject.includes('buildSchedulePrompt(schedule, { date: now, characterId })'));
+  assert.ok(inject.includes('const timeAware = options.timeAware === true || scheduleActive;'));
+  assert.ok(inject.includes('buildTimeAwareText(timeAware, now)'));
+  assert.ok(SEND.includes('scheduleText: inject.scheduleText'));
   assert.ok(PIPELINE.includes('scheduleText'));
   assert.ok(PIPELINE.includes('const scheduleLine = String(scheduleText || \'\').trim();'));
 });

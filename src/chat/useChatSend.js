@@ -73,10 +73,7 @@ import { createRequestMeter, estimatePromptTokens, estimateReplyTokens } from '.
 import { recordSessionRequest } from '../storage/sessionStats.js';
 import { stop as ttsStop } from '../tts/index.js';
 import { maskSecrets } from '../storage/secrets.js';
-import { resolveStickerNames } from './stickerDirectives.js';
-import { buildTimeAwareText } from './currentTime.js';
-import { buildSchedulePrompt, isScheduleActive } from './schedule.js';
-import { getCharacterSchedule } from '../storage/schedule.js';
+import { resolveChatInjections } from './chatInjections.js';
 import { saveSessionPlan } from '../storage/sessionPlan.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 // N1：reactive 回退——API 报上下文超限时压缩历史（本批接线为「压缩 + 提示重发」；
@@ -88,7 +85,6 @@ import { buildReactiveCompactDeps } from './sessionCompaction.js';
 import { attachToolTrace, extractToolTrace } from './toolTrace.js';
 // ask_user：任务中途向用户提选择题。
 import { promptUserChoice } from './askUserPrompt.js';
-import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 import { settlePendingMessage } from './chatHelpers.js';
 import {
   buildContextBreakdown,
@@ -131,7 +127,6 @@ import { capabilitiesForModel, getActiveModel } from '../storage/apiConfigs.js';
 import { getEnabledGlobalPresetPrompts } from '../storage/globalPresets.js';
 import { getEnabledPlugins } from '../storage/settings.js';
 import { getUserProfile } from '../storage/personas.js';
-import { getLocationSettings } from '../storage/location.js';
 import {
   getSessionSummaries,
   markSessionModel,
@@ -144,6 +139,7 @@ import {
   removeVectorIndexForSession,
 } from '../storage/vector.js';
 import { getWorkspaceSettings } from '../storage/workspace.js';
+import { getEffectivePermissionRules } from '../storage/settings/workspacePermissions.js';
 import { getChatOptions } from '../storage/settings/chatOptions.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { runPlugins } from '../plugins/registry.js';
@@ -366,6 +362,10 @@ export default function useChatSend({
     // 本会话统计打点：声明在 try 之外（catch 的失败/取消分支也要记账）；异常一律吞掉——统计绝不能影响聊天主链路。
     let recordStats = () => {};
 
+    // 切会话竞态：上面两次 await（工作区设置 / hooks 读取）期间用户可能已切走，此时
+    // 写入会把 pending 气泡画进新会话（后续守卫再 return 就留下一个卡住的「思考中」）。
+    // 与其它写入点一致，先做会话守卫。
+    if (!isCurrentSession()) return false;
      setMessages([...baseMessages, pendingAssistantMessage]);
      setIsSending(true);
      atBottomRef.current = true;
@@ -464,36 +464,14 @@ export default function useChatSend({
       } catch (error) {
         summaryText = '';
       }
-       // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时注入
-       // 「[当前位置] …」（内容即当前选中的那条自写位置）；任一关闭 = 空串——位置感知是
-       // 独立 opt-in，不给「开地图即默认分享」留后门。手写位置没有取点时间，故 maxAgeMs: null。
-       let locationLine = '';
-       try {
-         const locationSettings = await getLocationSettings();
-         locationLine = buildLocationText(
-           locationSettings && locationSettings.enabled === true && locationSettings.awareness === true,
-           placeToLocation(resolveActivePlace(locationSettings)),
-           { maxAgeMs: null }
-         );
-       } catch (error) {
-         locationLine = '';
-       }
-       // 角色作息：读取会话所属角色的作息；启用时注入静态作息规则，并附带当前时间
-       // （规则要靠当前时间判断时段，故启用作息即附带时间，与全局 timeAware 解耦）。
-       // 「本次请求的时刻」只取一次：时间行与作息规则的工作日/休息日判定必须同一天，
-       // 否则跨零点的那一轮会出现「时间行已是次日、作息还按前一天」的错配。
-       // 传日期 → 概率事件按「天」确定性解析；同一天内文本逐字节一致（缓存契约）。
-       const requestNow = new Date();
+       // 位置 / 角色作息 / 时间感知 / 表情包 / 图片下载：与群聊共用同一份计算（chatInjections）。
+       // 「本次请求的时刻」只取一次：时间行与作息规则的工作日/休息日判定必须同一天。
        const scheduleCharacterId = String((currentSession && currentSession.characterId) || character.id || '');
-       let scheduleText = '';
-       let scheduleActive = false;
-       try {
-         const schedule = scheduleCharacterId ? await getCharacterSchedule(scheduleCharacterId) : null;
-         if (isScheduleActive(schedule)) {
-           scheduleText = buildSchedulePrompt(schedule, { date: requestNow, characterId: scheduleCharacterId });
-           scheduleActive = true;
-         }
-       } catch (error) { scheduleText = ''; scheduleActive = false; }
+       const inject = await resolveChatInjections({
+         characterId: scheduleCharacterId,
+         chatOptions: chatOptionsRef.current,
+         stickerSource: stickersRef.current,
+       });
        const requestMessages = buildRequestMessages({
          character,
          historyMessages: trimmedHistory,
@@ -506,17 +484,12 @@ export default function useChatSend({
          pluginContext,
          images,
          quote,
-         // 仅当「表情包使用」预设开启且 {{stickers}} 占位符出现时才会被注入。
-         stickerNames: resolveStickerNames(stickersRef.current),
-         stickerEnabled: chatOptionsRef.current.stickerEnabled === true,
-         // 时间感知开启（或角色作息启用）时附上当前时间（与作息规则取同一时刻，保证同日）。
-         currentTimeText: buildTimeAwareText(chatOptionsRef.current.timeAware || scheduleActive, requestNow),
-         // 角色作息启用时附上作息规则（含「按当前时间判断状态」与今天的概率事件）。
-         scheduleText,
-         // 图片下载：角色可用 <download_image:URL> 让 App 取回网络图片（默认关）。
-         downloadImageEnabled: chatOptionsRef.current.downloadImage === true,
-         // 真实位置开启且存在最近位置时附上位置行。
-         locationText: locationLine,
+         stickerNames: inject.stickerNames,
+         stickerEnabled: inject.stickerEnabled,
+         currentTimeText: inject.currentTimeText,
+         scheduleText: inject.scheduleText,
+         downloadImageEnabled: inject.downloadImageEnabled,
+         locationText: inject.locationText,
          // P0-8：hooks.json 的注入类事件（session_start / after_turn / before_prompt）。
          extraSystemPrompt: hookContextText || undefined,
          // 语音兜底（需求 6.2）：转写失败且来源支持音频时按 input_audio 直发。
@@ -727,9 +700,14 @@ export default function useChatSend({
                 // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
                 signal: controller.signal,
               }),
-              // P1：工作区钩子的 deny / ask 规则，每次调用时直读（本轮内 agent 改了
-              // hooks.json 也立即生效）。deny 在 runTool 里直接拒绝，ask 并进审批链。
-              permissionRules: () => readHookPermissionRules(hookStore, character.id),
+              // P1：工作区钩子的 deny / ask 规则（每次调用时直读，本轮内改了 hooks.json
+              // 也立即生效）+ 设置面板手写的存储规则（always/session）。此前只传了钩子规则，
+              // 导致面板写的 deny/ask 对「不需逐条确认」的写工具完全不生效——这里合并，
+              // runTool 侧无需再区分来源（deny 恒优先）。
+              permissionRules: async () => [
+                ...(await readHookPermissionRules(hookStore, character.id)),
+                ...(await getEffectivePermissionRules()),
+              ],
               // ask_user：任务中途向用户提选择题（跨平台 Alert）。
               onAskUser: payload => promptUserChoice({
                 ...payload,
@@ -825,7 +803,7 @@ export default function useChatSend({
                   error,
                   deps: buildReactiveCompactDeps({
                     store: hookStore, characterId: character.id,
-                    summarize: request => sendChatMessage(request, { stream: false, expectedConfigId, expectedConfigFingerprint, ...charConfigs.chatRequestOptions }),
+                    summarize: request => sendChatMessage(request, { stream: false, signal: controller.signal, expectedConfigId, expectedConfigFingerprint, ...charConfigs.chatRequestOptions }),
                   }),
                 });
                 if (result.compacted) {
@@ -1091,6 +1069,13 @@ if (!isCurrent() || controller.signal.aborted) return false;
        } catch (error) {
          if (isConfigChangedError(error)) throw error;
        }
+        if (!isCurrent()) return false;
+       // 与单聊同一套系统注入（chatInjections）：群聊此前完全没有，行为与单聊分叉。
+       const groupInject = await resolveChatInjections({
+         characterId: String((activeSessionRef.current && activeSessionRef.current.characterId) || ''),
+         chatOptions: chatOptionsRef.current,
+         stickerSource: stickersRef.current,
+       });
        if (!isCurrent()) return false;
        const everyone = hasEveryoneMention(userText);
       const mentions = parseMentions(userText, members);
@@ -1154,6 +1139,12 @@ if (!isCurrent() || controller.signal.aborted) return false;
                pluginContext,
                profiles: memberProfiles,
                imageMessages,
+               currentTimeText: groupInject.currentTimeText,
+               scheduleText: groupInject.scheduleText,
+               locationText: groupInject.locationText,
+               stickerNames: groupInject.stickerNames,
+               stickerEnabled: groupInject.stickerEnabled,
+               downloadImageEnabled: groupInject.downloadImageEnabled,
             });
             const speakerMeter = createRequestMeter();
             const reply = await sendChatMessage(requestMessages, {
@@ -1619,7 +1610,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         if (
           imageAttachments.some(item => item.kind === 'image')
           && latestConfig
-          && latestConfig.supportsVision !== true
+          && capabilitiesForModel(latestConfig, getActiveModel(latestConfig)).supportsVision !== true
           && !localMedia.vision
         ) {
          Alert.alert(tRef.current('chat.send.noVision.title'), tRef.current('chat.send.noVision.body'));
@@ -1726,7 +1717,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
         const current = configs.find(item => item.id === activeId) || configs[0];
          expectedConfigId = String(current?.id || '');
          expectedConfigFingerprint = current ? getConfigFingerprint(current) : '';
-         includeImage = !!(current && current.supportsVision);
+         includeImage = !!(current && capabilitiesForModel(current, getActiveModel(current)).supportsVision);
          localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
          includeImage = includeImage || localMedia.vision;
       } catch (error) {}

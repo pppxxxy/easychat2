@@ -30,13 +30,17 @@ export function resolveOnlineRequestContext(configs, activeId, expectedConfigId,
     || list[0];
   if (!config) return { ...EMPTY_ONLINE_REQUEST_CONTEXT };
   const modelName = String(getModel(config) || '').trim();
+  // 媒体能力按**当前模型**解析（capabilitiesForModel），与发送链路的其它判定同一口径。
+  // 不再读配置级 supportsVision/supportsAudio——配置级字段是旧版兼容读取用，
+  // 逐模型能力编辑器只写 modelCapabilities，读配置级会漏掉用户新开的识图/音频。
+  const caps = getCapabilities(config, modelName) || {};
   return {
     media: {
-      allowVision: Boolean(config.supportsVision),
-      allowAudio: Boolean(config.supportsAudio),
+      allowVision: caps.supportsVision === true,
+      allowAudio: caps.supportsAudio === true,
     },
     modelName,
     configLabel: String(config.name || config.id || ''),
-    contextWindow: Number((getCapabilities(config, modelName) || {}).contextWindow) || 0,
+    contextWindow: Number(caps.contextWindow) || 0,
   };
 }

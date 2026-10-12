@@ -70,12 +70,13 @@ test('地图标注：有坐标标（GCJ-02），没坐标清标记', () => {
 });
 
 test('聊天注入：双开关门控 + 选中位置 + 手写位置不判龄', () => {
-  const source = read('src/chat/useChatSend.js');
+  // 位置注入已抽到 chatInjections.js（useChatSend 行数棘轮）；断言跟着去新文件。
+  const source = read('src/chat/chatInjections.js');
   assert.ok(source.includes('buildLocationText'), '复用纯函数组装位置行');
   assert.ok(source.includes('getLocationSettings'), '读取位置开关与清单');
   assert.ok(source.includes('placeToLocation(resolveActivePlace(locationSettings))'), '注入的是选中那条位置');
   assert.ok(source.includes('{ maxAgeMs: null }'), '手写位置没有取点时间，不按定位时效判过期');
-  assert.ok(source.includes('locationText: locationLine'), '传给 buildRequestMessages');
+  assert.ok(read('src/chat/useChatSend.js').includes('locationText: inject.locationText'), '传给 buildRequestMessages');
   // 隐私门控：位置分享（enabled）与位置感知（awareness）都开启才注入——
   // 任意一边开都不行，去掉任一条件即回归。
   assert.ok(

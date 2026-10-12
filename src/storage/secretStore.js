@@ -202,6 +202,32 @@ export async function removeSecureValue(id) {
   await deleteSecret(String(id));
 }
 
+// 从任意嵌套值里收集 secure 引用 id（纯函数）：删除配置/清凭据时据此找出不再被引用的
+// 密钥 id。与 protectValue 的遍历口径一致（字符串 / 数组 / 对象）。
+export function collectSecretRefIdsFromValue(value, out = new Set()) {
+  if (typeof value === 'string') {
+    if (value.startsWith(REF_PREFIX)) out.add(value.slice(REF_PREFIX.length));
+    return out;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => collectSecretRefIdsFromValue(item, out));
+    return out;
+  }
+  if (value && typeof value === 'object') {
+    Object.values(value).forEach(item => collectSecretRefIdsFromValue(item, out));
+  }
+  return out;
+}
+
+// 批量删除安全存储条目（孤儿回收用）。单条失败不抛（安全存储不可用时自然 no-op）。
+export async function deleteSecretsByIds(ids) {
+  for (const id of ids || []) {
+    try {
+      await deleteSecret(String(id));
+    } catch (error) {}
+  }
+}
+
 async function protectValue(value, namespace, path) {
   if (Array.isArray(value)) {
     const out = [];

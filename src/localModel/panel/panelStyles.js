@@ -122,6 +122,8 @@ export function createPanelStyles(theme, fonts, tokens) {
     downloadMainButton: { flex: 1 },
     downloadCancelButton: { marginLeft: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: theme.colors.dangerSoft },
     downloadCancelText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+    downloadTaskActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    downloadRetryText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
     paramField: { marginBottom: 4 },
   // 「高级」折叠开关（v5 Stage C §6）：预设 + contextSize 之外的技术字段默认收起。
   advancedToggle: {

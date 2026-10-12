@@ -1665,7 +1665,7 @@ export default function SettingsScreen() {
           open={isSectionOpen('sampling')}
           onToggle={next => toggleSection('sampling', next)}
           flash={flashSection === 'sampling'}
-        />
+          onLayout={event => { sectionOffsetsRef.current.sampling = event.nativeEvent.layout.y; }} />
 
         <Card
           style={[styles.sectionCard, flashSection === 'persona' && styles.sectionCardFlash]}

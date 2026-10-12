@@ -12,7 +12,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { createMutationQueue, setJsonWithSecrets, readJsonWithSecrets } from './io.js';
+import { backupCorruptValue, createMutationQueue, setJsonWithSecrets, readJsonStatusWithSecrets } from './io.js';
 import { createMcpSession, DEFAULT_GITHUB_MCP_ENDPOINT } from '../mcp/client.js';
 import { filterMcpToolsForRegistration } from '../mcp/riskGate.js';
 
@@ -61,8 +61,10 @@ export function normalizeGithubMcpSettings(raw) {
 }
 
 export async function getGithubMcpSettings() {
-  const raw = await readJsonWithSecrets(GITHUB_MCP_KEY, null);
-  return normalizeGithubMcpSettings(raw);
+  // 损坏时先备份原始值再按缺失处理：否则下次保存会把连接配置静默重置为「未连接」。
+  const stored = await readJsonStatusWithSecrets(GITHUB_MCP_KEY);
+  if (stored.status === 'corrupt') await backupCorruptValue(GITHUB_MCP_KEY);
+  return normalizeGithubMcpSettings(stored.status === 'ok' ? stored.value : null);
 }
 
 async function saveGithubMcpSettingsInternal(settings) {

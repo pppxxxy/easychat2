@@ -26,7 +26,7 @@ const DEFAULT_SAMPLING = {
   topK: { enabled: false, value: 0 },
 };
 
-export default function SamplingCard({ open, onToggle, flash } = {}) {
+export default function SamplingCard({ open, onToggle, flash, onLayout } = {}) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = React.useMemo(() => createSettingsStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -90,7 +90,7 @@ export default function SamplingCard({ open, onToggle, flash } = {}) {
   const enabledCount = Object.values(sampling).filter(f => f && f.enabled === true).length;
 
   return (
-    <Card style={[styles.sectionCard, flash && styles.sectionCardFlash]}>
+    <Card style={[styles.sectionCard, flash && styles.sectionCardFlash]} onLayout={onLayout}>
       <CollapsibleSection
         title={t('settings.sampling.title')}
         icon="analytics-outline"

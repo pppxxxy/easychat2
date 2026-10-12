@@ -82,9 +82,12 @@ test('runAgentTurn 接了 onToolApproval + permissionRules，并把中止信号�
     '审批要拿到中止信号：用户点停止时不留悬挂弹框');
   // P1（2026-10-11）：钩子规则（before_shell / before_tool）**不走审批**——审批只在
   // 需要确认的工具上被调用，写工具按设计不逐条确认，只接审批等于规则永不生效。
-  // 它们改由 permissionRules 一路喂给 registry.runTool（对任意工具求值）。
-  assert.ok(/permissionRules:\s*\(\)\s*=>\s*readHookPermissionRules\(/.test(block),
-    '钩子规则要单独接进 runTool（否则写工具上的 deny 永不生效）');
+  // 它们由 permissionRules 一路喂给 registry.runTool（对任意工具求值）；同时并入
+  // 设置面板手写的存储规则（否则面板写的 deny/ask 对写工具不生效）。
+  assert.ok(block.includes('permissionRules: async () => [')
+    && block.includes('readHookPermissionRules(hookStore, character.id)')
+    && block.includes('getEffectivePermissionRules()'),
+    '钩子规则 + 设置面板存储规则都要接进 runTool（否则写工具上的 deny 永不生效）');
   assert.ok(/t:\s*tRef\.current/.test(block), '审批文案走 tRef（跟当前语言，不用闭包旧 t）');
 });
 

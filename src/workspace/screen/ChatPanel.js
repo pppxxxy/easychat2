@@ -1306,9 +1306,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           t,
           signal: controller.signal,
         }),
-        // P1：钩子 deny / ask 规则的求值入口，每次调用时直读（本轮内改了 hooks.json
-        // 也立即生效）。deny 在 runTool 里直接拒绝，ask 并进审批链。
-        permissionRules: () => readHookPermissionRules(storeRef.current, characterId),
+        // 钩子 deny/ask 规则 + 设置面板手写的存储规则（每次调用直读；此前只传钩子规则，面板规则对写工具不生效）。
+        permissionRules: async () => [...(await readHookPermissionRules(storeRef.current, characterId)), ...(await getEffectivePermissionRules())],
         // ask_user：任务中途向用户提选择题（跨平台 Alert）。
         onAskUser: payload => promptUserChoice({
           ...payload,

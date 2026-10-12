@@ -6,7 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { markMediaWrite } from '../storage/mediaProtection.js';
-import { backupCorruptValue, createMutationQueue, readJsonStatus } from '../storage/io.js';
+import { backupCorruptValue, CORRUPT_BACKUP_SUFFIX, createMutationQueue, readJsonStatus } from '../storage/io.js';
 import { tActive } from '../i18n/index.js';
 
 import { normalizeTriggers } from './triggers.js';
@@ -100,6 +100,8 @@ async function writeMusicCollection(items) {
     const activeIds = new Set(ids);
     const staleKeys = keys.filter(key => (
       String(key).startsWith(`${MUSIC_ITEM_PREFIX}::`)
+      // 排除损坏备份键：__corrupt_backup 是原始数据的抢救副本，不能被清扫误删。
+      && !String(key).endsWith(CORRUPT_BACKUP_SUFFIX)
       && !activeIds.has(String(key).slice(`${MUSIC_ITEM_PREFIX}::`.length))
     ));
     if (staleKeys.length > 0) await AsyncStorage.multiRemove(staleKeys);

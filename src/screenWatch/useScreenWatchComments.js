@@ -130,12 +130,15 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       // 画面识别来源（设置里可改）：'main' 画面直接交给主模型（需要它支持识图），
       // 'ocr' 先用图片识别模型转文字描述再交给主模型评论。
       // 主模型视觉能力复用上面已解析的 caps.vision（同一口径，不重复读盘）。
-      const source = await resolveScreenWatchSource();
+      // 纯文字（没有画面帧）时不需要视觉能力，也不该走 OCR：跳过整段画面解析。
+      const hasFrames = uris.length > 0;
+      const source = hasFrames ? await resolveScreenWatchSource() : 'main';
       const mainModelVision = caps.vision === true;
       if (controller.signal.aborted) return false;
-      // 视觉门控：'main' 口径不变（与聊天附件菜单同一口径）；'ocr' 不要求主模型识图，
-      // 但要求图片识别本身可用——否则这次请求既没有图也没有描述，等于发个空请求。
-      if (source === 'main' && !caps.vision) {
+      // 视觉门控只对**带画面**的请求生效：'main' 需要主模型识图（与聊天附件菜单同一口径）；
+      // 'ocr' 不要求主模型识图，但要求图片识别本身可用——否则这次请求既没有图也没有描述，
+      // 等于发个空请求。纯文字请求此前被无条件拦下，导致不识图的模型完全用不了对话框。
+      if (hasFrames && source === 'main' && !caps.vision) {
         throw Object.assign(new Error(t('screenWatch.error.noVision')), { code: 'NO_VISION' });
       }
       const current = caps.current;
@@ -144,20 +147,22 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       // base64 data URI 再发）；这里同样把每帧读成 data URI，本地路径仍留给落库与重试。
       let dataUris = [];
       try {
-        dataUris = await Promise.all(uris.map(uri => readImageDataUri(uri)));
+        dataUris = hasFrames ? await Promise.all(uris.map(uri => readImageDataUri(uri))) : [];
       } catch (readError) {
         throw Object.assign(new Error(t('error.screenWatch.captureReadFailed')), { code: 'CAPTURE_READ' });
       }
       if (controller.signal.aborted) return false;
       // 按来源决定这次请求放什么：'ocr' 时先把画面交给图片识别模型换文字描述。
-      // 识别设置取**角色生效值**（专属 OCR 配置优先，失效回落全局）。
-      const shape = await resolveScreenWatchRequest({
-        source,
-        dataUris,
-        signal: controller.signal,
-        mainModelVision,
-        settings: await resolveCharacterOcrSettings(character.id).catch(() => null),
-      });
+      // 识别设置取**角色生效值**（专属 OCR 配置优先，失效回落全局）。纯文字直接给空形态。
+      const shape = hasFrames
+        ? await resolveScreenWatchRequest({
+          source,
+          dataUris,
+          signal: controller.signal,
+          mainModelVision,
+          settings: await resolveCharacterOcrSettings(character.id).catch(() => null),
+        })
+        : { images: [], descriptionText: '', useDescriptionOnly: false, error: '' };
       if (controller.signal.aborted) return false;
       if (shape.error === 'ocr-unavailable') {
         throw Object.assign(new Error(t('screenWatch.error.ocrUnavailable')), { code: 'NO_VISION' });

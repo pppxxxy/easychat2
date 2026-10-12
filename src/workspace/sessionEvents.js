@@ -116,7 +116,8 @@ export async function appendSessionEvent(store, characterId, sessionId, type, pa
     }
     // 上限取「生效口径」（store.retention，缺失 = 默认 512KB）：配置改了立即生效。
     // 用 UTF-8 字节数比（不是 String.length）——口径与 KB 常量一致。
-    if (utf8ByteLength(existing) > sessionEventsMaxBytes(retentionOf(store))) return null; // 到上限停止追加（如实失败）
+    // 到上限就停止追加（>= 而非 >）：等于上限时再追加会让文件超出预算一条事件。
+    if (utf8ByteLength(existing) >= sessionEventsMaxBytes(retentionOf(store))) return null;
     const seq = existing ? existing.split('\n').filter(Boolean).length : 0;
     const event = createSessionEvent(type, payload, { seq });
     const line = serializeSessionEvent(event);

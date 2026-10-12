@@ -4,7 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { hydrateSecrets, protectSecrets } from './secretStore.js';
+import { collectSecretRefIdsFromValue, deleteSecretsByIds, hydrateSecrets, protectSecrets } from './secretStore.js';
 import { recordDiagnostic } from './diagnostics.js';
 import { tActive } from '../i18n/index.js';
 
@@ -49,10 +49,25 @@ export async function readJson(key, fallback) {
 // 含密钥的配置统一走这两个入口：写盘前把密钥搬进安全存储并落引用，
 // 读盘后把引用回填为明文。命名空间用存储键，保证同一字段位置稳定。
 export async function setJsonWithSecrets(key, payload) {
+  // 回收孤儿密钥：先把旧值里引用的密钥 id 记下来，写盘后删掉「不再被引用」的那些。
+  // 否则删除 API 配置 / 清凭据 / 备份 replace 后，Keystore 里的旧密钥会永久残留。
+  const previousRaw = await AsyncStorage.getItem(key).catch(() => null);
   const protectedPayload = await protectSecrets(key, payload);
   const json = JSON.stringify(protectedPayload);
   assertValueBudget(key, json);
   await AsyncStorage.setItem(key, json);
+  if (previousRaw) {
+    try {
+      const before = collectSecretRefIdsFromValue(JSON.parse(previousRaw));
+      if (before.size > 0) {
+        const after = collectSecretRefIdsFromValue(protectedPayload);
+        const orphans = [...before].filter(id => !after.has(id));
+        if (orphans.length > 0) await deleteSecretsByIds(orphans);
+      }
+    } catch (error) {
+      // 旧值损坏或解析失败：跳过回收，不影响本次写入。
+    }
+  }
 }
 
 // 明确**不含密钥**的内部数据（如「图片识别」的结果缓存：只有模型产出的描述文本，
