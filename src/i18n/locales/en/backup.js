@@ -39,6 +39,8 @@ export const backup = {
   'backup.alert.importDone.title': 'Restore complete',
   'backup.alert.importDone.body': 'Restored {keys} data keys and {media} media files. Characters, sessions and appearance were refreshed; the API Key must be re-entered.',
   'backup.alert.importDone.bodySecrets': 'Restored {keys} data keys, {media} media files and {secrets} secrets. Characters, sessions and appearance were refreshed.',
+  'backup.alert.importSecretsFailed.title': 'Some secrets were not restored',
+  'backup.alert.importSecretsFailed.body': '{count} secret(s) could not be written to the secure storage on this device. Re-enter the keys for the affected configurations — the data was restored and looks fine, but requests will fail.',
   'backup.alert.importFailed.title': 'Import failed',
   'backup.alert.importFailed.body': 'The backup file could not be restored; existing data is unchanged.',
   'backup.title': 'Close',

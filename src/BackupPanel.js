@@ -161,6 +161,14 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         ? t('backup.alert.importDone.bodySecrets', { keys: result.storageCount, media: result.mediaCount, secrets: result.secretsCount })
         : t('backup.alert.importDone.body', { keys: result.storageCount, media: result.mediaCount });
       Alert.alert(t('backup.alert.importDone.title'), doneBody);
+      // 有密钥没写回时必须说出来：数据恢复了、保险箱却没跟上，相关配置会「看起来正常、
+      // 一发请求就 401」——这是最容易被当成「导入坏了」的静默失败。
+      if (result.secretsFailed > 0) {
+        Alert.alert(
+          t('backup.alert.importSecretsFailed.title'),
+          t('backup.alert.importSecretsFailed.body', { count: result.secretsFailed })
+        );
+      }
     } catch (error) {
       Alert.alert(t('backup.alert.importFailed.title'), error.message || t('backup.alert.importFailed.body'));
     } finally {

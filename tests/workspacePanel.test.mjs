@@ -44,7 +44,11 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
   // （角色切换 / 环境模板目录 / 文件预览）已改为铺满面板的 View（styles.layer）。
   assert.ok(!source.includes('<Modal'), '面板不得自套 Modal（唯一 Modal 在 WorkspaceScreen）');
   assert.ok(source.includes('styles.layer'), '二级层改为面板内铺满的 View');
-  assert.ok(/container:\s*\{[^}]*paddingTop/.test(source), '全屏容器需顶部内边距，避免标题/关闭贴到状态栏');
+  // 样式表已外提到 filesPanelStyles.js（与 chatPanelStyles.js 同法），所以样式**定义**
+  // 要查那个文件；面板里只该剩 styles.xxx 的引用。
+  const styleSource = readSource('src/workspace/screen/filesPanelStyles.js');
+  assert.ok(!source.includes('const createStyles'), '面板不再自带样式表（已外提）');
+  assert.ok(/container:\s*\{[^}]*paddingTop/.test(styleSource), '全屏容器需顶部内边距，避免标题/关闭贴到状态栏');
   // 工作区角色：打开时解析（未设置落到默认工作助手）+ 选择器可切换并写回设置。
   assert.ok(source.includes('resolveWorkspaceAssistant'), '打开面板解析工作区角色');
   // 断言必须钉住「解析路径」的专属串（resolved.id）——选择器路径里也有一处

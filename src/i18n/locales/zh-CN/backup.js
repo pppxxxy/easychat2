@@ -38,6 +38,8 @@ export const backup = {
   'backup.alert.importDone.title': '恢复完成',
   'backup.alert.importDone.body': '已恢复 {keys} 个数据键与 {media} 个媒体文件。角色、会话和外观设置已刷新，API Key 需要重新填写。',
   'backup.alert.importDone.bodySecrets': '已恢复 {keys} 个数据键、{media} 个媒体文件与 {secrets} 条密钥。角色、会话和外观设置已刷新。',
+  'backup.alert.importSecretsFailed.title': '部分密钥未恢复',
+  'backup.alert.importSecretsFailed.body': '有 {count} 条密钥没能写入本机安全存储，相关配置需要重新填写密钥（数据已恢复，界面看起来正常，但请求会失败）。',
   'backup.alert.importFailed.title': '导入失败',
   'backup.alert.importFailed.body': '备份文件无法恢复，现有数据保持不变。',
   'backup.title': '关闭',

@@ -18,7 +18,7 @@ import {
 import { recordDiagnostic } from './diagnostics.js';
 import { tActive } from '../i18n/index.js';
 import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
-import { readSecureValue, writeSecureValue } from './secretStore.js';
+import { readSecureValue, removeSecureValue, writeSecureValue } from './secretStore.js';
 import { createBackupChunkGenerator } from './backupStream.js';
 
 const MANAGED_PREFIX = '@easychat2_';
@@ -100,6 +100,36 @@ async function rollbackMedia(snapshot) {
     } else {
       await FileSystem.deleteAsync(item.uri, { idempotent: true });
     }
+  }
+}
+
+// 密钥快照/回滚：保险箱也必须进回滚集合。
+// 读取失败（原生安全存储不可用）记 unreadable——回滚时跳过并留诊断，而不是让
+// 「回滚失败」把原始错误盖掉。
+async function snapshotSecrets(items) {
+  const snapshot = [];
+  for (const item of items) {
+    try {
+      const value = await readSecureValue(item.id);
+      const exists = typeof value === 'string' && value.length > 0;
+      snapshot.push({ id: item.id, value: exists ? value : null, exists, unreadable: false });
+    } catch (error) {
+      snapshot.push({ id: item.id, value: null, exists: false, unreadable: true });
+    }
+  }
+  return snapshot;
+}
+
+async function rollbackSecrets(snapshot, writtenIds) {
+  const written = new Set(writtenIds);
+  for (const item of snapshot) {
+    if (!written.has(item.id)) continue;
+    if (item.unreadable) {
+      recordDiagnostic('secrets', new Error('secrets rollback skipped'), `importBackup 密钥回滚跳过（旧值不可读）：${item.id}`);
+      continue;
+    }
+    if (item.exists) await writeSecureValue(item.id, item.value);
+    else await removeSecureValue(item.id);
   }
 }
 
@@ -320,12 +350,21 @@ export async function importBackup(payload, mode = 'merge') {
   if (!plan.valid) throw new Error(plan.error);
   // 先写回密钥：数据里的 secure 引用随后即可解析到明文。单条失败不阻断数据恢复
   // （例如原生安全存储不可用），只记录数量回传。
+  //
+  // 但**密钥必须能回滚**：数据写入失败时 storage/media 会还原，密钥若不还原，就留下
+  // 「数据回滚成原样、保险箱里却是备份包的 key」的错配——用户的 API Key 被悄悄顶掉，
+  // 界面看起来没变，请求却开始 401（凭据问题，不是纯可用性问题）。所以写回前先快照旧值。
+  const secretsSnapshot = await snapshotSecrets(plan.secrets || []);
+  const writtenSecretIds = [];
   let secretsCount = 0;
+  let secretsFailed = 0;
   for (const item of plan.secrets || []) {
     try {
       await writeSecureValue(item.id, item.value);
+      writtenSecretIds.push(item.id);
       secretsCount += 1;
     } catch (error) {
+      secretsFailed += 1;
       recordDiagnostic('secrets', error, `importBackup 密钥写回失败：${item.id}`);
     }
   }
@@ -362,6 +401,7 @@ export async function importBackup(payload, mode = 'merge') {
     try {
       await rollbackStorage(storageSnapshot);
       await rollbackMedia(mediaSnapshot);
+      await rollbackSecrets(secretsSnapshot, writtenSecretIds);
     } catch (rollbackError) {
       error.rollbackError = rollbackError;
     }
@@ -369,5 +409,12 @@ export async function importBackup(payload, mode = 'merge') {
     recordDiagnostic('storage', error, 'importBackup');
     throw error;
   }
-  return { storageCount: plan.storage.length, mediaCount: plan.media.length, mode: plan.mode, opaqueCount, secretsCount };
+  return {
+    storageCount: plan.storage.length,
+    mediaCount: plan.media.length,
+    mode: plan.mode,
+    opaqueCount,
+    secretsCount,
+    secretsFailed,
+  };
 }

@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], secretValues = {} }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], secretValues = {}, failSecretWriteIds = new Set() }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -122,7 +122,11 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
   };
   const secretStore = {
     async readSecureValue(id) { return secretValues[id] || ''; },
-    async writeSecureValue(id, value) { secretValues[id] = value; },
+    async writeSecureValue(id, value) {
+      if (failSecretWriteIds.has(id)) throw new Error('secret write failed');
+      secretValues[id] = value;
+    },
+    async removeSecureValue(id) { delete secretValues[id]; },
   };
   const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
     babelrc: false,
@@ -504,4 +508,44 @@ test('importBackup：回填密钥到安全存储并汇报数量', async () => {
   assert.equal(result.secretsCount, 1);
   assert.equal(secretValues.id1, 'sk-real');
   assert.equal(storage.get('@easychat2_api_configs'), JSON.stringify({ configs: [{ apiKey: 'secure:v1:id1' }] }));
+});
+
+test('importBackup：数据写入失败时，已写回的密钥也要回滚（不留错配的保险箱）', async () => {
+  const storage = new Map();
+  const files = new Map();
+  // id1 原来有旧值（导入会把它顶掉），id2 原来不存在（导入会新建）。
+  const secretValues = { id1: 'sk-OLD' };
+  const backup = loadBackup({ storage, files, secretValues, failSet: true });
+  await assert.rejects(
+    backup.importBackup({
+      schemaVersion: 1,
+      storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1' }] } }],
+      media: [],
+      secrets: [{ id: 'id1', value: 'sk-NEW' }, { id: 'id2', value: 'sk-ADDED' }],
+    }, 'merge'),
+    /storage write failed/
+  );
+  // 关键：数据回滚了，保险箱也必须回到导入前的样子——否则界面看着正常、请求却 401。
+  assert.equal(secretValues.id1, 'sk-OLD', '原有密钥必须还原为旧值');
+  assert.equal('id2' in secretValues, false, '导入新建的密钥必须删除（原本不存在）');
+});
+
+test('importBackup：单条密钥写失败只计数、不阻断数据恢复，且如实回报 secretsFailed', async () => {
+  const storage = new Map();
+  const files = new Map();
+  const secretValues = {};
+  const backup = loadBackup({
+    storage, files, secretValues, failSecretWriteIds: new Set(['id1']),
+  });
+  const result = await backup.importBackup({
+    schemaVersion: 1,
+    storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id2' }] } }],
+    media: [],
+    secrets: [{ id: 'id1', value: 'sk-BAD' }, { id: 'id2', value: 'sk-OK' }],
+  }, 'merge');
+  assert.equal(result.secretsCount, 1, '成功的计入 secretsCount');
+  assert.equal(result.secretsFailed, 1, '失败的必须回报（界面据此提示「部分密钥未恢复」）');
+  assert.equal(secretValues.id2, 'sk-OK');
+  assert.equal('id1' in secretValues, false);
+  assert.equal(storage.has('@easychat2_api_configs'), true, '密钥写失败不得阻断数据恢复');
 });
