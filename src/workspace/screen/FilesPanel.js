@@ -36,10 +36,11 @@ import { isRichPreview } from '../filePreview.js';
 import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
-import { CATALOG_BUNDLES, CATALOG_CATEGORIES, CATALOG_ITEMS, catalogItemsByCategory, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
+import { CATALOG_ITEMS, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
 import { searchWorkspaceFiles } from '../fileSearch.js';
 import ConfirmBar from './ConfirmBar.js';
+import CatalogSheet from './files/CatalogSheet.js';
 import FileHistorySheet from '../FileHistorySheet.js';
 import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 import createStyles from './filesPanelStyles.js';
@@ -1134,123 +1135,23 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
           </View>
         ) : null}
 
-        {catalogOpen ? (
-          <View style={styles.layer}>
-            <SheetHeader title={t('workspace.panel.catalog.title')} onClose={() => setCatalogOpen(false)} />
-            <ScrollView contentContainerStyle={styles.body}>
-              <FieldHint>{t('workspace.panel.catalog.hint')}</FieldHint>
-              {CATALOG_BUNDLES.map(bundle => {
-                const busy = bundleBusy && bundleBusy.id === bundle.id;
-                return (
-                  <View key={bundle.id} style={styles.bundleCard}>
-                    <View style={styles.catalogItemMain}>
-                      <Text style={styles.bundleTitle} numberOfLines={1}>{t(bundle.titleKey)}</Text>
-                      <TouchableOpacity
-                        style={[styles.bundleWriteButton, (bundleBusy || catalogBusyId) && styles.actionButtonDisabled]}
-                        disabled={!!(bundleBusy || catalogBusyId)}
-                        onPress={() => handleBundleWrite(bundle.id)}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={styles.bundleWriteText}>
-                          {busy
-                            ? t('workspace.panel.catalog.bundle.progress', { done: bundleBusy.done, total: bundleBusy.total })
-                            : t('workspace.panel.catalog.bundle.action')}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.catalogItemDesc}>{t(bundle.descKey)}</Text>
-                    {bundle.needsGitIdentity && bundle.id === (bundleBusy && bundleBusy.id) ? (
-                      <Text style={styles.bundleProgressNote}>
-                        {t('workspace.panel.catalog.bundle.gitIdentityNote', {
-                          name: (catalogInputs.gitconfig && catalogInputs.gitconfig.userName) || '',
-                          email: (catalogInputs.gitconfig && catalogInputs.gitconfig.userEmail) || '',
-                        })}
-                      </Text>
-                    ) : null}
-                  </View>
-                );
-              })}
-              {CATALOG_CATEGORIES.map(category => {
-                const items = catalogItemsByCategory(category);
-                if (items.length === 0) return null;
-                return (
-                  <View key={category} style={styles.catalogSection}>
-                    <FieldLabel>{t(`workspace.panel.catalog.category.${category}`)}</FieldLabel>
-                    {items.map(item => {
-                      const inputs = item.inputs || [];
-                      const busy = catalogBusyId === item.id;
-                      const status = catalogStatuses[item.id] || 'absent';
-                      return (
-                        <View key={item.id} style={styles.catalogItem}>
-                          <View style={styles.catalogItemMain}>
-                            <Text style={styles.catalogItemTitle} numberOfLines={1}>{t(item.titleKey)}</Text>
-                            <TouchableOpacity
-                              style={[styles.catalogWriteButton, busy && styles.actionButtonDisabled]}
-                              disabled={!!catalogBusyId}
-                              onPress={() => handleCatalogWrite(item.id)}
-                              activeOpacity={0.85}
-                            >
-                              <Text style={styles.catalogWriteText}>
-                                {t(status === 'absent' ? 'workspace.panel.catalog.write' : 'workspace.panel.catalog.rewrite')}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                          <Text style={styles.catalogItemDesc}>{t(item.descKey)}</Text>
-                          <View style={styles.catalogItemMeta}>
-                            <Text style={styles.catalogItemFile}>{item.file}</Text>
-                            {status !== 'absent' ? (
-                              <Text style={[styles.catalogStatusBadge, status === 'diff' && styles.catalogStatusBadgeDiff]}>
-                                {t(status === 'same' ? 'workspace.panel.catalog.status.same' : 'workspace.panel.catalog.status.diff')}
-                              </Text>
-                            ) : null}
-                          </View>
-                          {inputs.length > 0 ? (
-                            <View style={styles.catalogInputs}>
-                              {inputs.map(input => (
-                                <TextField
-                                  key={input.key}
-                                  style={styles.input}
-                                  label={t(input.labelKey)}
-                                  placeholder={t(input.placeholderKey)}
-                                  value={(catalogInputs[item.id] && catalogInputs[item.id][input.key]) || ''}
-                                  onChangeText={value => setCatalogInputs(current => ({
-                                    ...current,
-                                    [item.id]: { ...(current[item.id] || {}), [input.key]: value },
-                                  }))}
-                                />
-                              ))}
-                            </View>
-                          ) : null}
-                        </View>
-                      );
-                    })}
-                  </View>
-                );
-              })}
-
-              <View style={styles.catalogSection}>
-                <FieldLabel>{t('workspace.panel.catalog.custom.title')}</FieldLabel>
-                <TextField
-                  style={styles.input}
-                  placeholder={t('workspace.panel.catalog.custom.placeholder')}
-                  value={customUrl}
-                  onChangeText={setCustomUrl}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-                <View style={styles.formActions}>
-                  <PrimaryButton
-                    title={customBusy ? t('workspace.panel.catalog.custom.busy') : t('workspace.panel.catalog.custom.action')}
-                    small
-                    onPress={handleCustomDownload}
-                  />
-                </View>
-                <FieldHint>{t('workspace.panel.catalog.custom.hint')}</FieldHint>
-              </View>
-            </ScrollView>
-          </View>
-        ) : null}
+        <CatalogSheet
+          visible={catalogOpen}
+          styles={styles}
+          t={t}
+          onClose={() => setCatalogOpen(false)}
+          bundleBusy={bundleBusy}
+          catalogBusyId={catalogBusyId}
+          catalogStatuses={catalogStatuses}
+          catalogInputs={catalogInputs}
+          setCatalogInputs={setCatalogInputs}
+          customUrl={customUrl}
+          setCustomUrl={setCustomUrl}
+          customBusy={customBusy}
+          onBundleWrite={handleBundleWrite}
+          onCatalogWrite={handleCatalogWrite}
+          onCustomDownload={handleCustomDownload}
+        />
 
         {preview ? (
           <View style={styles.layer}>

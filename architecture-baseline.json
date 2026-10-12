@@ -11,7 +11,8 @@
     "src/chat/useChatSend.js 1992 → 1991、src/ChatScreen.js 3168 → 3163、src/workspace/screen/ChatPanel.js 1768 → 1766（2026-10，角色专属配置）：四类消费点（聊天 API / OCR / TTS+音声 / 转写）改为调唯一解析层 character/runtimeConfig.js，转写与群聊记账的旧读取块被解析层的单次调用取代，净减行数。行数基线不留余量，故同步下调（无上调）。",
     "src/chat/useChatSend.js 1991 → 1975（2026-10，工具使用提示隐藏开关）：工具过程气泡的挂出/更新/清除、隐藏判定与「可见性从哪来」的接线全部抽到 chat/toolBubbleView.js（新叶子 chat/toolNoticeVisibility.js 负责判定与归一化），发送路径只留 createToolBubbleApplier 装配 + 事件驱动；事件→状态映射改为复用已有的 toolBubbleState，删掉了重写一遍的分支。行数基线不留余量，故同步下调（无上调）。",
     "2026-10-12 超级合并（25 条分支并入 main，按合并后实际行数重算；本次**无新增上调**）：src/ChatScreen.js 3191 → 3162、src/chat/useChatSend.js 2001 → 1983、src/chat/chatStyles.js 1428 → 1375、src/workspace/screen/ChatPanel.js 1768 → 1766、src/ProactivePanel.js 894 → 886——D 系把消息列表改 FlatList、统一 16 份弹窗外壳、发送路径与识别接线外提，净减；src/SettingsScreen.js 2328 → 2344 系上一条（OCR 卡）随本次合并进入 main。另：src/App.js 合并后 805 行越限，按 2026-10-12 新口径**先外提**而不是抬高——两个启动桥（本地 API 服务桥 / 内置 MCP Server 桥）搬到 src/startup/，App.js 735 行并**移出基线**（棘轮启动以来第一个真正离开基线的文件）。",
-    "src/workspace/screen/GithubPanel.js 1984 → 1808、src/workspace/screen/FilesPanel.js 1555 → 1312（2026-10-12，审查待办第 3 项的第一刀）：两个面板各自底部的 StyleSheet 搬到同目录的 githubPanelStyles.js / filesPanelStyles.js。纯数据外提（只依赖 theme/fonts/tokens，无闭包状态），与既有的 chatPanelStyles.js / settingsStyles.js 同因同法，搬走不改变任何行为——这是四个「大文件」里最安全的一块。剩余的大头（组件体 1700/1250 行）仍需先定蓝图再拆，已列入报告。行数基线不留余量，故同步下调（无上调）。"
+    "src/workspace/screen/GithubPanel.js 1984 → 1808、src/workspace/screen/FilesPanel.js 1555 → 1312（2026-10-12，审查待办第 3 项的第一刀）：两个面板各自底部的 StyleSheet 搬到同目录的 githubPanelStyles.js / filesPanelStyles.js。纯数据外提（只依赖 theme/fonts/tokens，无闭包状态），与既有的 chatPanelStyles.js / settingsStyles.js 同因同法，搬走不改变任何行为——这是四个「大文件」里最安全的一块。剩余的大头（组件体 1700/1250 行）仍需先定蓝图再拆，已列入报告。行数基线不留余量，故同步下调（无上调）。",
+    "src/workspace/screen/FilesPanel.js 1312 → 1213（2026-10-12，审查待办第 3 项的第二刀）：「环境与配置下载」（下载中心）弹层的整段 JSX 外提到同目录 files/CatalogSheet.js——纯展示组件，接收 styles/t 与既有 state/handler 作 props，渲染树逐字不变；状态与写入编排仍留在面板（避免连带改动钉住它们的源码断言）。净减 99 行，行为不变。行数基线不留余量，故同步下调（无上调）。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3162,
@@ -20,7 +21,7 @@
     "src/chat/useChatSend.js": 1974,
     "src/workspace/screen/ChatPanel.js": 1765,
     "src/character/CharacterDetailScreen.js": 1714,
-    "src/workspace/screen/FilesPanel.js": 1312,
+    "src/workspace/screen/FilesPanel.js": 1213,
     "src/chat/chatStyles.js": 1375,
     "src/CardForgeEditor.js": 1338,
     "src/music/MusicScreen.js": 1182,
