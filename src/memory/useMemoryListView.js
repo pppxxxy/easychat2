@@ -165,6 +165,9 @@ export default function useMemoryListView({
   return {
     characterMap,
     visibleSessions,
+    // 当前筛选集（chips 生效后）：要出圈给「全选」用——全选必须与列表渲染集同口径，
+    // 否则会把筛选之外的会话一并选中并被 deleteSessions 真删掉（用户看不见、不可逆）。
+    filteredSessions,
     previewFallback,
     isScreenWatch,
     groups,

@@ -42,10 +42,28 @@ test('docx 文本提取：段落边界、去标签、解实体', () => {
   assert.ok(result.text.split('\n').length >= 3, '段落以换行分隔');
 });
 
-test('docx 缺 document.xml 报 UNSUPPORTED_FORMAT', () => {
-  const bytes = zipSync({ 'word/styles.xml': strToU8('<x/>') });
+test('坏 .docx 报独立错误码，不再套「格式不支持」', () => {
+  // 修复前「无法解压」与「缺正文」都套 UNSUPPORTED_FORMAT ⇒ BookScreen 弹
+  // 「目前只支持 txt / Markdown / Word(.docx) / HTML」——.docx 明明在支持列表里，
+  // 答非所问，还让用户以为 .docx 不被支持。与 DOCX_TOO_LARGE 同款做法：独立 code + 独立文案。
+  const garbage = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
   assert.throws(
-    () => extractPlainText({ fileName: 'a.docx', bytes }),
+    () => extractPlainText({ fileName: 'broken.docx', bytes: garbage }),
+    (error) => error && error.code === 'DOCX_INVALID',
+    '解压失败必须是 DOCX_INVALID',
+  );
+
+  // 能解压但目录里没有 word/document.xml → 另一种独立 code
+  const noBody = zipSync({ 'word/styles.xml': strToU8('<x/>') });
+  assert.throws(
+    () => extractPlainText({ fileName: 'noBody.docx', bytes: noBody }),
+    (error) => error && error.code === 'DOCX_NO_BODY',
+    '缺正文必须是 DOCX_NO_BODY',
+  );
+
+  // 「格式不支持」只留给扩展名本身不支持的文件（未被上面两条挤占）
+  assert.throws(
+    () => extractPlainText({ fileName: 'a.epub', bytes: garbage }),
     (error) => error && error.code === 'UNSUPPORTED_FORMAT',
   );
 });

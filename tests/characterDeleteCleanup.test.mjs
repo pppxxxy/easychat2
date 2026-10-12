@@ -153,7 +153,12 @@ test('删角色（连记忆一起删）→ 会话被删时，三个会话级键�
   await saveStreamDraft('s1', { messageId: 'm1', text: '半截回复', at: 1 });
   await saveSessionPlan('s2', [{ step: '别人的' }]);
 
-  // 真实删除流程（CharacterLibraryScreen 的「连记忆一起删」）：先删该角色的会话，再跑角色清理。
+  // 真实删除流程（character/characterLibraryDelete.js 的 runCharacterDelete，P1-2）顺序是
+  // 「**先删角色**（可重试；失败即抛出，盘上什么都没被破坏）→ 角色删成功后才做不可逆清理
+  // （动态 → 会话/记忆）」。这里的两个调用分别对应那两步：runCharacterCleanup 是删角色那一步
+  // 内部跑的 onCharacterDeleted 钩子（storage/characterState.js 无条件触发），deleteSessions 是
+  // 清理阶段的会话删除。本测试只钉「会话真的被删时，三个会话级键由会话删除路径清掉」，
+  // 两个调用在此互不依赖，故按断言需要的顺序直接调它们，不重演整条编排。
   await deleteSessions(['s1']);
   await runCharacterCleanup(['c1']);
 

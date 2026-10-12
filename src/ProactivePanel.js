@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   ScrollView,
   Switch,
@@ -14,6 +15,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   buildProactiveAuthSettings,
   buildProactiveEndpoint,
+  buildProactiveRequestJson, // 第 22 项：原先在下面又单独 import 了同一个模块，并到一处
 } from './proactive/proactiveRequest.js';
 // normalizeProtocol 定义在 apiProtocols（proactiveRequest 自用但未转发）——
 // 从它那里具名导入拿到的是 undefined，保存槽位按协议算请求时会直接 TypeError。
@@ -25,6 +27,7 @@ import {
   saveProactiveSettings,
 } from './storage/moments.js';
 import { getApiConfigs } from './storage/apiConfigs.js';
+import { recordDiagnostic } from './storage/diagnostics.js';
 import { getChatOptions } from './storage/settings.js';
 import {
   cancelDailySchedule,
@@ -42,7 +45,6 @@ import { useApp } from './context/AppContext.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 import { useNavigation } from '@react-navigation/native';
-import { buildProactiveRequestJson } from './proactive/proactiveRequest.js';
 import ProactiveStyleEditor from './proactive/ProactiveStyleEditor.js';
 import PaneHeader from './ui/PaneHeader.js';
 import createStyles from './proactive/proactivePanelStyles.js';
@@ -181,6 +183,8 @@ export default function ProactivePanel() {
   }, []);
   // 已持久化的槽 id：保存时用于取消被删除的槽
   const persistedSlotIdsRef = useRef([]);
+  // 上次成功加载/保存的快照（第 13 项：返回即丢的脏检查基线）。'' = 还没有基线（加载中/读取失败）。
+  const savedSnapshotRef = useRef('');
 
   const refreshPermissions = useCallback(async () => {
     const status = await getPermissionStatus();
@@ -206,12 +210,15 @@ export default function ProactivePanel() {
       setConfigId(nextConfigId);
       const active = api.configs.find(item => item.id === nextConfigId);
       const models = active && Array.isArray(active.models) ? active.models : [];
-      setModel(settings.model && models.includes(settings.model)
+      const nextModel = settings.model && models.includes(settings.model)
         ? settings.model
-        : ((active && active.activeModel) || models[0] || ''));
+        : ((active && active.activeModel) || models[0] || '');
+      setModel(nextModel);
+      savedSnapshotRef.current = JSON.stringify([settings.slots, nextConfigId, nextModel]);
       await refreshPermissions();
     } catch (error) {
-      setNotice(t('proactive.notice.loadFailed'));
+      // 读失败也必须给原因：否则面板停在空列表、显示「该角色还没有时间」，把「读不到」说成「没有」。
+      setNotice((error && error.message) || t('proactive.notice.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -293,12 +300,17 @@ export default function ProactivePanel() {
     setSlots(prev => prev.filter(item => item.slotId !== slotId));
   }, []);
 
-  // 仅按用户点击触发：把全部槽按时间升序排列。不做自动排序，避免编辑时跳位。
+  // 仅按用户点击触发：把槽按时间升序排列。不做自动排序，避免编辑时跳位。
+  // 只排**当前角色**的槽（排序按钮只在该角色 >1 槽时出现）：原实现排的是**全部角色**的槽，
+  // 会把别的角色刚调好的顺序一起打乱——那些槽用户此刻看不见，等于静默改数据。
   const sortSlotsByTime = useCallback(() => {
-    setSlots(prev => [...prev].sort(
-      (a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute)
-    ));
-  }, []);
+    setSlots(prev => {
+      const mine = prev.filter(item => item.roleId === activeRoleId)
+        .sort((a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute));
+      let index = 0;
+      return prev.map(item => (item.roleId === activeRoleId ? mine[index++] : item));
+    });
+  }, [activeRoleId]);
 
   const chooseConfig = useCallback(id => {
     setConfigId(id);
@@ -341,7 +353,6 @@ export default function ProactivePanel() {
         await cancelDailySchedule(slotId);
       }
 
-      // 2. 同步 API（原生侧单份：来源是设置页已有配置）
       // 2. 同步 API（原生侧单份：来源是设置页已有配置；端点/鉴权按当前协议）
       await setProactiveApiSettings({
         endpoint: proactiveEndpoint,
@@ -357,6 +368,9 @@ export default function ProactivePanel() {
       //    转成完整请求体快照存进原生，使后台主动消息与普通回复共用同一套提示词，
       //    且与所选协议始终配套。
       const persisted = [];
+      // 第 8 项：请求体快照生成失败的槽。原生 parseRequestBody("") 返回 null → buildFallbackBody，
+      // 于是用户配置的自定义提示词/消息类型/衔接会话/时间感知/角色作息全部失效。
+      const degraded = [];
       for (const slot of slots) {
         const character = characters.find(item => item.id === slot.roleId);
         // 绑定的会话若已不存在（被删）则规整为空串，等同「新建对话」，避免存储残留无效 id。
@@ -387,6 +401,14 @@ export default function ProactivePanel() {
           } catch (error) {
             requestJson = '';
             variantsJson = '';
+            // ⚠️ `variantsJson = ''` 上面那行 `requestJson = ''` 必须是 catch 的第一句
+            //（tests/proactivePanel.test.mjs:39 用它定位切片）。
+            // 静默降级是错的：原生 parseRequestBody("") 返回 null → buildFallbackBody
+            //（ProactiveCore.kt:481-544）⇒ 用户配的提示词/消息类型/衔接会话/时间感知/角色作息
+            // **全部失效**，而界面照样说「已保存 N 个」。留痕 + 记账，保存后单独提示。
+            // 这正是「失败不能被当成成功」：宁可多说一句，也不能让用户以为配置生效了。
+            degraded.push(slot.slotId);
+            recordDiagnostic('storage', error, 'proactive-request-json');
           }
         }
         const payload = {
@@ -418,18 +440,37 @@ export default function ProactivePanel() {
       });
       persistedSlotIdsRef.current = saved.slots.map(item => item.slotId);
       setSlots(saved.slots);
-      setNotice(t('proactive.notice.saved', { n: saved.slots.filter(item => item.enabled).length }));
+      savedSnapshotRef.current = JSON.stringify([saved.slots, configId, model]);
+      // 有降级的槽就不能只报「已保存 N 个」：那条文案会让用户以为配置全部生效。
+      setNotice(degraded.length
+        ? t('proactive.notice.savedDegraded', { n: saved.slots.filter(item => item.enabled).length, failed: degraded.length })
+        : t('proactive.notice.saved', { n: saved.slots.filter(item => item.enabled).length }));
     } catch (error) {
       // 回滚本轮已排进原生的新槽；旧槽保留原生新排期（revision 已更新且配置完整，
       // 取消反而会杀掉原本正常工作的任务），等下次成功保存时对齐 JS 记录。
       for (const slotId of newSlotIdsThisRun) {
         await cancelDailySchedule(slotId).catch(() => {});
       }
-      setNotice(t('proactive.notice.saveFailed'));
+      // 存储层的精确文案（如 error.storage.proactiveSettingsReadFailed）必须透出：笼统的
+      // 「保存失败，请检查权限」会把用户引去查权限，而真实原因是读失败（同 MemoryScreen 口径）。
+      setNotice((error && error.message) || t('proactive.notice.saveFailed'));
     } finally {
       setSaving(false);
     }
   }, [available, currentConfig, configId, model, slots, characters, sessions, timeAware, t]);
+
+  // 未保存改动（时间/消息类型/自定义提示词/衔接会话/enabled 全在 state 里）返回即丢 ⇒ 先拦一次。
+  // 脏检查口径照 SettingsScreen.js:951-978 confirmDiscardDirtyApi：只比保存时会写下去的字段
+  //（slots / apiConfigId / model；timeAware 来自设置页、本面板不改）；无基线（加载中/读失败）不拦。
+  const goBack = useCallback(() => {
+    const saved = savedSnapshotRef.current;
+    if (saved === '' || JSON.stringify([slots, configId, model]) === saved) return navigation.goBack();
+    Alert.alert(t('proactive.unsaved.title'), t('proactive.unsaved.body'), [
+      { text: t('proactive.unsaved.keep'), style: 'cancel' },
+      { text: t('proactive.unsaved.discard'), style: 'destructive', onPress: () => navigation.goBack() },
+    ]);
+    return undefined;
+  }, [slots, configId, model, navigation, t]);
 
   const requestNotification = useCallback(async () => {
     const granted = await requestNotificationPermission();
@@ -476,7 +517,7 @@ export default function ProactivePanel() {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <PaneHeader title={t('proactive.title')} onBack={() => navigation.goBack()} />
+      <PaneHeader title={t('proactive.title')} onBack={goBack} />
       <Text style={styles.hint}>
         {t('proactive.intro')}
       </Text>

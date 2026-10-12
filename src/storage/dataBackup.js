@@ -2,6 +2,11 @@
 
 import { AVATAR_DIRECTORY, FORGE_MEDIA_DIRECTORY } from '../cardForge/mediaPaths.js';
 import { SECRET_FIELDS, SECRET_OBJECT_FIELDS } from './secretStore.js';
+// 校验失败文案走 i18n：这些 message 会经 BackupPanel 的 Alert 直接显示给用户（旧实现是
+// 6 条硬编码中文，英文界面照样漏中文；eslint 的硬编码规则查的是 Alert.alert/throw new Error
+// 与模块级导出常量，返回对象字面量里的中文只被登记为存量债）。i18n/index.js 是纯逻辑模块
+//（零 RN 依赖、Node 可直测），不会破坏本文件的「可 Node 直测」约束。
+import { tActive } from '../i18n/index.js';
 
 export const BACKUP_SCHEMA_VERSION = 1;
 // 角色卡与聊天媒体单条可达十几 MB，整包上限放宽到 2GB，避免正常备份被误判超限。
@@ -169,8 +174,16 @@ function isSecretFieldName(key) {
 
 // 对象形态的密钥字段（MCP 自定义请求头）：键名用户自定，只能整体处理——
 // **值全部清空、键名保留**，让用户恢复后知道「这里原本配了头，要重填」。
-function isSecretObjectFieldName(key) {
-  return SECRET_OBJECT_FIELDS.has(String(key));
+// ⚠️ 必须**按域限定**，判据与 secretStore.js:87-92 的 isScopedSecretObject 完全一致：
+// SECRET_OBJECT_FIELDS 的 scope 是**存储键命名空间**（`ns === prefix || ns.startsWith(prefix + '::')`）。
+// 旧实现只写 `SECRET_OBJECT_FIELDS.has(key)`——丢掉了域限定 ⇒ 将来别的域出现同名 `headers`
+// 对象时，它的值会在备份/恢复时被静默清空（导出侧「清多不清少」是安全的，但用户恢复后
+// 会丢配置）。本函数递归时只知道字段名，所以把顶层存储键当 namespace 一路带下去。
+function isSecretObjectFieldName(key, namespace = '') {
+  const scopes = SECRET_OBJECT_FIELDS.get(String(key));
+  if (!scopes) return false;
+  const ns = String(namespace || '');
+  return scopes.some(prefix => ns === prefix || ns.startsWith(`${prefix}::`));
 }
 
 function blankSecretObject(value) {
@@ -178,18 +191,18 @@ function blankSecretObject(value) {
   return Object.fromEntries(Object.keys(value).map(name => [name, '']));
 }
 
-export function sanitizeBackupValue(value, key = '') {
+export function sanitizeBackupValue(value, key = '', namespace = '') {
   if (isSecretFieldName(key)) return '';
-  if (isSecretObjectFieldName(key)) return blankSecretObject(value);
+  if (isSecretObjectFieldName(key, namespace)) return blankSecretObject(value);
   if (typeof value === 'string') {
     return value.startsWith('secure:v1:') ? '' : value;
   }
-  if (Array.isArray(value)) return value.map(item => sanitizeBackupValue(item));
+  if (Array.isArray(value)) return value.map(item => sanitizeBackupValue(item, '', namespace));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value).map(([childKey, childValue]) => [
         childKey,
-        sanitizeBackupValue(childValue, childKey),
+        sanitizeBackupValue(childValue, childKey, namespace),
       ])
     );
   }
@@ -211,14 +224,17 @@ export function filterPendingMessages(value) {
 // 单次遍历同时完成「密钥脱敏 + pending 过滤」：导出大对象时避免对整棵数据图
 // 递归两遍（sanitize 一遍、filter 一遍），显著降低 CPU 与临时对象分配。
 // 语义与分别调用 sanitizeBackupValue / filterPendingMessages 等价。
-export function sanitizeAndFilterBackupValue(value, key = '', options = {}) {
+// options.keepSecrets：导出「明确包含密钥」时保留原值（含 secure 引用）交由安全存储侧处理。
+// namespace（= 顶层存储键）：只参与对象形态密钥字段的**域限定**（见 isSecretObjectFieldName）——
+// 同名 key 在不同存储域里的密钥语义不同，不带域会误清或漏清。
+export function sanitizeAndFilterBackupValue(value, key = '', options = {}, namespace = '') {
   // keepSecrets=true：备份明确要携带密钥（含 secure 引用），保留原值交给安全存储侧处理；
   // 默认 false 时按历史行为剥离密钥字段与 secure 引用，作为导入侧的兜底防线。
   const keepSecrets = options.keepSecrets === true;
   if (!keepSecrets && isSecretFieldName(key)) return '';
   // 对象形态的密钥字段（headers 里的 Authorization 等）：D 系审查补上的第二条泄漏路径。
   // 同样只在非 keepSecrets 时清空——「导出时明确包含密钥」是用户在界面上的显式选择。
-  if (!keepSecrets && isSecretObjectFieldName(key)) return blankSecretObject(value);
+  if (!keepSecrets && isSecretObjectFieldName(key, namespace)) return blankSecretObject(value);
   if (typeof value === 'string') {
     if (!keepSecrets && value.startsWith('secure:v1:')) return '';
     return value;
@@ -226,16 +242,21 @@ export function sanitizeAndFilterBackupValue(value, key = '', options = {}) {
   if (Array.isArray(value)) {
     return value
       .filter(item => !item || item.pending !== true)
-      .map(item => sanitizeAndFilterBackupValue(item, '', options));
+      .map(item => sanitizeAndFilterBackupValue(item, '', options, namespace));
   }
   if (value && typeof value === 'object') {
     const result = {};
     Object.entries(value).forEach(([childKey, childValue]) => {
-      result[childKey] = sanitizeAndFilterBackupValue(childValue, childKey, options);
+      result[childKey] = sanitizeAndFilterBackupValue(childValue, childKey, options, namespace);
     });
     return result;
   }
   return value;
+}
+
+// 导出/导入路径的入口：把**存储键**当域带进去（字段名留给递归，故第二参传空串）。
+function sanitizeBackupStorageValue(storageKey, value, options = {}) {
+  return sanitizeAndFilterBackupValue(value, '', options, storageKey);
 }
 
 export function isAllowedMediaPath(relativePath) {
@@ -255,13 +276,23 @@ function isOpaqueRawEntry(item) {
 
 export function validateBackupPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return { valid: false, error: '备份文件格式无效' };
+    return { valid: false, error: tActive('error.backup.payloadInvalid') };
   }
   if (payload.schemaVersion !== BACKUP_SCHEMA_VERSION) {
-    return { valid: false, error: `不支持的备份版本：${String(payload.schemaVersion || '未知')}` };
+    // 「缺版本号」与「版本号不认识」分开说：旧文案把前者拼成「不支持的备份版本：未知」，
+    // 那个「未知」是函数体内的硬编码中文（eslint 规则只查 Alert.alert/throw 与模块级导出
+    // 常量，看不见它），英文界面照样漏出来。
+    const version = payload.schemaVersion;
+    const missing = version === undefined || version === null || version === '';
+    return {
+      valid: false,
+      error: missing
+        ? tActive('error.backup.versionMissing')
+        : tActive('error.backup.versionUnsupported', { version: String(version) }),
+    };
   }
   if (!Array.isArray(payload.storage) || !Array.isArray(payload.media)) {
-    return { valid: false, error: '备份文件缺少数据或媒体清单' };
+    return { valid: false, error: tActive('error.backup.manifestMissing') };
   }
   if (payload.storage.some(item => (
     !item
@@ -269,12 +300,19 @@ export function validateBackupPayload(payload) {
     || !item.key.startsWith('@easychat2_')
     || item.key.endsWith('__corrupt_backup')
   ))) {
-    return { valid: false, error: '备份数据键格式无效' };
+    return { valid: false, error: tActive('error.backup.keyInvalid') };
+  }
+  if (payload.storage.some(item => !isOpaqueRawEntry(item) && item.value === undefined)) {
+    // 既没有结构化 value、也没有抢救下来的原始串：恢复侧会走到
+    // `AsyncStorage.setItem(key, JSON.stringify(undefined))`，抛的是 AsyncStorage 内部的
+    // 英文断言（checkValidInput），用户只看到一行英文。在校验阶段（任何写入之前）拦下，
+    // 文案才是可翻译的，且不必再依赖回滚兜底。
+    return { valid: false, error: tActive('error.backup.entryIncomplete') };
   }
   const keys = payload.storage.map(item => item.key);
-  if (new Set(keys).size !== keys.length) return { valid: false, error: '备份数据键重复' };
+  if (new Set(keys).size !== keys.length) return { valid: false, error: tActive('error.backup.keyDuplicated') };
   if (payload.media.some(item => !item || !isAllowedMediaPath(item.path) || typeof item.base64 !== 'string')) {
-    return { valid: false, error: '备份媒体路径或内容无效' };
+    return { valid: false, error: tActive('error.backup.mediaInvalid') };
   }
   // 密钥清单是可选扩展：老备份没有该字段照常通过。
   if (payload.secrets !== undefined) {
@@ -305,8 +343,10 @@ export function buildBackupPayload({ storage = [], media = [], appVersion = '', 
         }
         return {
           key: item.key,
-          // 顶层不按存储键判定密钥（与原实现一致）；嵌套键才参与脱敏。
-          value: sanitizeAndFilterBackupValue(item.value, '', { keepSecrets: includeSecrets }),
+// 顶层不按存储键判定密钥（与原实现一致）；嵌套键才参与脱敏。存储键只作为**域**
+          // 传进去（对象形态密钥字段的 scope 判定用，见 isSecretObjectFieldName），
+          // 同时带上 keepSecrets（导出明确包含密钥时不剥离 secure 引用）。
+          value: sanitizeBackupStorageValue(item.key, item.value, { keepSecrets: includeSecrets }),
         };
       }),
     media: media
@@ -335,7 +375,7 @@ export function planBackupImport(payload, mode = 'merge') {
     storage: payload.storage.map(item => (
       isOpaqueRawEntry(item)
         ? { key: item.key, opaqueRaw: item.opaqueRaw }
-        : { key: item.key, value: sanitizeAndFilterBackupValue(item.value, '', { keepSecrets }) }
+: { key: item.key, value: sanitizeBackupStorageValue(item.key, item.value, { keepSecrets }) }
     )),
     media: payload.media,
     secrets,

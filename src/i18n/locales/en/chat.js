@@ -486,7 +486,8 @@ export const chat = {
   'chat.voice.error.unsupported': 'Recording is not supported on this device',
   'chat.voice.error.micPermission': 'Microphone permission is required to send voice messages',
   'chat.voice.error.tooShort': 'The recording is too short',
-  'chat.voice.error.tooLong': 'Voice message exceeds the limit (max 60 seconds)',
+  // Removed 2026-10-12: 'chat.voice.error.tooLong' — see the zh-CN entry for why (hitting the
+  // limit now keeps the recording instead of erroring, so the key had zero references).
   // 到上限自动停止是**保留**录音（不丢内容），所以提示说的是「发生了什么 + 内容还在」，
   // 不是报错。数字与 MAX_DURATION_MS 同一口径（60 秒）。
   'chat.voice.autoStop.title': 'Reached the 60-second limit',

@@ -26,7 +26,10 @@ export const plugin = {
   'plugin.alert.keyRequired.title': '请先填写密钥',
   'plugin.alert.keyRequired.body': '开启联网搜索前，请先填写搜索服务的密钥或地址。',
   'plugin.alert.openLinkFailed.title': '无法打开链接',
-  'plugin.title': '关闭',
+  // 面板名与「关闭」是两个语义，不能共用一个键（形态照 transcription.title +
+  // transcription.closeA11y）。此前 title 被误写成关闭文案 ⇒ 面板标题显示成「关闭」。
+  'plugin.title': '联网搜索',
+  'plugin.closeA11y': '关闭',
   'plugin.apiKeyLabel': '填写搜索服务密钥',
   'plugin.cxLabel': 'Google 自定义搜索引擎 ID',
   'plugin.apiKeyPlaceholder': '填写搜索服务密钥',

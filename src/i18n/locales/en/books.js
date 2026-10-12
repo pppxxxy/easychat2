@@ -11,6 +11,12 @@ export const books = {
   'books.import.notText.body': 'The file looks like a binary format (PDF / Word / an e-book container possibly renamed to .txt). Convert it to TXT with a tool like Calibre first.',
   'books.import.docxTooLarge.title': 'Document too large',
   'books.import.docxTooLarge.body': 'The document body exceeds the 32MB limit after extraction, so the import was refused.',
+  // 见 zh-CN 同名条目的说明：坏 .docx 与「格式不支持」分开（extractText.js 的
+  // DOCX_INVALID / DOCX_NO_BODY）。
+  'books.import.docxInvalid.title': 'Could not open the document',
+  'books.import.docxInvalid.body': 'This .docx could not be unzipped; it may be corrupted or not a real Word document. Open it in Word to check, or save it as txt and import again.',
+  'books.import.docxNoBody.title': 'The document has no body',
+  'books.import.docxNoBody.body': 'No body (word/document.xml) was found in this .docx — it may be an empty shell or contain only images/styles. Try another file.',
   'books.import.empty.title': 'Nothing to import',
   'books.import.empty.body': 'The file contains no importable text.',
   'books.import.failed.title': 'Import failed',
@@ -52,6 +58,9 @@ export const books = {
   'books.reader.chapter.done': 'Finished',
   'books.reader.chapter.position': 'Chapter {index} / {total}',
   'books.reader.chapter.scrubber.a11y': 'Chapter position slider',
+  // Labels for the screen-reader increment/decrement actions (cf. chat.scrubber.next/prev).
+  'books.reader.chapter.next': 'Next chapter',
+  'books.reader.chapter.prev': 'Previous chapter',
   'books.reader.noChapters.title': 'No chapters detected',
   'books.reader.noChapters.body': 'This book has no "Chapter N" style headings, so there is no table of contents; just swipe to read.',
   'books.comments.title': 'Reading comments',
@@ -102,6 +111,10 @@ export const books = {
   'books.notice.openingLink': 'About to open: {url}',
   'books.notice.openingExternal': 'About to open external link: {url}',
   'books.notice.continueOpen': 'Continue',
+  // 见 zh-CN 同名条目的说明：外链打不开时的提示 + 无障碍标签。
+  'books.notice.openFailed.title': 'Could not open the link',
+  'books.notice.openFailed.body': 'No app on this device can open this link. Check that a browser is installed, or copy the link and open it manually.',
+  'books.notice.openLinkA11y': 'Open {name}',
   'books.outro.openExternal': 'About to open an external link.',
   // 见 zh-CN 同名条目的说明：导入书籍的默认名，会落库并显示在书架列表里。
   'books.unnamed': 'Untitled book',

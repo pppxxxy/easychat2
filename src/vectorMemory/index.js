@@ -19,22 +19,35 @@ const DEFAULT_MIN_SCORE = 0.2;
 
 export function normalizeVectorConfig(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const provider = getVectorProvider(source.providerId || DEFAULT_VECTOR_PROVIDER.id);
+  // providerId **原样保留**用户存下的值，不再用 provider.id 改写：它是 vectorSignature 的
+  // 成员（见下面的 vectorSignature），把「本版本不认识的 id」静默换成默认 id 会立刻改变
+  // 指纹 ⇒ indexMessages 把**全部**存量分段判成指纹不符而重新嵌入（等于把历史消息整体再
+  // 发给向量服务），该次请求失败时还会以 vector: [] 覆盖旧向量。
+  // 查不到目录时只影响「形状」的兜底（批大小/超时/鉴权），**不影响身份**；
+  // getVectorProvider 对未知 id 返回 null（fail-closed，见 providers.js）。
+  const requestedProviderId = String(source.providerId || DEFAULT_VECTOR_PROVIDER.id);
+  const provider = getVectorProvider(requestedProviderId);
   const topK = Math.trunc(Number(source.topK));
   const maxChars = Math.trunc(Number(source.maxChars));
   const batchSize = Math.trunc(Number(source.batchSize));
   return {
     enabled: source.enabled === true,
-    providerId: provider.id,
-    baseUrl: String(source.baseUrl || provider.baseUrl || ''),
+    providerId: requestedProviderId,
+    // 空地址/空模型一律原样保留，**不**用 provider 的默认值兜底：向量 provider 在 UI 上
+    // 不可选，兜底等于替用户凭空指定一个第三方目的地。此前这里回填 api.openai.com 后，
+    // 用户清空「接口地址」再发消息，聊天正文与他填过的别家 Key 会被 POST 到他从未配置过的
+    // 服务；配合 storage/vector.js 里同样一份手抄兜底，设置页输入框还会「自己长回地址」。
+    // 缺失由 embedTexts 的守卫报错（照 src/network/api.js:281-286 的先例）。
+    baseUrl: String(source.baseUrl || ''),
     apiKey: String(source.apiKey || ''),
-    model: String(source.model || provider.model || ''),
+    model: String(source.model || ''),
     topK: Number.isFinite(topK) && topK > 0 ? Math.min(20, topK) : DEFAULT_TOP_K,
     maxChars: Number.isFinite(maxChars) && maxChars > 0 ? Math.min(2000, maxChars) : DEFAULT_MAX_CHARS,
     batchSize: Number.isFinite(batchSize) && batchSize > 0
       ? Math.min(64, batchSize)
-      : (provider.batchSize || DEFAULT_BATCH_SIZE),
-    timeoutMs: provider.timeoutMs || DEFAULT_TIMEOUT_MS,
+      // provider 可能为 null（未知 id）：此时只回退到本文件的默认值，不臆造 provider 的值。
+      : ((provider && provider.batchSize) || DEFAULT_BATCH_SIZE),
+    timeoutMs: (provider && provider.timeoutMs) || DEFAULT_TIMEOUT_MS,
   };
 }
 
@@ -122,11 +135,18 @@ function extractVectors(data, expected) {
 }
 
 export async function embedTexts({ config, texts, signal = null }) {
+  // 空地址守卫必须落在**归一化之前、用原始值**：normalizeVectorConfig 此前会把空 baseUrl
+  // 静默回填成 provider 默认地址（api.openai.com），归一化之后再判空永远判不出空——
+  // 守卫因此恒不可达，error.vectorMemory.baseUrlRequired 成了死词条。
+  // 照 src/network/api.js:281-286 的先例（apiKey 与 baseUrl 都在归一化之前用原始值守卫）。
+  if (!String((config && config.baseUrl) || '').trim()) {
+    throw new Error(tActive('error.vectorMemory.baseUrlRequired'));
+  }
   const resolved = normalizeVectorConfig(config);
   // 登记向量服务密钥：报错文本可能带出裸 Key
   registerSecretValues([resolved.apiKey]);
-  const url = buildEmbeddingUrl(resolved.baseUrl);
-  if (!url) throw new Error(tActive('error.vectorMemory.baseUrlRequired'));
+  // 端点后缀与下面的 auth 取**同一个** provider（providerId 一并传入），避免半应用状态。
+  const url = buildEmbeddingUrl(resolved.baseUrl, resolved.providerId);
   if (!/^https?:\/\/[^/\s]+/i.test(url)) {
     throw new Error(tActive('error.vectorMemory.invalidBaseUrl'));
   }
@@ -136,6 +156,14 @@ export async function embedTexts({ config, texts, signal = null }) {
   if (signal && signal.aborted) throw createVectorAbortError();
   if (!resolved.model) throw new Error(tActive('error.vectorMemory.modelRequired'));
   const provider = getVectorProvider(resolved.providerId);
+  // 未知 providerId（getVectorProvider fail-closed 返回 null）：鉴权形状未知 ⇒ **绝不猜**，
+  // 直接不发请求。放在这里而不是 normalizeVectorConfig：归一化是纯函数，被 vectorSignature
+  // 等只读调用方共用，在那里抛错会连带炸掉指纹计算。
+  // 注意 providerId 已在 normalizeVectorConfig 里原样保留，所以指纹不因「不认识」而变化，
+  // 不会触发全量重嵌入；这里只是把「无法确定怎么鉴权」如实报出来。
+  if (!provider) {
+    throw new Error(tActive('vectorProvider.unknownProvider', { id: resolved.providerId }));
+  }
   const headers = { 'Content-Type': 'application/json' };
   if (provider.auth && provider.auth.type === 'header') {
     headers[provider.auth.keyName] = `${provider.auth.prefix || ''}${resolved.apiKey}`;

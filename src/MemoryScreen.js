@@ -80,6 +80,7 @@ export default function MemoryScreen({ navigation }) {
   // 加载 / 拆分（有内容 vs 空）/ 删除 / 一键清理；存储与纯逻辑仍在原模块。
   const {
     threads,
+    threadsFailed,
     activeThreads,
     emptyThreads,
     reloadThreads,
@@ -116,6 +117,7 @@ export default function MemoryScreen({ navigation }) {
   const {
     characterMap,
     visibleSessions,
+    filteredSessions,
     previewFallback,
     isScreenWatch,
     groups,
@@ -325,16 +327,19 @@ export default function MemoryScreen({ navigation }) {
     );
   }, []);
 
-  const allSelected = visibleSessions.length > 0
-    && selectedIds.length === visibleSessions.length;
+  // 全选口径必须与列表渲染集一致：listData ← groups ← filteredSessions（:280-315、:722-724），
+  // 而编辑态只是**隐藏** chips（:658）、memoryFilter 仍生效 ⇒ 用 visibleSessions（全部会话）
+  // 全选会把筛选之外的会话一并选中并 deleteSessions 真删掉（不可逆、且用户看不见）。
+  const allSelected = filteredSessions.length > 0
+    && selectedIds.length === filteredSessions.length;
 
   const toggleSelectAll = useCallback(() => {
     setSelectedIds(current =>
-      current.length === visibleSessions.length
+      current.length === filteredSessions.length
         ? []
-        : visibleSessions.map(session => session.id)
+        : filteredSessions.map(session => session.id)
     );
-  }, [visibleSessions]);
+  }, [filteredSessions]);
 
   const onBatchDelete = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -478,8 +483,8 @@ export default function MemoryScreen({ navigation }) {
       {loaded && (isScreenWatch ? activeThreads.length === 0 : visibleSessions.length === 0) ? (
         <EmptyState
           icon={isScreenWatch ? 'desktop-outline' : 'albums-outline'}
-          title={isScreenWatch ? t('memory.screenWatch.empty.title') : t('memory.empty.title')}
-          description={isScreenWatch ? t('memory.screenWatch.empty.body') : t('memory.empty.body')}
+          title={isScreenWatch ? (threadsFailed ? t('memory.screenWatch.readFailed.title') : t('memory.screenWatch.empty.title')) : t('memory.empty.title')}
+          description={isScreenWatch ? (threadsFailed ? t('memory.screenWatch.readFailed.body') : t('memory.screenWatch.empty.body')) : t('memory.empty.body')}
         />
       ) : (
         <FlatList

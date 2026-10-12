@@ -4,6 +4,7 @@ import { TTS_MAX_CHARS, getTtsProvider } from './providers.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import vendorXhr from '../network/vendorHttp.js';
 import { tActive } from '../i18n/index.js';
+import { isReservedPathKey } from '../utils/reservedPathKeys.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -72,18 +73,36 @@ function getByPath(source, path) {
   }, source);
 }
 
+// 保留键拦截（与 imageGen/index.js 的 setByPath 同款）：清单取自零依赖叶子模块
+// utils/reservedPathKeys.js，不在本文件另抄一份。先例见 chat/toolNoticeVisibility.js:27。
+//
+// 本仓 TTS 这条路上，路径目前**全部**来自内置声明表（providers.js 的
+// textField / voiceField / speedField / formatField / appIdField / auth.keyName）
+// 或本文件写死的常量（'messages' / 'model' / 'common.app_id' / …），
+// 用户可编辑的只有**字段值**（设置页输入框写入的字符串），键名进不来 ⇒ 今天是潜伏而非可利用。
+// 仍然要修：这个函数的形状本身就是漏洞，imageGen 侧的「额外参数(JSON)」已经证明
+// 只要有人给 TTS 声明表加一个「用户可编辑键名」的入口（自定义 provider / 导入声明表），
+// 它立刻变成可利用。逐层拦的成本是一行判断，代价不对称。
+//
+// 为什么必须**逐层**拦：危险键可以藏在任意一层（`a.__proto__.x` 的首层 `a` 完全合法），
+// 只在首段查会整类漏掉。
 function setByPath(target, path, value) {
   if (!path) return;
   const keys = String(path).split('.');
   let node = target;
   for (let index = 0; index < keys.length - 1; index += 1) {
     const key = keys[index];
+    // 命中即整键丢弃（return），**不要**改用 Object.defineProperty 去「保住」它：
+    // 那只是把危险键塞成 own 属性，后续展开/序列化时又会写进新对象。
+    if (isReservedPathKey(key)) return;
     if (node[key] === undefined || node[key] === null || typeof node[key] !== 'object') {
       node[key] = {};
     }
     node = node[key];
   }
-  node[keys[keys.length - 1]] = value;
+  const last = keys[keys.length - 1];
+  if (isReservedPathKey(last)) return;
+  node[last] = value;
 }
 
 function buildHeaders(provider, config) {
@@ -413,11 +432,13 @@ export async function synthesize({ provider, config = {}, text, signal = null })
     ? Math.trunc(Number(resolvedProvider.maxChars))
     : TTS_MAX_CHARS);
   if (!content) throw new Error(tActive('error.tts.emptyContent'));
-  if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };  const token = await resolveToken(resolvedProvider, config, { signal }).catch(error => {
-    if (error && error.name === 'AbortError') throw error;
-    // 令牌拿不到还发空令牌请求，只会得到难懂的 401/403：直接抛清楚原因。
-    throw new Error(error && error.message ? error.message : tActive('error.tts.tokenFailed'));
-  });
+  if (isSystemProvider(resolvedProvider)) return { mode: 'system', text: content };
+  // 令牌拿不到还发空令牌请求，只会得到难懂的 401/403：resolveToken 已经定好了
+  // 原因文案（含 AbortError 语义），**原样上抛**即可，不要再包一层
+  // `new Error(error.message)`——那样只会丢掉原始错误对象（栈与自定义字段），
+  // 而 message 是原样搬运的，包一层拿不到任何额外信息。
+  // 这条契约由 tests/tts.test.mjs 的身份用例钉住（AbortError 必须原样穿过 synthesize）。
+  const token = await resolveToken(resolvedProvider, config, { signal });
   const request = buildTtsRequest(resolvedProvider, config, content, token);
   if (!request) throw new Error(tActive('error.tts.notConfigured'));
   const response = resolvedProvider.response || {};

@@ -190,6 +190,12 @@ export default function BookScreen() {
         Alert.alert(t('books.import.encoding.title'), t('books.import.encoding.body'));
       } else if (code === 'DOCX_TOO_LARGE') {
         Alert.alert(t('books.import.docxTooLarge.title'), t('books.import.docxTooLarge.body'));
+      } else if (code === 'DOCX_INVALID') {
+        // 坏 .docx 与「格式不支持」必须分开：套用 unsupported 会答非所问（用户以为
+        // .docx 不被支持），真实原因是文件损坏/不是真 docx。同 DOCX_TOO_LARGE 的做法。
+        Alert.alert(t('books.import.docxInvalid.title'), t('books.import.docxInvalid.body'));
+      } else if (code === 'DOCX_NO_BODY') {
+        Alert.alert(t('books.import.docxNoBody.title'), t('books.import.docxNoBody.body'));
       } else if (code === 'EMPTY_BOOK') {
         Alert.alert(t('books.import.empty.title'), t('books.import.empty.body'));
       } else {

@@ -567,13 +567,15 @@ function toast(txt){
 }
 
 /* 音效 */
-let audioCtx = null, muted = false;
+let audioCtx = null;
 function initAudio(){
   if(!audioCtx){ try { audioCtx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){} }
   if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 }
 function beep(f1, f2, dur, type, vol){
-  if(muted || !audioCtx) return;
+  // 原条件是「静音标志 || 没有音频上下文」：该标志声明后从未被置 true，也没有任何静音入口
+  // （全文件只有声明与这一处读取）⇒ 恒为假、纯死条件，已删。音效开关只由 audioCtx 决定。
+  if(!audioCtx) return;
   const t = audioCtx.currentTime;
   const o = audioCtx.createOscillator(), g = audioCtx.createGain();
   o.type = type;
@@ -1006,7 +1008,9 @@ function updateHUD(){
 }
 
 /* 输入 */
-const input = { moveId: null, boostId: null, joyStartX: 0, joyStartY: 0, boost: false, keyBoost: false };
+// 原对象里还有一个「键盘加速」布尔位：声明后全文件零读写（加速实际走 input.boost，
+// 见摇杆/按钮处理），已删。
+const input = { moveId: null, boostId: null, joyStartX: 0, joyStartY: 0, boost: false };
 
 function moveJoy(dx, dy){
   const d = Math.hypot(dx, dy), m = Math.min(d, 45), k = d > 0 ? m/d : 0;

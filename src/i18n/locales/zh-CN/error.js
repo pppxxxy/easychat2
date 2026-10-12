@@ -110,12 +110,18 @@ export const error = {
   'error.api.unparseableResponse': '接口返回了无法解析的内容。',
   'error.api.networkFailed': '网络请求失败，请检查网络或 API 地址。',
   'error.api.requestInterrupted': '请求已中断。',
-  // 三档超时文案：key 由 requestTimeout.js 的 timeoutMessageKey(phase) 产出（纯函数、单测
+// 三档超时文案：key 由 requestTimeout.js 的 timeoutMessageKey(phase) 产出（纯函数、单测
   // 钉住映射）。注意静态键扫描器看不见「函数返回的 key」，所以存在性由
   // tests/apiErrorI18n.test.mjs 显式断言（zh/en 各一条），别只依赖扫描器。
   'error.api.timeoutFirstByte': '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）',
   'error.api.timeoutIdle': '请求超时，请检查网络后重试',
   'error.api.timeoutNonstream': '等待响应超时（非流式请求需服务端算完整篇再回包），请检查网络或 API 地址，可稍后重试',
+  // 与上面的 error.api.responseError **不是同一句话，不能复用**：responseError 说的是「接口回了
+  // error **载荷**，但解析不出更具体的原因」（network/api.js 的 extractErrorMessage 兜底）；本条
+  // 说的是「openai-responses 的流终态事件报了失败/未完成**状态**，而载荷里没有可解析的错误」。
+  // 主语不同（载荷 vs 状态），合并成一条会让用户分不清「服务端明确报错」与「服务端只是没成功收尾」。
+  // 消费点：apiProtocols/stream.js 的 response.failed / response.incomplete 分支。
+  'error.api.responseStatusFailed': '接口返回失败状态。',
   'error.transcription.notConfigured': '未配置语音转写服务',
   'error.transcription.timeout': '转写请求超时，请检查网络后重试',
   'error.transcription.networkFailed': '转写请求失败，请检查网络',
@@ -255,6 +261,16 @@ export const error = {
   'error.backup.restoreReadFailed': '无法读取待恢复数据：{key}',
   'error.backup.tooLarge': '备份文件过大，当前上限为 {mb}MB',
   'error.backup.exportUnreadable': '备份导出：以下数据键读取失败，未包含在备份中：{keys}',
+  // 导入校验的 6 条：这些 message 经 BackupPanel 的 Alert 直接显示给用户，原先硬编码在
+  // dataBackup.js 的返回对象字面量里（eslint 硬编码规则看不到 ⇒ 英文界面漏中文）。
+  'error.backup.payloadInvalid': '备份文件格式无效',
+  'error.backup.versionMissing': '备份文件缺少版本号，无法确认格式',
+  'error.backup.versionUnsupported': '不支持的备份版本：{version}',
+  'error.backup.manifestMissing': '备份文件缺少数据或媒体清单',
+  'error.backup.keyInvalid': '备份数据键格式无效',
+  'error.backup.entryIncomplete': '备份数据条目缺少内容（既没有数据值，也没有抢救下来的原始数据）',
+  'error.backup.keyDuplicated': '备份数据键重复',
+  'error.backup.mediaInvalid': '备份媒体路径或内容无效',
   'error.storage.characterLibraryRecovering': '角色库仍在恢复中，请稍后重试。',
   'error.storage.draftMissingCharacterId': '草稿缺少角色 id',
   'error.cardExport.invalidPng': '头像不是合法的 PNG 文件',

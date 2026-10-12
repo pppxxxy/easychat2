@@ -71,22 +71,25 @@ export function resolveTranscription({ chatConfig = null, dedicated = null } = {
   return { source: 'none', baseUrl: '', apiKey: '', model: DEFAULT_TRANSCRIPTION_MODEL, url: '' };
 }
 
-// 判定「该来源不支持转写」：端点不存在（404）、或响应体明确说明无此能力。
-// 这类结果会被调用方缓存，避免对必然失败的端点反复请求。
+// 「该来源不支持转写」的机器可读标记：错误对象置 error.unsupported = true，或
+// error.code = TRANSCRIPTION_UNSUPPORTED_CODE。分类**只看结构化标记**，不看文案——
+// 先例 src/network/api.js:51-53（configChangedError「文案走 i18n，分类判定改看 code」）。
+export const TRANSCRIPTION_UNSUPPORTED_CODE = 'TRANSCRIPTION_UNSUPPORTED';
+
+// 判定「该来源不支持转写」：端点不存在/未实现（404/405/501），或错误自带结构化标记。
+// 这类结果会被调用方缓存（见 ChatScreen 的 transcriptionSupportedRef），避免对必然失败的
+// 端点反复请求——**正因为它会被缓存，判据必须保守**：
+// 旧实现还匹配 message 里的 'not found'/'unsupported'/'no such' 等子串，于是任意 400/500
+// 的 {"error":{"message":"model not found"}}（模型名写错、配额/鉴权类错误常长这样）都被判成
+// 「该来源不支持转写」→ 该会话此后每条语音直接跳过转写且不弹提示，只有占位文本发出；
+// 而提示文案又正好叫用户「去设置里新增独立转写配置」——配好后同一会话仍被跳过。
+// 文案是服务端自由文本，永远不能当判据；状态码与显式标记才是。
 export function isUnsupportedTranscriptionError(error) {
   if (!error) return false;
   if (error.unsupported === true) return true;
+  if (error.code === TRANSCRIPTION_UNSUPPORTED_CODE) return true;
   const status = Number(error.status);
-  if (status === 404 || status === 405 || status === 501) return true;
-  const message = String(error.message || '').toLowerCase();
-  if (!message) return false;
-  return (
-    message.includes('not found')
-    || message.includes('not supported')
-    || message.includes('unsupported')
-    || message.includes('does not exist')
-    || message.includes('no such')
-  );
+  return status === 404 || status === 405 || status === 501;
 }
 
 // 转写音频。fileUri 为本地文件 uri；mime 默认 audio/m4a。

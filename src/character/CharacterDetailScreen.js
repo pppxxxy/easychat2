@@ -80,7 +80,7 @@ import {
   hasCardContent,
   isLargeImport,
   isPngBuffer,
-  worldEntryMeta,
+  placementText, worldEntryMeta,
 } from './cardHelpers.js';
 
 export default function CharacterDetailScreen() {
@@ -1498,7 +1498,7 @@ setWorldInfo(next.worldInfo);
                     key={entry.id}
                     title={entry.comment || t('character.detail.world.entryFallback', { n: index + 1 })}
                     meta={[
-                      worldEntryMeta(entry),
+                      worldEntryMeta(entry, { constant: t('character.editor.world.constant'), keywords: t('character.detail.world.metaKeywords'), noKeys: t('character.detail.world.metaNoKeys') }),
                       unsafeKeys.length > 0 ? t('character.detail.world.unsafeMeta', { count: unsafeKeys.length }) : '',
                     ].filter(Boolean).join('｜')}
                     enabled={entry.enabled}
@@ -1530,7 +1530,7 @@ setWorldInfo(next.worldInfo);
                   key={script.id}
                   title={script.name || t('character.detail.regex.fallback', { n: index + 1 })}
                   meta={[
-                    script.placementLabel || '',
+                    placementText(Array.isArray(script.placement) ? script.placement : [], { scopeFallback: t('character.editor.regex.scopeFallback') }),
                     isUnsafeRegexPattern(script.findRegex) ? t('character.detail.regex.unsafe') : '',
                   ].filter(Boolean).join('｜')}
                   enabled={script.enabled}

@@ -539,10 +539,20 @@ export function AppProvider({ children }) {
   //   skipped        结构残缺、永远无法处理，可 ack 删除；
   //   deferred       暂时处理不了（角色不在库/写入失败），**不 ack**，保留重试；
   //   targetSessions roleId → 本次消息实际写入的 sessionId，供通知跳转精确切到那段会话。
+  // ⚠️ 三类**互斥且穷尽**：每条消息恰好属于其中一类；Context 未加载完成时全部算 deferred。
   // Z 系采纳 #9：领域逻辑外提到 context/proactiveIngest.js（可单测），这里只做装配。
   const ingestProactiveMessages = useCallback(async messages => {
+    // 未加载完成：**全部归入 deferred**（保留重试），不返回四类全空。
+    // 为什么不能返回全空：上面那张契约表是「三类互斥且穷尽」，全空意味着这批消息**不属于任何
+    // 一类**——调用方按「全部 − deferred = 可 ack」判定消费（最自然的读法）就会把还没落库的
+    // 消息从原生队列里删掉（丢消息）。当前唯一调用方（App.js）恰好「不 ack、下次重试」才没暴露，
+    // 但那是运气不是契约；未加载完成本就是「暂时处理不了」，与 deferred 同义。元素口径也一致：
+    // 装**消息 id**（无 id 的与正常路径同款忽略——那边也是 `if (!id) continue`）。
     if (!loadedRef.current) {
-      return { written: [], skipped: [], deferred: [], targetSessions: {} };
+      const deferred = (Array.isArray(messages) ? messages : [])
+        .map(message => String((message && message.id) || ''))
+        .filter(Boolean);
+      return { written: [], skipped: [], deferred, targetSessions: {} };
     }
     return ingestProactiveMessagesInto({
       messages,

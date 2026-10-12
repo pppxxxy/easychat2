@@ -22,7 +22,16 @@ export default function ChapterNotice({ disclaimer, warning, links }) {
       : t('books.notice.openingExternal', { url });
     Alert.alert(link.label || t('books.notice.externalLink'), message, [
       { text: t('common.cancel'), style: 'cancel' },
-      { text: t('books.notice.continueOpen'), onPress: () => { Linking.openURL(url).catch(() => {}); } },
+      {
+        text: t('books.notice.continueOpen'),
+        onPress: () => {
+          // 系统打不开（无浏览器/无邮件客户端）也要说清楚，否则又是一次静默失败。
+          // 与 chat/RichHtmlMessage.js 的 handleCardLink 同款写法。
+          Linking.openURL(url).catch(() => {
+            Alert.alert(t('books.notice.openFailed.title'), t('books.notice.openFailed.body'));
+          });
+        },
+      },
     ]);
   };
 
@@ -47,10 +56,12 @@ export default function ChapterNotice({ disclaimer, warning, links }) {
           onPress={() => openLink(link)}
           activeOpacity={0.8}
           accessibilityRole="link"
-          accessibilityLabel={`打开 ${link.label || link.url}`}
+          accessibilityLabel={t('books.notice.openLinkA11y', { name: link.label || link.url })}
         >
           <Ionicons name="open-outline" size={15} color={theme.colors.primarySoft} />
-          <Text style={styles.linkLabel} numberOfLines={1}>{link.label}</Text>
+          {/* 缺 label 时回退到 url：只渲染 label 会留下一行空白（看着像坏掉的按钮），
+              而同组件上面的 Alert 标题（:23）与 ChapterOutro.js:62 都已是 `|| link.url` 口径。 */}
+          <Text style={styles.linkLabel} numberOfLines={1}>{link.label || link.url}</Text>
           <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />
         </TouchableOpacity>
       ))}

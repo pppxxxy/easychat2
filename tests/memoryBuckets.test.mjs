@@ -135,14 +135,14 @@ test('筛选 chips 与档位都带 labelKey，界面据此取词（英文不再�
 });
 
 test('会话时间文案走 i18n：昨天 / M月D日 不再硬编码', () => {
-  assert.ok(SESSION_ROW_SOURCE.includes("tr('memory.date.yesterday')"), '昨天应走词条');
-  assert.ok(SESSION_ROW_SOURCE.includes("tr('memory.date.md'"), '月日应走词条');
+  assert.ok(SESSION_ROW_SOURCE.includes("translate('memory.date.yesterday')"), '昨天应走词条');
+  assert.ok(SESSION_ROW_SOURCE.includes("translate('memory.date.md'"), '月日应走词条');
   // 只否定代码形态（文件头注释里仍会提到这两个文案，不算回归）
   assert.ok(!SESSION_ROW_SOURCE.includes("return '昨天'"), '不得再硬编码昨天');
   assert.ok(!SESSION_ROW_SOURCE.includes('getMonth() + 1}月'), '不得再硬编码「M月D日」');
   assert.equal(en['memory.date.yesterday'], 'Yesterday');
   assert.equal(en['memory.date.md'], '{m}/{d}');
-  // 调用方把 t 传进来（否则回落中文基准）
+  // 调用方把 t 传进来（否则回落 tActive＝当前活动语言，不再固定中文基准）
   assert.ok(SCREEN_SOURCE.includes('formatSessionTime(session.updatedAt, t)'));
   assert.ok(SWITCHER_SOURCE.includes('formatSessionTime(item.updatedAt, t)'));
 });

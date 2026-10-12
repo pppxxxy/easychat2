@@ -2,6 +2,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { hashSeed, buildDailyDateStr, pickDailyCharacter } from '../src/games/dailyWife.js';
 
@@ -10,6 +12,13 @@ const CHARACTERS = [
   { id: 'b', name: '角色乙' },
   { id: 'c', name: '角色丙' },
 ];
+
+// 视图是 React 组件（本仓无渲染器），UI 层按既有约定用源码锚点验证「分支存在且约束成立」。
+// 负向断言前先剥注释：解释「为什么旧分支不可达」的注释里会原样引用旧判据。
+const VIEW = fs.readFileSync(path.resolve('src/games/DailyWifeView.js'), 'utf8');
+const VIEW_CODE = VIEW.replace(/\/\/[^\n]*/g, '');
+const ZH_DAILY = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/dailyWife.js'), 'utf8');
+const EN_DAILY = fs.readFileSync(path.resolve('src/i18n/locales/en/dailyWife.js'), 'utf8');
 
 test('hashSeed：同输入恒定、不同输入分散', () => {
   assert.equal(hashSeed('2026-10-01\u0000wife'), hashSeed('2026-10-01\u0000wife'));
@@ -59,4 +68,45 @@ test('pickDailyCharacter：空库/非法输入返回 null，非法日期回退�
   const fallback = pickDailyCharacter(CHARACTERS, 'not-a-date', 'wife');
   assert.ok(fallback);
   assert.equal(pickDailyCharacter(CHARACTERS, '', 'wife').id, fallback.id);
+});
+
+// ---------------------------------------------------------------------------
+// P2-2：启动读角色库失败 / 尚未加载完，不得把内置助手当成「今天你的老婆是」
+// ---------------------------------------------------------------------------
+
+test('P2-2：启动读角色库失败时渲染错误态，而不是内置助手', () => {
+  assert.ok(VIEW.includes('startupError'), '必须消费 AppContext 的 startupError（此前全仓零消费方）');
+  assert.ok(
+    VIEW.includes("t('error.storage.characterIndexReadFailed')"),
+    '复用既有词条 error.storage.characterIndexReadFailed（characterLibrary 已在用）'
+  );
+  // 抽取范围必须排除「未加载完 / 启动失败」的回落快照（AppContext 两者都是 [DEFAULT_CHARACTER]）
+  assert.match(VIEW_CODE, /const pickable = loaded && !startupError && characters\.length > 0;/);
+  assert.match(VIEW_CODE, /pickable \? pickDailyCharacter\(characters, dateStr, mode\) : null/);
+  // 错误态分支必须排在卡片分支之前，否则失败时仍会渲染卡片
+  assert.ok(VIEW.indexOf('startupError ? (') !== -1, '必须有 startupError 分支');
+  assert.ok(VIEW.indexOf('startupError ? (') < VIEW.indexOf('picked ? ('), '错误态必须先于卡片判定');
+});
+
+test('P2-2：loaded === false 渲染 loading，初始 [DEFAULT_CHARACTER] 不参与抽取', () => {
+  assert.ok(VIEW_CODE.includes(') : !loaded ? ('), '必须有 loaded 为假时的 loading 分支');
+  assert.ok(VIEW.includes("t('dailyWife.loading')"));
+  // 两条恒不可达的旧判据不得复活：`loaded && characters.length === 0` 与挂在 `!picked` 上的 loading
+  assert.ok(!VIEW_CODE.includes('loaded && characters.length === 0'), '旧空态判据恒不可达');
+  assert.ok(!VIEW_CODE.includes('!picked ? ('), 'loading 挂在 !picked 上同样是死分支');
+});
+
+test('P2-2：空态与 loading 词条仍被消费，清理死分支不得顺手删词条', () => {
+  assert.ok(VIEW.includes("t('dailyWife.empty.title')"));
+  assert.ok(VIEW.includes("t('dailyWife.empty.hint')"));
+  for (const key of ['dailyWife.loading', 'dailyWife.empty.title', 'dailyWife.empty.hint']) {
+    assert.ok(ZH_DAILY.includes(`'${key}'`), `zh-CN 缺 ${key}`);
+    assert.ok(EN_DAILY.includes(`'${key}'`), `en 缺 ${key}`);
+  }
+});
+
+test('顺带：日期不再在挂载时冻结，回前台重算（跨天自动换人）', () => {
+  assert.ok(VIEW.includes("AppState.addEventListener('change'"), '回前台必须重算日期');
+  assert.ok(VIEW_CODE.includes('setDateStr('), '日期必须是 state 而不是挂载时算死的常量');
+  assert.ok(!VIEW_CODE.includes('buildDailyDateStr(), []'), '不得再用 useMemo(..., []) 冻结日期');
 });

@@ -16,10 +16,21 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
 }).code;
 
 const store = new Map();
+// 可控开关：模拟 AsyncStorage 读失败（getItem 抛错）。用它验证「读失败 ≠ 没有记录」
+// 与「读不出原值就不写」。
+let readFails = false;
+// 可控开关：模拟清空失败（removeItem 抛错）。
+let removeFails = false;
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (readFails) throw new Error('read failed');
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
-  removeItem: async key => { store.delete(key); },
+  removeItem: async key => {
+    if (removeFails) throw new Error('remove failed');
+    store.delete(key);
+  },
 };
 const secretsMock = {
   maskSecrets: text => String(text || '').replace(/sk-[a-zA-Z0-9]{8,}/g, '[API_KEY已隐藏]'),
@@ -208,4 +219,83 @@ test('AsyncStorage 不可用时静默（不抛错）', async () => {
   } finally {
     Module._load = previousLoad;
   }
+});
+
+// ---- 读失败 fail-closed（回归：读失败曾被当成「没有记录」，并把存储里几十条历史覆盖成一条）----
+const DIAGNOSTICS_KEY = '@easychat2_diagnostics';
+const DIAGNOSTICS_CORRUPT_KEY = `${DIAGNOSTICS_KEY}__corrupt_backup`;
+
+test('读失败（getItem 抛错）：抛错而不是把失败说成「没有记录」', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  store.set(DIAGNOSTICS_KEY, JSON.stringify([{ at: 1, kind: 'api', message: '历史' }]));
+  readFails = true;
+  try {
+    // 旧实现：catch 里 cache = [] 后正常返回 ⇒ UI 的 entries.length === 0 显示成
+    // 绿勾「暂无可查看的记录」，把「读不出来」说成「一切正常」。
+    await assert.rejects(() => getDiagnostics(), /read failed/);
+  } finally {
+    readFails = false;
+  }
+  assert.ok(store.has(DIAGNOSTICS_KEY), '读失败本身不改动存储');
+  // 连 getItem 都抛错时手里没有字节，没有可备份的原值（与 io.js 的 backupCorruptValue 同）。
+  assert.equal(store.has(DIAGNOSTICS_CORRUPT_KEY), false);
+});
+
+test('结构损坏（JSON.parse 失败）：抛错 + 先留原始字节的副本，不当成空记录', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  store.set(DIAGNOSTICS_KEY, '{ not valid json');
+  await assert.rejects(() => getDiagnostics());
+  assert.equal(store.get(DIAGNOSTICS_CORRUPT_KEY), '{ not valid json', '覆盖不可逆：先备份原始字节');
+  assert.equal(store.get(DIAGNOSTICS_KEY), '{ not valid json', '原键本身不动');
+});
+
+test('读失败不被缓存：恢复后能重新读到完整历史（旧实现把失败态钉死在内存）', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  await recordDiagnostic('api', new Error('历史一'));
+  await recordDiagnostic('storage', new Error('历史二'));
+  __resetDiagnosticsForTests(); // 清内存缓存：模拟「重启后首次读取」
+  readFails = true;
+  try {
+    await assert.rejects(() => getDiagnostics(), /read failed/);
+  } finally {
+    readFails = false;
+  }
+  const list = await getDiagnostics();
+  assert.equal(list.length, 2, '失败态不得被缓存（旧实现 cache=[] 为真值，会永久返回空）');
+  assert.ok(list.some(entry => entry.message.includes('历史一')));
+});
+
+test('读失败期间记录新诊断：不覆盖历史（读不出原值就不写）', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  await recordDiagnostic('api', new Error('历史'));
+  const history = store.get(DIAGNOSTICS_KEY);
+  __resetDiagnosticsForTests();
+  readFails = true;
+  try {
+    await recordDiagnostic('webview', new Error('失败期间的新诊断'));
+  } finally {
+    readFails = false;
+  }
+  assert.equal(store.get(DIAGNOSTICS_KEY), history, '读失败期间不得把历史整份覆盖成一条');
+});
+
+test('清空失败：向调用方抛错，且不清内存缓存（旧实现永不 reject，UI 假清空）', async () => {
+  __resetDiagnosticsForTests();
+  store.clear();
+  await recordDiagnostic('api', new Error('历史'));
+  removeFails = true;
+  try {
+    // 旧实现把 removeItem 的失败吞在内部 ⇒ 这里永远不会 reject，调用方的 .catch 是死代码。
+    await assert.rejects(() => clearDiagnostics(), /remove failed/);
+  } finally {
+    removeFails = false;
+  }
+  assert.ok(store.has(DIAGNOSTICS_KEY), '删失败时存储里的记录必须还在');
+  const list = await getDiagnostics();
+  assert.equal(list.length, 1, '删失败时缓存也必须保留：界面不能显示成已清空');
+  assert.ok(list[0].message.includes('历史'));
 });

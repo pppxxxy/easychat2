@@ -50,7 +50,7 @@ export default function ModelLogsModal({ visible, onClose }) {
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>{t('localModel.logs.title')}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('localModel.logs.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>

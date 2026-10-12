@@ -8,12 +8,15 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/tts/index.js');
-const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
+const sourceText = fs.readFileSync(sourcePath, 'utf8');
+const babelOptions = {
   babelrc: false,
   configFile: false,
   filename: sourcePath,
   presets: [[require.resolve('@babel/preset-env'), { targets: { node: 'current' }, modules: 'commonjs' }]],
-}).code;
+};
+const compile = code => babel.transformSync(code, babelOptions).code;
+const transformed = compile(sourceText);
 
 // 记录 expo-audio 播放调用，供「云端音频播放链」测试断言。
 const audioCalls = { created: [], played: 0 };
@@ -45,12 +48,12 @@ Module._load = function patchedLoad(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-function loadTts() {
+function loadTts(code = transformed) {
   const filename = path.resolve('src/tts/index.js');
   const runtimeModule = new Module(filename);
   runtimeModule.filename = filename;
   runtimeModule.paths = Module._nodeModulePaths(path.dirname(filename));
-  runtimeModule._compile(transformed, filename);
+  runtimeModule._compile(code, filename);
   return runtimeModule.exports;
 }
 
@@ -649,3 +652,458 @@ test('resolveToken：凭据走 POST body、缓存按凭据指纹区分且 TTL �
     globalThis.XMLHttpRequest = originalXHR;
   }
 });
+
+// ---- 归错因 / 中断语义 ----
+// 修复内容：synthesize 里原本多套了一层
+// `.catch(error => { if (error.name === 'AbortError') throw error;
+//                    throw new Error(error.message || tActive('error.tts.tokenFailed')); })`。
+// 实测复核（本批用「让网络层 reject 一个带标记的 AbortError」跑过旧实现）：
+// 对 AbortError 这条路径**行为等价**——第一句原样 re-throw，identity 保住了。
+// 所以这不是一个可利用缺陷，只是「重包一层」的冗余：它丢掉普通错误的原始对象
+// （栈与自定义字段），并在 catch 里留了一处将来很容易被改错的逻辑。
+// 下面这条**不是旧实现的阳性对照**（旧实现也能过），而是把「错误对象必须原样穿过
+// synthesize」这条契约钉死，防止有人日后把 re-throw 改成重包。
+test('取令牌被中断：synthesize 原样上抛 resolveToken 的错误对象，不得重包', async () => {
+  const TOKEN_ABORT = new Error('令牌端点已中断');
+  TOKEN_ABORT.name = 'AbortError';
+  TOKEN_ABORT.canceled = true;
+  TOKEN_ABORT.marker = 'token-layer-marker';
+  const originalLoad = Module._load;
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === '../network/vendorHttp.js') {
+      // __esModule 让 babel 的 interop 按 ESM 默认导出取值（否则 default 会被当成整个
+      // 命名空间对象，调用时报 "is not a function"）。
+      return { __esModule: true, default: () => Promise.reject(TOKEN_ABORT) };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    const { synthesize } = loadTts();
+    const provider = {
+      id: 'token-abort-test',
+      method: 'POST',
+      baseUrl: 'https://example.test/tts',
+      auth: { type: 'token', keyName: 'tok', tokenInBody: true, tokenUrl: 'https://oauth.test/token' },
+      textField: 'tex',
+      response: { mode: 'binary' },
+      fields: [
+        { key: 'apiKey', label: 'API Key', secret: true },
+        { key: 'appSecretKey', label: 'Secret Key', secret: true },
+      ],
+    };
+    await assert.rejects(
+      () => synthesize({ provider, config: { apiKey: 'bad-1', appSecretKey: 'bad-2' }, text: '你好' }),
+      error => {
+        assert.equal(error, TOKEN_ABORT, '必须原样上抛，不能 new Error(...) 重包');
+        assert.equal(error.name, 'AbortError', '中断语义的 name 不得被抹掉');
+        assert.equal(error.canceled, true, '自定义字段不得丢失');
+        return true;
+      },
+    );
+  } finally {
+    Module._load = originalLoad;
+  }
+});
+
+function makeAbortableTokenXHR() {
+  return class AbortableTokenXHR {
+    static instances = [];
+    constructor() {
+      AbortableTokenXHR.instances.push(this);
+      this.status = 0;
+    }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader() {}
+    send() {}
+    abort() {
+      this.aborted = true;
+      queueMicrotask(() => this.onabort && this.onabort());
+    }
+  };
+}
+
+test('取令牌阶段被中断：synthesize 必须保持 AbortError 身份（不得重包成普通 Error）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = makeAbortableTokenXHR();
+  try {
+    const { synthesize } = loadTts();
+    const controller = new AbortController();
+    const pending = synthesize({
+      provider: {
+        id: 'baidu-abort',
+        method: 'POST',
+        baseUrl: 'https://tsn.baidu.com/text2audio',
+        auth: { type: 'token', keyName: 'tok', tokenInBody: true, tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token' },
+        textField: 'tex',
+        response: { mode: 'binary' },
+        fields: [
+          { key: 'apiKey', label: 'API Key', secret: true },
+          { key: 'appSecretKey', label: 'Secret Key', secret: true },
+        ],
+      },
+      config: { apiKey: 'abort-key-1', appSecretKey: 'abort-secret-1' },
+      text: '你好',
+      signal: controller.signal,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    await assert.rejects(pending, error => error && error.name === 'AbortError');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('speak 在取令牌阶段被停止：不回调 onError（用户主动停止不是失败）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = makeAbortableTokenXHR();
+  const errors = [];
+  let done = 0;
+  try {
+    // 同一个模块实例里取 speak 与 stop：两次 loadTts() 会各自持一份
+    // speakGeneration/activeRequestController，跨实例 stop 根本停不到这次播报。
+    const tts = loadTts();
+    const provider = {
+      id: 'baidu-stop',
+      method: 'POST',
+      baseUrl: 'https://tsn.baidu.com/text2audio',
+      auth: { type: 'token', keyName: 'tok', tokenInBody: true, tokenUrl: 'https://aip.baidubce.com/oauth/2.0/token' },
+      textField: 'tex',
+      response: { mode: 'binary' },
+      fields: [
+        { key: 'apiKey', label: 'API Key', secret: true },
+        { key: 'appSecretKey', label: 'Secret Key', secret: true },
+      ],
+    };
+    const pending = tts.speak({
+      provider,
+      config: { apiKey: 'abort-key-2', appSecretKey: 'abort-secret-2' },
+      text: '你好',
+      onDone: () => { done += 1; },
+      onError: error => errors.push(error),
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    await tts.stop();
+    await pending;
+    assert.deepEqual(errors, [], '用户主动停止不得被当成播报失败回调 onError');
+    assert.equal(done, 0);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+
+// 背景：src/tts/index.js 的 setByPath 与 src/imageGen/index.js 曾是同形实现
+//（`node[key] = {}` 后 `node = node[key]`，没有任何键名校验）。生图侧那条已经实测
+// 可被 `{"__proto__.x": "…"}` 写脏 Object.prototype（见 tests/imageGen.test.mjs）。
+//
+// 复核结论（详见本批报告）：TTS 这条路上，路径目前**全部**来自内置声明表
+//（providers.js 的 textField / voiceField / speedField / formatField / appIdField /
+// auth.keyName）或本文件写死的常量，用户能编辑的只有**字段值**——键名进不来，
+// 所以今天是**潜伏**而非可利用。但 buildTtsRequest 是导出的、且吃调用方传入的
+// provider 对象：一旦有人给 TTS 加「自定义 provider / 导入声明表」这类入口
+//（生图侧的「额外参数(JSON)」就是先例），同一行代码立刻变成可利用。
+// 下面按「先钉死不可利用的现状、再钉死拦截生效」写：攻击形态走 provider 声明字段。
+const POLLUTION_SENTINEL = '__proto_pollution_sentinel__';
+
+// 攻击 provider：textField 的**键名**被当成点路径（真实 provider 只会写 'text' 这种
+// 普通键名；这里模拟「键名来自不可信声明表」的那一天）。
+const attackProvider = {
+  id: 'proto-attack',
+  method: 'POST',
+  baseUrl: 'https://example.test/tts',
+  auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
+  response: { mode: 'binary' },
+  fields: [{ key: 'apiKey', label: 'API Key', secret: true }],
+};
+
+test('声明表的点路径不得污染 Object.prototype（textField 与 auth.keyName 两条路）', () => {
+  assert.equal(({})[POLLUTION_SENTINEL], undefined, '前置：哨兵键此刻不应存在');
+  const tts = loadTts();
+
+  // 路 1：provider.textField（真实实现里写的是 'text' / 'input' / 'request.text'）
+  const fromTextField = tts.buildTtsRequest(
+    { ...attackProvider, textField: `__proto__.${POLLUTION_SENTINEL}` },
+    { apiKey: 'k' },
+    '你好',
+  );
+  assert.ok(fromTextField, '合法 provider 应当能构建出请求');
+  assert.equal(({})[POLLUTION_SENTINEL], undefined, 'Object.prototype 被写脏（全局原型污染）');
+  const body = JSON.parse(fromTextField.body);
+  assert.equal(body[POLLUTION_SENTINEL], undefined, '危险键必须整键丢弃，不能变成载荷的 own 属性');
+  assert.equal(Object.prototype.hasOwnProperty.call(body, '__proto__'), false, '不得留成 own 属性');
+  assert.equal(Object.getPrototypeOf(body), Object.prototype, '载荷的原型必须仍是 Object.prototype');
+
+  // 路 2：auth.keyName 在 tokenInBody 分支同样被当成点路径写进载荷
+  const fromAuthKeyName = tts.buildTtsRequest({
+    ...attackProvider,
+    auth: { type: 'token', keyName: `constructor.${POLLUTION_SENTINEL}`, tokenInBody: true, tokenUrl: 'https://oauth.test/token' },
+  }, { apiKey: 'k' }, '你好', 'token-1');
+  assert.ok(fromAuthKeyName);
+  assert.equal(({})[POLLUTION_SENTINEL], undefined, 'auth.keyName 这条路上同样不得污染原型');
+  // `constructor.<x>` 在旧实现下会沿继承链取到 Object 构造函数并把 x 挂到它上面
+  // （全局副作用，不是本对象的 own 属性），所以这里连构造函数一起查。
+  assert.equal(Object[POLLUTION_SENTINEL], undefined, 'constructor 链不得被写穿');
+  assert.equal(JSON.parse(fromAuthKeyName.body)[POLLUTION_SENTINEL], undefined);
+});
+
+test('正常嵌套点路径仍然写入（防过度拦截）', () => {
+  const tts = loadTts();
+  // 火山声明表就是真实的多层点路径：request.text / audio.voice_type / user.uid …
+  const volcanoProvider = {
+    id: 'volcano',
+    method: 'POST',
+    baseUrl: 'https://openspeech.bytedance.com/api/v1/tts',
+    auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer;' },
+    signer: 'volcano',
+    textField: 'request.text',
+    voiceField: 'audio.voice_type',
+    speedField: 'audio.speed_ratio',
+    formatField: 'audio.encoding',
+    payloadDefaults: { audio: { encoding: 'mp3' } },
+    response: { mode: 'base64', path: 'data' },
+    fields: [
+      { key: 'appId', label: 'AppID' },
+      { key: 'apiKey', label: 'Access Token', secret: true },
+    ],
+  };
+  const request = tts.buildTtsRequest(volcanoProvider, {
+    appId: 'app-1', apiKey: 'tok-1', voice: 'BV001_streaming', speed: '1.0',
+  }, '你好');
+  const body = JSON.parse(request.body);
+  // 多层嵌套全部照写：拦截不能把正常路径一起挡掉
+  assert.equal(body.request.text, '你好');
+  assert.equal(body.audio.voice_type, 'BV001_streaming');
+  assert.equal(body.audio.speed_ratio, 1.0);
+  assert.equal(body.audio.encoding, 'mp3');
+  assert.equal(body.app.cluster, 'volcano_tts');
+  assert.equal(body.user.uid, 'easychat2');
+  assert.equal(body.app.appid, 'app-1');
+  // 声明表本体不得被写穿（payloadDefaults 深拷贝基底，不是浅拷贝共享对象）
+  assert.deepEqual(volcanoProvider.payloadDefaults, { audio: { encoding: 'mp3' } }, 'payloadDefaults 本体被写脏');
+  assert.equal(Object.getPrototypeOf(body), Object.prototype);
+});
+
+test('阳性对照：去掉保留键拦截后，同一条攻击确实会写脏 Object.prototype', async () => {
+  // 拦截清单在共享叶子模块里，所以「关掉拦截」= 让该模块的 isReservedPathKey 恒假。
+  const sharedPath = require.resolve('../src/utils/reservedPathKeys.js');
+  const originalLoad = Module._load;
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === '../utils/reservedPathKeys.js' || request === sharedPath) {
+      return { RESERVED_PATH_KEYS: new Set(), isReservedPathKey: () => false };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    const unguarded = loadTts();
+    unguarded.buildTtsRequest(
+      { ...attackProvider, textField: `__proto__.${POLLUTION_SENTINEL}` },
+      { apiKey: 'k' },
+      '你好',
+    );
+    // 写进 Object.prototype 的是这次要合成的**文本**（旧实现下 textField 的值原样写穿）。
+    assert.equal(({})[POLLUTION_SENTINEL], '你好', '对照未复现旧实现的泄漏，说明哨兵断言已失去灵敏度');
+  } finally {
+    Module._load = originalLoad;
+    delete Object.prototype[POLLUTION_SENTINEL];
+  }
+  assert.equal(({})[POLLUTION_SENTINEL], undefined, '对照必须清理干净，不然后面的用例会被误判');
+  // 拦截清单的共享来源：确认 TTS 侧确实在用这份清单，而不是自己另写了一份
+  const { isReservedPathKey } = await import('../src/utils/reservedPathKeys.js');
+  assert.equal(isReservedPathKey('__proto__'), true);
+  assert.equal(isReservedPathKey('constructor'), true);
+  assert.equal(isReservedPathKey('prototype'), true);
+  assert.equal(isReservedPathKey('text'), false);
+  assert.match(
+    fs.readFileSync(sourcePath, 'utf8'),
+    /from '\.\.\/utils\/reservedPathKeys\.js'/,
+    'tts 引擎必须复用共享保留键模块（另抄一份清单就是留一条旁路）',
+  );
+});
+
+// ---- 播报面板 i18n（审查批次定位：英文界面漏出中文引擎名 / 中文占位符）----
+//
+// 为什么这组断言必须有：eslint 的 no-hardcoded-chinese(-text) 只查 Alert / JSX /
+// 模块级常量，**看不见数据文件（tts/providers.js）里的 label**——审查方实测
+// `eslint src/tts/providers.js src/TtsPanel.js` exit=0。规则盲区 + 同族一处做对
+// 一处没做（CharacterOverridesSection 走 i18n、TtsPanel 直接渲染常量），
+// 于是英文用户进「播报源」看到的是中文引擎名与中文占位符。
+// 这里用「剥注释后的源码断言 + 词条实测」把这条路径钉死。
+
+// 剥注释：反向断言（不得再直接渲染 xx.label）之前必须先去注释——否则注释里写一句
+// `// item.label` 就能让它假通过。口径同 scripts/i18nKeyAudit.mjs 的「整行注释跳过」。
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+}
+
+const readSrc = rel => fs.readFileSync(path.resolve(rel), 'utf8');
+
+// 中日韩汉字 + 中文标点：全角标点里一个汉字都没有，只查汉字会整类漏掉
+//（同 eslint-rules/no-hardcoded-chinese.mjs 把中文标点纳入匹配的理由）。
+const CJK = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/;
+
+test('播报面板：引擎名 / 字段 label / placeholder 全部走 i18n，不再直接渲染声明表常量', () => {
+  const panel = stripComments(readSrc('src/TtsPanel.js'));
+  // 正向：五处用户可见文案都必须经共享取值函数（内部 t(key)）
+  assert.match(panel, /ttsProviderLabel\(t, item\)/, '引擎名必须经共享取值函数取词条');
+  assert.match(panel, /ttsProviderLabel\(t, provider\)/, '「获取 API Key」的无障碍名称也要走 i18n');
+  assert.match(panel, /ttsFieldLabel\(t, field\)/, '字段 label 必须经共享取值函数取词条');
+  assert.match(panel, /ttsFieldPlaceholder\(t, field\)/, '字段 placeholder 必须经共享取值函数取词条');
+  assert.match(panel, /ttsUnsupportedNote\(t, /, '「暂不支持」的原因说明同样是中文常量，必须走 i18n');
+  // 反向：不得再直接渲染 .label / .placeholder（那正是英文界面漏中文的形态）
+  assert.equal(/\bitem\.label\b/.test(panel), false, '不得直接渲染 item.label');
+  assert.equal(/\bprovider\.label\b/.test(panel), false, '不得直接渲染 provider.label');
+  assert.equal(/\bfield\.label\b/.test(panel), false, '不得直接渲染 field.label');
+  assert.equal(/\bfield\.placeholder\b/.test(panel), false, '不得直接渲染 field.placeholder');
+});
+
+test('播报面板：每个引擎名与字段文案在英文下都取到英文（translate("en", key) 实测）', async () => {
+  const {
+    TTS_PROVIDERS, ttsFieldLabel, ttsFieldPlaceholder, ttsProviderLabel, ttsUnsupportedNote,
+  } = await import('../src/tts/providers.js');
+  const { translate } = await import('../src/i18n/index.js');
+  const en = key => translate('en', key);
+
+  for (const provider of TTS_PROVIDERS) {
+    assert.ok(provider.labelKey, `${provider.id} 缺 labelKey（英文界面会回落中文常量）`);
+    const name = ttsProviderLabel(en, provider);
+    assert.equal(CJK.test(name), false, `英文界面下引擎名仍是中文：${provider.id} → ${name}`);
+    assert.equal(name, en(provider.labelKey), '引擎名必须等于英文词条');
+    // 声明表已是 labelKey-only（中文常量全部迁进词条，见 providers.js 的迁 i18n 说明），
+    // 不再拿 label 常量比对；改成钉「zh-CN 词条必须真的存在」——差一条界面就会回落成
+    // 键名/id 显示给用户，这条断言抓的正是漏登记。
+    assert.notEqual(translate('zh-CN', provider.labelKey), provider.labelKey,
+      `${provider.id} 缺 zh-CN 词条（界面会回落成键名/id）`);
+    if (provider.noteKey) {
+      const note = ttsUnsupportedNote(en, provider);
+      assert.equal(CJK.test(note), false, `英文界面下「暂不支持」原因仍是中文：${provider.id} → ${note}`);
+      assert.equal(note, en(provider.noteKey), '原因说明必须等于英文词条');
+      assert.notEqual(translate('zh-CN', provider.noteKey), provider.noteKey, `${provider.id} 缺 zh-CN 原因词条`);
+    }
+    for (const field of provider.fields) {
+      assert.ok(field.labelKey, `${provider.id}.${field.key} 缺 labelKey`);
+      const label = ttsFieldLabel(en, field);
+      assert.equal(CJK.test(label), false, `英文界面下字段名仍是中文：${provider.id}.${field.key} → ${label}`);
+      assert.equal(label, en(field.labelKey), '字段名必须等于英文词条');
+      assert.notEqual(translate('zh-CN', field.labelKey), field.labelKey,
+        `${provider.id}.${field.key} 缺 zh-CN 字段名词条`);
+      const placeholder = ttsFieldPlaceholder(en, field);
+      assert.equal(CJK.test(placeholder), false, `英文界面下占位符仍是中文：${provider.id}.${field.key} → ${placeholder}`);
+      if (field.placeholderKey) {
+        assert.notEqual(translate('zh-CN', field.placeholderKey), field.placeholderKey,
+          `${provider.id}.${field.key} 缺 zh-CN 占位符词条`);
+      } else {
+        // 没有 placeholderKey 的占位符必须是语言无关字面量（URL / 模型 ID / 数字）：
+        // 一旦写成中文，英文界面就又会漏出中文——这条反向断言防的正是本缺陷复发。
+        assert.equal(CJK.test(String(field.placeholder || '')), false,
+          `${provider.id}.${field.key} 的中文占位符缺 placeholderKey`);
+      }
+    }
+  }
+  // 兜底形态（key 优先 + 常量兜底，同 PluginPanel.js:260,263 的先例）：
+  // 词条查不到时必须回落**声明表里剩下的东西**（id / 空串 / 语言无关占位符），
+  // 而不是把 `tts.field.voice` 这种键名显示给用户——声明表迁 i18n 后已无中文常量，
+  // 所以这里的期望值随之下移，但「不显示键名」这条不变。
+  const missingT = key => key;
+  const [first] = TTS_PROVIDERS;
+  assert.equal(ttsProviderLabel(missingT, first), first.id);
+  assert.equal(ttsFieldLabel(missingT, first.fields[0]), '');
+  assert.equal(ttsFieldPlaceholder(missingT, first.fields[0]), String(first.fields[0].placeholder || ''));
+});
+
+test('播报面板：面板名与「关闭」的无障碍名是两个语义（title 曾被误写成「关闭」）', async () => {
+  const panel = stripComments(readSrc('src/TtsPanel.js'));
+  assert.match(panel, /\{t\('tts\.title'\)\}/, '面板标题必须走 tts.title');
+  assert.match(panel, /accessibilityLabel=\{t\('tts\.closeA11y'\)\}/, '关闭按钮必须走本面板的 tts.closeA11y（同 TranscriptionPanel.js:159 形态）');
+  assert.equal(panel.includes("t('common.close')"), false, '不得再用 common.close 顶替本面板的关闭名');
+  const { translate } = await import('../src/i18n/index.js');
+  assert.notEqual(translate('zh-CN', 'tts.title'), '关闭', '面板名不得再是「关闭」');
+  assert.notEqual(translate('en', 'tts.title'), 'Close', '面板名不得再是 "Close"');
+  // 英文音色区标题曾是机器翻译残留 'Label'（中文基准是「预置音色（可选）」）。
+  assert.notEqual(translate('en', 'tts.voices.label'), 'Label', '英文音色区标题不得是机器翻译残留');
+  assert.equal(CJK.test(translate('en', 'tts.voices.label')), false, '英文音色区标题不得是中文');
+});
+
+test('播报面板：不支持提示的默认说明没有模板碎片（花括号必须配对）', async () => {
+  // 背景：tts.unsupportedHint.defaultNote 的中文值曾是 '}。播报会失败…'——某次删掉
+  // '{...}' 段后留下的碎片，拼进 '当前引擎暂不支持：{note}' 会渲染成「：}。…」。
+  // 同款碎片在 zh-CN/preset.js 的 preset.unnamed 也出现过（原值 '}」吗？'），**那一例已修**
+  // 为 '未命名'——这里保留它作为该家族的已修案例登记；本条断言只钉 tts 自己的默认说明。
+  const { translate } = await import('../src/i18n/index.js');
+  for (const locale of ['zh-CN', 'en']) {
+    const note = translate(locale, 'tts.unsupportedHint.defaultNote');
+    assert.equal(/[{}]/.test(note), false, `${locale} 的默认说明残留花括号碎片：${note}`);
+    // 真拼一遍模板：结果里不该再有花括号（未替换占位符或碎片）
+    const rendered = translate(locale, 'tts.unsupportedHint', { note });
+    assert.equal(/[{}]/.test(rendered), false, `${locale} 渲染结果含花括号碎片：${rendered}`);
+  }
+});
+
+test('播报源名称映射只有一处：声明表的 labelKey，两个面板都从它取', async () => {
+  const overrides = stripComments(readSrc('src/character/CharacterOverridesSection.js'));
+  const panel = stripComments(readSrc('src/TtsPanel.js'));
+  // 旧形态：CharacterOverridesSection 自己维护一份 id→key 映射表，TtsPanel 直接渲染中文常量。
+  // 那份映射必须彻底消失——否则「同族一处做对一处没做」会以另一种形式复发。
+  assert.equal(/TTS_PROVIDER_NAME_KEYS/.test(overrides), false, '映射表必须已从使用方删除（单一来源在声明表）');
+  assert.equal(/TTS_PROVIDER_NAME_KEYS/.test(panel), false, 'TtsPanel 不得自建映射表');
+  for (const [file, source] of [
+    ['src/character/CharacterOverridesSection.js', overrides],
+    ['src/TtsPanel.js', panel],
+  ]) {
+    assert.match(source, /from '[^']*tts\/providers\.js'/, `${file} 必须从 tts/providers.js 取映射`);
+    assert.match(source, /\bttsProviderLabel\b/, `${file} 必须用共享取值函数，不得另抄一份`);
+  }
+  // 全仓扫描：`tts.providerName.*` 只允许出现在声明表与语言包里——别处再出现一次
+  // 就是「又抄了一份映射」，正是本缺陷的复发形态。
+  const offenders = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const rel = path.relative(path.resolve('.'), full).split(path.sep).join('/');
+      if (rel.startsWith('src/i18n/locales/')) continue;
+      if (stripComments(readSrc(rel)).includes('tts.providerName.')) offenders.push(rel);
+    }
+  })(path.resolve('src'));
+  assert.deepEqual(offenders, ['src/tts/providers.js'],
+    `provider 名映射只允许定义在声明表里，实际出现在：${offenders.join(', ')}`);
+  // 声明表本身：每个 provider 恰好一条 labelKey，不重复、不缺
+  const { TTS_PROVIDERS } = await import('../src/tts/providers.js');
+  const keys = TTS_PROVIDERS.map(item => item.labelKey);
+  assert.equal(keys.every(Boolean), true, '每个 provider 都要有 labelKey');
+  assert.equal(new Set(keys).size, keys.length, 'labelKey 不得重复');
+  // 剥注释后再数：声明表头注释里举了 `tts.providerName.${id}` 这个反例，注释不该计数。
+  const occurrences = (stripComments(readSrc('src/tts/providers.js')).match(/tts\.providerName\./g) || []).length;
+  assert.equal(occurrences, TTS_PROVIDERS.length, 'providerName 引用数应与引擎数一致（一处一份）');
+});
+
+test('播报面板：读失败时保存禁用 + 给出原因，persist 不得再静默短路', async () => {
+  const panel = stripComments(readSrc('src/TtsPanel.js'));
+  // (a) 读失败（loaded 恒 false）→ 按钮禁用 + 视觉反馈 + 无障碍状态 + 可见原因
+  assert.match(panel, /disabled=\{!loaded\}/, '读失败时保存按钮必须禁用');
+  assert.match(panel, /saveButtonDisabled/, '禁用要有视觉反馈（同 providerChipUnsupported 口径）');
+  assert.match(panel, /accessibilityState=\{\{ disabled: !loaded \}\}/, '禁用状态要报给无障碍（同 ChatTopBar.js:96-100）');
+  assert.match(panel, /t\('tts\.saveDisabled\.readFailed'\)/, '禁用要说明原因，不能只把按钮变灰');
+  // (b) persist 的 !loaded 分支必须弹可见错误，而不是 `return false` 了事
+  const start = panel.indexOf('const persist = useCallback');
+  const end = panel.indexOf('const provider = getTtsProvider');
+  assert.ok(start >= 0 && end > start, '定位 persist 失败（本断言已失效，需同步更新）');
+  const persist = panel.slice(start, end);
+  const guardAt = persist.indexOf('if (!loaded)');
+  assert.ok(guardAt >= 0, 'persist 必须保留 !loaded 守卫（防覆盖已有配置）');
+  const guard = persist.slice(guardAt, persist.indexOf('const previous = lastSavedSettingsRef.current'));
+  assert.match(guard, /Alert\.alert\(t\('tts\.alert\.saveAborted\.title'\)/, '短路分支必须弹可见错误');
+  assert.match(guard, /return false;/, '仍然不得继续保存（不得覆盖已有配置）');
+  // 文案必须说清「为什么不能存」，不能只说「保存失败」——后者会把用户引去查存储权限，
+  // 而真实原因是读失败。口径同 storage/worldMap.js:37 与 error.storage.characterIndexReadFailed。
+  const { translate } = await import('../src/i18n/index.js');
+  assert.match(translate('zh-CN', 'tts.alert.saveAborted.body'), /已中止保存/, '中文文案要说清「已中止保存以免覆盖」');
+  assert.match(translate('en', 'tts.alert.saveAborted.body'), /aborted/i, '英文文案要说清保存已中止');
+  assert.match(translate('zh-CN', 'tts.saveDisabled.readFailed'), /已停用保存/, '禁用原因要说清已停用保存');
+  assert.match(translate('en', 'tts.saveDisabled.readFailed'), /disabled/i, '英文禁用原因要说清 saving is disabled');
+});
+

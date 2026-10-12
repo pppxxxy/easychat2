@@ -6,14 +6,19 @@
 // / UTF-32（BOM）/ GB18030 / BIG5 / Shift_JIS / EUC-JP / EUC-KR / ISO-2022-JP /
 // windows-1252 / HZ-GB-2312（自实现解码，WHATWG 已弃用该编码）。
 //
-// 探测策略：UTF-32 BOM → BOM（解出成片替换符视为「BOM 与正文不符」，落回候选评分）
-// → 二进制魔数（NOT_TEXT）→ 7 位转义式（HZ-GB-2312 / ISO-2022-JP：整份文件都是合法
-// ASCII，严格 UTF-8 一定会抢先认领，必须排在它前面）→ 严格 UTF-8 校验 → UTF-16 零字节
-// 启发 → NUL 占比复核（NOT_TEXT）→ 其余候选按「可疑码位占比 → 脚本占比」打分择优，
+// 探测策略：UTF-32 BOM → BOM（两者都：解出成片替换符/NUL 视为「BOM 与正文不符」，
+// 落回候选评分）→ 二进制魔数（NOT_TEXT）→ 7 位转义式（HZ-GB-2312 / ISO-2022-JP：整份
+// 文件都是合法 ASCII，严格 UTF-8 一定会抢先认领，必须排在它前面；签名命中后都还要过一道
+// 「解出来像不像中日文」的内容门槛）→ UTF-16 零字节启发（命中即认领）→ NUL 占比复核
+// （NOT_TEXT）→ 严格 UTF-8 校验 → 其余候选按「可疑码位占比 → 脚本占比」打分择优，
 // 最高分低于下限抛 { code:'ENCODING' }。把 UTF-16 候选并入评分是为了兜住「纯 CJK 无
 // BOM UTF-16」——其原始字节不含零字节，零字节启发失效，只靠 GB18030 会解出静默乱码。
 // 二进制识别单列，是因为改后缀的 PDF/Word/电子书容器是「编码不支持」报错的高发来源，
 // 笼统让用户转码会误导。
+//
+// UTF-16 启发与 NUL 复核的先后是硬约束（2026-10 修）：ASCII 的 UTF-16 文本既是合法
+// UTF-8（NUL ≤ 0x7f），NUL 字节占比又可达 50%——排在严格 UTF-8 之后会被当 UTF-8 整本
+// 收下，排在 NUL 复核之后会被当二进制拒收，只能夹在两者中间先认领。
 
 // text-encoding 是 CommonJS/UMD：Node ESM 下不能具名导入，用默认导入解构
 // （Metro/Babel 的 interop 同样适用）。
@@ -23,7 +28,19 @@ import { tActive } from '../i18n/index.js';
 
 const { TextDecoder } = textEncoding;
 
-export const ENCODING_FFFD_THRESHOLD = 0.005;
+// 阈值按「分母」拆名：同一个 0.005 以前叫 ENCODING_FFFD_THRESHOLD，却同时作用在
+// replacementRatio（只数 U+FFFD）与 undesirableRatio / textStats.bad（含 NUL、非字符、
+// 控制符）两个**不同分母**上——名字里的 FFFD 让后者读起来像前者，改一个必怀疑另一个。
+// - FFFD_THRESHOLD：只数替换符那条线（UTF-16 启发认领后的复核）。
+// - BAD_RATIO_THRESHOLD：含 NUL/非字符/控制符的「坏码位占比」那条线（UTF-32/BOM 与正文
+//   不符时落回候选评分、HZ 与 ISO-2022-JP 的内容门槛）。
+export const FFFD_THRESHOLD = 0.005;
+export const BAD_RATIO_THRESHOLD = 0.005;
+
+// HZ 的内容门槛（见 decodeBytes 里 HZ 分支的说明）：真 HZ 是中文正文，解出的汉字占比
+// 必须过这条线才认领。0.3 与 ISO-2022-JP 分支的 han 门槛取值一致（同族对照）。
+export const HZ_MIN_HAN_RATIO = 0.3;
+
 const REPLACEMENT_CODE = 0xfffd;
 
 function toUint8(input) {
@@ -168,29 +185,37 @@ export function decodeHz(input) {
   return text;
 }
 
+// 「坏码位」的唯一定义。三处口径本来是包含关系（FFFD ⊂ 可疑码位 ⊂ 含控制符的可疑码位），
+// 却各写一遍循环，改一处必漏两处；现在统一由这个谓词派生：
+// - replacementOnly=true：只认 U+FFFD（replacementRatio 用；它的语义必须严格是「替换符
+//   占比」，不能被 NUL/控制符撑大，导入侧的乱码判据依赖这一点）；
+// - 基线：U+FFFD + U+0000 NUL + 无字符（U+FFFE/U+FFFF、U+FDD0–U+FDEF）；
+// - controls=true：再加控制符（除 \t \n \r）。只有 textStats.bad 用这一档——候选评分要
+//   惩罚「解出一堆 BEL/ESC」的乱码。
+function isBadCodePoint(code, { controls = false, replacementOnly = false } = {}) {
+  if (code === REPLACEMENT_CODE) return true;
+  if (replacementOnly) return false;
+  if (code === 0 || code === 0xfffe || code === 0xffff) return true;
+  if (code >= 0xfdd0 && code <= 0xfdef) return true;
+  return controls && code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+}
+
+// 坏码位计数（按 UTF-16 码元遍历；代理项码元本身永不命中，与 textStats 逐码点遍历的结果一致）。
+// 只返回计数、不做除法：三个口径的分母不同（见各导出），分母留给调用方，避免同一个常量
+// 又落到两个不同分母上。
+function countUndesirable(source, options) {
+  let bad = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    if (isBadCodePoint(source.charCodeAt(index), options)) bad += 1;
+  }
+  return bad;
+}
+
+// 替换符占比（**只数 U+FFFD**）：decodeBytes 的返回值字段与导入侧的乱码判据都用它。
 export function replacementRatio(text) {
   const source = String(text || '');
   if (!source) return 0;
-  let bad = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    if (source.charCodeAt(index) === REPLACEMENT_CODE) bad += 1;
-  }
-  return bad / source.length;
-}
-
-// 汉字（CJK 基本区 + 扩展 A）占比：GB18030 与 BIG5 都无替换符时用它区分——
-// BIG5 文本按 GB18030 解码常落到假名/符号区，汉字占比明显偏低。
-export function cjkRatio(text) {
-  const source = String(text || '');
-  if (!source) return 0;
-  let total = 0;
-  let cjk = 0;
-  for (const char of source) {
-    total += 1;
-    const code = char.codePointAt(0);
-    if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) cjk += 1;
-  }
-  return total ? cjk / total : 0;
+  return countUndesirable(source, { replacementOnly: true }) / source.length;
 }
 
 // 可疑码位占比：U+FFFD 替换符、U+0000 NUL、以及无字符（U+FFFE/U+FFFF、U+FDD0–U+FDEF）。
@@ -200,18 +225,7 @@ export function cjkRatio(text) {
 export function undesirableRatio(text) {
   const source = String(text || '');
   if (!source) return 0;
-  let bad = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    const code = source.charCodeAt(index);
-    if (
-      code === REPLACEMENT_CODE
-      || code === 0
-      || code === 0xfffe
-      || code === 0xffff
-      || (code >= 0xfdd0 && code <= 0xfdef)
-    ) bad += 1;
-  }
-  return bad / source.length;
+  return countUndesirable(source) / source.length;
 }
 
 // UTF-32 BOM（text-encoding 无 utf-32 解码器，命中后手动按 4 字节还原码位）。
@@ -310,14 +324,11 @@ export function textStats(text) {
     if (point > 0xffff) index += 1;
     total += 1;
     if (code < 0x80) ascii += 1;
-    if (
-      code === 0xfffd
-      || code === 0
-      || code === 0xfffe
-      || code === 0xffff
-      || (code >= 0xfdd0 && code <= 0xfdef)
-      || (code < 0x20 && code !== 9 && code !== 10 && code !== 13)
-    ) bad += 1;
+    // 第三处「坏码位」口径：与 undesirableRatio 同源，只是多算控制符。走共用谓词
+    // （isBadCodePoint），不再就地展开条件——三处口径的包含关系必须只有一处定义。
+    // 这里保持逐码元内联判定而不调用 countUndesirable：textStats 对每个候选编码都要
+    // 跑一遍，多一次整串遍历是纯浪费，且两个循环的命中结果逐码元等价。
+    if (isBadCodePoint(code, { controls: true })) bad += 1;
     if ((point >= 0x4e00 && point <= 0x9fff) || (point >= 0x3400 && point <= 0x4dbf) || (point >= 0xf900 && point <= 0xfaff)) han += 1;
     else if (point >= 0x3040 && point <= 0x30ff) kana += 1;
     else if (point >= 0xac00 && point <= 0xd7af) hangul += 1;
@@ -388,21 +399,35 @@ export function decodeBytes(input) {
   const bytes = toUint8(input);
   if (bytes.length === 0) return { text: '', encoding: 'utf-8', replacementRatio: 0 };
 
-  const utf32 = detectUtf32Bom(bytes);
-  if (utf32) {
-    const text = normalizeNewlines(decodeUtf32(bytes.subarray(utf32.offset), utf32.encoding === 'utf-32le'));
-    return { text, encoding: utf32.encoding, replacementRatio: replacementRatio(text) };
-  }
-
-  const bom = detectBom(bytes);
   // bomOffset 非 0 时（BOM 与正文不符），后续候选评分改用去掉 BOM 的正文：
   // 「UTF-8 BOM + GBK 正文」的下载站产物按 BOM 解是成片替换符，按正文解才是真文本。
   let bomOffset = 0;
+
+  const utf32 = detectUtf32Bom(bytes);
+  if (utf32) {
+    const text = normalizeNewlines(decodeUtf32(bytes.subarray(utf32.offset), utf32.encoding === 'utf-32le'));
+    // 用 undesirableRatio 而不是 replacementRatio：BOM 与正文不符有两种形态，
+    // ① FF FE 00 00 + UTF-16LE 正文 → 码位越界，解出成片 U+FFFD；
+    // ② FF FE 00 00 + 全零碎片 → 解出成片 U+0000，replacementRatio 是 0，看不到。
+    // 两种都不该裸返回（否则落库成一本「全是 �」或「全是 NUL」的书），一律落回候选评分，
+    // 最差落到既有的 ENCODING/NOT_TEXT。
+    const ratio = undesirableRatio(text);
+    if (ratio <= BAD_RATIO_THRESHOLD) {
+      return { text, encoding: utf32.encoding, replacementRatio: replacementRatio(text) };
+    }
+    bomOffset = utf32.offset;
+  }
+
+  // 已判过 UTF-32 BOM 就不再问 detectBom：UTF-32LE 的 BOM（FF FE 00 00）同时满足它的
+  // UTF-16LE 判据，继续走 BOM 分支会被「UTF-16LE + 前导 NUL」二次误认（正文还是那堆
+  // 替换符/NUL，等于绕过上面的校验）。
+  const bom = utf32 ? null : detectBom(bytes);
   if (bom) {
     const text = normalizeNewlines(decodeWith(bom.encoding, bytes.subarray(bom.offset)));
-    const ratio = replacementRatio(text);
-    if (ratio <= ENCODING_FFFD_THRESHOLD) {
-      return { text, encoding: bom.encoding, replacementRatio: ratio };
+    // 同款校验（含 NUL）：BOM 认领后正文若解不出正常文本，就按「BOM 与正文不符」处理。
+    const ratio = undesirableRatio(text);
+    if (ratio <= BAD_RATIO_THRESHOLD) {
+      return { text, encoding: bom.encoding, replacementRatio: replacementRatio(text) };
     }
     bomOffset = bom.offset;
   }
@@ -416,11 +441,21 @@ export function decodeBytes(input) {
 
   // 7 位转义式编码（HZ-GB-2312 / ISO-2022-JP）：整份文件都是合法 ASCII，严格 UTF-8
   // 一定会抢先认领，必须在它之前用签名截住；解码从严，不合语法就当没有这回事。
+  //
+  // 签名命中只说明「文件里出现过 ~{ 与 ~}」，looksLikeHz 并不校验配对与上下文：普通英文
+  // 文档里写一个 HZ 转义（如 printf("~{VPND~}")）同样命中，而 ~{…~} 之间的字节会被当
+  // GB2312 重解、把原文**静默改写**（VPND 剥掉高位正是「中文」的 GB2312 字节 D6D0 CEC4）。
+  // 所以签名之后还要过一道内容门槛，与下面 ISO-2022-JP 分支的 kana/han 门槛同形：真 HZ
+  // 是中文正文，解出的汉字占比必须够高。不满足就放回候选评分——纯 ASCII 正文随后会被
+  // isStrictUtf8 逐字原样收下，原文不变。这是本文件 looksLikeHz 上方的既定取舍：
+  // 宁可放回候选评分，也不误吞一份普通文本。
   if (looksLikeHz(bytes)) {
     const hzText = decodeHz(bytes);
-    if (hzText !== null && undesirableRatio(hzText) <= ENCODING_FFFD_THRESHOLD) {
-      const text = normalizeNewlines(hzText);
-      return { text, encoding: 'hz-gb-2312', replacementRatio: replacementRatio(text) };
+    if (hzText !== null && undesirableRatio(hzText) <= BAD_RATIO_THRESHOLD) {
+      if (textStats(hzText).han >= HZ_MIN_HAN_RATIO) {
+        const text = normalizeNewlines(hzText);
+        return { text, encoding: 'hz-gb-2312', replacementRatio: replacementRatio(text) };
+      }
     }
   }
   if (looksLikeIso2022Jp(bytes)) {
@@ -433,31 +468,40 @@ export function decodeBytes(input) {
     if (isoText !== null) {
       const isoStats = textStats(isoText);
       // 无 CJK 的「签名命中」不是日文（纯 ASCII 文档碰巧带 ESC 序列），放回常规流程。
-      if (isoStats.bad <= ENCODING_FFFD_THRESHOLD && (isoStats.kana >= 0.05 || isoStats.han >= 0.3)) {
+      if (isoStats.bad <= BAD_RATIO_THRESHOLD && (isoStats.kana >= 0.05 || isoStats.han >= 0.3)) {
         const text = normalizeNewlines(isoText);
         return { text, encoding: 'iso-2022-jp', replacementRatio: replacementRatio(text) };
       }
     }
   }
 
-  if (isStrictUtf8(bytes)) {
-    const text = normalizeNewlines(decodeWith('utf-8', bytes));
-    return { text, encoding: 'utf-8', replacementRatio: replacementRatio(text) };
-  }
-
+  // UTF-16 零字节启发必须排在严格 UTF-8 校验与 NUL 占比复核之前：ASCII 的 UTF-16 文本
+  // ① 本身就是合法 UTF-8（NUL = 0x00 ≤ 0x7f 是合法单字节），isStrictUtf8 会抢先把它当
+  // UTF-8 整本收下；② 它的 NUL 字节占比可达 50%，排在 NUL 复核之后又会被当二进制拒收。
+  // 先认领（并按替换符占比复核）才能同时避开这两个坑。全 NUL 输入不会在这里被误领：
+  // evenRatio 与 oddRatio 都 ≈ 0.5，looksLikeUtf16 的两个分支都不满足，返回 null。
   const utf16 = looksLikeUtf16(bytes);
   if (utf16) {
     const text = normalizeNewlines(decodeWith(utf16, bytes));
     const ratio = replacementRatio(text);
-    if (ratio <= ENCODING_FFFD_THRESHOLD) return { text, encoding: utf16, replacementRatio: ratio };
+    // 这条线只数替换符（FFFD_THRESHOLD），与上面那几处「坏码位占比」不是同一个分母。
+    if (ratio <= FFFD_THRESHOLD) return { text, encoding: utf16, replacementRatio: ratio };
   }
 
-  // NUL 占比复核：走到这里（非 BOM、非 UTF-8、无 UTF-16 启发）还满是 NUL 的，
-  // 是删库碎片/内存转储一类的二进制，抛 NOT_TEXT 而不是笼统的编码错误。
+  // NUL 占比复核：全零/近全零文件（删库碎片、内存转储）必须在这里被拦下。NUL（0x00）
+  // 是合法 UTF-8 单字节，若排在 isStrictUtf8 之后，整本 NUL 会被当成「一本 UTF-8 文本」
+  // 静默落库——importBook 的 text.trim() 也不裁 NUL，用户只看到一本打开后什么都没有的
+  // 书，全程无报错。走到这里（非 BOM、非 7 位转义式、无 UTF-16 启发）还满是 NUL 的，
+  // 就是二进制，抛 NOT_TEXT 而不是笼统的编码错误。
   if (sniffBinary(bytes)) {
     const error = new Error(tActive('error.books.binaryNotText'));
     error.code = 'NOT_TEXT';
     throw error;
+  }
+
+  if (isStrictUtf8(bytes)) {
+    const text = normalizeNewlines(decodeWith('utf-8', bytes));
+    return { text, encoding: 'utf-8', replacementRatio: replacementRatio(text) };
   }
 
   // 无 BOM 且非 UTF-8：逐个候选解码打分择优。可容忍少量坏字节（真实小说常有零星损坏

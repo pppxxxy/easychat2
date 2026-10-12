@@ -456,7 +456,6 @@ export default function ImageGenScreen() {
            if (mountedRef.current) setGenerateProgress(percent);
          },
        });
-
         if (!mountedRef.current || controller.signal.aborted) return;
         if (settingsRevisionRef.current !== requestRevision) {
           // 这张图已经花过一次生成额度：结果因配置变更作废时必须明确告知，
@@ -522,7 +521,8 @@ export default function ImageGenScreen() {
         Alert.alert(t('imageGen.alert.cannotSave.title'), t('imageGen.alert.cannotSave.body'));
       }
     } catch (error) {
-      Alert.alert(t('imageGen.alert.saveFailed.title'), t('imageGen.alert.retryLater'));
+      // 与 :477 同形：透出真实原因——:511 刚构造的「下载超时」原先被换成笼统文案（死代码）。
+      Alert.alert(t('imageGen.alert.saveFailed.title'), maskSecrets((error && error.message) || t('imageGen.alert.retryLater')));
     } finally {
       if (mountedRef.current) setBusyResult('');
     }
@@ -577,7 +577,7 @@ export default function ImageGenScreen() {
             <Text style={styles.aigcHint}>{t('imageGen.aigcHint')}</Text>
             <View style={styles.gallery}>
               {results.map((result, index) => {
-                const uri = result.url || (result.base64 ? `data:image/png;base64,${result.base64}` : '');
+                const uri = result.url || (result.base64 ? `data:${resolveImageFormat(result).mime};base64,${result.base64}` : ''); // MIME 按真实格式（jpg/webp/gif），写死 png 与字节不符
                 const key = `${resultToken(result)}:${index}`;
                 return (
                   <TouchableOpacity

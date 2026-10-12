@@ -22,7 +22,8 @@ export const backup = {
   'backup.incompleteNote': '\n\n注意：有 {keys} 个数据键、{media} 个媒体文件读取失败，未包含在备份中。',
   'backup.incompleteNote.keys': '\n\n读取失败、未包含在备份中的数据键：{names}',
   'backup.incompleteNote.partial': '\n\n已抢救原始数据、恢复后不丢失的键：{names}',
-  'backup.keysTruncated': '{names} 等 {count} 个',  'backup.alert.incomplete.title': '备份不完整',
+  'backup.keysTruncated': '{names} 等 {count} 个',
+  'backup.alert.incomplete.title': '备份不完整',
   'backup.alert.incomplete.shareBody': '已生成备份（{summary}），但部分数据读取失败{note}\n分享的是这份不完整的备份。',
   'backup.shareDialogTitle': '导出 EasyChat2 备份',
   'backup.alert.incomplete.body': '已生成 {summary}，但部分数据读取失败{note}',
@@ -42,7 +43,10 @@ export const backup = {
   'backup.alert.importSecretsFailed.body': '有 {count} 条密钥没能写入本机安全存储，相关配置需要重新填写密钥（数据已恢复，界面看起来正常，但请求会失败）。',
   'backup.alert.importFailed.title': '导入失败',
   'backup.alert.importFailed.body': '备份文件无法恢复，现有数据保持不变。',
-  'backup.title': '关闭',
+  // 面板名与「关闭」是两个语义，不能共用一个键（形态照 transcription.title +
+  // transcription.closeA11y）。此前 title 被误写成关闭文案 ⇒ 面板标题显示成「关闭」。
+  'backup.title': '备份与恢复',
+  'backup.closeA11y': '关闭',
   'backup.cancelExport': '取消导出',
   'backup.export': '导出备份',
   'backup.hint': '备份包含角色、会话、消息、设置与媒体文件。默认不含 API 密钥与安全存储引用；开启上方「包含 API 密钥」可一并导出。',

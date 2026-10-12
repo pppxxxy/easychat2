@@ -55,7 +55,7 @@ export default [
     files: ['src/**/*.js', 'App.js'],
     ignores: [
       'src/i18n/**',
-      // 首批规则（Alert.alert / throw new Error）的存量清单已**清空**（2026-10-12，m1012m14）：
+// 首批规则（Alert.alert / throw new Error）的存量清单已**清空**（2026-10-12，m1012m14）：
       // 剩余 12 处（memorySummary 6 / CardForgeEditor 2 / ChatScreen 2 / modelCatalog 1 /
       // storage/location 1）全部迁到 t()/tActive() 并补齐 zh-CN/en 词条，规则现在对全仓零豁免生效。
       // 此前这里挂着的 77 个文件其实早已迁完、只是清单一直没回收——清单只减不增，迁完即删行。
@@ -241,7 +241,6 @@ export default [
       'src/vectorMemory/providers.js',
       // 第三批扩宽（第一轮）新增 (a)：join() 分隔符 / 返回对象字面量的命中，中文都会
       // 出现在用户看得见的地方（界面文案、导出文件、错误提示），按 (a) 的定义待迁移。
-      'src/apiProtocols/stream.js',
       'src/BackupPanel.js',
       'src/CardForgeEditor.js',
       'src/CardForgeScreen.js',
@@ -282,8 +281,6 @@ export default [
       // ⚠️ 本段原先的 'src/workspace/gitCheckpoint.js' 已**删除**（正当的「只减」）：
       // 另一个批次把该文件的中文导出常量改成了 CHECKPOINT_FALLBACK_KEY（导出 key
       // 而不是中文），实测该文件对本规则已无命中。
-      // 注：该文件函数体内仍有一处 `'回合检查点'` 回落文案——属「函数体内的普通字符串
-      // 常量」这一**有意不覆盖**的盲区（见规则文件头注释），故不在此登记。
     ],
     // 插件命名空间用 local-i18n：ESLint flat config 不允许在两个配置对象里重复定义
     // 同一个插件名（"Cannot redefine plugin"），而本批必须与首批用**不同的 ignores**。

@@ -87,20 +87,58 @@ export function normalizeTranscriptionSettings(raw) {
   return { activeId, configs };
 }
 
-export async function getTranscriptionSettings() {
+// 转写配置的**三态读**：getTranscriptionSettings 与写路径守卫共用这一个判定函数
+// （**唯一**判据来源，不许在别处再写一份）。
+//
+// 为什么必须共用：save 走 setJsonWithSecrets 做**整键覆盖**，而 getter 在读不出时抛错。
+// 两处判据一旦不一致，就会出现「getter 说这份数据不可用、守卫说可以写」——保存把用户配好的
+// 转写服务（含 API Key 引用）静默清空。判据的**两半后果同族**，所以都折进同一个 'corrupt'：
+//   corrupt  —— 读不出/JSON 解析失败（readJsonStatus 的三态之一）；
+//   形状异常 —— status=ok 但解析结果不是普通对象（null / 数组 / 字符串 / 数字）：
+//               normalizeTranscriptionSettings 只会把它当空配置，等于用户的配置没了。
+//
+// 形态照 src/storage/settings/mcpServers.js:188-198（readMcpServersStatus）：把形状判据
+// 折进 status，status 只交给写路径判定「这次能不能写回」；同型见 src/storage/worldMap.js:19-27。
+// missing（键不存在 = 首次配置）与 ok+普通对象都不算不可用：照常读默认值 / 照常写。
+async function readTranscriptionStatus() {
   const stored = await readJsonStatusWithSecrets(TRANSCRIPTION_KEY);
   if (
     stored.status === 'corrupt'
     || (stored.status === 'ok' && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
   ) {
+    // 覆盖不可逆，先留原始字节的副本再交给调用方拒绝（读、写两条路径都经这里）。
     await backupCorruptValue(TRANSCRIPTION_KEY);
+    return { status: 'corrupt' };
+  }
+  if (stored.status === 'missing') return { status: 'missing' };
+  return { status: 'ok', value: stored.value };
+}
+
+export async function getTranscriptionSettings() {
+  const status = await readTranscriptionStatus();
+  if (status.status === 'corrupt') throw new Error(tActive('error.storage.transcriptionSettingsReadFailed'));
+  if (status.status === 'missing') return normalizeTranscriptionSettings(null);
+  return normalizeTranscriptionSettings(status.value);
+}
+
+// 写路径守卫（变体①：拒绝写回 / 抛错）。
+// 参考 src/storage/settings/chatOptions.js:26-33（assertReadableForMutation）：
+// 「读不出原值就不写」，与同目录其他整键覆盖的设置键保持同一判据。
+//
+// 为什么转写配置需要它：getter 在损坏时是 backupCorruptValue 后**抛错**，而 save 是整键覆盖。
+// 于是只要有一次读失败，面板一旦保存就会把用户配好的转写服务（含 API Key 引用）静默清空——
+// 面板侧的 `if (!loaded)` 守卫只挡得住「本次没读成功就保存」，挡不住别处触发的写。
+// 存储层这道守卫是第二重，且与 getter 共用 readTranscriptionStatus：**判据一致**，
+// 不会出现「读路径认为不可用、写路径认为可写」。备份也由它统一做，这里只负责中止。
+async function assertReadableForMutation() {
+  const status = await readTranscriptionStatus();
+  if (status.status === 'corrupt') {
     throw new Error(tActive('error.storage.transcriptionSettingsReadFailed'));
   }
-  if (stored.status === 'missing') return normalizeTranscriptionSettings(null);
-  return normalizeTranscriptionSettings(stored.value);
 }
 
 export async function saveTranscriptionSettings(settings) {
+  await assertReadableForMutation();
   const normalized = normalizeTranscriptionSettings(settings);
   await setJsonWithSecrets(TRANSCRIPTION_KEY, normalized);
   return normalized;

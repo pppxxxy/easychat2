@@ -137,12 +137,13 @@ export default `<!DOCTYPE html>
             updateGameDimensions();
 
             // ============ 游戏状态 ============
+            // 暂停态常量已删：本文件没有任何把 gameState 置为暂停的入口（无暂停按钮、无
+            // visibilitychange 处理），该键只被定义、从未被赋值给 gameState ⇒ 死代码。
             const STATE = {
                 MENU: 'menu',
                 PLAYING: 'playing',
                 LEVEL_CLEAR: 'levelClear',
                 GAME_OVER: 'gameOver',
-                PAUSED: 'paused',
             };
 
             let gameState = STATE.MENU;
@@ -167,7 +168,6 @@ export default `<!DOCTYPE html>
             let comboTimer = 0;
             let maxBalls = 27;
             let totalBallsEver = 0;
-            let levelTransitionTimer = 0;
             let flashAlpha = 0;
 
             // ============ 输入处理 ============
@@ -563,13 +563,12 @@ export default `<!DOCTYPE html>
 
             function damageBrick(brick) {
                 brick.hp--;
+                // 原 else 分支（「理论上不会进入此分支」的钢砖受损特效）已删：createBrick 里
+                // hp = maxHp = 1，且钢砖在 createBrick 开头就被强制转成普通砖（见
+                // 「强制将钢砖转换为普通砖」），respawnBrick 也只会把 hp 还原成 1 ⇒
+                // hp-- 后必然 <= 0，else 恒不可达。留一句注释而不是留着死代码。
                 if (brick.hp <= 0) {
                     destroyBrick(brick);
-                } else {
-                    // 理论上不会进入此分支（钢砖已移除），但保留以防万一
-                    spawnBrickParticles({ x: brick.x, y: brick.y, w: brick.w, h: brick.h, color: '#cccccc', isBomb: false });
-                    shakeTimer = 0.05;
-                    shakeIntensity = 2;
                 }
             }
 
@@ -633,7 +632,12 @@ export default `<!DOCTYPE html>
                 PADDLE_W = Math.floor(PADDLE_BASE_W * paddleWidthMultiplier);
 
                 prevPaddleX = paddleX;
-                const target = touchActive ? touchX : (touchX || W / 2);
+                // 手指停在画布最左缘时 getEventX 返回 0（clientX === rect.left），抬指后
+                // touchActive 变 false。此前用逻辑或给 touchX 兜底，0 被当假值 ⇒ 目标突变成
+                // 画布中央、球拍自己滑过去。同文件对同类 0/负值是显式夹取的（下一行
+                // Math.max(PADDLE_W/2, Math.min(W - PADDLE_W/2, paddleX))），这里是唯一的
+                // 假值陷阱，故改成显式的有限性判定。
+                const target = touchActive ? touchX : (Number.isFinite(touchX) ? touchX : W / 2);
                 paddleX += (target - paddleX) * 0.35;
                 paddleX = Math.max(PADDLE_W / 2, Math.min(W - PADDLE_W / 2, paddleX));
                 paddleVelocity = paddleX - prevPaddleX;
@@ -746,7 +750,8 @@ export default `<!DOCTYPE html>
 
                 if (currentLevel < 3 && gameState === STATE.PLAYING && bricks.every(b => !b.alive)) {
                     gameState = STATE.LEVEL_CLEAR;
-                    levelTransitionTimer = 1.5;
+                    // 过场没有任何计时器参与：过关只靠玩家点击触发 advanceLevel（见文件末尾），
+                    // 这里此前还给一个「过场计时」变量赋值，但它全文件只写不读 ⇒ 已删。
                     resetBallToPaddle();
                     score += 100;
                 }
@@ -1180,7 +1185,6 @@ export default `<!DOCTYPE html>
                 comboTimer = 0;
                 totalBallsEver = 0;
                 flashAlpha = 0;
-                levelTransitionTimer = 0;
                 updateGameDimensions();
                 generateLevel(currentLevel);
                 gameState = STATE.PLAYING;
@@ -1208,7 +1212,6 @@ export default `<!DOCTYPE html>
                     comboTimer = 0;
                     totalBallsEver = 0;
                     flashAlpha = 0;
-                    levelTransitionTimer = 0;
                     updateGameDimensions();
                     generateLevel(currentLevel);
                     gameState = STATE.PLAYING;

@@ -68,7 +68,7 @@ import { applyImageRecognitionToMessages } from './imageRecognitionSend.js';
 import { resolveImageRecognitionPlan } from '../imageRecognition/index.js';
 import { getCharacterApiConfigs, resolveCharacterOcrSettings } from '../character/runtimeConfig.js';
 import { prepareVideoMessages } from './videoSend.js';
-import { createVoiceMessage } from './voiceMessages.js';
+import { createVoiceMessage, VOICE_PLACEHOLDER_TEXT } from './voiceMessages.js';
 import { createRequestMeter, estimatePromptTokens, estimateReplyTokens } from './sessionStats.js';
 import { recordSessionRequest } from '../storage/sessionStats.js';
 import { stop as ttsStop } from '../tts/index.js';
@@ -1577,7 +1577,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
     }
     const payload = {
       historyMessages: messages,
-      userText: voiceMessage ? (promptUserText || '[用户发来一段语音]') : mergedText,
+      userText: voiceMessage ? (promptUserText || VOICE_PLACEHOLDER_TEXT) : mergedText, // 占位文本走 voiceMessages.js:7 的单一常量，不再内联同款字符串（改一处漏一处即复发）：chatMedia.js:55-61 的内联是为避循环依赖，本文件 :71 已 import 该模块
       baseMessages,
       images: imageMessages
         .filter(item => item.includeImage)

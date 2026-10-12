@@ -172,7 +172,7 @@ export default function PluginPanel({ visible, onClose }) {
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>{t('plugin.title')}</Text>
-            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel={t('common.close')}>
+            <TouchableOpacity onPress={handleClose} hitSlop={8} accessibilityLabel={t('plugin.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>

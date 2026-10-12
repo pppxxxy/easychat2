@@ -38,6 +38,18 @@ function formatKeyNames(keys, t) {
   return t('backup.keysTruncated', { names: names.slice(0, 3).join('、'), count: names.length });
 }
 
+// 用户可见错误文案：**我们自己**写的文案（导入校验、包过大、待恢复数据读不出——都在
+// storage/dataBackup.js 与 storage/backup.js 里走 tActive，并打了 userFacing 标记）原样透出；
+// 其余是内部错误（AsyncStorage 的 checkValidInput 断言、JSON.parse 的 SyntaxError 等英文文案，
+// 例如备份包某条只有 key 没有 value ⇒ JSON.stringify(undefined) ⇒ 英文断言），只在开发构建显示。
+// 发布构建回落到 backup.alert.*.body 那句正确文案：导入失败时回滚确实保住了数据。
+function userMessage(error) {
+  const message = String((error && error.message) || '');
+  if (!message) return '';
+  if (error && error.userFacing) return message;
+  return typeof __DEV__ !== 'undefined' && __DEV__ ? message : '';
+}
+
 function progressText(progress, t) {
   if (!progress) return t('backup.progress.busy');
   const label = t(PHASE_LABEL_KEYS[progress.phase] || 'backup.phase.busy');
@@ -123,7 +135,7 @@ export default function BackupPanel({ visible, onClose, onImported }) {
       if (error && error.name === 'AbortError') {
         Alert.alert(t('backup.alert.exportCancelled.title'), t('backup.alert.exportCancelled.body'));
       } else {
-        Alert.alert(t('backup.alert.exportFailed.title'), error.message || t('backup.alert.exportFailed.body'));
+        Alert.alert(t('backup.alert.exportFailed.title'), userMessage(error) || t('backup.alert.exportFailed.body'));
       }
     } finally {
       if (exportControllerRef.current === controller) exportControllerRef.current = null;
@@ -154,7 +166,13 @@ export default function BackupPanel({ visible, onClose, onImported }) {
       const raw = await FileSystem.readAsStringAsync(picked.assets[0].uri);
       const payload = JSON.parse(raw);
       const validation = validateBackupPayload(payload);
-      if (!validation.valid) throw new Error(validation.error);
+      if (!validation.valid) {
+        // 校验文案来自 tActive，是我们自己的用户文案 ⇒ 打标记，发布构建里也要原样透出
+        //（否则「不支持的备份版本：2」会被换成笼统的「备份文件无法恢复」）。
+        const invalid = new Error(validation.error);
+        invalid.userFacing = true;
+        throw invalid;
+      }
       const result = await importBackup(payload, mode);
       await onImported?.();
       const doneBody = result.secretsCount > 0
@@ -170,7 +188,7 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         );
       }
     } catch (error) {
-      Alert.alert(t('backup.alert.importFailed.title'), error.message || t('backup.alert.importFailed.body'));
+      Alert.alert(t('backup.alert.importFailed.title'), userMessage(error) || t('backup.alert.importFailed.body'));
     } finally {
       setBusy(false);
     }
@@ -182,7 +200,7 @@ export default function BackupPanel({ visible, onClose, onImported }) {
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>{t('backup.title')}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('backup.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>

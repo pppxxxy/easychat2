@@ -45,6 +45,14 @@ export default function WorkspaceHistorySheet({
   onArchiveChat,
   onClearAll,
   busy = false,
+  // embedded：由宿主容器（工作区对话面板）渲染这一层，本组件不再自套 Modal。
+  //
+  // 为什么必须给这一档：guard-structure 的「面板未自套 Modal」判据是**文件级**的，只看面板
+  // 文件里有没有 `<Modal`。对话面板自己没写 Modal，却通过 <WorkspaceHistorySheet visible={...}>
+  // 间接挂了一个 ⇒ 工作区里就多出一层 Modal 外壳，正是「三层 z 轴堆叠」的复发路径，而守卫
+  // 看不见（与 FileHistorySheet 同型，2026-10-12 一并收口）。embedded 后唯一的 Modal 回到
+  // WorkspaceScreen，判据与事实重新对齐。
+  embedded = false,
 }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
@@ -82,9 +90,9 @@ export default function WorkspaceHistorySheet({
     );
   };
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+  // 弹层内容与外壳分开：Modal 形态与 embedded 形态共用同一份内容，避免两处漂移
+  //（照 FileHistorySheet / WorkspaceSettingsSheet 的既有做法）。
+  const sheetBody = (
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{t('workspace.history.title')}</Text>
@@ -223,12 +231,34 @@ export default function WorkspaceHistorySheet({
             </ScrollView>
           )}
         </Pressable>
+  );
+
+  // embedded：宿主容器里的一层浮层（遮罩 + 底部弹层），只借位不叠 z 轴。
+  // visible=false 时必须整个不渲染——浮层是 absoluteFill，留着会吃掉宿主的点击。
+  if (embedded) {
+    if (!visible) return null;
+    return (
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose}>
+          {sheetBody}
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        {sheetBody}
       </Pressable>
     </Modal>
   );
 }
 
 const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+  // embedded 形态的定位层：absoluteFill 盖住宿主容器（对话面板）——宿主在 WorkspaceScreen
+  // 的 Modal 之内，所以这里是「层内浮层」，不是又一层 Modal。
+  overlay: { ...StyleSheet.absoluteFillObject },
   backdrop: {
     flex: 1,
     backgroundColor: theme.colors.overlay,

@@ -324,11 +324,13 @@ export async function runAgentTurn(messages, options = {}) {
         // noticeKey/noticeParams 是**同一句话的界面侧词条引用**，给工作区工具行按当前语言渲染。
         // 与 isError 同款随 tool 消息带下去，extractToolTrace 才能把它搬到展示层。
         //
-        // 这两个字段同样是**内部字段，绝不能进请求体**——注意两条发送路径的机制不同
-        //（2026-10-12 核实）：anthropic / openai-responses 由 toAnthropicRequest /
+        // 这两个字段同样是**内部字段，绝不能进请求体**——三条发送路径现在口径统一
+        //（2026-10-12 核实，白名单口径）：anthropic / openai-responses 由 toAnthropicRequest /
         // toResponsesRequest 逐条显式构造（只取 content / tool_call_id），天然不进；
-        // openai（chat completions）的 toOpenAiMessages 是「整体展开 + 黑名单剥离」，
-        // 必须登记进同文件的 OPENAI_INTERNAL_FIELDS 才不出网（已登记，见那里的 fail-open 说明）。
+        // openai（chat completions）的 toOpenAiMessages 也已从「整体展开 + 黑名单剥离」
+        // 改成**白名单（默认拒绝）**——只搬 apiProtocols/messages.js 的 OPENAI_MESSAGE_FIELDS
+        // 里列出的协议字段。故 isError / noticeKey / noticeParams 属内部字段，**天然不出网**，
+        // 新增内部字段也无需登记任何「内部字段名单」（已无该名单）。
         history.push({
           role: 'tool',
           tool_call_id: call.id,

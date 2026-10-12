@@ -107,12 +107,16 @@ export const error = {
   // See the zh-CN entry: network-layer error messages are shown to the user directly.
   'error.api.httpFailed': 'Request failed (HTTP {status})',
   'error.api.responseError': 'The API returned an error.',
-  'error.api.unparseableResponse': 'The API returned content that could not be parsed.',
+'error.api.unparseableResponse': 'The API returned content that could not be parsed.',
   'error.api.networkFailed': 'Network request failed. Please check your network or the API URL.',
   'error.api.requestInterrupted': 'The request was interrupted.',
   'error.api.timeoutFirstByte': 'Timed out waiting for the first response. Check your network or the API URL (reasoning models can be slow; try again later).',
   'error.api.timeoutIdle': 'Request timed out. Check your network and try again.',
   'error.api.timeoutNonstream': 'Timed out waiting for the response (a non-streaming request only returns after the server finishes the whole reply). Check your network or the API URL, and try again later.',
+  // See the zh-CN entry for the same key: this is the stream **status** fallback
+  // (openai-responses response.failed / response.incomplete), deliberately NOT the same
+  // sentence as responseError (which is about an unparseable error payload).
+  'error.api.responseStatusFailed': 'The API reported a failed status.',
   'error.transcription.notConfigured': 'No speech-to-text service is configured.',
   'error.transcription.timeout': 'The transcription request timed out. Check your network and try again.',
   'error.transcription.networkFailed': 'The transcription request failed. Check your network.',
@@ -251,6 +255,17 @@ export const error = {
   'error.backup.restoreReadFailed': 'Failed to read the data to restore: {key}',
   'error.backup.tooLarge': 'The backup file is too large; the current limit is {mb}MB.',
   'error.backup.exportUnreadable': 'Backup export: the following data keys could not be read and were not included: {keys}',
+  // The 6 import-validation messages: BackupPanel shows these through Alert, so they must be
+  // translatable (they used to be hardcoded Chinese in dataBackup.js return object literals,
+  // which the hardcoded-Chinese lint rule cannot see).
+  'error.backup.payloadInvalid': 'Invalid backup file format.',
+  'error.backup.versionMissing': 'The backup file has no version number, so its format cannot be confirmed.',
+  'error.backup.versionUnsupported': 'Unsupported backup version: {version}',
+  'error.backup.manifestMissing': 'The backup file is missing its data or media manifest.',
+  'error.backup.keyInvalid': 'Invalid backup data key format.',
+  'error.backup.entryIncomplete': 'A backup data entry has no content (neither a data value nor salvaged raw data).',
+  'error.backup.keyDuplicated': 'Duplicate backup data keys.',
+  'error.backup.mediaInvalid': 'Invalid backup media path or content.',
   'error.storage.characterLibraryRecovering': 'The character library is still being restored. Please try again later.',
   'error.storage.draftMissingCharacterId': 'The draft is missing a character ID.',
   'error.cardExport.invalidPng': 'The avatar is not a valid PNG file.',

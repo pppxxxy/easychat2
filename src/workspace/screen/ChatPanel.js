@@ -1749,7 +1749,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       </KeyboardAvoidingView>
 
       <WorkspaceHistorySheet
-        visible={historyOpen}
+        visible={historyOpen} embedded // 历史层由本面板渲染（embedded：不套 Modal）——工作区唯一的 Modal 在 WorkspaceScreen
         onClose={() => setHistoryOpen(false)}
         chats={chatList}
         activeChatId={activeChatId}

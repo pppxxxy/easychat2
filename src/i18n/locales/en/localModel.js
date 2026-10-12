@@ -173,8 +173,14 @@ export const localModel = {
   'localModel.logs.alertCopied.body': 'Local model log copied; paste it directly in your feedback.',
   'localModel.logs.alertCopyFailed.title': 'Copy failed',
   'localModel.logs.alertCopyFailed.body': 'Long-press to select the text and copy it manually.',
-  'localModel.logs.title': 'Close',
-  'localModel.logs.hint': 'Hint',
+  // The panel name and "Close" are two different meanings and must not share one key
+  // (same shape as transcription.title + transcription.closeA11y). `title` used to hold the
+  // close wording, so the panel header read "Close".
+  'localModel.logs.title': 'Model logs',
+  'localModel.logs.closeA11y': 'Close',
+  // These two were shifted with logs.copyAll / logs.clear (hint held "Copy all", refresh held
+  // "Clear"); usage: ModelLogsModal.js:58 (hint line) and :61-62 (refresh button).
+  'localModel.logs.hint': 'Local model logs are stored on this device only; copy them to include in feedback.',
   'localModel.logs.refresh': 'Refresh',
   'localModel.a11y.loadProgress': 'Loading progress {progress}%',
   'localModel.api.hint': 'Listens on 127.0.0.1 for clients on this device; inference reuses the currently loaded local model. Requests must carry a Bearer key (a random one is generated if left blank), so other apps can\'t call it anonymously.',

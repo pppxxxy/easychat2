@@ -68,6 +68,20 @@ export default function ChapterScrubber({ chapters = [], currentIndex = 0, onSee
     return next;
   }, [indexFromY, translateY, yFromIndex]);
 
+  // 读屏用户拖不动滑块，只能靠 increment/decrement 动作增减章节。accessibilityRole="adjustable"
+  // 会让 TalkBack/VoiceOver 按滑块播报 min/max/now，但角色本身不提供任何操作手段——不补动作就是
+  // 「承诺了能力却没实现」：既拖不动也增减不了，目录等于对读屏用户不可用。
+  // 写法照聊天页 ScrollScrubber.js:100-104（处理器）与 :179-183（声明），本文件头注释自述形态抄它。
+  const onAccessibilityAction = event => {
+    const action = event && event.nativeEvent && event.nativeEvent.actionName;
+    if (action !== 'increment' && action !== 'decrement') return;
+    if (count <= 1) return;
+    const next = Math.min(count - 1, Math.max(0, indexRef.current + (action === 'increment' ? 1 : -1)));
+    // 与拖动松手同款：先摆滑块再跳章（ScrollScrubber 的 adjustRatio 也是 apply + commit 两步）。
+    applyY(yFromIndex(next));
+    if (onSeekRef.current) onSeekRef.current(indexRef.current);
+  };
+
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => trackHeightRef.current > THUMB_HEIGHT && count > 1,
     onMoveShouldSetPanResponder: () => trackHeightRef.current > THUMB_HEIGHT && count > 1,
@@ -118,7 +132,14 @@ export default function ChapterScrubber({ chapters = [], currentIndex = 0, onSee
         }}
         accessibilityRole="adjustable"
         accessibilityLabel={t('books.reader.chapter.scrubber.a11y')}
-        accessibilityValue={{ min: 1, max: count, now: index + 1 }}
+        // text 与聊天页 ScrollScrubber 同款：只报 min/max/now 时读屏只会念数字，补上
+        // 「当前 / 总数」才听得出这是「第几章 / 共几章」（对照 ScrollScrubber.js:173-178）。
+        accessibilityValue={{ min: 1, max: count, now: index + 1, text: `${index + 1} / ${count}` }}
+        accessibilityActions={[
+          { name: 'increment', label: t('books.reader.chapter.next') },
+          { name: 'decrement', label: t('books.reader.chapter.prev') },
+        ]}
+        onAccessibilityAction={onAccessibilityAction}
         {...panResponder.panHandlers}
       >
         <View style={styles.rail} pointerEvents="none" />

@@ -1,3 +1,18 @@
+// TTS 引擎声明表（唯一事实源）。
+//
+// i18n 约定（本文件是「provider/字段 → 词条 key」的**唯一**来源）：
+// 声明表里的 label / placeholder / unsupportedNote 是**中文常量**，只能当兜底用；
+// 界面一律按 labelKey / placeholderKey / noteKey 查词条（见文件末的取值函数）。
+// 为什么 key 放在这里而不是各面板各写一份：曾经 CharacterOverridesSection.js 自己
+// 维护了一份 `TTS_PROVIDER_NAME_KEYS`，而 TtsPanel.js 直接渲染 label —— 同族一处做对
+// 一处没做，英文界面下「播报源」就漏出中文引擎名与中文占位符。而 eslint 的
+// no-hardcoded-chinese 只查 Alert/JSX/模块级常量，看不见数据文件里的 label
+//（实测 `eslint src/tts/providers.js src/TtsPanel.js` exit=0），所以这条违规规则抓不到。
+//
+// 为什么不直接拼 `tts.providerName.${id}`：provider id 里有连字符
+//（xiaomi-mimo / iflytek-spark / tencent-cloud），而词条 key 只允许字母数字段
+//（tests/i18n.test.mjs 的格式不变量）。新增 provider / 字段时在这里补一行
+// labelKey（placeholderKey / noteKey 按需）+ 两个语言的词条。
 export const TTS_MAX_CHARS = 800;
 
 export const TTS_PROVIDERS = [
@@ -262,4 +277,45 @@ export const TTS_PROVIDERS = [
 
 export function getTtsProvider(id) {
   return TTS_PROVIDERS.find(provider => provider.id === id) || TTS_PROVIDERS[0];
+}
+
+// ---- 显示名 / 字段文案的 i18n 取值（两个面板共用的唯一入口）----
+//
+// 取值形态照 CharacterOverridesSection 的既有做法（同 PluginPanel.js:260,263 的
+// labelKey 先例）：**key 优先 + 常量兜底**，不发明第三种形态。兜底分两层：
+//   ① 词条缺失时 t(key) 会原样返回 key（见 i18n/index.js 的 translate 回退链），
+//      此时回落常量文案——界面不会出现 `tts.field.label.voice` 这种原始键名；
+//   ② 新增 provider/字段时忘了补 labelKey，同样回落常量文案，不显示空白。
+// 零依赖：t 由调用方注入，本模块不 import i18n，避免与 i18n 层形成环
+//（guard-structure.mjs 会检出模块循环依赖）。
+function pick(t, key, fallback) {
+  if (!key) return String(fallback == null ? '' : fallback);
+  const translated = t(key);
+  return translated === key ? String(fallback == null ? '' : fallback) : translated;
+}
+
+// 引擎显示名。查不到词条才回落到声明表里的中文常量（英文界面下即为漏译信号）。
+export function ttsProviderLabel(t, provider) {
+  const item = provider || {};
+  return pick(t, item.labelKey, item.label || item.id || '');
+}
+
+// 字段标题。同上：labelKey 优先，中文常量兜底。
+export function ttsFieldLabel(t, field) {
+  const item = field || {};
+  return pick(t, item.labelKey, item.label);
+}
+
+// 字段占位符。**只有含中文文案的占位符才需要 placeholderKey**——URL / 模型 ID /
+// 数字这类语言无关的字面量保持原样（给 'sk-...' 也造一条词条只会稀释词条表）。
+// 但「中文占位符忘了配 placeholderKey」正是本批要防的复发形态，测试里有反向断言。
+export function ttsFieldPlaceholder(t, field) {
+  const item = field || {};
+  return pick(t, item.placeholderKey, item.placeholder);
+}
+
+// 「暂不支持」的原因说明（unsupportedNote 同样是中文常量，会被渲染进提示）。
+export function ttsUnsupportedNote(t, provider) {
+  const item = provider || {};
+  return pick(t, item.noteKey, item.unsupportedNote);
 }

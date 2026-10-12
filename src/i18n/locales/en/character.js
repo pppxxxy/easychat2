@@ -161,6 +161,11 @@ export const character = {
   'character.detail.world.hint': 'Entries are injected into the prompt by keyword before sending; tap an entry to edit, use the switch to enable it.',
   'character.detail.world.empty': 'No world book entries yet.',
   'character.detail.world.entryFallback': 'Entry {n}',
+  // Entry summary (the `strings` argument of cardHelpers.worldEntryMeta): without it the
+  // module falls back to Chinese literals, which leak into the English UI. "Always on"
+  // reuses the long-defined but never-consumed character.editor.world.constant.
+  'character.detail.world.metaKeywords': 'Keywords: {keys}',
+  'character.detail.world.metaNoKeys': 'No keywords set',
   'character.detail.world.unsafeMeta': '{count} keywords look like backtracking and were skipped',
   'character.detail.world.add': 'Add World Entry',
   'character.detail.world.editTitle': 'Edit World Entry',
@@ -252,9 +257,14 @@ export const character = {
   'character.library.delete.detail.join': ', ',
   'character.library.delete.detail.memories': '{count} memories',
   'character.library.delete.detail.moments': '{count} moments',
-  'character.library.delete.fail.partialFull': 'Linked moments and memories were deleted, but the character deletion failed. Please try again.',
-  'character.library.delete.fail.partialMoments': 'Failed to delete linked moments; the character was not deleted. Please try again.',
-  'character.library.delete.fail.partialSessions': 'Linked moments were deleted, but memory deletion failed; the character was not deleted. Please try again.',
+  // Cleanup failures after the delete-order change: the character is ALREADY gone and
+  // the irreversible cleanup is what failed, so the text must not claim "the character
+  // was not deleted" (that was the old order's state and is now impossible).
+  // Nothing is lost: the moments are still on the Moments page and the memories on the
+  // Memories page, so the user can remove them by hand.
+  'character.library.delete.fail.cleanupBoth': 'The character was deleted, but cleaning up its linked moments and memories failed ({reason}). They are still on the Moments and Memories pages; you can delete them there later.',
+  'character.library.delete.fail.cleanupMoments': 'The character was deleted, but cleaning up its linked moments failed ({reason}). They are still on the Moments page; you can delete them there later.',
+  'character.library.delete.fail.cleanupSessions': 'The character was deleted, but cleaning up its linked memories failed ({reason}). They are still on the Memories page; you can delete them there later.',
   'character.library.delete.introBatch': 'The {count} selected characters will be deleted.',
   'character.library.delete.introSingle': 'Delete "{name}"?',
   'character.library.delete.onlyCharacter': 'Character only',
@@ -335,4 +345,11 @@ export const character = {
   'character.overrides.transcription': 'Speech-to-text API',
   'character.overrides.missing': 'The selected config ({id}) no longer exists, so this item falls back to global. Pick another one or switch back to "Follow global".',
   'character.overrides.saveFailed': 'Could not save the overrides. Please check storage space or permissions.',
+  // The whole store is corrupt (ForMutation read in storage/characterOverrides.js):
+  // the write path must abort, otherwise changing one item wipes the character's
+  // other overrides along with every other character's (P0-2).
+  'character.overrides.readFailed': 'Could not read the overrides; the save was aborted so this character\'s other overrides are not wiped. Please try again later.',
+  // When the UI cannot read the overrides it must NOT render "0 custom items":
+  // the user would think nothing was set and overwrite the existing ones (P1-4).
+  'character.overrides.loadFailed': 'Could not read the overrides. To avoid overwriting them, this character\'s overrides are hidden and cannot be changed here. Please reopen this page later.',
 };

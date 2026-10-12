@@ -105,7 +105,9 @@ export function buildMomentCommentPrompt({
     `「${clean(moment && moment.text)}」`,
   ];
 
-  const memory = clean(memoryText);
+  // 上限同 buildMomentMemoryText 的退化路径（:47）：调用方传进来的记忆同样要截断，
+  // 否则长期角色的 worldInfo「记忆总结」会全量进提示词（成本/413/淹没指令）。
+  const memory = capped(clean(memoryText), MAX_MEMORY_CHARS);
   if (memory) {
     lines.push('', '你和发动态的人之前聊过这些（供参考）：', memory);
   }
@@ -147,14 +149,20 @@ export function buildMomentCommentPrompt({
   return lines.join('\n');
 }
 
-export function buildMomentReplyPrompt({
-  moment,
-  comments = [],
-  memoryText = '',
-  charName = '角色',
-  userName = '用户',
-  focusCommentId = '',
-} = {}) {
+export function buildMomentReplyPrompt(options = {}) {
+  const {
+    moment,
+    comments = [],
+    memoryText = '',
+    charName = '角色',
+    userName = '用户',
+    focusCommentId = '',
+  } = options;
+  // 用户发的动态：角色是被叫来评论的人，不是发帖人。谁调用都先在这里分流，
+  // 否则提示词会说「你刚刚在自己的社交动态里发了一条动态：<用户正文>」。
+  if (clean(moment && moment.authorType) === 'user') {
+    return buildMomentCommentPrompt(options);
+  }
   const speaker = clean(charName) || clean(moment && moment.characterName) || '角色';
   const nameForUser = clean(userName) || '用户';
   const lines = [
@@ -162,7 +170,11 @@ export function buildMomentReplyPrompt({
     `「${clean(moment && moment.text)}」`,
   ];
 
-  const memory = clean(memoryText);
+  // 上限同 buildMomentMemoryText 的退化路径（:47）：调用方传进来的记忆同样要截断，
+  // 否则长期角色的 worldInfo「记忆总结」会全量进提示词（成本/413/淹没指令）。
+  // 这里不引 memorySummary.js 的 planMemoryBudget：那会把 network/api.js、storage、
+  // i18n 一并拉进这个自述「只依赖纯文本处理工具」的模块，也会拖慢纯 Node 单测。
+  const memory = capped(clean(memoryText), MAX_MEMORY_CHARS);
   if (memory) {
     lines.push('', '这条动态与你们之前的一段对话有关，你对那段经历的记忆是：', memory);
   }

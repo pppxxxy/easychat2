@@ -489,7 +489,9 @@ export const chat = {
   'chat.voice.error.unsupported': '当前设备不支持录音',
   'chat.voice.error.micPermission': '需要麦克风权限才能发送语音',
   'chat.voice.error.tooShort': '说话时间太短',
-  'chat.voice.error.tooLong': '语音时长超限（最多 60 秒）',
+  // 2026-10-12 删除 'chat.voice.error.tooLong'（「语音时长超限（最多 60 秒）」）：超上限已从
+  // 「抛错 + 丢弃整段」改成「标记 + 保留已录内容」（chat/useChatRecorder.js 的 tooLong 分支），
+  // 它不再是错误、零引用；用户可见说明改由下面的 autoStop.* 承担。别以为是被误删。
   // 到上限自动停止是**保留**录音（不丢内容），所以提示说的是「发生了什么 + 内容还在」，
   // 不是报错。数字与 MAX_DURATION_MS 同一口径（60 秒）。
   'chat.voice.autoStop.title': '已到 60 秒上限',

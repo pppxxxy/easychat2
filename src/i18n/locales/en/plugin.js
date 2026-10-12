@@ -26,7 +26,11 @@ export const plugin = {
   'plugin.alert.keyRequired.title': 'Enter a key first',
   'plugin.alert.keyRequired.body': 'Before enabling web search, enter the search service key or address.',
   'plugin.alert.openLinkFailed.title': 'Cannot open link',
-  'plugin.title': 'Close',
+  // The panel name and "Close" are two different meanings and must not share one key
+  // (same shape as transcription.title + transcription.closeA11y). `title` used to hold the
+  // close wording, so the panel header read "Close".
+  'plugin.title': 'Web Search',
+  'plugin.closeA11y': 'Close',
   'plugin.apiKeyLabel': 'Api Key Label',
   'plugin.cxLabel': 'Cx Label',
   'plugin.apiKeyPlaceholder': 'Enter search provider key',

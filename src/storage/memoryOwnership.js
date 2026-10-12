@@ -15,8 +15,13 @@
 //   ② 会话增删后（storage/sessionList.js）：只对受影响角色对账，代价最小。
 
 import { getCharacterLibrary, saveCharacterLibrary } from './characters.js';
-import { appendSessionSummary, getMessagesBySession } from './sessionMessages.js';
+import {
+  appendSessionSummary,
+  getMessagesBySession,
+  getMessagesBySessionStatus,
+} from './sessionMessages.js';
 import { getSessionSummaryRevision, readSessionsStatus } from './sessionCore.js';
+import { singleChatSessionsOf } from '../memory/checkup.js';
 import {
   activeWorldMemoryEntries,
   applyWorldMemoryRetire,
@@ -24,14 +29,12 @@ import {
   planWorldMemoryRetire,
 } from '../memory/memoryRetire.js';
 
-// 该角色的单聊会话（群聊不计；群聊没有「角色记忆」这回事）。
-export function singleChatSessionsOf(sessions, characterId) {
-  const id = String(characterId || '');
-  if (!id) return [];
-  return (Array.isArray(sessions) ? sessions : []).filter(session => (
-    session && String(session.type || 'single') !== 'group' && String(session.characterId || '') === id
-  ));
-}
+// 单聊会话的判定（群聊不计）只在 memory/checkup.js 有一份实现，这里直接复用。
+// 为什么不再自带一份：本模块与 checkup 是**同一套判定**的两个消费者（对账写盘 / 体检显示），
+// 两份逐字重复的实现只要有一侧被改（type 判定或 characterId 归一），就会出现
+// 「体检说正常、对账在悄悄改」——恰恰是 checkup.js 头注释要防的失效模式。
+// 无循环依赖：checkup.js 只依赖 memory/ 内的纯函数（memoryConstants / memoryRetire），
+// 不反向依赖 storage/（guard-structure 的循环检查盯着这条）。
 
 // 计算某角色需要退休的记忆条目。
 async function planRetireForCharacter(character, sessions) {
@@ -43,11 +46,26 @@ async function planRetireForCharacter(character, sessions) {
   // 只有「唯一会话」这一个场景需要读消息来判归属；读不出来就本次不动（null 语义）。
   if (!builtin && owned.length === 1) {
     try {
-      const messages = await getMessagesBySession(String(owned[0].id || ''));
-      messageIds = new Set((Array.isArray(messages) ? messages : [])
-        .map(item => String((item && item.id) || ''))
-        .filter(Boolean));
+      // ⚠️ 必须走三态读（getMessagesBySessionStatus），**不能**用 getMessagesBySession：
+      // 后者把 corrupt 抹成 []（storage/sessionMessages/messages.js:47-50），于是
+      // 「消息体读不出」会被 planWorldMemoryRetire 当成「boundary 全不匹配」，
+      // 下次启动就把这张卡上**所有生效的记忆条目** enabled:false —— 这是会改数据的
+      // 「把『读不出』当『没有』」。本波同类 bug 已修 3 处（MemoryProvenanceModal、
+      // MemoryCheckupModal、checkup.js），但只有这一处落在**写盘**路径上。
+      // corrupt（或任何读失败）= messageIds 传 null = 本次不动：planWorldMemoryRetire
+      // 对 null 刻意不做猜测（memory/memoryRetire.js:53），所以 null 就是 fail-closed。
+      // 先例（读失败绝不返回默认值）：src/storage/worldMap.js:19-40、
+      // src/storage/screenWatch/threads.js:80-101、src/chat/proactiveMessage.js:21-40。
+      const status = await getMessagesBySessionStatus(String(owned[0].id || ''));
+      // missing（会话确实没有消息）仍按空集处理，与对账口径一致：那是「真的没有」，
+      // 若也当成失败，空会话上的边界条目就永远退不了休（过度修正）。
+      messageIds = status.status === 'corrupt'
+        ? null
+        : new Set((Array.isArray(status.messages) ? status.messages : [])
+          .map(item => String((item && item.id) || ''))
+          .filter(Boolean));
     } catch (error) {
+      // 抛错同样属于「读不出」：本次不动，宁可下次启动再试，也不凭猜测退休。
       messageIds = null;
     }
   }

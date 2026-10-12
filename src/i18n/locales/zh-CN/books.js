@@ -11,6 +11,13 @@ export const books = {
   'books.import.notText.body': '文件内容是 PDF / Word / 电子书容器等二进制格式（可能只是把后缀改成了 .txt）。请先用 Calibre 等工具转成 TXT 再导入。',
   'books.import.docxTooLarge.title': '文档过大',
   'books.import.docxTooLarge.body': '文档正文解压后超过 32MB 上限，已拒绝导入。',
+  // 坏 .docx 与「格式不支持」分开（extractText.js 的 DOCX_INVALID / DOCX_NO_BODY）：
+  // .docx 在支持列表里，套用 unsupported 的「只支持 txt / Markdown / Word(.docx) / HTML」
+  // 会让用户以为 .docx 不被支持，答非所问。
+  'books.import.docxInvalid.title': '文档打不开',
+  'books.import.docxInvalid.body': '这个 .docx 文件无法解压，可能已损坏或不是真正的 Word 文档。请用 Word 打开确认，或另存为 txt 后重新导入。',
+  'books.import.docxNoBody.title': '文档没有正文',
+  'books.import.docxNoBody.body': '这个 .docx 里找不到正文（word/document.xml），可能是个空壳文件或只含图片/样式。请换一个文件试试。',
   'books.import.empty.title': '没有可导入的文本',
   'books.import.empty.body': '文件里没有可导入的文本内容。',
   'books.import.failed.title': '导入失败',
@@ -52,6 +59,9 @@ export const books = {
   'books.reader.chapter.done': '已读完',
   'books.reader.chapter.position': '第 {index} / {total} 章',
   'books.reader.chapter.scrubber.a11y': '章节定位滑块',
+  // 读屏的 increment/decrement 动作名（对照 chat.js 的 chat.scrubber.next/prev）。
+  'books.reader.chapter.next': '下一章',
+  'books.reader.chapter.prev': '上一章',
   'books.reader.noChapters.title': '没有识别到章节',
   'books.reader.noChapters.body': '未按「第X章」等格式命名的书籍没有目录，可直接翻页阅读。',
   'books.comments.title': '陪读评论',
@@ -103,6 +113,13 @@ export const books = {
   'books.notice.openingLink': '即将打开：{url}',
   'books.notice.openingExternal': '即将打开外部链接：{url}',
   'books.notice.continueOpen': '继续打开',
+  // 系统打不开外链（无浏览器/无邮件客户端）时的提示：以前是 `.catch(() => {})`，
+  // 点「继续打开」后毫无反应，用户以为链接失效。
+  'books.notice.openFailed.title': '无法打开链接',
+  'books.notice.openFailed.body': '系统没有能打开这个链接的应用，请检查是否安装了浏览器，或复制链接后手动打开。',
+  // 外链的无障碍标签：以前是模板串硬编码中文（`打开 ${...}`），英文界面下
+  // TalkBack/VoiceOver 会朗读中文。
+  'books.notice.openLinkA11y': '打开 {name}',
   'books.outro.openExternal': '即将打开外部链接。',
   // 导入书籍的默认名（books/importBook.js 的 bookDisplayName）：文件名解析不出
   // 书名时用它，**会直接落库并出现在书架列表里**（不是一次性提示词）。

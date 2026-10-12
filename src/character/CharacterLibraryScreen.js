@@ -38,6 +38,7 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { CHARACTER_LIST_COLLAPSE_LIMIT, gridRowIndex } from './cardHelpers.js';
 import { confirmDeleteAll } from './libraryDeleteConfirm.js';
+import { characterCleanupFailureMessageKey, normalizeDeleteTargetIds, runCharacterDelete, selectableCharacterIds, shouldDeleteEverything } from './characterLibraryDelete.js';
 
 // 角色库网格列数。FlatList 在 numColumns>1 时，scrollToIndex 的 index 按「行」计数，
 // 定位滑块给的是「项」序号，需经 gridRowIndex 折算，否则下半部分会越界闪退。
@@ -228,7 +229,7 @@ export default function CharacterLibraryScreen() {
   };
 
   const visibleSelectableIds = useMemo(
-    () => visibleCharacters.filter(item => item.id !== 'default').map(item => item.id),
+    () => selectableCharacterIds(visibleCharacters),
     [visibleCharacters]
   );
   const allVisibleSelected = visibleSelectableIds.length > 0
@@ -266,51 +267,43 @@ export default function CharacterLibraryScreen() {
     deleteMomentsForCharacterDeletion(characterIds, sessionIds)
   ), []);
 
-  const runDeleteSelected = (ids, deleteMemories) => {
-    const targetIds = (Array.isArray(ids) ? ids : [])
-      .map(id => String(id || ''))
-      .filter(Boolean);
+  // 多选删除（决策、执行顺序与文案口径都在 characterLibraryDelete.js，那里有行为测试）：
+  // 先删角色（可重试），成功后才做不可逆的动态与会话清理（P1-2）。
+  const runDeleteSelected = async (ids, deleteMemories) => {
+    const targetIds = normalizeDeleteTargetIds(ids);
     if (targetIds.length === 0) return;
+    // 会话 id 在删角色**之前**取快照：删角色会连带清掉它的消息键，会话表本身不受影响。
     const memoryIds = sessionsOfCharacters(targetIds);
-    let momentsDeleted = false;
-    let sessionsDeleted = false;
-    const beforeCharacterDelete = async () => {
-      if (!deleteMemories) return;
-      await removeMomentsOfCharacterData(targetIds, memoryIds);
-      momentsDeleted = true;
-      if (memoryIds.length > 0) {
-        await deleteSessions(memoryIds, targetIds);
-      }
-      sessionsDeleted = true;
-    };
-    Promise.resolve()
-      .then(beforeCharacterDelete)
-      .then(() => (
-        targetIds.length === 1
-          ? deleteCharacter(targetIds[0], { clearVectorIds: deleteMemories ? targetIds : [] })
-          : deleteCharacters(targetIds, { clearVectorIds: deleteMemories ? targetIds : [] })
-      ))
-      .then(() => {
-        setSelectedIds([]);
-        setEditMode(false);
-      })
-      .catch(error => {
-        let message = (error && error.message) || t('common.error.storageOrPermission');
-        if (deleteMemories && momentsDeleted && sessionsDeleted) {
-          message = t('character.library.delete.fail.partialFull');
-        } else if (deleteMemories && momentsDeleted) {
-          message = t('character.library.delete.fail.partialSessions');
-        } else if (deleteMemories) {
-          message = t('character.library.delete.fail.partialMoments');
-        }
-        Alert.alert(t('common.error.deleteFailed'), message);
-      });
+    const clearVectorIds = deleteMemories ? targetIds : [];
+    const result = await runCharacterDelete({
+      deleteMemories,
+      memoryIds,
+      deleteCharactersStep: () => (targetIds.length === 1
+        ? deleteCharacter(targetIds[0], { clearVectorIds })
+        : deleteCharacters(targetIds, { clearVectorIds })),
+      removeMomentsStep: () => removeMomentsOfCharacterData(targetIds, memoryIds),
+      deleteSessionsStep: () => deleteSessions(memoryIds, targetIds),
+    }).catch(error => {
+      // 角色没删掉 ⇒ 关联数据一个字节都没动（fail-closed）：报原始错误，不吞（P1-1）。
+      Alert.alert(t('common.error.deleteFailed'), (error && error.message) || t('common.error.storageOrPermission'));
+      return null;
+    });
+    if (!result) return;
+    setSelectedIds([]);
+    setEditMode(false);
+    if (!result.characterDeleted || !deleteMemories) return;
+    const messageKey = characterCleanupFailureMessageKey({
+      momentsDeleted: result.momentsDeleted,
+      sessionsDeleted: result.sessionsDeleted,
+      hasSessions: memoryIds.length > 0,
+    });
+    if (!messageKey) return;
+    const reason = (result.momentsError || result.sessionsError || {}).message || t('common.error.storageOrPermission');
+    Alert.alert(t('common.error.deleteFailed'), t(messageKey, { reason }));
   };
 
   const showDeleteChoice = (ids, intro) => {
-    const targetIds = (Array.isArray(ids) ? ids : [])
-      .map(id => String(id || ''))
-      .filter(Boolean);
+    const targetIds = normalizeDeleteTargetIds(ids);
     if (targetIds.length === 0) return;
     const memoryIds = sessionsOfCharacters(targetIds);
     countLinkedMoments(targetIds, memoryIds)
@@ -357,7 +350,8 @@ export default function CharacterLibraryScreen() {
 
   const onDeleteSelected = () => {
     if (selectedIds.length === 0) return;
-    const allSelected = selectedIds.length >= characters.filter(item => item.id !== 'default').length;
+    // 确认门拿**整库可删角色**做集合比对（P1-3）：只有真要删光整库才升级成输入「删除」的重确认。
+    const allSelected = shouldDeleteEverything(selectedIds, characters);
     if (!allSelected) {
       Alert.alert(t('character.library.delete.title'), t('character.library.delete.introBatch', { count: selectedIds.length }), [
         { text: t('common.cancel'), style: 'cancel' },

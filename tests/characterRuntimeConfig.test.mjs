@@ -240,6 +240,60 @@ test('损坏存储：先备份原始值再按「无配置」处理', async () =>
   );
 });
 
+// P0-2（回归）：读路径「损坏按空处理」**不得**被写路径复用。
+// 三个写函数都是整表覆盖写：复用一个「损坏按空」的读函数 = 用「只含当前这一条」的表
+// 覆盖整表 ⇒ 键损坏后改任一项，该角色其余专属配置与其他角色的一起被静默清掉，
+// 而读路径的注释明确承诺过「避免下次保存把损坏内容不可逆覆盖」。
+test('损坏存储：保存必须中止（抛错）且盘上一个字节都不动，不用空表覆盖整表', async () => {
+  resetStore();
+  store.set(KEY, '{broken');
+  await assert.rejects(
+    overridesStore.saveCharacterOverrides('c1', { chatApiConfigId: 'cfg-char' }),
+    /character\.overrides\.readFailed/,
+    '损坏时保存必须抛错中止（词条 key 由 i18n 替身回显）'
+  );
+  assert.equal(store.get(KEY), '{broken', '损坏的整表不得被覆盖（这是不可逆的数据丢失）');
+});
+
+test('损坏存储：单条删除与角色删除钩子同样中止，不覆盖损坏值', async () => {
+  resetStore();
+  store.set(KEY, '{broken');
+  await assert.rejects(
+    overridesStore.deleteCharacterOverrides('c1'),
+    /character\.overrides\.readFailed/,
+    '单条删除也是整表覆盖写，必须同样中止'
+  );
+  assert.equal(store.get(KEY), '{broken');
+  // 角色删除钩子（谁的数据谁负责）：损坏时抛错，由 runCharacterCleanup 逐个 try/catch
+  // 记诊断、不阻断主流程；关键断言是**盘上仍然没被清**。
+  await runCharacterCleanup(['c1']);
+  assert.equal(store.get(KEY), '{broken', '角色删除清理也不得把损坏值覆盖成空表');
+});
+
+// P1-4 的存储侧：界面必须能区分「没配过」与「读不出来」。
+test('三态读：ok / missing / corrupt 可区分（界面据此决定是否允许写回）', async () => {
+  resetStore();
+  const missing = await overridesStore.getCharacterOverridesStatus('c1');
+  assert.equal(missing.status, 'missing', '键不存在 = 没配过');
+  assert.equal(overridesStore.isEmptyCharacterOverrides(missing.overrides), true);
+
+  await overridesStore.saveCharacterOverrides('c1', { chatApiConfigId: 'cfg-char' });
+  const ok = await overridesStore.getCharacterOverridesStatus('c1');
+  assert.equal(ok.status, 'ok');
+  assert.equal(ok.overrides.chatApiConfigId, 'cfg-char');
+  const other = await overridesStore.getCharacterOverridesStatus('c2');
+  assert.equal(other.status, 'missing', '别人没配过仍是 missing，不是 ok');
+
+  store.set(KEY, '{broken');
+  const corrupt = await overridesStore.getCharacterOverridesStatus('c1');
+  assert.equal(corrupt.status, 'corrupt', '整表损坏必须报 corrupt，不能退化成 missing');
+  assert.equal(
+    store.get(`${KEY}__corrupt_backup`),
+    '{broken',
+    '三态读同样先备份原始值（与 getAllCharacterOverrides 同一读实现）'
+  );
+});
+
 test('角色删除钩子：注册了本域，且只清被删角色的那一条', async () => {
   resetStore();
   assert.ok(

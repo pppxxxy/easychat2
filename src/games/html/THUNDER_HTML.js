@@ -658,7 +658,16 @@ function update(dt) {
     });
     
     bullets.forEach(b => {
-        [...enemies, ...bosses].forEach(e => {
+        // 内层改 for + 命中即 break：此前用 forEach，命中后不退出，同一颗子弹会把它本帧
+        // 重叠到的**所有**目标各结算一次伤害与分数（下面的 score +=）。敌机没有分离逻辑
+        // （spawnEnemy 只随机 x、速度各异、间隔可低至 0.3s）⇒ 两机同帧重叠可达。
+        // 先例：SNAKE_BATTLE_HTML.js 的碰撞处理「命中即 break」、BREAKOUT_HTML.js 的
+        // handleBallBrickCollision「处理完 return true 由外层消费」。
+        for (const e of [...enemies, ...bosses]) {
+            // 本帧已被前一颗子弹打死的目标仍留在数组里（enemies 的 hp>0 过滤在本段之后才执行），
+            // 必须跳过：否则后续子弹命中同一具残骸会**再结算一次**伤害与 score / killCount
+            // —— 与「缺 break」同属一类缺陷：一次命中只许结算一次。
+            if (e.hp <= 0) continue;
             if (checkCollision(b, e)) {
                 b.hit = true;
                 if (e.shield && e.shield > 0) {
@@ -687,8 +696,10 @@ function update(dt) {
                         createParticles(e.x, e.y, '#ff6600', 8);
                     }
                 }
+                // 一颗子弹只结算一个目标：不 break 就会对同帧重叠的每个目标各扣一次血、各加一次分。
+                break;
             }
-        });
+        }
     });
     bullets = bullets.filter(b => !b.hit);
     enemies = enemies.filter(e => e.hp > 0);

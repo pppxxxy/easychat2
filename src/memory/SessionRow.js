@@ -8,13 +8,19 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
-import { BASE_LOCALE, translate } from '../i18n/index.js';
+import { tActive } from '../i18n/index.js';
 
 // 相对时间：今天显示时分，昨天显示「昨天」，更早显示「M月D日」。
 // 原 MemoryScreen 内联实现，提到这里供三处复用。
-// t 可选：不传时按基准语言（中文）取词——非 React 调用方也能拿到可读文案。
+//
+// 文案走 i18n（memory.date.yesterday / memory.date.md），不再硬编码中文：
+// e67347e 在 MemoryScreen 内联实现里本来已经接上了这两个词条，aec3927 把它提取到
+// 本文件时改回了硬编码中文，词条因此成了孤儿（中英两份语言包里都还在，src 里 0 处引用），
+// 英文界面会显示「昨天」「10月6日」。第二个参数传 React 树内的 t；
+// 没传时退回 tActive（i18n/index.js:93 的同步入口，同样支持 {m}/{d} 插值），
+// 免得将来又多出一个不接 i18n 的调用点。
 export function formatSessionTime(timestamp, t) {
-  const tr = typeof t === 'function' ? t : (key, params) => translate(BASE_LOCALE, key, params);
+  const translate = typeof t === 'function' ? t : tActive;
   const value = Number(timestamp);
   if (!Number.isFinite(value) || value <= 0) return '';
   const date = new Date(value);
@@ -25,8 +31,8 @@ export function formatSessionTime(timestamp, t) {
   }
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return tr('memory.date.yesterday');
-  return tr('memory.date.md', { m: date.getMonth() + 1, d: date.getDate() });
+  if (date.toDateString() === yesterday.toDateString()) return translate('memory.date.yesterday');
+  return translate('memory.date.md', { m: date.getMonth() + 1, d: date.getDate() });
 }
 
 export function SessionAvatar({ isGroup = false, uri = '', name = '', members = [], size = 44 }) {

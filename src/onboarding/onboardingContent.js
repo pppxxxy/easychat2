@@ -512,9 +512,14 @@ export function getOnboardingChapter(id) {
   return CHAPTER_MAP[String(id || '')] || null;
 }
 
+// 按 topic 取章节。ids 里的未知 id 会被丢弃（调用方把字面量写错/改名时不该带出脏数据），
+// 但**整组都认不出**时不能返回空数组：ChapterModal 拿到空数组会渲染成一个「只有标题和关闭
+// 按钮」的空白弹窗，无报错、无提示。那种情况回退到全量教程——至少让用户看到内容，而不是
+// 一个看起来坏掉的界面。混着写错时保留认得出的那些（既有行为不变）。
 export function getOnboardingChapters(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return ONBOARDING_CHAPTERS;
-  return ids.map(id => CHAPTER_MAP[id]).filter(Boolean);
+  const known = ids.map(id => CHAPTER_MAP[id]).filter(Boolean);
+  return known.length > 0 ? known : ONBOARDING_CHAPTERS;
 }
 
 export default ONBOARDING_CHAPTERS;
