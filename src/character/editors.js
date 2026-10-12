@@ -6,7 +6,7 @@ import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { TextField } from '../ui/index.js';
-import { REGEX_PLACEMENT_LABELS, WORLD_POSITION_LABELS } from './cardParser.js';
+import { WORLD_POSITION_LABELS } from './cardParser.js';
 import { isUnsafeRegexPattern } from '../prompt/regexEngine.js';
 import { getUnsafeWorldEntryKeys } from '../prompt/lorebook.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -199,10 +199,10 @@ export function RegexEntryEditor({ script, index, onChange, onRemove }) {
     const next = has
       ? placement.filter(item => item !== value)
       : [...placement, value].sort((a, b) => a - b);
-    onChange({
-      placement: next,
-      placementLabel: placementText(next, { scopeFallback: t('character.editor.regex.scopeFallback') }),
-    });
+    // 只改 placement，不再落盘 placementLabel：它是**当时语言下的文案**，写进卡片数据
+    // 会随导出/分享传播（英文界面显示中文）。渲染侧 placementText 按当前语言现算。
+    // 旧值一并清空，避免「placement 已改、文案还是旧的」错配残留。
+    onChange({ placement: next, placementLabel: '' });
   };
   return (
     <View style={styles.entryCard}>
@@ -259,7 +259,7 @@ export function RegexEntryEditor({ script, index, onChange, onRemove }) {
         {REGEX_PLACEMENT_KEYS.map(key => (
           <Chip
             key={key}
-            label={REGEX_PLACEMENT_LABELS[key] || t('character.editor.regex.scopeFallback', { key })}
+            label={placementText([key], { scopeFallback: t('character.editor.regex.scopeFallback') })}
             active={placement.includes(key)}
             onPress={() => togglePlacement(key)}
           />

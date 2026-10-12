@@ -1,12 +1,17 @@
 // 角色卡导入/解析与表单态纯函数。从 src/CharacterScreen.js 原样外提（无行为变化）。
-// 不含 React：只依赖 cardParser 的标签表/ID 工具与 buildSystemPrompt，便于单测。
+// 不含 React：只依赖 cardParser 的 ID 工具、buildSystemPrompt 与 i18n 取词
+// （i18n/index.js 是零依赖纯逻辑，Node 可直测），便于单测。
 
 import {
   buildSystemPrompt,
   ensureUniqueIds,
-  REGEX_PLACEMENT_LABELS,
 } from './cardParser.js';
 import { MEMORY_SUMMARY_PREFIX } from '../memory/memoryConstants.js';
+// 渲染侧取词条：placementText 是正则作用范围的**唯一**渲染实现
+// （CharacterDetailScreen 与 editors.js 都走它），英文界面能否显示英文全看这里。
+// 先例同本文件的 worldEntryMeta：数据 → 文案的翻译由 cardHelpers 承担。
+// i18n/index.js 是零依赖纯逻辑（Provider 在 I18nContext.js），Node 测试可直接跑。
+import { tActive } from '../i18n/index.js';
 
 // 导入侧同样不带「记忆总结」条目：旧卡（导出未过滤时代做的）里可能带着别处的会话记忆，
 // 直接收下就会变成新卡的角色记忆被注入。导入时剔除，与导出侧同一口径。
@@ -72,11 +77,45 @@ export function splitKeywords(text) {
     .filter(Boolean);
 }
 
+// 正则作用范围的「数字 → 词条 key」映射。placement 本身是语言无关的数字
+// （1/2/3/5/6，见 cardParser 的 normalizeRegexPlacement），所以这里只存 key：
+// 文案随界面语言变，key 不变。
+const REGEX_PLACEMENT_TEXT_KEYS = {
+  1: 'character.editor.regex.scope.userInput',
+  2: 'character.editor.regex.scope.aiOutput',
+  3: 'character.editor.regex.scope.quickCommand',
+  5: 'character.editor.regex.scope.worldInfo',
+  6: 'character.editor.regex.scope.reasoning',
+};
+
+// 正则作用范围的展示文案——**唯一**实现（CharacterDetailScreen 与 editors.js 都走它）。
+//
+// 修复背景：此前这里只把「认不出的范围」走词条，已知的 1/2/3/5/6 直接读
+// cardParser 的中文常量表，于是英文界面照样显示「用户输入 / AI 输出」。
+// 现在已知项也走 tActive，中文界面由 zh-CN 词条给同款文案，英文界面给英文。
+//
+// 参数：
+//  · placement：语言无关的数字数组。
+//  · strings.scopeFallback：认不出的数字用哪个模板（含 {key} 占位）。
+//  · strings.legacyLabel：旧卡落盘的中文 placementLabel。历史版本把**中文文案**
+//    写进了卡片数据（regexScripts[].placementLabel），随导出/分享传播。老卡若
+//    只有这个字段而没有可用的 placement，就回落到它，避免这些条目在界面上变成空白。
 export function placementText(placement, strings = {}) {
-  const scopeFallback = strings.scopeFallback || '范围 {key}';
-  return placement
-    .map(item => REGEX_PLACEMENT_LABELS[item] || scopeFallback.replace('{key}', item))
-    .join('、');
+  const legacyLabel = String(strings.legacyLabel || '').trim();
+  const scopeFallback = strings.scopeFallback || tActive('character.editor.regex.scopeFallback');
+  const list = Array.isArray(placement) ? placement : [];
+  const labels = list.map(item => {
+    const key = REGEX_PLACEMENT_TEXT_KEYS[item];
+    return key ? tActive(key) : '';
+  });
+  // 一项都没命中词条（placement 缺失 / 全是未知数字）→ 优先回落到旧卡的中文文案。
+  // 判据是「没有任何一项认出」，而不是「数组为空」：[99] 这类同样走这条路。
+  if (labels.every(label => !label)) {
+    if (legacyLabel) return legacyLabel;
+    return list.map(item => scopeFallback.replace('{key}', item)).join('、');
+  }
+  // 部分认得出：认得出的给词条，认不出的逐项给 scopeFallback（不静默丢弃）。
+  return list.map((item, index) => labels[index] || scopeFallback.replace('{key}', item)).join('、');
 }
 
 export function hasCardContent(card) {

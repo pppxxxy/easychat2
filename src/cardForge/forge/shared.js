@@ -44,13 +44,17 @@ export const WORLD_POSITION_LABELS = {
   7: '锚点',
 };
 
-export const REGEX_PLACEMENT_LABELS = {
-  1: '用户输入',
-  2: 'AI 输出',
-  3: '快捷命令',
-  5: '世界信息',
-  6: '推理',
-};
+// 正则 placement 的**合法取值**（语言无关的数字，与 cardParser 的
+// REGEX_PLACEMENT_LABELS 同键）。这里只放数字、不放文案：
+// forge 保持零依赖、不 import cardParser（见上方说明），所以它需要自己的一份
+// 合法值清单用于清洗校验；而文案按语言不同，不该在制卡层落盘（见 advanced.js
+// 的 sanitizeRegexScript）。此前这里是一份与 cardParser 逐字相同的中文表——
+// 两份中文表就是两个真相源，且会被写进卡片数据随导出传播。
+export const REGEX_PLACEMENT_KEYS = [1, 2, 3, 5, 6];
+
+export function isValidRegexPlacement(value) {
+  return REGEX_PLACEMENT_KEYS.includes(Number(value));
+}
 
 const MAX_FIELD_TEXT = 4000;
 

@@ -20,6 +20,9 @@ export default [
         XMLHttpRequest: 'readonly', AbortController: 'readonly', Buffer: 'readonly',
         requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', alert: 'readonly',
         __DEV__: 'readonly', __dirname: 'readonly', URLSearchParams: 'readonly',
+        // URL 与 URLSearchParams 同为运行时标准全局（Node 与 RN 都有）。此前只登记了后者，
+        // 于是测试里用 `new URL(...)` 解析请求地址会被 no-undef 误报（2026-10-12）。
+        URL: 'readonly',
         TextEncoder: 'readonly', TextDecoder: 'readonly',
       },
     },

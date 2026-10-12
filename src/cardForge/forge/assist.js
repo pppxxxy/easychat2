@@ -2,7 +2,6 @@
 
 import {
   WORLD_POSITION_LABELS,
-  REGEX_PLACEMENT_LABELS,
   MAX_PRESERVED_TEXT,
   ENTRY_KEYS_MAX_COUNT,
   clean,
@@ -193,7 +192,9 @@ export function parseEntryAssistPatch(raw) {
 }
 
 // 把解析结果按白名单合并进条目：只接受声明的字段，并按字段类型校验（布尔/数字/数字数组）。
-// 正则的 placement 改动会同步重算 placementLabel，保证派生字段与 UI 一致。
+// 正则的 placement 改动不再重算 placementLabel：文案按语言不同，落盘就会随导出传播
+// （见 advanced.js 的 sanitizeRegexScript）；渲染侧用 placementText 现算。
+// 旧值一并清空，避免「placement 已改、placementLabel 还是旧中文」的错配残留。
 function normalizeAssistPlacement(value) {
   const list = Array.isArray(value) ? value : (value === null || value === undefined ? [] : [value]);
   const placement = list
@@ -248,7 +249,8 @@ export function mergeEntryAssistPatch(entry, kind, patch) {
     // 危险正则标记与生成路径同一口径（问题 A），辅助改写后编辑器仍能给出告警。
     next.unsafe = isUnsafeRegexPattern(next.findRegex);
     if (Array.isArray(next.placement) && next.placement.length > 0) {
-      next.placementLabel = next.placement.map(key => REGEX_PLACEMENT_LABELS[key] || `范围 ${key}`).join('、');
+      // 清掉可能存在的旧中文派生值（老卡或上一轮落盘的），让渲染侧按当前语言现算。
+      next.placementLabel = '';
     }
   }
   return next;

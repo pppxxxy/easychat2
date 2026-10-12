@@ -2,7 +2,7 @@
 
 import {
   WORLD_POSITION_LABELS,
-  REGEX_PLACEMENT_LABELS,
+  isValidRegexPlacement,
   MAX_PRESERVED_ITEMS,
   ENTRY_KEYS_MAX_COUNT,
   collapseOnlyFlags,
@@ -115,7 +115,7 @@ function sanitizeRegexPlacement(value) {
       const key = String(item || '').trim().toLowerCase();
       return aliases[key] ?? (key ? Number(item) : NaN);
     })
-    .filter(item => Number.isFinite(item) && REGEX_PLACEMENT_LABELS[item] !== undefined);
+    .filter(item => Number.isFinite(item) && isValidRegexPlacement(item));
   if (placement.length === 0) return [1, 2];
   return Array.from(new Set(placement));
 }
@@ -141,7 +141,10 @@ export function sanitizeRegexScript(item, index) {
     replaceString: preserveText(source.replaceString ?? source.replacement ?? source.replace ?? ''),
     flags: clean(source.flags, entryFieldLimit('regexScripts', 'flags')) || 'g',
     placement,
-    placementLabel: placement.map(key => REGEX_PLACEMENT_LABELS[key]).join('、'),
+    // 不再落盘 placementLabel（选法 a）：它是**当时语言下的文案**，写进卡片数据
+    // 就会随导出/分享传播，英文界面显示中文。文案改由渲染侧按当前语言现算
+    // （cardHelpers.js 的 placementText）。老卡里已有的旧值在读取侧回落，见那里。
+    placementLabel: '',
     enabled: source.enabled !== false,
     markdownOnly: only.markdownOnly === true,
     promptOnly: only.promptOnly === true,

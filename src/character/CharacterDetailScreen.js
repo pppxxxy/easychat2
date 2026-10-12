@@ -1530,7 +1530,7 @@ setWorldInfo(next.worldInfo);
                   key={script.id}
                   title={script.name || t('character.detail.regex.fallback', { n: index + 1 })}
                   meta={[
-                    placementText(Array.isArray(script.placement) ? script.placement : [], { scopeFallback: t('character.editor.regex.scopeFallback') }),
+                    placementText(Array.isArray(script.placement) ? script.placement : [], { scopeFallback: t('character.editor.regex.scopeFallback'), legacyLabel: script.placementLabel }),
                     isUnsafeRegexPattern(script.findRegex) ? t('character.detail.regex.unsafe') : '',
                   ].filter(Boolean).join('｜')}
                   enabled={script.enabled}
