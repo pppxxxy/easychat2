@@ -14,12 +14,13 @@
     "src/workspace/screen/GithubPanel.js 1984 → 1808、src/workspace/screen/FilesPanel.js 1555 → 1312（2026-10-12，审查待办第 3 项的第一刀）：两个面板各自底部的 StyleSheet 搬到同目录的 githubPanelStyles.js / filesPanelStyles.js。纯数据外提（只依赖 theme/fonts/tokens，无闭包状态），与既有的 chatPanelStyles.js / settingsStyles.js 同因同法，搬走不改变任何行为——这是四个「大文件」里最安全的一块。剩余的大头（组件体 1700/1250 行）仍需先定蓝图再拆，已列入报告。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/FilesPanel.js 1312 → 1213（2026-10-12，审查待办第 3 项的第二刀）：「环境与配置下载」（下载中心）弹层的整段 JSX 外提到同目录 files/CatalogSheet.js——纯展示组件，接收 styles/t 与既有 state/handler 作 props，渲染树逐字不变；状态与写入编排仍留在面板（避免连带改动钉住它们的源码断言）。净减 99 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/FilesPanel.js 1213 → 1083（2026-10-12，审查待办第 3 项的第三刀）：下载中心的**状态与写入编排**（写入/套餐一键/自定义 URL 下载 + 弹层状态）外提到同目录 files/useCatalogDownloads.js（hook），面板只解构状态与动作；依赖 storeRef/characterId/mountedRef/files/refresh/t 由面板注入，行为逐字不变。净减 130 行。行数基线不留余量，故同步下调（无上调）。",
-    "src/workspace/screen/GithubPanel.js 1808 → 1698（2026-10-12，审查待办第 3 项的第四刀）：云构建（H1：Actions 触发 + 最近构建列表 + 日志）整段外提——状态与动作到 github/useGithubBuild.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入），展示层到 github/BuildSection.js；工具栏入口（setBuildLog/refreshBuildRuns）仍由面板调 hook 返回值。净减 110 行，行为不变。行数基线不留余量，故同步下调（无上调）。"
+    "src/workspace/screen/GithubPanel.js 1808 → 1698（2026-10-12，审查待办第 3 项的第四刀）：云构建（H1：Actions 触发 + 最近构建列表 + 日志）整段外提——状态与动作到 github/useGithubBuild.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入），展示层到 github/BuildSection.js；工具栏入口（setBuildLog/refreshBuildRuns）仍由面板调 hook 返回值。净减 110 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
+    "src/workspace/screen/GithubPanel.js 1698 → 1618（2026-10-12，审查待办第 3 项的第五刀）：E5 提交历史 / 单提交 diff / PR 创建的状态与动作外提到 github/useGithubHistory.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入）；JSX 仍留在面板（含分页「加载更多」按钮）。净减 80 行，行为不变。行数基线不留余量，故同步下调（无上调）。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3162,
     "src/SettingsScreen.js": 2344,
-    "src/workspace/screen/GithubPanel.js": 1698,
+    "src/workspace/screen/GithubPanel.js": 1618,
     "src/chat/useChatSend.js": 1974,
     "src/workspace/screen/ChatPanel.js": 1765,
     "src/character/CharacterDetailScreen.js": 1714,

@@ -61,23 +61,20 @@ import {
 } from '../repoImport.js';
 import {
   canDeleteRepo,
-  createPullRequest,
   createRepo,
   deleteRepo,
   downloadZip,
   fetchTokenScopes,
-  getCommitDiff,
   listBranches,
-  listCommits,
   listRepos,
   listTree,
   renameRepo,
   repoWebUrl,
-  truncateDiffText,
 } from '../github/restApi.js';
 import createStyles from './githubPanelStyles.js';
 import BuildSection from './github/BuildSection.js';
 import useGithubBuild from './github/useGithubBuild.js';
+import useGithubHistory from './github/useGithubHistory.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
 const ERROR_KEYS = {
@@ -145,14 +142,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   // C3 批量推送（Trees API 单提交）进行中状态。
   const [pushBusy, setPushBusy] = useState(false);
-  // E5：提交历史（内联展开 + 翻页）与单提交 diff；PR 创建进行中。
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyCommits, setHistoryCommits] = useState([]);
-  const [historyPage, setHistoryPage] = useState(1);
-  const [historyBusy, setHistoryBusy] = useState(false);
-  const [historyError, setHistoryError] = useState(false);
-  const [historyDiff, setHistoryDiff] = useState(null);
-  const [prBusy, setPrBusy] = useState(false);
   // 本地副本清单快照（最近一次拉取/推送时的文件列表）：待同步 = 本地新增 + 本地删除。
   const [snapshotPaths, setSnapshotPaths] = useState([]);
   const mountedRef = useRef(true);
@@ -202,6 +191,21 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     submitBuild,
     openBuildLog,
   } = useGithubBuild({ current, token, pullBranch, describeError, mountedRef, t });
+
+  // E5 提交历史 / 单提交 diff / PR 创建的状态与动作已抽到 github/useGithubHistory.js。
+  const {
+    historyOpen,
+    setHistoryOpen,
+    historyCommits,
+    historyPage,
+    historyBusy,
+    historyError,
+    historyDiff,
+    prBusy,
+    loadHistory,
+    openCommitDiff,
+    submitCreatePr,
+  } = useGithubHistory({ current, token, pullBranch, describeError, mountedRef, t });
 
   const refreshLocal = useCallback(async (ownerId = characterId) => {
     const store = storeRef && storeRef.current;
@@ -1057,90 +1061,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     parts.push(t('workspace.github.push.instructionTail'));
     onHandoff(parts.join('\n\n'));
   }, [current, diff, onHandoff, t]);
-
-  // E5：提交历史（内联展开）——首屏 30 条、可翻页；点条目看截断后的 diff。
-  // 失败不弹窗（非阻塞区块），行内给错误行重试即可。
-  const loadHistory = useCallback(async (page = 1, append = false) => {
-    if (!current || historyBusy) return;
-    setHistoryBusy(true);
-    setHistoryError(false);
-    try {
-      const branchName = String(current.branch || pullBranch || '').trim();
-      const commits = await listCommits({
-        token,
-        owner: current.owner,
-        repo: current.repo,
-        ...(branchName ? { branch: branchName } : {}),
-        page,
-      });
-      if (!mountedRef.current) return;
-      setHistoryCommits(list => (append ? [...list, ...commits] : commits));
-      setHistoryPage(page);
-    } catch (caught) {
-      if (mountedRef.current) setHistoryError(true);
-    } finally {
-      if (mountedRef.current) setHistoryBusy(false);
-    }
-  }, [current, historyBusy, pullBranch, token]);
-
-  const openCommitDiff = useCallback(async sha => {
-    if (!current || !sha) return;
-    setHistoryDiff({ sha, text: t('workspace.github.history.diffLoading'), loading: true });
-    try {
-      const raw = await getCommitDiff({ token, owner: current.owner, repo: current.repo, sha });
-      const { text } = truncateDiffText(raw);
-      if (mountedRef.current) {
-        setHistoryDiff({ sha, text: text || t('workspace.github.history.diffEmpty'), loading: false });
-      }
-    } catch (caught) {
-      if (mountedRef.current) {
-        setHistoryDiff({ sha, text: t('workspace.github.history.diffError'), loading: false });
-      }
-    }
-  }, [current, t, token]);
-
-  // E5：创建 PR（写操作）——本地确认门说清 head → base，再由 restApi 发请求；
-  // 失败按错误码映射给清晰文案（无权限 / 分支不存在 / 冲突）。
-  const submitCreatePr = useCallback(() => {
-    if (!current || prBusy) return;
-    const head = String(pullBranch || current.branch || '').trim();
-    const base = String(current.defaultBranch || 'main').trim();
-    if (!head || head === base) {
-      Alert.alert(t('workspace.github.title'), t('workspace.github.pr.badBranches', { base }));
-      return;
-    }
-    Alert.alert(
-      t('workspace.github.pr.confirmTitle'),
-      t('workspace.github.pr.confirmBody', { head, base, name: `${current.owner}/${current.repo}` }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('workspace.github.pr.confirmAction'),
-          onPress: async () => {
-            setPrBusy(true);
-            try {
-              const pr = await createPullRequest({
-                token,
-                owner: current.owner,
-                repo: current.repo,
-                title: t('workspace.github.pr.defaultTitle', { branch: head }),
-                head,
-                base,
-              });
-              Alert.alert(t('workspace.github.title'), t('workspace.github.pr.done', {
-                number: pr.number,
-                url: pr.url,
-              }));
-            } catch (caught) {
-              Alert.alert(t('workspace.github.title'), describeError(caught));
-            } finally {
-              if (mountedRef.current) setPrBusy(false);
-            }
-          },
-        },
-      ]
-    );
-  }, [current, describeError, prBusy, pullBranch, t, token]);
 
   const canAct = Boolean(current) && Boolean(storeRef && storeRef.current);
 
