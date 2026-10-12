@@ -66,16 +66,21 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
   assert.equal(settingsSectionLabel('localmodel', t), '本地模型', '搜索结果的分区名必须登记');
   assert.ok(settingsSectionLabel('about', t), '关于的分区名保留');
 
-  // 五处同步之 offsets：收口后偏移登记只有 registerSection 一条路径，且 JSX 里 14 张卡的
-  // 登记顺序必须与 SECTION_RENDER_ORDER 逐条一致。此前 14 处各手写
+// 五处同步之 offsets：收口后偏移登记只有 registerSection 一条路径，且 JSX 里各卡的
+  // 登记顺序必须与 SECTION_RENDER_ORDER 逐条一致。此前各处各手写
   // `sectionOffsetsRef.current.<id> = ...`：sampling 就是这么漏掉的（搜索命中它时只闪烁、
   // 不滚动），而漏掉不会有任何报错——这条断言把它钉死。
   const registered = [...screen.matchAll(/onLayout=\{registerSection\('(\w+)'\)\}/g)].map(m => m[1]);
   assert.deepEqual(registered, order, 'JSX 里各卡的偏移登记顺序必须与 SECTION_RENDER_ORDER 完全一致');
   assert.equal((screen.match(/sectionOffsetsRef\.current\.\w+ = event/g) || []).length, 0,
     '禁止再手写 sectionOffsetsRef.current.<id> = ...（偏移登记只走 registerSection）');
-  // 吸顶索引由渲染顺序数组推导（自动跟随，禁止另写一份）
-  assert.ok(/stickyHeaderIndices = SECTION_RENDER_ORDER/.test(screen), '吸顶索引必须由 SECTION_RENDER_ORDER 推导');
+  // 吸顶索引由渲染顺序数组推导（自动跟随，禁止另写一份）。允许包在平台门控里
+  //（Android 必须走空数组，见文件末尾的 #25157 守卫），但推导源只能是同一份数组。
+  assert.ok(
+    /stickyHeaderIndices[\s\S]{0,400}?SECTION_RENDER_ORDER\n?\s*\.map\(/.test(screen),
+    '吸顶索引必须由 SECTION_RENDER_ORDER 推导',
+  );
+
   // 单一事实源必须导出，且 SettingsScreen.js 只 re-export（别又抄一份到本文件里）
   assert.ok(/export const SECTION_RENDER_ORDER = Object\.freeze\(\[/.test(orderSource),
     'SECTION_RENDER_ORDER 必须在 sectionOrder.js 里导出');
@@ -110,4 +115,48 @@ test('API 折叠头不再显示配置方名（2026-10-07 裁决），仅保留�
   const summaryText = /<Text style=\{styles\.collapseSummary\}[^>]*>\{([^}]*)\}<\/Text>/.exec(apiHead);
   assert.ok(summaryText && summaryText[1].includes('settings.summary.unconfigured'),
     'API 头唯一的摘要文本只允许「未配置」提示（配置名/模型名不得回流）');
+});
+
+// 吸顶索引的平台门控（2026-10-12，用户报告「切到设置界面即闪退」）。
+// 根因：Android 上 ScrollView 只要 stickyHeaderIndices 非空就会走吸附路径——RN 会
+// React.Children.toArray 重排子节点 key、并强制关闭 removeClippedSubviews；在**同一次渲染
+// 里既换子节点又换该数组**时原生层闪退（facebook/react-native#25157）。记忆页 2026-10-06
+// 已按此修过（943dbde1），设置页是当时唯一剩下的漏网处：进入时 api/persona 先按「未配置」
+// 默认展开，随后几个 async 加载把它们收起（language 恒展开），必然同时改动两者。
+test('吸顶索引只在 iOS 启用：全仓每处派生都按平台门控，且 Android 分支用稳定引用', () => {
+  // 每条「派生 stickyHeaderIndices 的文件」都必须门控。用全仓扫描而不是写死文件名：
+  // 记忆页的派生值已经随「列表视图模型外提」搬进 memory/useMemoryListView.js，
+  // 写死路径的守卫会在文件搬家时变成空转（本仓 MEMORY.md 记过这类教训）。
+  // 扫描面只认**派生点**（`const stickyHeaderIndices = ...`），不认消费处的
+  // `stickyHeaderIndices={...}`——否则「用它的地方」也会被当成规则对象，而门控在别处。
+  const DERIVE = /(?:const|let|var)\s+stickyHeaderIndices\s*=/;
+  const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => (
+    entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]
+  ));
+  const deriving = walk('src')
+    .filter(file => file.endsWith('.js') && DERIVE.test(fs.readFileSync(file, 'utf8')))
+    .map(file => file.split(path.sep).join('/'));
+  assert.ok(deriving.length > 0, '应至少有一处派生 stickyHeaderIndices（否则本守卫在空转）');
+
+  for (const file of deriving) {
+    const source = read(file);
+    const at = source.search(DERIVE);
+    const block = source.slice(at, at + 800);
+    assert.ok(
+      /Platform\.OS\s*===\s*'ios'|Platform\.OS\s*!==\s*'ios'/.test(block),
+      `${file}：stickyHeaderIndices 必须按平台门控（Android 走空数组），否则重蹈 #25157 原生闪退`,
+    );
+  }
+
+  const settings = read('src/SettingsScreen.js');
+  // 定义而不用 = 假修复：消费处必须真的接上这个派生值。
+  assert.ok(settings.includes('stickyHeaderIndices={stickyHeaderIndices}'), '设置页吸顶必须实际接线');
+  // Android 分支的返回值必须是**同一个**冻结数组：每渲染新建的 [] 会让该 prop 每帧都变。
+  assert.ok(
+    /const NO_STICKY_HEADERS = Object\.freeze\(\[\]\)/.test(settings),
+    '设置页需要一个模块级冻结的空数组常量（稳定引用）',
+  );
+  assert.ok(/Platform\.OS !== 'ios'\) return NO_STICKY_HEADERS/.test(settings),
+    'Android 分支必须返回该常量而不是新建的字面量数组',
+  );
 });
