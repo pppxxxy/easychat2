@@ -2,7 +2,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { readJson } from '../io.js';
+import { backupCorruptValue, readJsonStatus } from '../io.js';
+import { tActive } from '../../i18n/index.js';
 
 const SAMPLING_KEY = '@easychat2_sampling';
 
@@ -35,12 +36,41 @@ function normalizeSampling(raw) {
   return result;
 }
 
+// 三态读（读路径与写路径共用这一份判据）。为什么必须判形状：readJsonStatus 的 ok
+// 只保证 JSON.parse 成功——null / 数组 / 原语同样是 ok（**第四态**），而
+// normalizeSampling 会把它折叠成四个字段的全默认值，界面看起来像「我从没配过采样参数」。
+// 形态与判据照 src/storage/settings/tts.js:46-59 与 settings/mcpServers.js:188-198。
+async function readSamplingStatus() {
+  const stored = await readJsonStatus(SAMPLING_KEY);
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok' && (
+      stored.value === null
+      || typeof stored.value !== 'object'
+      || Array.isArray(stored.value)
+    ))
+  ) {
+    await backupCorruptValue(SAMPLING_KEY);
+    return { status: 'corrupt' };
+  }
+  if (stored.status === 'missing') return { status: 'missing' };
+  return { status: 'ok', value: stored.value };
+}
+
+// 读失败/形状坏时**抛错**而不是回落默认值：回落会让设置页显示「没配过」，
+// 用户随手改一个字段并保存就整键覆盖掉损坏的原值（不可逆、无备份）。
 export async function getSamplingSettings() {
-  const raw = await readJson(SAMPLING_KEY, null);
-  return normalizeSampling(raw);
+  const status = await readSamplingStatus();
+  if (status.status === 'corrupt') throw new Error(tActive('error.storage.samplingSettingsReadFailed'));
+  if (status.status === 'missing') return normalizeSampling(null);
+  return normalizeSampling(status.value);
 }
 
 export async function saveSamplingSettings(settings) {
+  // 写路径守卫（变体①）：读不出原值就抛错中止，绝不用默认值整键覆盖。
+  // 参考 src/storage/settings/tts.js:133-138（assertReadableForMutation）。
+  const status = await readSamplingStatus();
+  if (status.status === 'corrupt') throw new Error(tActive('error.storage.samplingSettingsReadFailed'));
   const normalized = normalizeSampling(settings);
   await AsyncStorage.setItem(SAMPLING_KEY, JSON.stringify(normalized));
   return normalized;

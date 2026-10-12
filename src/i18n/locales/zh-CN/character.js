@@ -192,16 +192,36 @@ export const character = {
   'character.editor.world.contentPlaceholder': '命中后注入提示词的内容',
   'character.editor.world.constant': '常驻（无需关键词）',
   'character.editor.world.position': '位置：{label}',
+  // 世界书位置文案（cardHelpers.positionText 按当前语言取）。与上面正则 scope.* 同一缺陷：
+  // 此前 editors.js 把中文常量表直接插进模板，英文界面显示「位置：角色定义之前」，
+  // 同一份中文还会被写进卡片数据（worldInfo[].positionLabel）。
+  'character.editor.world.positionText.beforeChar': '角色定义之前',
+  'character.editor.world.positionText.afterChar': '角色定义之后',
+  'character.editor.world.positionText.beforeAuthorNote': '作者注释之前',
+  'character.editor.world.positionText.afterAuthorNote': '作者注释之后',
+  'character.editor.world.positionText.atDepth': '按深度插入',
+  'character.editor.world.positionText.beforeExample': '示例消息前',
+  'character.editor.world.positionText.afterExample': '示例消息后',
+  'character.editor.world.positionText.anchor': '锚点',
+  'character.editor.world.positionFallback': '位置 {key}',
   'character.editor.world.role': '角色：{role}',
   'character.editor.regex.entryFallback': '正则 {n}',
   'character.editor.regex.namePlaceholder': '正则脚本名称',
   'character.editor.regex.findLabel': '匹配表达式',
   'character.editor.regex.findPlaceholder': '例如：\\bfoo\\b',
-  'character.editor.regex.unsafeHint': '该表达式存在嵌套无界量词，疑似灾难性回溯；为避免卡死界面，运行时会跳过此脚本。',
+  'character.editor.regex.unsafeHint': '该表达式命中「已识别的嵌套无界量词」启发式，疑似灾难性回溯；为避免卡死界面，运行时会跳过此脚本。注意：该启发式只覆盖部分写法，并非安全保证，未命中的表达式仍可能卡顿，请自行改写。',
   'character.editor.regex.replaceLabel': '替换为',
   'character.editor.regex.replacePlaceholder': '替换后的文本，可留空表示删除',
   'character.editor.regex.flagsHint': '/表达式/flags 使用内嵌 flags；裸表达式的 flags 留空时仅替换首个匹配。',
   'character.editor.regex.scopeLabel': '作用范围',
+  // 正则作用范围的文案（cardHelpers.js 的 placementText 按当前语言取）。
+  // 此前这几条文案硬编码在 cardParser/forge 的常量表里并**落进卡片数据**
+  // （regexScripts[].placementLabel），英文界面因此长期显示中文。
+  'character.editor.regex.scope.userInput': '用户输入',
+  'character.editor.regex.scope.aiOutput': 'AI 输出',
+  'character.editor.regex.scope.quickCommand': '快捷命令',
+  'character.editor.regex.scope.worldInfo': '世界信息',
+  'character.editor.regex.scope.reasoning': '推理',
   'character.editor.regex.scopeFallback': '范围 {key}',
   'character.editor.regex.scopeHint': 'AI 输出包含开场白与助手历史消息。',
   'character.editor.regex.markdownOnly': '仅用于界面显示',
@@ -264,10 +284,16 @@ export const character = {
   'character.library.delete.fail.cleanupSessions': '角色已删除，但关联记忆清理失败（{reason}）。记忆仍留在记忆页，可稍后手动删除。',
   'character.library.delete.introBatch': '将删除选中的 {count} 个角色。',
   'character.library.delete.introSingle': '确定删除「{name}」吗？',
-  'character.library.delete.onlyCharacter': '仅删角色',
+  // 「仅删角色」必须**如实**：动态并不受这个按钮保护——storage/moments.js:285 注册的
+  // onCharacterDeleted 钩子在**每次**删角色时按 characterId 清动态，且钩子拿不到「用户选了什么」
+  // （storage/characterState.js 跑钩子时不带用户意图）。旧文案「仅删角色」承诺了一件做不到的事，
+  // 用户明确选了它，动态仍被静默删除。这里把事实写进按钮与说明，让承诺与行为一致
+  // （与 characterLibraryDelete.js 里「动态其实已经由角色删除本身带走」那条注释同口径）。
+  // 之所以不改成「让钩子知道用户意图」：注册方有 9 个，改签名改动面远大于收益。
+  'character.library.delete.onlyCharacter': '仅删角色（动态仍会一并删除）',
   'character.library.delete.readFail.body': '没能读出关联数据，请稍后重试。',
   'character.library.delete.title': '删除角色',
-  'character.library.delete.withLinked': '{intro}\n关联数据：{details}。是否一并删除？',
+  'character.library.delete.withLinked': '{intro}\n关联数据：{details}。是否一并删除？（选「仅删角色」也会删除动态）',
   'character.library.deleteAll.body': '这会删除除默认角色外的全部角色，且无法恢复。请输入「删除」以确认。',
   'character.library.deleteAll.confirm': '确认删除',
   'character.library.deleteAll.title': '删除全部角色',

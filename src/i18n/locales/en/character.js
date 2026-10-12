@@ -193,16 +193,37 @@ export const character = {
   'character.editor.world.contentPlaceholder': 'Content injected into the prompt on hit',
   'character.editor.world.constant': 'Always on (no keyword needed)',
   'character.editor.world.position': 'Position: {label}',
+  // World position wording (resolved by cardHelpers.positionText in the active language).
+  // Same defect as the regex scope.* keys below: editors.js used to interpolate the Chinese
+  // constant table straight into the template, so the English UI showed "Position: 角色定义之前";
+  // that same Chinese was also written into card data (worldInfo[].positionLabel).
+  'character.editor.world.positionText.beforeChar': 'Before character definition',
+  'character.editor.world.positionText.afterChar': 'After character definition',
+  'character.editor.world.positionText.beforeAuthorNote': "Before author's note",
+  'character.editor.world.positionText.afterAuthorNote': "After author's note",
+  'character.editor.world.positionText.atDepth': 'Insert at depth',
+  'character.editor.world.positionText.beforeExample': 'Before example messages',
+  'character.editor.world.positionText.afterExample': 'After example messages',
+  'character.editor.world.positionText.anchor': 'Anchor',
+  'character.editor.world.positionFallback': 'Position {key}',
   'character.editor.world.role': 'Role: {role}',
   'character.editor.regex.entryFallback': 'Regex {n}',
   'character.editor.regex.namePlaceholder': 'Regex script name',
   'character.editor.regex.findLabel': 'Match expression',
   'character.editor.regex.findPlaceholder': 'e.g. \\bfoo\\b',
-  'character.editor.regex.unsafeHint': 'This expression has nested unbounded quantifiers (risk of catastrophic backtracking); to avoid freezing the UI it will be skipped at runtime.',
+  'character.editor.regex.unsafeHint': 'This expression matches the "recognized nested unbounded quantifiers" heuristic (possible catastrophic backtracking); to avoid freezing the UI it will be skipped at runtime. Note: the heuristic only covers some patterns and is not a safety guarantee — expressions it misses can still stall the UI, so rewrite the expression yourself.',
   'character.editor.regex.replaceLabel': 'Replace with',
   'character.editor.regex.replacePlaceholder': 'Replacement text; leave empty to delete matches',
   'character.editor.regex.flagsHint': '/pattern/flags uses inline flags; for a bare pattern, empty flags replace only the first match.',
   'character.editor.regex.scopeLabel': 'Scope',
+  // Regex scope wording (resolved by cardHelpers.js placementText in the active
+  // language). These used to be hardcoded Chinese constants that were written
+  // into card data (regexScripts[].placementLabel), so the English UI showed Chinese.
+  'character.editor.regex.scope.userInput': 'User input',
+  'character.editor.regex.scope.aiOutput': 'AI output',
+  'character.editor.regex.scope.quickCommand': 'Quick command',
+  'character.editor.regex.scope.worldInfo': 'World info',
+  'character.editor.regex.scope.reasoning': 'Reasoning',
   'character.editor.regex.scopeFallback': 'Scope {key}',
   'character.editor.regex.scopeHint': 'AI output includes the first message and assistant history.',
   'character.editor.regex.markdownOnly': 'Display only',
@@ -267,10 +288,18 @@ export const character = {
   'character.library.delete.fail.cleanupSessions': 'The character was deleted, but cleaning up its linked memories failed ({reason}). They are still on the Memories page; you can delete them there later.',
   'character.library.delete.introBatch': 'The {count} selected characters will be deleted.',
   'character.library.delete.introSingle': 'Delete "{name}"?',
-  'character.library.delete.onlyCharacter': 'Character only',
+  // "Character only" must be HONEST: moments are not protected by this button — the
+  // onCharacterDeleted hook registered at storage/moments.js:285 deletes moments by
+  // characterId on EVERY character delete and cannot see what the user chose
+  // (storage/characterState.js runs the hooks without any user intent). The old wording
+  // promised something it could not deliver: the user explicitly picked "character only"
+  // and the moments were still silently removed. State the fact instead.
+  // Why not "let the hook know the intent": there are 9 registrants, so the signature
+  // change costs far more than it is worth.
+  'character.library.delete.onlyCharacter': 'Character only (moments still deleted)',
   'character.library.delete.readFail.body': 'Couldn\'t read linked data. Please try again later.',
   'character.library.delete.title': 'Delete character',
-  'character.library.delete.withLinked': '{intro}\nLinked data: {details}. Delete it too?',
+  'character.library.delete.withLinked': '{intro}\nLinked data: {details}. Delete it too? (the character-only choice still deletes moments)',
   'character.library.deleteAll.body': 'This deletes every character except the default one and cannot be undone. Type "删除" to confirm.',
   'character.library.deleteAll.confirm': 'Confirm deletion',
   'character.library.deleteAll.title': 'Delete all characters',

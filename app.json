@@ -27,6 +27,7 @@
       "./plugins/withLocalApiServer",
       "./plugins/withMcpServer",
       "./plugins/withShellExecutor",
+      "./plugins/withNetworkSecurity",
       "./plugins/withScreenOverlay",
     [
       "./plugins/withChaquopy",

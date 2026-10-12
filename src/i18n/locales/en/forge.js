@@ -77,10 +77,12 @@ export const forge = {
   'forge.regex.empty': 'No regex scripts yet.',
   'forge.regex.summary': 'Find: {find} → Replace: {replace}',
   // Unsafe-pattern warning (issue A): advanced.js and the chat engine share the same
-  // isUnsafeRegexPattern check, and the engine skips catastrophic patterns entirely —
-  // so the user must be told why the script never takes effect.
+  // isUnsafeRegexPattern check, and the engine skips *recognized* nested unbounded
+  // quantifiers entirely — so the user must be told why the script never takes effect.
+  // NOTE: the wording must not claim that all dangerous regexes are caught; the check is
+  // a false-positive-averse heuristic and patterns it misses can still freeze the UI.
   'forge.regex.unsafeBadge': 'Unsafe regex',
-  'forge.regex.unsafeHint': 'This expression has nested unbounded quantifiers (risk of catastrophic backtracking); to avoid freezing the UI the chat engine skips it, so it never takes effect. Rewrite it (e.g. avoid nested quantifiers like (a+)+) before enabling.',
+  'forge.regex.unsafeHint': 'This expression matches the "recognized nested unbounded quantifiers" heuristic (possible catastrophic backtracking); to avoid freezing the UI the chat engine skips it, so it never takes effect. The heuristic is not a safety guarantee — patterns it misses can still stall the UI. Rewrite it (e.g. avoid nested quantifiers like (a+)+) before enabling.',
   'forge.regex.emptyValue': '(empty)',
   'forge.regex.unset': 'No find pattern set',
   'forge.regex.expandA11y': 'Expand regex script {n}',

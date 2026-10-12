@@ -10,11 +10,13 @@ import {
   moveWorkspaceDirectory,
   editWorkspaceFile,
   listWorkspaceFiles,
+  listWorkspaceFilesDetailed,
   readWorkspaceFile,
   WORKSPACE_LIMITS,
   writeWorkspaceBinaryFile,
   writeWorkspaceFile,
 } from '../src/workspace/store.js';
+import { SAF_LIMITS } from '../src/workspace/safStore.js';
 
 function createMemoryFs() {
   const entries = new Map();
@@ -40,6 +42,10 @@ function createMemoryFs() {
     },
     async readDirectoryAsync(uri) {
       const prefix = uri.endsWith('/') ? uri : `${uri}/`;
+      // 真实 readDirectoryAsync 只在**目录本身不存在**时抛（legacy 侧 ENOENT / 不是目录）；
+      // 存在的空目录返回 []。此前这里对空目录也抛 ENOENT —— 「空」与「读不到」同形，
+      // 正是 F2 删除守卫那个「读失败当空目录 ⇒ 递归删整棵树」缺陷的桩版本。
+      if (!entries.has(prefix)) throw new Error('ENOENT');
       const names = new Set();
       for (const key of entries.keys()) {
         if (!key.startsWith(prefix)) continue;
@@ -47,7 +53,6 @@ function createMemoryFs() {
         if (!rest) continue;
         names.add(rest.split('/')[0]);
       }
-      if (names.size === 0) throw new Error('ENOENT');
       return [...names];
     },
     async readAsStringAsync(uri) {
@@ -390,4 +395,82 @@ test('listTruncationNotice：命中文件数/深度护栏才提示，否则静�
   // 坏输入不炸
   assert.equal(listTruncationNotice(null), '');
   assert.equal(listTruncationNotice([null, undefined]), '');
+});
+
+// 🔴 P0 数据丢失回归（2026-10-10）：**读目录失败 ≠ 空目录**。
+// deleteAsync 是递归语义：旧实现 catch 里 `children = []` ⇒ 读失败也过「空目录」门
+// ⇒ 整棵非空目录树不可逆消失。对照 boardStore.js:42-48 的同款反模式修复。
+test('F2 删除守卫：readDirectoryAsync 抛错时拒删（不得递归删掉非空目录树）', async () => {
+  const fileSystem = createMemoryFs();
+  await writeWorkspaceFile({
+    root, characterId: 'c1', path: 'repos/o/r/main/keep.txt', content: 'k', fileSystem,
+  });
+  const dirUri = `${root}c1/repos/o/r/main/`;
+  const originalReadDir = fileSystem.readDirectoryAsync.bind(fileSystem);
+  // 模拟真实读失败：SAF 授权瞬时失效 / 目录被别的东西占着 —— 与「目录确实是空的」不同形。
+  // 注意 normalize 会去掉尾斜杠，store 传下来的 uri 未必带 `/`（getInfo 那边两种都认）。
+  fileSystem.readDirectoryAsync = async uri => {
+    if (String(uri).replace(/\/$/, '') === dirUri.replace(/\/$/, '')) throw new Error('SAF 授权瞬时失效');
+    return originalReadDir(uri);
+  };
+
+  const refused = await deleteWorkspaceDirectory({ root, characterId: 'c1', path: 'repos/o/r/main/', fileSystem });
+  assert.equal(refused.deleted, false, '读不到目录内容 ⇒ 宁可拒删');
+  assert.equal((await fileSystem.getInfoAsync(dirUri)).exists, true, '目录本身仍在');
+
+  // 恢复可读后再看：里面的文件一个都没少（拒删是「不删」，不是「删了一半」）
+  fileSystem.readDirectoryAsync = originalReadDir;
+  const after = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.ok(after.includes('repos/o/r/main/keep.txt'), '非空目录树完整保留');
+
+  // 防过度修正：真正的空目录仍然可删（读得到 [] ⇒ 过门 ⇒ 删）
+  await fileSystem.deleteAsync(`${dirUri}keep.txt`, { idempotent: true });
+  const removed = await deleteWorkspaceDirectory({ root, characterId: 'c1', path: 'repos/o/r/main/', fileSystem });
+  assert.equal(removed.deleted, true, '空目录照旧可删（不许因为怕误删就一律拒删）');
+});
+
+// 🔴 MAX_DEPTH 收敛（2026-10-10）：两个后端原先各写一份（store.js 12 / safStore.js 6），
+// SAF 下深度 ≥7 的目录内容既不列出也不告警，而 listTruncationNotice 又写死 12。
+test('护栏常量只有一份：两后端 MAX_DEPTH 同值（源码级 + 结构级）', () => {
+  const legacy = fs.readFileSync(path.resolve('src/workspace/store.js'), 'utf8');
+  const saf = fs.readFileSync(path.resolve('src/workspace/safStore.js'), 'utf8');
+  assert.equal(/const MAX_DEPTH\s*=/.test(legacy), false, 'store.js 不得自带一份 MAX_DEPTH');
+  assert.equal(/const MAX_DEPTH\s*=/.test(saf), false, 'safStore.js 不得自带一份 MAX_DEPTH（旧值 6）');
+  assert.equal(WORKSPACE_LIMITS.MAX_DEPTH, SAF_LIMITS.MAX_DEPTH, '两后端深度上限必须同值');
+  assert.equal(WORKSPACE_LIMITS, SAF_LIMITS, '两后端指的是同一份冻结常量');
+  // 深度到顶必须置 truncated（原先只 return，静默截断）
+  for (const [name, source] of [['store.js', legacy], ['safStore.js', saf]]) {
+    assert.match(source, /if \(depth > MAX_DEPTH\) \{\s*state\.truncated = true;/, `${name} 深度截断要置 truncated`);
+  }
+});
+
+test('listTruncationNotice：按**传入的生效值**判（不再写死 12）+ truncated 权威标记兜底', () => {
+  const deep6 = `${Array.from({ length: 6 }, (_, i) => `d${i}`).join('/')}/`;
+  // SAF 后端旧口径 6 层：同一份列表在 6 层判据下必须告警，且文案里是 6
+  const six = listTruncationNotice(['a.txt', deep6], { maxDepth: 6 });
+  assert.match(six, /6 层深度上限/);
+  // 同一份列表在 12 层判据下不算深 —— 证明它读的是参数，不是模块内写死的常量
+  assert.equal(listTruncationNotice(['a.txt', deep6], { maxDepth: 12 }), '');
+  // 后端只给 truncated（无法按结果规模推断出是哪条护栏）时也必须告警，不得静默
+  const fallback = listTruncationNotice(['a.txt'], { truncated: true, maxDepth: 6 });
+  assert.match(fallback, /可能不完整/);
+  assert.match(fallback, /6 层/);
+  // truncated=false 且未命中护栏 → 静默（防过度告警）
+  assert.equal(listTruncationNotice(['a.txt'], { truncated: false, maxDepth: 6 }), '');
+});
+
+test('legacy 后端：深度截断置 truncated（浅树不置，防过度告警）', async () => {
+  const deepFs = createMemoryFs();
+  const deepPath = `${Array.from({ length: WORKSPACE_LIMITS.MAX_DEPTH + 2 }, (_, i) => `d${i}`).join('/')}/deep.txt`;
+  await writeWorkspaceFile({ root, characterId: 'c1', path: deepPath, content: 'x', fileSystem: deepFs });
+  const deep = await listWorkspaceFilesDetailed({ root, characterId: 'c1', fileSystem: deepFs });
+  assert.equal(deep.truncated, true, '超过深度上限必须置 truncated（原先静默 return）');
+  assert.equal(deep.files.includes(deepPath), false, '超深文件本来就不列出');
+
+  const shallowFs = createMemoryFs();
+  const shallowPath = `${Array.from({ length: WORKSPACE_LIMITS.MAX_DEPTH }, (_, i) => `d${i}`).join('/')}/ok.txt`;
+  await writeWorkspaceFile({ root, characterId: 'c1', path: shallowPath, content: 'x', fileSystem: shallowFs });
+  const shallow = await listWorkspaceFilesDetailed({ root, characterId: 'c1', fileSystem: shallowFs });
+  assert.equal(shallow.truncated, false, '没超上限不得谎报截断');
+  assert.ok(shallow.files.includes(shallowPath), '正好在上限内的文件仍要列出');
 });

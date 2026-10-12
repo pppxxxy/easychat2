@@ -22,8 +22,8 @@
 import { rewriteDownloadSourceUrl } from './modelCatalog.js';
 import { localModelIdFromFileName } from './modelState.js';
 
-function lazyReadDownloadQueue() {
-  return require('../storage/localModels.js').readDownloadQueue();
+function lazyReadDownloadQueueStatus() {
+  return require('../storage/localModels.js').readDownloadQueueStatus();
 }
 
 function lazyWriteDownloadQueue(tasks) {
@@ -88,11 +88,22 @@ export function checkDiskSpace({ freeBytes = 0, requiredBytes = 0, headroomRatio
 }
 
 // 镜像回退判定（纯函数）：只有官方源 huggingface 且改写结果有效时给出回退目标。
+// ⚠️ 必须**同时**改写 mmprojUrl（A2）：回退机制存在的唯一理由就是官方源不可达，
+// 只改模型本体则 mmproj 仍走 huggingface ⇒ 模型下完、mmproj 必失败 ⇒
+// modelManager 的失败清理由把刚下完的模型删掉（modelManager.js:239）⇒ 任务 error
+// ⇒ 用户重试 ⇒ 无限循环白耗带宽。URL 为空/改写无效时**不返回空串覆盖**原值。
 export function resolveMirrorFallback(task = {}) {
   if (String(task.sourceId || '') !== MIRROR_FALLBACK_FROM) return null;
   const rewritten = rewriteDownloadSourceUrl(task.modelUrl, MIRROR_FALLBACK_SOURCE_ID);
   if (!rewritten || rewritten === task.modelUrl) return null;
-  return { modelUrl: rewritten, sourceId: MIRROR_FALLBACK_SOURCE_ID };
+  const mmprojRewritten = rewriteDownloadSourceUrl(task.mmprojUrl, MIRROR_FALLBACK_SOURCE_ID);
+  return {
+    modelUrl: rewritten,
+    // 空串不覆盖：调用方用 `fallback.mmprojUrl || baseInput.mmprojUrl` 兜底，
+    // 这里也保持「未改写 = 空串」的诚实形态，不假装改写成功。
+    mmprojUrl: mmprojRewritten && mmprojRewritten !== task.mmprojUrl ? mmprojRewritten : '',
+    sourceId: MIRROR_FALLBACK_SOURCE_ID,
+  };
 }
 
 // 归一化任务：id 由模型标识推导（与 modelManager 下载落点一致），保证同一模型不重复排队。
@@ -134,7 +145,7 @@ export function revivePersistedTasks(tasks = []) {
 
 // 队列执行器工厂：deps 可注入，便于 Node 直测；默认单例绑定真实实现。
 export function createDownloadQueue(deps = {}) {
-  const load = deps.load || lazyReadDownloadQueue;
+  const load = deps.load || lazyReadDownloadQueueStatus;
   const persist = deps.persist || lazyWriteDownloadQueue;
   const download = deps.download || lazyDownloadLocalModel;
   const cancel = deps.cancel || lazyCancelLocalModelDownload;
@@ -162,11 +173,21 @@ export function createDownloadQueue(deps = {}) {
     };
   }
 
+  // 水合（B1）：读失败时**只按空队列展示，绝不写回**。
+  //
+  // 为什么：load 走 storage 的三态读（ok/missing/corrupt）。corrupt 意味着「盘上可能
+  // 存着待下载任务，只是这次读不出来」——此时 persist([]) 会把它们永久清空，且零提示
+  // 零诊断。旧代码是 `await load().catch(() => [])` + 无条件 persist，看起来有兜底，
+  // 其实兜底永远不触发：上游把读失败已经抹平成 [] 这个**正常值**了。这种「假兜底」
+  // 比没有兜底更危险，因为它让人以为这里已经处理过失败。
+  // 纪律先例：worldMap.js:37「读失败就抛错中止：绝不用空列表覆盖已有地图」。
+  // 代价是明确的：这一次水合看不到任务，但盘上的队列还在，下次读成功就回来了。
   async function hydrate() {
     if (tasks) return tasks;
-    const persisted = await load().catch(() => []);
-    tasks = revivePersistedTasks(persisted);
-    await persist(tasks).catch(() => {});
+    const stored = await load().catch(() => ({ status: 'corrupt', value: [] }));
+    const readable = Boolean(stored) && (stored.status === 'ok' || stored.status === 'missing');
+    tasks = revivePersistedTasks(readable ? stored.value : []);
+    if (readable) await persist(tasks).catch(() => {});
     // 水合后若还有 pending（重启残留的任务已降级为 pending），自动继续下载。
     if (tasks.some(task => task.status === DOWNLOAD_TASK_STATUS.PENDING)) {
       setTimeout(() => { kick(); }, 0);

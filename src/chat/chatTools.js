@@ -15,8 +15,30 @@ import { registerTool, unregisterTool } from '../agent/tools/registry.js';
 import { getPlugins } from '../storage/settings/plugins.js';
 import { getProvider } from '../plugins/providers.js';
 import { runWebSearch } from '../plugins/webSearch.js';
-import { runWebFetch } from '../plugins/webFetch.js';
+import { createDomainApprovalRequester, runWebFetch } from '../plugins/webFetch.js';
+import {
+  addWebFetchWhitelistDomain,
+  isWebFetchDomainWhitelisted,
+} from '../storage/settings/webFetchWhitelist.js';
 import { tActive } from '../i18n/index.js';
+
+// RN Alert 的懒加载（照 chat/toolApproval.js:29-41 的手法）：本模块是**纯 JS、
+// Node 可直测**（见文件头），在顶层 import react-native 会把 Node 测试打挂。
+// 只在真正要弹窗时 require 一次并缓存；取不到就当「问不到用户」⇒ webFetch 侧按拒绝结算。
+let rnAlert = null;
+let rnAlertLoaded = false;
+
+function getAlert() {
+  if (!rnAlertLoaded) {
+    rnAlertLoaded = true;
+    try {
+      rnAlert = require('react-native').Alert;
+    } catch (error) {
+      rnAlert = null;
+    }
+  }
+  return rnAlert;
+}
 
 export const CHAT_SEARCH_TOOL_NAME = 'web_search';
 export const CHAT_FETCH_TOOL_NAME = 'web_fetch';
@@ -144,7 +166,21 @@ export function createChatFetchToolDefinition() {
         allowedDomains = config ? config.allowedDomains : '';
       } catch (error) {}
       try {
-        const page = await runWebFetch({ url, allowedDomains, signal: ctx.signal || null });
+        // 未知域名授权闸门（用户要求）：allowedDomains 是**预授权**名单；未命中就进
+        // 授权闸门，由宿主弹「系统级安全确认框」问用户，缺回调 = 问不到 = 拒绝。
+        // ⚠️ 此前这里**只传 allowedDomains**，于是 allowedDomains 为空（默认）时
+        // 每一个域名都会以 domainBlocked 拒绝 —— web_fetch 实际不可用。
+        // 三个选项必须一起接线：白名单查询 / 弹窗应答方 / 记住「永久允许」。
+        const page = await runWebFetch({
+          url,
+          allowedDomains,
+          signal: ctx.signal || null,
+          isDomainWhitelisted: isWebFetchDomainWhitelisted,
+          rememberDomain: addWebFetchWhitelistDomain,
+          // 应答方工厂负责「拒绝放第一个（Android 默认把第一个按钮当肯定项）」
+          // 与「关掉弹窗 = 拒绝」两条安全不变量，宿主只提供 showAlert。
+          requestDomainApproval: createDomainApprovalRequester({ showAlert: getAlert() }),
+        });
         return { content: formatFetchedPage(page), isError: false };
       } catch (error) {
         // 用户中断要按中断语义抛出去（调用方据此标记「已取消」而不是「失败」）。

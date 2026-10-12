@@ -80,14 +80,17 @@ test('runAgentTurn 接了 onToolApproval + permissionRules，并把中止信号�
   assert.ok(/approveToolCall\(/.test(hookBlock), '必须接上完整流转（规则 → 弹框）');
   assert.ok(/signal:\s*controller\.signal/.test(hookBlock),
     '审批要拿到中止信号：用户点停止时不留悬挂弹框');
-  // P1（2026-10-11）：钩子规则（before_shell / before_tool）**不走审批**——审批只在
-  // 需要确认的工具上被调用，写工具按设计不逐条确认，只接审批等于规则永不生效。
-  // 它们由 permissionRules 一路喂给 registry.runTool（对任意工具求值）；同时并入
-  // 设置面板手写的存储规则（否则面板写的 deny/ask 对写工具不生效）。
-  assert.ok(block.includes('permissionRules: async () => [')
-    && block.includes('readHookPermissionRules(hookStore, character.id)')
-    && block.includes('getEffectivePermissionRules()'),
-    '钩子规则 + 设置面板存储规则都要接进 runTool（否则写工具上的 deny 永不生效）');
+  // P1（2026-10-11）+ P0-2（2026-10-12）：规则**不走审批**——审批只在需要确认的工具上
+  // 被调用，写工具按设计不逐条确认，只接审批等于规则永不生效。它们由 permissionRules
+  // 一路喂给 registry.runTool（对任意工具求值）。
+  // ⚠️ 两线各自独立修了「只接钩子规则 ⇒ 面板手写 deny 对写工具是死键」；
+  // 合并后**取 D 线形态**：走 readToolPermissionRules（钩子规则 + 用户存储规则合并，
+  // 合并点在 toolApprovalFlow —— hooks.js 保持存储无关，否则纯 Node 用例会被 expo 依赖打挂）。
+  // 断言因此同时钉住「必须合并」与「不得退回只接钩子规则」。
+  assert.ok(/permissionRules:\s*async\s*\(\)\s*=>\s*readToolPermissionRules\(/.test(block),
+    '钩子 + 存储规则要合并后接进 runTool（否则写工具上的手写 deny 永不生效）');
+  assert.ok(!/permissionRules:\s*async\s*\(\)\s*=>\s*\[/.test(block),
+    '不得退回「两边各读一份、在调用点拼数组」的旧形态（合并点应收在 toolApprovalFlow）');
   assert.ok(/t:\s*tRef\.current/.test(block), '审批文案走 tRef（跟当前语言，不用闭包旧 t）');
 });
 

@@ -119,6 +119,30 @@ test('pathMatchesGlob：* 不跨层、** 跨任意层（含零层）、大小写
   assert.equal(pathMatchesGlob('**', 'anything/at/all.js'), true);
 });
 
+// ⚠️ P0-3（2026-10-12）：pattern 与 target **都**必须归一（`\`→`/`、丢 `.` 段），
+// 否则「规则看 A 串、store 落盘 B 路径」——同一威胁模型的第三处路径实现被绕过。
+// 实测绕过：`.easychat\hooks.json` 与 `.easychat/./hooks.json` 规则不命中，而 store
+// 的 normalizeWorkspacePath 两者都折成 `.easychat/hooks.json` 落盘。
+test('P0-3 回归：路径 glob 两侧都归一（反斜杠 / . 段），同一路径的另一种写法不得绕过', () => {
+  // target 侧：反斜杠与 `.` 段
+  assert.equal(pathMatchesGlob('.easychat/hooks.json', '.easychat\\hooks.json'), true, '反斜杠必须归一');
+  assert.equal(pathMatchesGlob('.easychat/hooks.json', '.easychat/./hooks.json'), true, '`.` 段必须丢弃');
+  assert.equal(pathMatchesGlob('src/a.js', 'src\\a.js'), true);
+  assert.equal(pathMatchesGlob('src/a.js', './src/./a.js'), true);
+  assert.equal(pathMatchesGlob('src/**/*.js', 'src\\lib\\app.js'), true, '** 也要认反斜杠路径');
+  // pattern 侧同样归一（用户手写规则时两种写法都该生效）
+  assert.equal(pathMatchesGlob('.easychat\\hooks.json', '.easychat/hooks.json'), true);
+  assert.equal(pathMatchesGlob('./src/*.js', 'src/a.js'), true);
+
+  // 不误伤：不同路径仍不命中（归一不能变成「什么都匹配」）
+  assert.equal(pathMatchesGlob('src/a.js', 'src/b.js'), false);
+  assert.equal(pathMatchesGlob('src/a.js', 'other/a.js'), false);
+  assert.equal(pathMatchesGlob('.easychat/hooks.json', '.easychat/hooks.json.bak'), false);
+  // 归一失败（含 NUL）按**不匹配**处理 —— fail-closed，绝不因归一失败而放行
+  assert.equal(pathMatchesGlob('src/a.js', 'src/\u0000a.js'), false, 'NUL 归一失败 → 不匹配');
+  assert.equal(pathMatchesGlob('src/\u0000a.js', 'src/a.js'), false, 'pattern 侧同理');
+});
+
 test('commandPrefixMatches：词边界——绝不静默放行「前缀相同但其实是另一条命令」', () => {
   assert.equal(commandPrefixMatches('npm install', 'npm install'), true);
   assert.equal(commandPrefixMatches('npm install', 'npm install express'), true);

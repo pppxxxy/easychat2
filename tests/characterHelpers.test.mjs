@@ -12,13 +12,18 @@ import {
   hasCardContent,
   isLargeImport,
   isPngBuffer,
+  placementText,
+  positionText,
   worldEntryMeta,
   CHARACTER_LIST_COLLAPSE_LIMIT,
   LARGE_IMPORT_BYTES,
   MAX_IMPORT_BYTES,
   NO_CARD_DATA_MESSAGE_KEY,
 } from '../src/character/cardHelpers.js';
+// 两线合并：main 侧断言中文词条原文（zhCN），D 线断言 placementText 按**活动语言**
+// 取词条（tActive）故需 setActiveLocale 切语言。用途不同，两个都要。
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { setActiveLocale } from '../src/i18n/index.js';
 
 test('导入体积阈值与格式化', () => {
   assert.equal(LARGE_IMPORT_BYTES, 2 * 1024 * 1024);
@@ -113,6 +118,114 @@ test('worldEntryMeta：传 strings 时三条分支都走词条，不再漏中文
   assert.equal(worldEntryMeta({}, strings), 'No keys');
   // 内容摘要本来就是数据本身，与语言无关，传 strings 也不该被替换
   assert.equal(worldEntryMeta({ content: '  body  ' }, strings), 'body');
+});
+
+// ---- 正则作用范围文案：修复「英文界面仍显示中文」----
+//
+// 背景：placement 是语言无关的数字（1/2/3/5/6），但文案此前硬编码在
+// cardParser/forge 的中文常量表里、且被写进卡片数据（regexScripts[].placementLabel）。
+// 英文界面因此长期显示「用户输入 / AI 输出」。修复后由 placementText 按活动语言取词条。
+test('placementText：按活动语言取词条，英文界面不再漏中文', () => {
+  try {
+    setActiveLocale('en');
+    assert.equal(placementText([1]), 'User input');
+    assert.equal(placementText([1, 2]), 'User input、AI output');
+    assert.equal(placementText([3, 5, 6]), 'Quick command、World info、Reasoning');
+    // 认不出的数字逐项走调用方给的兜底模板（不静默丢弃、不显示空白）
+    assert.equal(
+      placementText([99], { scopeFallback: 'Scope {key}' }),
+      'Scope 99'
+    );
+    // 部分认得出：认得出的给词条，认不出的给兜底
+    assert.equal(
+      placementText([2, 99], { scopeFallback: 'Scope {key}' }),
+      'AI output、Scope 99'
+    );
+
+    setActiveLocale('zh-CN');
+    assert.equal(placementText([1, 2]), '用户输入、AI 输出');
+  } finally {
+    // 活动语言是模块级状态，别污染同进程的其它测试
+    setActiveLocale('zh-CN');
+  }
+});
+
+test('placementText：兼容性——旧卡的中文 placementLabel 仍能优雅渲染（不变空白）', () => {
+  try {
+    setActiveLocale('en');
+    // 老卡只有 placementLabel、没有可用的 placement（历史数据/第三方卡）：
+    // 必须回落到旧中文文案，而不是空白。
+    assert.equal(
+      placementText([], { legacyLabel: 'AI 输出' }),
+      'AI 输出',
+      'placement 缺失时回落到旧 placementLabel'
+    );
+    // 认不出的 placement 同样回落（老卡可能存了非标准数字）
+    assert.equal(
+      placementText([42], { legacyLabel: '用户输入、AI 输出' }),
+      '用户输入、AI 输出'
+    );
+    // 有可识别的 placement 时以 placement 为准（新文案随语言），旧值只是兜底
+    assert.equal(
+      placementText([2], { legacyLabel: '用户输入' }),
+      'AI output',
+      'placement 可识别时不使用旧值'
+    );
+    // 旧值也是空 → 走 scopeFallback，不能变成空串
+    assert.equal(placementText([], { legacyLabel: '', scopeFallback: 'Scope {key}' }), '');
+    assert.equal(placementText([7], { legacyLabel: '   ', scopeFallback: 'Scope {key}' }), 'Scope 7');
+  } finally {
+    setActiveLocale('zh-CN');
+  }
+});
+
+test('positionText：与 placementText 同族——位置文案按活动语言取，英文界面不漏中文', () => {
+  try {
+    setActiveLocale('en');
+    // 已知 0-7 全部走词条（此前 editors.js 把中文常量表插进模板，英文界面显示中文）
+    assert.equal(positionText(0), 'Before character definition');
+    assert.equal(positionText(4), 'Insert at depth');
+    assert.equal(positionText(7), 'Anchor');
+    setActiveLocale('zh-CN');
+    assert.equal(positionText(0), '角色定义之前');
+    assert.equal(positionText(4), '按深度插入');
+    // 认不出的数字 → positionFallback（不静默变空白）
+    assert.equal(positionText(99, { positionFallback: 'Position {key}' }), 'Position 99');
+    assert.equal(positionText(undefined, { positionFallback: 'Position {key}' }), 'Position undefined');
+  } finally {
+    setActiveLocale('zh-CN');
+  }
+});
+
+test('positionText：兼容性——旧卡的中文 positionLabel 仍能渲染（不变空白）', () => {
+  try {
+    setActiveLocale('en');
+    // 老卡只有中文 positionLabel、没有合法 position：回落旧值，而不是空白
+    assert.equal(positionText(undefined, { legacyLabel: '按深度插入' }), '按深度插入');
+    assert.equal(positionText(42, { legacyLabel: '锚点' }), '锚点');
+    // position 可识别时以 position 为准（文案随语言现算），旧值只是兜底
+    assert.equal(positionText(4, { legacyLabel: '角色定义之前' }), 'Insert at depth');
+  } finally {
+    setActiveLocale('zh-CN');
+  }
+});
+
+test('buildCharacterPatch：导入即落库的保存路径清掉中文派生文案（同族字段）', () => {
+  // positionLabel / placementLabel 都是**当时语言下的文案**，权威字段是语言无关的
+  // position / placement。导入路径此前原样透传，旧中文就随导出/分享传播。
+  const patch = buildCharacterPatch({
+    name: '老卡',
+    worldInfo: [{ id: 'w1', comment: '甲', content: 'x', position: 4, positionLabel: '按深度插入' }],
+    regexScripts: [{ id: 'r1', findRegex: 'a', placement: [1], placementLabel: '用户输入' }],
+  });
+  assert.equal(patch.worldInfo[0].positionLabel, '', '导入不得落盘中文 positionLabel');
+  assert.equal(patch.worldInfo[0].position, 4, '权威字段 position 原样保留');
+  assert.equal(patch.regexScripts[0].placementLabel, '', '导入不得落盘中文 placementLabel');
+  assert.deepEqual(patch.regexScripts[0].placement, [1]);
+  // 干净卡片原样透传（不制造无谓的对象重建 / diff）
+  const cleanEntry = { id: 'w2', content: 'y', position: 1, positionLabel: '' };
+  const cleanPatch = buildCharacterPatch({ name: '新卡', worldInfo: [cleanEntry] });
+  assert.equal(cleanPatch.worldInfo[0], cleanEntry);
 });
 
 test('gridRowIndex：网格定位按行号折算（回归：numColumns 下半部分越界闪退）', () => {

@@ -326,3 +326,47 @@ test('F2 空目录可删：只删空目录（非空拒绝且内容原样 / 根�
   assert.equal((await store.deleteWorkspaceDirectory({ characterId: 'c1', path: '' })).deleted, false);
   assert.equal((await store.deleteWorkspaceDirectory({ characterId: 'c1', path: 'nope/' })).deleted, false);
 });
+
+// 🔴 深度截断必须置 truncated（2026-10-10）：SAF 后端原先 MAX_DEPTH=6 且深度到顶
+// 只 return，于是 7 层以上的目录内容**既不列出也不告警**（列表的 truncated 只表示
+// MAX_FILES 到顶），模型会把不完整清单当完整事实推理。
+test('SAF 后端：深度截断置 truncated（与 legacy 同值），浅树不置', async () => {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: ROOT, adapter });
+  const deepPath = `${Array.from({ length: SAF_LIMITS.MAX_DEPTH + 2 }, (_, i) => `d${i}`).join('/')}/deep.txt`;
+  await store.writeWorkspaceFile({ characterId: 'c1', path: deepPath, content: 'x' });
+  const deep = await store.listWorkspaceFilesWithMeta({ characterId: 'c1' });
+  assert.equal(deep.truncated, true, '超过深度上限必须置 truncated');
+  assert.equal(deep.files.includes(deepPath), false, '超深文件本来就不列出');
+
+  const shallowAdapter = createFakeSaf();
+  const shallowStore = createSafWorkspaceStore({ root: ROOT, adapter: shallowAdapter });
+  const shallowPath = `${Array.from({ length: SAF_LIMITS.MAX_DEPTH }, (_, i) => `d${i}`).join('/')}/ok.txt`;
+  await shallowStore.writeWorkspaceFile({ characterId: 'c1', path: shallowPath, content: 'x' });
+  const shallow = await shallowStore.listWorkspaceFilesWithMeta({ characterId: 'c1' });
+  assert.equal(shallow.truncated, false, '没超上限不得谎报截断');
+  assert.ok(shallow.files.includes(shallowPath), '正好在上限内的文件仍要列出');
+});
+
+// adapter 读目录抛错时异常直接外传 ⇒ 删除行根本不会执行（这是**故意**不吞异常，
+// 别"统一"成 store.js 里那种 catch 后再当空目录的写法）。
+test('SAF 删除守卫：listChildren 抛错时异常外传且不删（不得递归删掉非空目录树）', async () => {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: ROOT, adapter });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'repos/o/r/main/a.js', content: 'x' });
+  const original = adapter.listChildren.bind(adapter);
+  // 假 SAF 的 uri 里没有显示名（content:// 不是路径），只能按节点名找。
+  const mainUri = [...adapter.nodes.values()].find(node => node.name === 'main' && node.isDirectory).uri;
+  adapter.listChildren = async uri => {
+    if (uri === mainUri) throw new Error('SAF 授权瞬时失效');
+    return original(uri);
+  };
+  await assert.rejects(
+    store.deleteWorkspaceDirectory({ characterId: 'c1', path: 'repos/o/r/main/' }),
+    /授权瞬时失效/,
+    '读不到就必须报错，而不是当成空目录放行删除',
+  );
+  adapter.listChildren = original;
+  const kept = await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.ok(kept.includes('repos/o/r/main/a.js'), '非空目录树完整保留');
+});

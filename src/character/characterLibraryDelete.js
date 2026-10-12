@@ -71,8 +71,13 @@ export function characterCleanupFailureMessageKey({ momentsDeleted, sessionsDele
 //
 // 另一个必须写清的事实（决定了本顺序的收益边界）：动态其实**已经**由角色删除本身带走
 // —— storage/moments.js:285 注册的 onCharacterDeleted 钩子在每次删角色时按 characterId
-// 清动态（与用户选没选「连动态一起删」无关，这是既有的、与「仅删角色」文案不一致的行为，
-// 见报告里「需要别的文件配合的清单」）。因此：
+// 清动态（与用户选没选「连动态一起删」无关）。这是**刻意保留**的行为：要让它跟着用户意图走，
+// 得给 onCharacterDeleted 带上「是否删关联数据」的意图位，而注册方共 9 个
+// （affinity / characterEditDraft / characterRuntimeOverrides / worldMap / agentTasks /
+// characterSchedule / security / diary / moments），远超「≤3 个才值得改签名」的门槛；
+// 所以修的是**文案**而不是行为：i18n/locales/{zh-CN,en}/character.js 的
+// delete.onlyCharacter / delete.withLinked 已如实说明动态会一并删除，承诺与行为一致
+// （回归测试见 tests/characterDeleteMomentsHonesty.test.mjs）。因此：
 // - 调整顺序**不可能**让动态变得更危险（它本来就随角色删除走）；
 // - 真正的不可逆风险在**会话（记忆）**：它不被任何钩子清，旧顺序下「先删会话、后删角色」
 //   一旦角色删除失败，记忆就永久没了 —— 这正是本次顺序调整要修的洞；

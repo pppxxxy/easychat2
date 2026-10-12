@@ -121,7 +121,12 @@ test('端到端：开关关着时工具不注册、快照照记（回退路径�
 
   // 写文件 → 记了快照（写工具把 .easychat/file-history 写进去）
   const store = {
-    async readWorkspaceFile() { return { path: 'a.txt', content: 'old', truncated: false }; },
+    async readWorkspaceFile(args) {
+      // 索引路径给合法内容（'[]'）：恒返回 'old' 会让 index.json 变成「内容坏掉」，
+      // 而坏索引刻意不写（fileHistory.readIndex）。
+      if (String(args && args.path).includes('file-history')) return { content: '[]' };
+      return { path: 'a.txt', content: 'old', truncated: false };
+    },
     async writeWorkspaceFile(args) {
       await fileSystem.writeAsStringAsync(`${SANDBOX}${args.path}`, String(args.content));
       return { path: args.path, length: 3 };

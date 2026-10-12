@@ -41,6 +41,35 @@ function nextApprovalRequestId() {
   return `approval-${approvalRequestSeq}`;
 }
 
+// 宿主接 registry.runTool 的 `ctx.permissionRules` 用的**合并入口**：钩子规则 + 用户存储规则。
+//
+// ⚠️ P0-2（2026-10-12）：为什么必须合并 —— 存储规则（弹框「永远允许」+ 设置页手写）此前
+// **只**经 approveToolCall 求值，而它只在 `requiresConfirmation || verdict==='ask'` 时才被调用。
+// `readOnly:false` 且未声明 requiresConfirmation 的工具（write_workspace_file /
+// edit_workspace_file / create_workspace_dir / export_workspace_docx / git_commit，
+// 外加 web_search / web_fetch）**两道闸门都不存在** ⇒ 用户手写的 deny 对它们是**死键**
+// （实测：deny write_workspace_file secret/** 仍写出了 secret/key.txt）。
+//
+// 这与 2026-10-11 那次修复是**同一事故、换了来源**：那次只把 hooks 规则接进了 runTool，
+// 存储规则那条通路没接。现在两条都接上，runTool 才真正对**任意工具**求值。
+//
+// 为什么放在本模块而不是 workspace/hooks.js：hooks.js 是**存储无关**的（store 由调用方注入，
+// 所以 Node 测试能直接 import 它）；在这里加存储 import 会把 io.js → expo-file-system 拖进
+// 那些纯 Node 用例，直接把测试链打挂。本模块本来就同时依赖两边，是天然的合并点。
+//
+// 逐源兜错（不整体 try）：一个来源读失败不该让另一个来源失效 —— 预置禁令是用户写在工作区
+// 文件里的，存储异常不该让它失效；反过来同理。口径同下面 approveToolCall 的注释（宁问不猜）。
+export async function readToolPermissionRules(hookRules) {
+  const injected = Array.isArray(hookRules) ? hookRules : [];
+  try {
+    return [...injected, ...(await getEffectivePermissionRules())];
+  } catch (error) {
+    // 存储读失败 → 当「没有存储规则」，但**钩子规则仍要参与求值**。
+    // deny 优先由 evaluate 保证，与来源和顺序无关。
+    return injected;
+  }
+}
+
 // registry 的 onToolApproval 钩子入口：返回 boolean（true = 执行）。
 // 两处调用点（聊天页 useChatSend / 工作区 ChatPanel）共用，规则也跨页共享——
 // 用户在任一处说了「永远允许 npm install」，另一处同样生效（同一个工具、同一份授权）。

@@ -300,8 +300,22 @@ test('记忆总结设置：总结接口与长记忆保留上限的归一化', as
   assert.equal(bad.configId, '42', 'configId 一律转字符串');
   assert.equal(bad.maxEntries, 100, '非法上限回落默认 100');
 
+  // ⚠️ 两线合并（2026-10-12）：此处口径**已变更**（D 线的「第四态」修复）——
+  // 键损坏时不再静默回落默认值，而是**抛错**：因为本域是「读-改-写整键覆盖」，
+  // 回落默认值会让用户「随手改一个字段」就把整键覆盖成默认值（不可逆、无备份）。
+  // 现在 corrupt（含「合法 JSON 但形状不对」的第四态）会先 backupCorruptValue 再抛错，
+  // 由调用方（设置页）提示「读不出，已中止保存」；「键从未存在过」仍照旧回落默认值。
   store.set('@easychat2_memory_summary', '{ not json');
-  assert.equal((await settings.getMemorySummarySettings()).maxEntries, 100, '损坏回退默认');
+  await assert.rejects(
+    () => settings.getMemorySummarySettings(),
+    /读取失败/,
+    '损坏时必须抛错而不是静默回落默认值（否则下次保存会整键覆盖损坏原值）',
+  );
+  // 原始字节已留副本，未被覆盖
+  assert.equal(store.get('@easychat2_memory_summary'), '{ not json', '损坏原值必须原样留在盘上');
+  store.delete('@easychat2_memory_summary');
+  // 「键从未存在过」= 首次使用：仍照旧回落默认值（防过度修正）
+  assert.equal((await settings.getMemorySummarySettings()).maxEntries, 100, '缺失时回落默认');
   store.delete('@easychat2_memory_summary');
 });
 

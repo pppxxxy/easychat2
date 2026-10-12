@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { formatContext, hasTrigger, shouldSearch, runPlugins } from '../src/plugins/registry.js';
+// 两线合并：main 侧的 provider 测试需要 buildRequest / parseResults；
+// D 侧源码级断言需要 readFileSync（见文件头部导入）。
 import { runWebSearch, buildRequest, parseResults } from '../src/plugins/webSearch.js';
 import { PROVIDERS, getProvider, missingRequiredFields } from '../src/plugins/providers.js';
 
@@ -127,9 +130,11 @@ test('missingRequiredFields：自定义供应商要求地址与密钥', () => {
 });
 
 test('missingRequiredFields：容错输入与未知供应商回退首个', () => {
-  // 首个提供方是 AnySearch 匿名档（无需密钥），故 null 输入不再缺 apiKey
+  // 两线合并取 main 侧：main 新增了 AnySearch 匿名档并把它排到 PROVIDERS[0]，
+  // 而它是**无需密钥**的 ⇒ `null` 输入回退到首个提供方时不再缺 apiKey。
+  // D 侧那条 `['apiKey']` 是加 AnySearch 之前的旧口径，已随合并作废。
   assert.deepEqual(missingRequiredFields(null, null), []);
-  assert.equal(PROVIDERS[0].id, 'anysearch');
+  assert.equal(PROVIDERS[0].id, 'anysearch', '首个提供方是 AnySearch 匿名档（无需密钥）');
   assert.deepEqual(missingRequiredFields(getProvider('不存在'), { apiKey: 'k' }), []);
   // 每个内置供应商都能被判定，不抛异常
   PROVIDERS.forEach(provider => {
@@ -208,6 +213,103 @@ test('联网搜索冷却与失败一次性上报：成功后重新允许上报',
   }
 });
 
+// ---- 4xx 判定必须走结构化状态码，不能走本地化文案 ----
+//
+// 原实现是 `/HTTP 4\d\d/.test(error.message || '')`，而 message 来自
+// tActive('error.webSearch.httpFailed', { status }) ⇒ 「重试与否」变成
+// 「当前语言与文案模板」的函数。以下用**任意文案**的 4xx/5xx 错误验证判据已换。
+
+function makeStatusXHR(status) {
+  return class {
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.status = status;
+      this.responseText = '{}';
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  };
+}
+
+test('4xx 结构化判定：429 不重试（文案与状态码无关）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  let requests = 0;
+  const Base = makeStatusXHR(429);
+  globalThis.XMLHttpRequest = class extends Base {
+    send() { requests += 1; super.send(); }
+  };
+  try {
+    await assert.rejects(
+      () => runWebSearch({
+        query: '四二九不重试',
+        config: { provider: 'custom', customBaseUrl: 'https://example.test/search', apiKey: 'key-429-123456' },
+      }),
+      // 文案里**故意不含** "HTTP 4xx" 形态：判据若还依赖文案，这里会变成重试
+      error => error.httpStatus === 429
+    );
+    assert.equal(requests, 1, '4xx 是确定性失败，只应发一次');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('4xx 结构化判定：500 走重试', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  let requests = 0;
+  const Base = makeStatusXHR(500);
+  globalThis.XMLHttpRequest = class extends Base {
+    send() { requests += 1; super.send(); }
+  };
+  try {
+    await assert.rejects(
+      () => runWebSearch({
+        query: '五零零要重试',
+        config: { provider: 'custom', customBaseUrl: 'https://example.test/search', apiKey: 'key-500-123456' },
+      }),
+      error => error.httpStatus === 500
+    );
+    assert.equal(requests, 2, '5xx 可恢复：MAX_RETRIES=1 ⇒ 首发 + 1 次重试');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('4xx 判定源码级：不得再出现「正则匹配 HTTP 4xx」形态', () => {
+  const source = readFileSync(new URL('../src/plugins/webSearch.js', import.meta.url), 'utf8');
+  // 源码里不得出现 /HTTP 4\d\d/ 这类「文案即协议」的判据（注释里也不允许留原形态）
+  assert.doesNotMatch(source, /HTTP 4\\d\\d/, '不得再用 HTTP 4xx 文案正则做判据');
+  assert.doesNotMatch(source, /test\(\s*error\.message/, '不得再拿 error.message 做正则判据');
+  // 必须改判结构化状态码
+  assert.match(source, /error\.httpStatus/, '必须改判结构化 httpStatus');
+});
+
+// ==== 以下来自 main 侧：AnySearch 两家 provider 的测试（两线合并时并入）====
+
+function captureXhr(captured) {
+  return class CapturingXHR {
+    open(method, url) {
+      this.method = method;
+      this.url = url;
+    }
+    setRequestHeader(key, value) {
+      this.headers = { ...(this.headers || {}), [key]: value };
+    }
+    send(body) {
+      captured.push({ method: this.method, url: this.url, headers: this.headers, body });
+      this.status = 200;
+      this.responseText = JSON.stringify({
+        code: 0,
+        message: 'success',
+        data: { results: [{ title: '结果甲', url: 'https://example.com/1', snippet: '摘要甲' }] },
+      });
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  };
+}
+
+
 test('AnySearch 密钥档：POST + Bearer 头，query/max_results 走请求体', () => {
   const provider = getProvider('anysearch-key');
   assert.equal(provider.id, 'anysearch-key');
@@ -254,28 +356,8 @@ test('AnySearch：结果位于响应信封 data.results', () => {
   ]);
 });
 
-function captureXhr(captured) {
-  return class CapturingXHR {
-    open(method, url) {
-      this.method = method;
-      this.url = url;
-    }
-    setRequestHeader(key, value) {
-      this.headers = { ...(this.headers || {}), [key]: value };
-    }
-    send(body) {
-      captured.push({ method: this.method, url: this.url, headers: this.headers, body });
-      this.status = 200;
-      this.responseText = JSON.stringify({
-        code: 0,
-        message: 'success',
-        data: { results: [{ title: '结果甲', url: 'https://example.com/1', snippet: '摘要甲' }] },
-      });
-      queueMicrotask(() => this.onload && this.onload());
-    }
-    abort() {}
-  };
-}
+// ⚠️ captureXhr 已在文件前部定义（共同祖先带来的那份，D 侧与 main 侧内容一致）——
+// 两线合并时 main 侧把它一起带了过来，去重后只保留前一份，此处不再重复声明。
 
 test('AnySearch 密钥档：runWebSearch 端到端带 Bearer 并解析信封结果', async () => {
   const originalXHR = globalThis.XMLHttpRequest;
@@ -326,4 +408,3 @@ test('missingRequiredFields：AnySearch 密钥档要求密钥，匿名档不要�
   assert.deepEqual(missingRequiredFields(anonymous, {}), []);
   assert.deepEqual(missingRequiredFields(anonymous, { apiKey: '' }), []);
 });
-

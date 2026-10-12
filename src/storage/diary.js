@@ -31,9 +31,20 @@ function diaryItemKey(id) {
 // 读设置并**保留读取状态**。读路径对外行为不变（损坏时仍返回默认设置给 UI），
 // status 只交给写路径判定「这次能不能写回」。
 // 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+// **形状校验收进读函数**：readJsonStatus 的 `ok` 只保证 JSON.parse 成功，值可能是
+// null / 原语 / 数组。「合法 JSON 但形状不是对象」的第四态此前被
+// normalizeDiarySettings 吞成默认值、status 仍是 ok ⇒ :66 只拦 corrupt 的守卫放行
+// ⇒ saveDiarySettings 整键覆盖，**全部角色的日记开关 + 全局 API 来源**被清空
+// （触发点见 saveDiarySettings 注释里的角色删除钩子）。形状坏与 corrupt 折进同一个
+// status 后守卫无需改动即 fail-closed。判据形态照 settings/tts.js:50-56、
+// globalPresets.js:89-93、security.js 同批修复。
 async function readDiarySettingsStatus() {
   const stored = await readJsonStatus(DIARY_SETTINGS_KEY);
-  if (stored.status === 'corrupt') {
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok'
+      && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
+  ) {
     await backupCorruptValue(DIARY_SETTINGS_KEY);
     return { status: 'corrupt', settings: normalizeDiarySettings(null) };
   }

@@ -22,8 +22,16 @@ import { ROLLBACK_KEEP } from '../src/workspace/rollbackBaseline.js';
 import { SESSION_EVENTS_MAX_BYTES } from '../src/workspace/sessionEvents.js';
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
 import { en } from '../src/i18n/locales/en.js';
+import { tActive } from '../src/i18n/index.js';
 
 // fake SAF store：内存文件表 + delete 记录。
+// 「文件不存在」必须与真后端同形：两个后端抛的都是 i18n 文案 error.workspace.fileNotFound
+//（store.js:120、safStore.js:178/180），fileHistory 靠它区分「索引还没建（= 可新建）」
+// 与「读失败（= 绝不复写）」。桩若只抛 new Error('missing')，就把「读失败」也一并算成
+// 失败——那是**过度修正**（全新工作区的第一条快照会永远记不上），不是被测量的行为。
+export function missingFileError(path) {
+  return new Error(tActive('error.workspace.fileNotFound', { path }));
+}
 function makeStore() {
   const files = new Map();
   const deleted = [];
@@ -33,7 +41,7 @@ function makeStore() {
     store: {
       async writeWorkspaceFile({ path, content }) { files.set(path, content); },
       async readWorkspaceFile({ path }) {
-        if (!files.has(path)) throw new Error('missing');
+        if (!files.has(path)) throw missingFileError(path);
         return { content: files.get(path) };
       },
       async deleteFile({ path }) { deleted.push(path); files.delete(path); },
@@ -45,7 +53,8 @@ test('J1 元数据收敛：白名单字段 / 坏输入 null / 来源收敛', () 
   const meta = normalizeHistoryEntry({
     id: 'abc-1',
     path: 'src/a.js',
-    source: 'push-baseline',
+    // 合法来源已收敛为 ['tool', 'restore']（'push-baseline' 是零生产者的死枚举值，已删）。
+    source: 'restore',
     size: 12,
     restorable: true,
     at: 555,
@@ -54,7 +63,7 @@ test('J1 元数据收敛：白名单字段 / 坏输入 null / 来源收敛', () 
   assert.deepEqual(meta, {
     id: 'abc-1',
     path: 'src/a.js',
-    source: 'push-baseline',
+    source: 'restore',
     size: 12,
     restorable: true,
     at: 555,
@@ -264,11 +273,16 @@ test('J1 二期接线：文件面板打开「文件历史」，sheet 走 list/re
   assert.ok(zhCN['workspace.fileHistory.restoreBody'].includes('{path}'), '恢复确认文案带路径占位符');
 });
 
-test('退旧：recordFileHistory=false 时写工具不再落快照（本地 git 接管）', async () => {
-  const { createWorkspaceToolDefinitions } = await import('../src/workspace/tools.js');
+test('退旧：recordFileHistory=false 时写工具不再落快照（本地 git 接管）', async () => {  const { createWorkspaceToolDefinitions } = await import('../src/workspace/tools.js');
   const historyWrites = [];
   const store = {
-    async readWorkspaceFile(args) { return { path: args.path, content: 'old', truncated: false }; },
+    async readWorkspaceFile(args) {
+      // 索引路径必须返回**合法**索引：恒返回 'old' 会让 file-history/index.json 变成
+      // 「读得到但内容坏掉」，而那条路径刻意不写（见 fileHistory.readIndex：坏索引当读失败，
+      // 绝不用一份自以为的列表覆写它）。
+      if (String(args.path).includes('file-history')) return { content: '[]' };
+      return { path: args.path, content: 'old', truncated: false };
+    },
     async writeWorkspaceFile(args) {
       if (String(args.path).includes('file-history')) historyWrites.push(args.path);
       return { path: args.path, length: 3 };
@@ -284,4 +298,72 @@ test('退旧：recordFileHistory=false 时写工具不再落快照（本地 git 
     .find(item => item.name === 'write_workspace_file');
   await withoutHistory.execute({ path: 'a.txt', content: 'new' }, ctx);
   assert.deepEqual(historyWrites, [], 'git 开着时不再写快照文件');
+});
+
+// 🔴 P0 数据丢失回归（2026-10-10）：索引**读失败**绝不能被当成「空索引」。
+//
+// 旧实现 readIndex 的 catch 里 `return []`，于是 recordFileHistory 拿 [新 meta] **整体覆写**
+// index.json：几百条旧快照文件还在磁盘上，但 index 不再引用它们 —— readFileHistoryEntry
+// 以 index 成员资格为准 ⇒ 那些快照永远查不到、也删不掉（轮换同样管不到），
+// 历史在 UI 上等于被清空且不可恢复（唯一的后悔药）。
+// 同款反模式的修复先例：boardStore.js:42-48（空内容不写、不覆盖已有文件）。
+test('J1 索引读失败：不得覆写 index.json（逐字节不变）且返回 ok:false', async () => {
+  const files = new Map();
+  const writes = [];
+  let failIndexRead = false;
+  const store = {
+    async readWorkspaceFile({ path }) {
+      // 非「文件不存在」= 读失败（SAF 授权瞬时失效 / 文件被截断 / 并发写坏）。
+      if (failIndexRead) throw new Error('SAF 授权瞬时失效');
+      if (!files.has(path)) throw missingFileError(path);
+      return { content: files.get(path) };
+    },
+    async writeWorkspaceFile({ path, content }) { writes.push(path); files.set(path, String(content)); },
+    async deleteFile({ path }) { files.delete(path); },
+  };
+  const original = JSON.stringify([
+    { id: 'old-1', path: 'a.js', source: 'tool', size: 3, restorable: true, at: 10 },
+    { id: 'old-2', path: 'b.js', source: 'tool', size: 3, restorable: true, at: 20 },
+    { id: 'old-3', path: 'c.js', source: 'tool', size: 3, restorable: true, at: 30 },
+  ]);
+  files.set(FILE_HISTORY_INDEX, original);
+
+  failIndexRead = true;
+  const failed = await recordFileHistory(store, 'c1', { path: 'd.js', oldContent: 'x', at: 40 });
+  assert.equal(failed.ok, false, '读失败 ⇒ 这次快照不记（既有契约就是 { ok:false }）');
+  assert.equal(files.get(FILE_HISTORY_INDEX), original, 'index.json 必须逐字节原样（不得被覆写成 1 条）');
+  assert.deepEqual(writes, [], '连条目文件都不写（不留一个永远进不了 index 的孤儿）');
+
+  // 防过度修正①：读得到索引 → 正常追加（不许因为怕覆写就干脆不写）
+  failIndexRead = false;
+  const okResult = await recordFileHistory(store, 'c1', { path: 'd.js', oldContent: 'x', at: 40 });
+  assert.equal(okResult.ok, true, '正常路径仍要写入');
+  const merged = JSON.parse(files.get(FILE_HISTORY_INDEX));
+  assert.equal(merged.length, 4, '追加而不是替换：3 条旧 + 1 条新');
+  assert.deepEqual(merged.slice(1).map(item => item.id), ['old-1', 'old-2', 'old-3'], '旧条目原样保留');
+
+  // 防过度修正②：索引**确实还没建过**（真·文件不存在 = 可新建）时仍要建起来
+  const fresh = new Map();
+  const freshStore = {
+    async readWorkspaceFile({ path }) {
+      if (!fresh.has(path)) throw missingFileError(path);
+      return { content: fresh.get(path) };
+    },
+    async writeWorkspaceFile({ path, content }) { fresh.set(path, String(content)); },
+    async deleteFile({ path }) { fresh.delete(path); },
+  };
+  const created = await recordFileHistory(freshStore, 'c1', { path: 'new.js', oldContent: '', at: 100 });
+  assert.equal(created.ok, true, '全新工作区的第一条快照必须能记上');
+  assert.equal(JSON.parse(fresh.get(FILE_HISTORY_INDEX)).length, 1);
+
+  // 内容坏掉（JSON 解析失败）也是「读失败」：同样是整体覆写的入口，一律不写
+  const broken = new Map([[FILE_HISTORY_INDEX, '{ 这不是 JSON']]);
+  const brokenStore = {
+    async readWorkspaceFile({ path }) { return { content: broken.get(path) }; },
+    async writeWorkspaceFile({ path, content }) { broken.set(path, String(content)); },
+    async deleteFile() {},
+  };
+  const brokenResult = await recordFileHistory(brokenStore, 'c1', { path: 'e.js', oldContent: 'x', at: 50 });
+  assert.equal(brokenResult.ok, false, '坏索引 = 读失败（内容可能只是被截断，不许当空索引用）');
+  assert.equal(broken.get(FILE_HISTORY_INDEX), '{ 这不是 JSON', '坏内容原样保留，等宿主/用户处理');
 });

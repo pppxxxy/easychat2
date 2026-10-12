@@ -241,23 +241,36 @@ test('接线契约：两页把钩子规则接进 runTool；工具层追加通知
   assert.ok(flow.includes('extraRules'), 'approveToolCall 支持注入规则');
   assert.ok(flow.includes('evaluatePermissionRules(injected'), '存储读失败时注入的钩子规则仍参与求值');
 
-  // P1（2026-10-11）：钩子规则的求值入口从「审批钩子」改成 runTool 的 permissionRules。
-  // 原因：审批只在需要确认的工具上被调用，写工具按设计不逐条确认——只接审批等于
-  // 挂在写工具上的 deny 永不生效。两页都必须把钩子规则 + 存储规则一起接进 runTool。
+  // P1（2026-10-11）+ P0-2（2026-10-12）：钩子规则的求值入口从「审批钩子」改成 runTool 的
+  // permissionRules。原因：审批只在需要确认的工具上被调用，写工具按设计不逐条确认——只接
+  // 审批等于挂在写工具上的 deny 永不生效。
+  // ⚠️ 两线各自独立修了「只接钩子规则 ⇒ 设置页手写 deny 变死键」；合并后**取 D 线形态**：
+  // 两页都必须走 readToolPermissionRules（钩子规则 + **用户存储规则**合并）。
+  // 合并点在 chat/toolApprovalFlow.js —— hooks.js 必须保持存储无关（否则纯 Node 用例
+  // 会被 io.js → expo-file-system 的依赖链打挂）。
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('permissionRules: async () => [')
-    && panel.includes('readHookPermissionRules(storeRef.current, characterId)')
-    && panel.includes('getEffectivePermissionRules()'),
-    '工作区页把钩子规则 + 设置面板存储规则都接进 runTool（每次调用直读）');
+  assert.ok(/permissionRules:\s*async\s*\(\)\s*=>\s*readToolPermissionRules\(/.test(panel),
+    '工作区页把「钩子 + 存储」规则接进 runTool（每次调用直读）');
+  assert.ok(!/permissionRules:\s*async\s*\(\)\s*=>\s*\[/.test(panel),
+    '不得退回「调用点各读一份再拼数组」的旧形态（合并点应收在 toolApprovalFlow）');
 
   const chat = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
-  assert.ok(chat.includes('permissionRules: async () => [')
-    && chat.includes('readHookPermissionRules(hookStore, character.id)')
-    && chat.includes('getEffectivePermissionRules()'),
-    '聊天页同样把钩子规则 + 存储规则都接进 runTool');
+  assert.ok(/permissionRules:\s*async\s*\(\)\s*=>\s*readToolPermissionRules\(/.test(chat),
+    '聊天页同样把「钩子 + 存储」规则接进 runTool');
+  assert.ok(!/permissionRules:\s*async\s*\(\)\s*=>\s*\[/.test(chat),
+    '聊天页同样不得退回调用点拼数组的旧形态');
 
   const hooks = fs.readFileSync(path.resolve('src/workspace/hooks.js'), 'utf8');
   assert.ok(hooks.includes('export async function readHookPermissionRules'), '共享的「读+翻译」入口');
+  assert.ok(
+    !hooks.includes('workspacePermissions.js'),
+    'P0-2：hooks.js 必须保持存储无关（合并点不在这里，否则纯 Node 测试链被打挂）',
+  );
+  const approvalFlow = fs.readFileSync(path.resolve('src/chat/toolApprovalFlow.js'), 'utf8');
+  assert.ok(approvalFlow.includes('export async function readToolPermissionRules'),
+    'P0-2：合并入口（钩子 + 存储）必须存在');
+  assert.ok(approvalFlow.includes('getEffectivePermissionRules'),
+    'P0-2：合并入口必须真的读存储规则（否则又只剩钩子规则）');
   // 匹配串取自 pattern（归一化后的字段名）——行为由上面的 before_shell / before_tool
   // 用例钉住（读错字段会让所有规则退化成工具级全拦，那两条会红）。
   assert.ok(hooks.includes('match: item && item.pattern'), 'hookPermissionRules 读 pattern 字段');

@@ -17,6 +17,17 @@ import { tActive } from '../i18n/index.js';
 // 'openai-embeddings' / 'https://api.openai.com/v1' / 'text-embedding-3-small'，
 // 目录一改就悄悄漂移。providers.js 只依赖 i18n（纯 JS），不构成循环依赖。
 import { DEFAULT_VECTOR_PROVIDER } from '../vectorMemory/providers.js';
+// 上限/默认值同样只有一处定义（limits.js，零依赖）。此前这里手抄了一份 20/2000/64 与
+// 5/400/16，与 vectorMemory/index.js 的同一组数字各改各的——设置页夹取用的上限一旦
+// 与发请求时用的上限不是同一个数，用户看到的与真正生效的就会不一致。
+import {
+  VECTOR_BATCH_SIZE_DEFAULT,
+  VECTOR_BATCH_SIZE_MAX,
+  VECTOR_MAX_CHARS_DEFAULT,
+  VECTOR_MAX_CHARS_MAX,
+  VECTOR_TOP_K_DEFAULT,
+  VECTOR_TOP_K_MAX,
+} from '../vectorMemory/limits.js';
 
 const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
 const VECTOR_MEMORY_CONFIGS_KEY = '@easychat2_vector_memory_configs';
@@ -43,9 +54,13 @@ function normalizeVectorMemoryConfig(raw) {
     baseUrl: String(source.baseUrl || ''),
     apiKey: String(source.apiKey || ''),
     model: String(source.model || ''),
-    topK: Number.isFinite(topK) && topK > 0 ? Math.min(20, topK) : 5,
-    maxChars: Number.isFinite(maxChars) && maxChars > 0 ? Math.min(2000, maxChars) : 400,
-    batchSize: Number.isFinite(batchSize) && batchSize > 0 ? Math.min(64, batchSize) : 16,
+    topK: Number.isFinite(topK) && topK > 0 ? Math.min(VECTOR_TOP_K_MAX, topK) : VECTOR_TOP_K_DEFAULT,
+    maxChars: Number.isFinite(maxChars) && maxChars > 0
+      ? Math.min(VECTOR_MAX_CHARS_MAX, maxChars)
+      : VECTOR_MAX_CHARS_DEFAULT,
+    batchSize: Number.isFinite(batchSize) && batchSize > 0
+      ? Math.min(VECTOR_BATCH_SIZE_MAX, batchSize)
+      : VECTOR_BATCH_SIZE_DEFAULT,
   };
 }
 
@@ -236,21 +251,6 @@ export function updateVectorIndex(characterId, updater) {
   });
 }
 
-export function removeVectorIndexForSessions(characterId, sessionIds) {
-  const ids = new Set(
-    (Array.isArray(sessionIds) ? sessionIds : [sessionIds])
-      .map(id => String(id || ''))
-      .filter(Boolean)
-  );
-  return updateVectorIndex(characterId, current => (
-    ids.size === 0 ? current : current.filter(item => !ids.has(String(item.sessionId || '')))
-  ));
-}
-
-export function removeVectorIndexForSession(characterId, sessionId) {
-  return removeVectorIndexForSessions(characterId, [sessionId]);
-}
-
 // 清掉一条记忆里「来源已被删除」的 mergedFrom 快照，并决定这条记忆的去留。
 //
 // 为什么必须清：合并记忆（origin='merged'）把**被合并的原文**整段抄进了
@@ -292,6 +292,49 @@ export function removeVectorIndexForMessages(characterId, sessionId, messageIds)
 
 export function removeVectorIndexForMessage(characterId, sessionId, messageId) {
   return removeVectorIndexForMessages(characterId, sessionId, [messageId]);
+}
+
+// 按会话整段清索引。
+//
+// ⚠️ 本函数有**两种调用语义**，二者在调用点长得一模一样（都只传 characterId + sessionId），
+// 存储层无法自己分辨，所以清理 mergedFrom 快照这件事必须由调用方**显式选择**：
+//
+//  ① 归档 / 切换分支 / 重生成 / 修改重发 / 整段清空（useChatSend.js:1789、
+//     useChatSend.js:1895、ChatScreen.js:1267、ChatScreen.js:1442）——消息被**归档成分支**
+//     （storage/sessionBranches.js 的 archiveBranch），随时可以 checkout 回来
+//     （ChatScreen.js:1215 的 onCheckoutBranch 把分支正文重新拼回活动时间线）。这里清索引
+//     只是为了「按活动时间线整段重建」，**不是删除**：归档中的消息仍是可召回的有效证据，
+//     其 mergedFrom 快照**必须原样保留**。
+//     ⚠️ ChatScreen.js:1442（「全选 + 删除」清空整会话）**属于本类**，不是真删除：同一条
+//     路径在 ChatScreen.js:1431 先 `archiveBranch(sessionId, tailPlan.forkMessageId,
+//     tailPlan.tail)` 把被删的整段尾段归档成分支，消息**可以召回** ⇒ 不传 options 是对的。
+//  ② 真删除（sessionList/mutations.js 的 deleteSessionInternal / deleteSessionsInternal）
+//     ——这两个函数随后都会 deleteAllBranchesInternal(sessionId) 把归档分支一并清掉，
+//     消息**再也回不来**，此时按会话清掉 mergedFrom 快照才与 removeVectorIndexForMessages
+//     的删除语义一致（P1-6b：删了消息，记忆里那份原文快照也必须一起走）。
+//
+// 因此默认 **不清快照**（= 语义 ①，与既有行为逐字节一致），语义 ② 的调用点必须显式传
+// { pruneSources: true }。绝不能让本函数一律清：那会把「归档」当成「删除」，误删仍然有效
+// 的证据链（这正是上一批刻意没修的理由）。
+export function removeVectorIndexForSessions(characterId, sessionIds, options = {}) {
+  const ids = new Set(
+    (Array.isArray(sessionIds) ? sessionIds : [sessionIds])
+      .map(id => String(id || ''))
+      .filter(Boolean)
+  );
+  const pruneSources = options && options.pruneSources === true;
+  // 命中判据只有会话：整会话都没了，它名下所有消息（不分 messageId）都不再存在。
+  const hit = entrySession => ids.has(String(entrySession || ''));
+  return updateVectorIndex(characterId, current => {
+    if (ids.size === 0) return current;
+    const kept = current.filter(item => !hit(item.sessionId));
+    if (!pruneSources) return kept;
+    return kept.flatMap(item => pruneMergedSources(item, entry => hit(entry.sessionId)));
+  });
+}
+
+export function removeVectorIndexForSession(characterId, sessionId, options = {}) {
+  return removeVectorIndexForSessions(characterId, [sessionId], options);
 }
 
 export function clearVectorIndex(characterId) {

@@ -35,7 +35,7 @@ import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 // 工具过程气泡：事件→状态映射、隐藏判定与状态变换都在 toolBubbleView.js（唯一来源）。
 import { createToolBubbleApplier, toolBubbleState } from './toolBubbleView.js';
-import { approveToolCall } from './toolApprovalFlow.js';
+import { approveToolCall, readToolPermissionRules } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
 // O1 超限结果落盘（M 系）+ 工作区钩子事件面（D 系：注入/预置禁令，取代旧的 shellHookDenyRules）。
 import { persistToolResult } from '../workspace/taskOutputs.js';
@@ -139,7 +139,6 @@ import {
   removeVectorIndexForSession,
 } from '../storage/vector.js';
 import { getWorkspaceSettings } from '../storage/workspace.js';
-import { getEffectivePermissionRules } from '../storage/settings/workspacePermissions.js';
 import { getChatOptions } from '../storage/settings/chatOptions.js';
 import { getLocalModelFileInfo } from '../localModel/modelManager.js';
 import { runPlugins } from '../plugins/registry.js';
@@ -700,14 +699,13 @@ export default function useChatSend({
                 // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
                 signal: controller.signal,
               }),
-              // P1：工作区钩子的 deny / ask 规则（每次调用时直读，本轮内改了 hooks.json
-              // 也立即生效）+ 设置面板手写的存储规则（always/session）。此前只传了钩子规则，
-              // 导致面板写的 deny/ask 对「不需逐条确认」的写工具完全不生效——这里合并，
-              // runTool 侧无需再区分来源（deny 恒优先）。
-              permissionRules: async () => [
-                ...(await readHookPermissionRules(hookStore, character.id)),
-                ...(await getEffectivePermissionRules()),
-              ],
+              // P1：钩子规则 + 用户存储规则合并 —— **两线各自独立修了同一个缺陷**
+              //（只给钩子规则会让写工具上的手写 deny 变死键：写工具不逐条确认、
+              //  走不到 approveToolCall，所以规则必须经 permissionRules 直达 runTool）。
+              // 合并点取 D 线版本（chat/toolApprovalFlow.js 的 readToolPermissionRules）：
+              // 它把两组规则的读取与容错收在一处，且 **hooks.js 保持存储无关**——
+              // 否则纯 Node 用例会被 expo-file-system 依赖打挂（有测试钉住这条）。
+              permissionRules: async () => readToolPermissionRules(await readHookPermissionRules(hookStore, character.id)),
               // ask_user：任务中途向用户提选择题（跨平台 Alert）。
               onAskUser: payload => promptUserChoice({
                 ...payload,

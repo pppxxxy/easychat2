@@ -24,6 +24,8 @@ ios/
 !plugins/chaquopy/android/**
 !plugins/mcpServer/android/
 !plugins/mcpServer/android/**
+!plugins/networkSecurity/android/
+!plugins/networkSecurity/android/**
 *.jks
 *.keystore
 .env

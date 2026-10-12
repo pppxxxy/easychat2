@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   WEB_FETCH_TEXT_MAX_CHARS,
@@ -11,6 +12,7 @@ import {
   extractReadableText,
   isDomainAllowed,
   isPrivateHost,
+  isPrivateRedirectTarget,
   normalizeFetchUrl,
   parseAllowedDomains,
   runWebFetch,
@@ -208,4 +210,123 @@ test('runWebFetch：准入失败在发请求之前抛错（本机 / 白名单外
     () => runWebFetch({ url: 'https://blocked.example.com/x', allowedDomains: 'allowed.com' }),
     error => error.fetchReason === 'blocked'
   );
+});
+
+// ---- 重定向绕过（SSRF 修法 (b)：最终 URL 复核）----
+//
+// 背景：初始 URL 判定之后交给 XHR，而 RN 的 XMLHttpRequest 默认自动跟随 3xx，
+// 且 JS 层关不掉（sendRequest 参数表没有 followRedirects 位）。于是
+// `https://attacker.example/r` 回 `302 Location: http://127.0.0.1:<port>/...`
+// 时，OkHttp 会自己跟过去。这里用注入的 xhr 桩模拟「最终落在内网」的响应。
+
+test('isPrivateRedirectTarget：最终 URL 落在内网/畸形时判为私网（纯函数）', () => {
+  assert.equal(isPrivateRedirectTarget('http://127.0.0.1:8080/secret'), true);
+  assert.equal(isPrivateRedirectTarget('http://[::ffff:127.0.0.1]/secret'), true, '归一化写法同样拦下');
+  assert.equal(isPrivateRedirectTarget('http://192.168.1.1/admin'), true);
+  assert.equal(isPrivateRedirectTarget('http://169.254.169.254/latest/meta-data/'), true, '云元数据地址');
+  assert.equal(isPrivateRedirectTarget('http://router.local/x'), true);
+  // 正常最终 URL 不受影响（防过度拦截）
+  assert.equal(isPrivateRedirectTarget('https://example.com/news'), false);
+  assert.equal(isPrivateRedirectTarget('https://cdn.example.com/a/b?q=1'), false);
+  // 拿不到最终 URL 时放行（RN 在缺失时是 delete this.responseURL，属正常路径）
+  assert.equal(isPrivateRedirectTarget(''), false);
+  assert.equal(isPrivateRedirectTarget(undefined), false);
+  assert.equal(isPrivateRedirectTarget(null), false);
+  // 协议被换掉：fail-closed，按私网处理
+  assert.equal(isPrivateRedirectTarget('ftp://example.com/x'), true);
+});
+
+test('runWebFetch：重定向到内网时丢弃响应并报错', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  class RedirectToPrivateXHR {
+    open(method, url) { this.url = url; }
+    setRequestHeader() {}
+    send() {
+      this.status = 200;
+      // 内网内容已经被 OkHttp 跟随重定向读回来了——这正是缺口的样子
+      this.responseText = '<html><title>内网面板</title><body>SECRET-PANEL</body></html>';
+      this.responseURL = 'http://127.0.0.1:8080/secret';
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  }
+  globalThis.XMLHttpRequest = RedirectToPrivateXHR;
+  try {
+    await assert.rejects(
+      // 域名授权：本用例考的是重定向复核，给一个「允许一次」的注入桩让它走到请求那一步。
+      () => runWebFetch({ url: 'https://attacker.example/r', requestDomainApproval: () => 'once' }),
+      error => error.fetchReason === 'redirect-private'
+        && !String(error.message).includes('SECRET-PANEL')
+    );
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('runWebFetch：正常最终 URL 不受复核影响（防过度拦截）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  class NormalXHR {
+    open(method, url) { this.url = url; }
+    setRequestHeader() {}
+    send() {
+      this.status = 200;
+      this.responseText = '<html><title>正常页面</title><body>hello</body></html>';
+      this.responseURL = 'https://www.example.com/final';
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  }
+  globalThis.XMLHttpRequest = NormalXHR;
+  try {
+    const result = await runWebFetch({ url: 'https://example.com/r', allowedDomains: 'example.com' });
+    assert.equal(result.host, 'example.com');
+    assert.equal(result.title, '正常页面');
+    assert.match(result.text, /hello/);
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+test('runWebFetch：responseURL 缺失时不误拦（RN 会 delete 该字段）', async () => {
+  const originalXHR = globalThis.XMLHttpRequest;
+  class NoResponseUrlXHR {
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.status = 200;
+      this.responseText = '<html><title>无最终URL</title><body>ok</body></html>';
+      queueMicrotask(() => this.onload && this.onload());
+    }
+    abort() {}
+  }
+  globalThis.XMLHttpRequest = NoResponseUrlXHR;
+  try {
+    const result = await runWebFetch({ url: 'https://example.com/r', allowedDomains: 'example.com' });
+    assert.equal(result.title, '无最终URL');
+  } finally {
+    globalThis.XMLHttpRequest = originalXHR;
+  }
+});
+
+// ---- 已知缺口留档（DNS rebinding）：源码级断言，防止下一个人误以为已堵死 ----
+
+test('webFetch 源码留档：DNS rebinding 缺口与「解析后复核」边界必须写明', () => {
+  const source = readFileSync(new URL('../src/plugins/webFetch.js', import.meta.url), 'utf8');
+  // 必须点明缺口名与「判定在解析之前」
+  assert.match(source, /DNS rebinding/, '必须点名 DNS rebinding 缺口');
+  assert.match(source, /解析后复核|解析后再复核/, '必须写明需要「解析后复核」');
+  // 必须写明 responseURL 复核对这一条无效（否则下一个人会以为已经堵死）
+  assert.match(source, /responseURL/, '必须写明 responseURL 复核对该缺口无效');
+  assert.match(source, /一次解析就够|不需要任何重定向|不需要重定向/, '必须写明不需要重定向即可命中');
+  // 必须写明 native 方案与「本波未实现」
+  assert.match(source, /setOkHttpClientFactory/, '必须留档 native 修法入口');
+  assert.match(source, /需 native/, '必须标明确定性修法需 native');
+});
+
+test('webFetch 源码留档：responseURL 只堵「最终 URL」，中途落内网仍可绕过', () => {
+  const source = readFileSync(new URL('../src/plugins/webFetch.js', import.meta.url), 'utf8');
+  // 边界：responseURL 是最终 URL 而非跳转链
+  assert.match(source, /最终 URL/, '必须写明 responseURL 是最终 URL');
+  assert.match(source, /跳转链/, '必须写明它不是跳转链');
+  assert.match(source, /中途/, '必须写明「中途落到内网再跳回公网」仍可绕过');
 });

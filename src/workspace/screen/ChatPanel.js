@@ -73,7 +73,7 @@ import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../ne
 import { transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
-import { approveToolCall } from '../../chat/toolApprovalFlow.js';
+import { approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
 import {
   isImage,
   isTextLike,
@@ -1306,8 +1306,8 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           t,
           signal: controller.signal,
         }),
-        // 钩子 deny/ask 规则 + 设置面板手写的存储规则（每次调用直读；此前只传钩子规则，面板规则对写工具不生效）。
-        permissionRules: async () => [...(await readHookPermissionRules(storeRef.current, characterId)), ...(await getEffectivePermissionRules())],
+        // P1/P0-2：钩子 + 存储规则**合并**后接入（只给钩子规则会让写工具上手写 deny 变死键——它们不逐条确认）；合并点 toolApprovalFlow，hooks.js 保持存储无关
+        permissionRules: async () => readToolPermissionRules(await readHookPermissionRules(storeRef.current, characterId)),
         // ask_user：任务中途向用户提选择题（跨平台 Alert）。
         onAskUser: payload => promptUserChoice({
           ...payload,

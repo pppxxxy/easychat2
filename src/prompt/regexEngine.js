@@ -9,11 +9,27 @@ export const REGEX_PLACEMENT = {
 };
 
 // 正则来自第三方卡片或用户输入，可能是灾难性回溯模式（例如 (a+)+$）。
-// JS 主线程无法抢占正在执行的正则，这里用嵌套量词启发式识别会挂死的模式并跳过。
-// 只在「分组体内含未限定量词，且分组本身又被无上界量词（*、+、{n,}）重复」时判定，
-// 避免误伤 (a{2,3})+ 这类有界写法。
+// JS 主线程无法抢占正在执行的正则，这里用嵌套量词启发式识别**一部分**会挂死的模式并跳过。
+//
+// ⚠️ 覆盖面边界（本函数**不是**安全保证，是「降误伤优先」的启发式）：
+//   本函数只覆盖「分组体内含未限定量词（*、+、{n,}），且该分组本身又被无上界量词
+//   （*、+、{n,}）重复」这一种形态。以下同样会指数级回溯的形态**一律漏检**：
+//     (a|aa)+      —— 交替项可重叠，重复次数可任意拆分
+//     (a|a?)+      —— 可空交替项
+//     (\w|\w\w)+   —— 多字符交替项
+//     (a{2,})+$    —— 体内是 {n,} 而非 * / +（本函数已回补，但同类变体仍可能出现）
+//   即「被放行」只表示「没命中这一条启发式」，**不表示**该正则安全。
+//   ⇒ 调用方**不得**据此省略执行侧的兜底：applyRegexScripts 的长度 fail-closed
+//     （见下方 MAX_REGEX_INPUT_CHARS 注释）才是真正的执行侧防线。
+//   ⇒ 先例：src/localModel/adapter.js:278 的 fail-closed 也是「宁可整体不处理，
+//     也不半套用」——启发式/预检都不能替代执行侧兜底。
+//
+// 判定口径：只在「分组体内含未限定量词，且分组本身又被无上界量词（*、+、{n,}）重复」
+// 时判定，避免误伤 (a{2,3})+ 这类有界写法。
 // 判断分组结束后紧跟的量词是否「无上界」（可无限重复）：*、+、{n,}、{n,}?。
 // 有上界的 {n,m} 不在此列——`(a{2,3})+` 这类写成有界的模式仍应放行，避免误伤。
+// 体内量词复用同一个 isUnboundedRepeatAfter：{n,} 与 * / + 同为无上界，必须同一口径，
+// 否则 `(a+)+$` 被拦而 `(a{2,})+$` 放行，两者危害完全相同（重复次数可任意拆分 ⇒ 指数回溯）。
 function isUnboundedRepeatAfter(pattern, at) {
   const char = pattern[at];
   if (char === '*' || char === '+') return true;
@@ -93,13 +109,32 @@ export function isUnsafeRegexPattern(findRegex) {
         bodyInClass = true;
         continue;
       }
-      if (bodyChar === '*' || bodyChar === '+') return true;
+      if (isUnboundedRepeatAfter(body, cursor)) return true;
+      // 命中 {n,} 时把游标跳到 `}` 之后，避免把 `{`、数字、`,` 当普通字符重复扫描
+      if (bodyChar === '{') {
+        const close = body.indexOf('}', cursor + 1);
+        if (close > 0) cursor = close;
+      }
     }
   }
   return false;
 }
 
-const MAX_REGEX_INPUT_CHARS = 8 * 1024 * 1024;
+// 展示/提示正则实际只需处理**单条消息**，正常单条消息远小于此值。
+//
+// 为什么是 fail-closed（超长整条跳过）而不是「只作用于尾部 N 字符」：
+// 旧实现是 `head + output`——head 原样拼回，等于**不截断用户可见内容**，却把喂给正则的
+// 输入放大到上限大小（原为 8MB）。方向是反的：它不是安全措施，而是给漏检模式
+// （见上方启发式的覆盖面边界）提供了更大的爆炸半径。
+// 而单纯调小常量会引入更难解释的副作用：正则静默变成「只作用于尾部 N 字符」，
+// 「删星号」「改格式」这类展示正则在长消息前段**静默失效**，用户看到半套效果。
+// ⇒ 因此语义改成 fail-closed：超长时整条跳过正则、原文逐字返回。
+// 「宁可不美化，也不半套用」——内容完整保留、爆炸半径消除、行为可解释。
+// 先例：src/localModel/adapter.js:278 同样采用 fail-closed。
+//
+// 上限值取 20000：单条消息（含 Markdown/HTML 展示文本）在此量级已很宽裕，
+// 同时把最坏情况的回溯规模压到可控范围。
+const MAX_REGEX_INPUT_CHARS = 20000;
 const HTML_SEGMENT_PATTERN = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<[^>]+>/gi;
 const COMPILED_CACHE_LIMIT = 300;
 const compiledCache = new Map();
@@ -217,24 +252,62 @@ function withinDepth(script, depth) {
   return true;
 }
 
+// 判定一条脚本本次是否会被执行（只做静态过滤，不跑正则）。
+// 抽出来是为了「超长整条跳过」时能如实统计被跳过的脚本条数，而不必先跑正则。
+function scriptEligible(script, placement, mode, depth) {
+  if (!script || script.enabled === false) return false;
+  if (!Array.isArray(script.placement) || !script.placement.includes(placement)) return false;
+  if (mode === 'prompt' && script.markdownOnly && !script.promptOnly) return false;
+  if (mode === 'display' && script.promptOnly && !script.markdownOnly) return false;
+  if (!script.findRegex) return false;
+  return withinDepth(script, depth);
+}
+
+// 给返回的字符串挂上本次调用的统计信息。
+// ⚠️ 为什么用 String 包装对象：字符串原始值在严格模式下**无法**挂属性
+// （`'a'.x = 1` 会抛 TypeError），而直接改成返回对象又会破坏所有既有调用方
+// （它们按原始字符串使用返回值，`assert.equal` / `typeof` 都会变）。
+// ⇒ 只有调用方显式传 `{ withStats: true }` 时才返回包装对象；其余情况一律返回原始字符串，
+//   既有调用方零改动。包装对象仍可当字符串使用（拼接、模板串、.slice 等都正常）。
+function withStats(text, stats) {
+  const wrapped = new String(text);
+  wrapped.value = text;
+  wrapped.applied = stats.applied;
+  wrapped.skippedUnsafe = stats.skippedUnsafe;
+  wrapped.skippedTooLong = stats.skippedTooLong;
+  return wrapped;
+}
+
+// 让调用方/日志能看出「本条消息有 N 个正则被执行 / 因何被跳过」。
+// ⚠️ 边界（如实说明，不得夸大）：这些计数**只能在正则真正执行前暴露**。
+// 一旦某条正则真的发生灾难性回溯，主线程被不可抢占地占死，本函数**根本不会返回**，
+// 因此本计数**无法**用于事后诊断「已经发生」的冻结，也无法证明「不会冻结」——
+// 它只覆盖「已知会被跳过的形态」，漏检形态（见上方启发式的覆盖面边界）依旧会挂。
 export function applyRegexScripts(text, scripts, placement, options = {}) {
   const input = String(text ?? '');
   const list = Array.isArray(scripts) ? scripts : [];
-  if (list.length === 0) return input;
   const mode = options.mode || 'both';
-  const head = input.length > MAX_REGEX_INPUT_CHARS
-    ? input.slice(0, input.length - MAX_REGEX_INPUT_CHARS)
-    : '';
-  let output = head ? input.slice(-MAX_REGEX_INPUT_CHARS) : input;
+  const wantStats = options.withStats === true;
+  const stats = { applied: 0, skippedUnsafe: 0, skippedTooLong: 0 };
+  if (list.length === 0) return wantStats ? withStats(input, stats) : input;
+
+  // fail-closed：超长时整条跳过正则、原文逐字返回（理由见 MAX_REGEX_INPUT_CHARS 注释）。
+  // 注意这里**不是**只对尾部 N 字符跑正则——那会让展示正则在长消息前段静默失效。
+  if (input.length > MAX_REGEX_INPUT_CHARS) {
+    for (const script of list) {
+      if (scriptEligible(script, placement, mode, options.depth)) stats.skippedTooLong += 1;
+    }
+    return wantStats ? withStats(input, stats) : input;
+  }
+
+  let output = input;
 
   for (const script of list) {
-    if (!script || script.enabled === false) continue;
-    if (!Array.isArray(script.placement) || !script.placement.includes(placement)) continue;
-    if (mode === 'prompt' && script.markdownOnly && !script.promptOnly) continue;
-    if (mode === 'display' && script.promptOnly && !script.markdownOnly) continue;
-    if (!script.findRegex) continue;
-    if (isUnsafeRegexPattern(script.findRegex)) continue;
-    if (!withinDepth(script, options.depth)) continue;
+    if (!scriptEligible(script, placement, mode, options.depth)) continue;
+    if (isUnsafeRegexPattern(script.findRegex)) {
+      stats.skippedUnsafe += 1;
+      continue;
+    }
     try {
       const regex = compileRegexCached(script.findRegex, script.flags);
       let replacement = normalizeReplacement(script.replaceString);
@@ -246,10 +319,11 @@ export function applyRegexScripts(text, scripts, placement, options = {}) {
       output = mode === 'display' && hasMarkup && !isDocumentReplacement
         ? replaceVisibleText(output, regex, replacement)
         : output.replace(regex, replacement);
+      stats.applied += 1;
     } catch (error) {
       // 非法正则直接跳过，避免影响整条消息链路
     }
   }
 
-  return head + output;
+  return wantStats ? withStats(output, stats) : output;
 }

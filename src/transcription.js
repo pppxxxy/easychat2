@@ -9,6 +9,7 @@
 // 本模块只做纯逻辑与 fetch 调用，不触碰 React / 存储；便于单测。
 
 import { tActive } from './i18n/index.js';
+import { joinUrlQuery, splitUrlQuery } from './utils/urlQuery.js';
 
 export const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
 
@@ -17,18 +18,25 @@ export const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
 export const TRANSCRIPTION_TIMEOUT_MS = 60000;
 
 // 转写端点固定在 v1 下，不复用聊天端点可能带的 /chat/completions 后缀。
-// 复用聊天配置时按 chat baseUrl 推导 origin/base；独立配置则直接给定地址。
+// 独立配置直接给定地址；复用聊天配置时由 buildTranscriptionUrl 从 baseUrl 推导。
+// ⚠️ 注释按**实现**写（此前注释称「推导 origin/base」，实现却从没取过 origin，只是
+// 字符串拼接）：这里刻意**不提取 origin**——聊天 baseUrl 可能带路径前缀（如 Azure 的
+// /openai/deployments/<d>），提到 origin 会把前缀丢掉、把请求打到错误的服务上。
 function stripSuffixes(baseUrl) {
   return String(baseUrl || '').trim().replace(/\/+$/, '');
 }
 
 // 把聊天 baseUrl 规整为转写端点：去掉 /chat/completions，再保证 /v1/audio/transcriptions。
+// 后缀判定只看「路径」部分（先例：src/vectorMemory/providers.js:41-48）：整串判定时，
+// 带 query 的地址（.../chat/completions?api-version=…）必然不中，转写端点会被追加进
+// query 值 → 404。回拼时 query 原样接回，幂等。
 export function buildTranscriptionUrl(baseUrl) {
-  let base = stripSuffixes(baseUrl);
+  const { path, query } = splitUrlQuery(stripSuffixes(baseUrl));
+  let base = path;
   if (/\/chat\/completions$/i.test(base)) base = base.replace(/\/chat\/completions$/i, '');
-  if (/\/audio\/transcriptions$/i.test(base)) return base;
-  if (/\/v1$/i.test(base)) return `${base}/audio/transcriptions`;
-  return `${base}/v1/audio/transcriptions`;
+  if (/\/audio\/transcriptions$/i.test(base)) return joinUrlQuery(base, query);
+  if (/\/v1$/i.test(base)) return joinUrlQuery(`${base}/audio/transcriptions`, query);
+  return joinUrlQuery(`${base}/v1/audio/transcriptions`, query);
 }
 
 export function normalizeTranscriptionConfig(raw) {

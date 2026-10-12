@@ -26,19 +26,28 @@ let sessionRules = [];
 // 读规则并**保留读取状态**。读路径对外行为不变（损坏时仍给空规则表，弹框照常能问），
 // status 只交给写路径判定「这次能不能写回」。
 // 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+// **形状校验收进读函数**：readJsonStatus 的 `ok` 只保证 JSON.parse 成功，值可能是
+// null / 原语 / 数组。此前 :32-34 把非对象折成 `{}` 却**保留 ok** ⇒ :55 只拦 corrupt 的
+// 写守卫放行 ⇒ add/remove/clear 三条读-改-写整表覆盖路径把用户记住的授权全部冲掉，
+// 而 :53 的注释自称「损坏时规则本来就不参与求值」——那句话只对 corrupt 成立，对
+// 「ok 但形状坏」是假的，注释与代码在这一点上互相矛盾，现在按**代码**统一到 corrupt
+// （:53 的论证随之成立：两种情况的规则都不再参与求值）。判据形态照
+// settings/tts.js:50-56、globalPresets.js:89-93、security.js 同批修复。
 async function readStore() {
   const stored = await readJsonStatus(PERMISSIONS_KEY);
-  if (stored.status === 'ok') {
-    const source = stored.value && typeof stored.value === 'object' && !Array.isArray(stored.value)
-      ? stored.value
-      : {};
-    return { status: 'ok', rules: normalizePermissionRules(source.rules) };
+  if (
+    stored.status === 'ok'
+    && stored.value !== null
+    && typeof stored.value === 'object'
+    && !Array.isArray(stored.value)
+  ) {
+    return { status: 'ok', rules: normalizePermissionRules(stored.value.rules) };
   }
-  if (stored.status === 'corrupt') {
-    await backupCorruptValue(PERMISSIONS_KEY);
-    return { status: 'corrupt', rules: [] };
-  }
-  return { status: 'missing', rules: [] };
+  if (stored.status === 'missing') return { status: 'missing', rules: [] };
+  // 走到这里只剩两种：真 corrupt，或「status=ok 但值不是普通对象」（形状坏的合法 JSON）。
+  // 两者都归 corrupt，覆盖不可逆所以统一先留原始字节副本。
+  await backupCorruptValue(PERMISSIONS_KEY);
+  return { status: 'corrupt', rules: [] };
 }
 
 // 写路径守卫（变体①：拒绝写回 / 抛错）。

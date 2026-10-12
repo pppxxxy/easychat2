@@ -204,11 +204,17 @@ export async function runTool(call, ctx = {}) {
   // needsConfirm，与 requiresConfirmation 走同一条审批链（没有 confirm 出口 = 拒绝）。
   //
   // ctx.permissionRules 允许是**函数**（每次调用时取，宿主据此读到最新的 hooks.json）；
-  // 也接受现成数组。函数形态**必须 await**：两个宿主传的都是
-  // `() => readHookPermissionRules(...)`，而它是 async —— 不 await 拿到的是 Promise，
-  // Array.isArray 为 false，规则会被整体跳过（deny/ask 静默失效，写工具照样执行）。
-  // 求值本身抛错按「没有规则」处理——规则读失败不能变成静默放行，
-  // 但也不能把工具链整体打挂（审批与 requiresConfirmation 两道闸门仍在）。
+  // 也接受现成数组。函数**可以是 async**（宿主的读盘实现就是 async）—— 所以必须 await。
+  //
+  // ⚠️ P0-0（2026-10-12）：**这里漏了 await，导致上面那整段修复从未生效。**
+  // 宿主接的是 `readHookPermissionRules`（workspace/hooks.js 是 `async function`），
+  // 不 await 拿到的是 Promise；`Array.isArray(Promise)` 恒为 false ⇒ if 分支永不进入
+  // ⇒ `ruleVerdict` 恒为 null ⇒ **钩子规则在 runTool 里被静默丢弃**。
+  // 实测：`Array.isArray((async () => [rule])()) === false`。
+  // 为什么测试全绿：用例传的是**同步数组**，而生产传的是 **async 函数** —— 形状不一致的缺口。
+  // 修法：await 之后再判数组；读失败仍按「没有规则」处理（下面的 catch 语义不变）——
+  // 规则读失败不能变成静默放行，但也不能把工具链整体打挂（审批与 requiresConfirmation 仍在）。
+  // ∴ 两线合并取 D 线版本（main 侧没记下「那次修复曾经从未生效」这件事）。
   let ruleVerdict = null;
   try {
     const rawRules = typeof ctx.permissionRules === 'function'

@@ -156,13 +156,25 @@ test('记忆总结归一化：非法/越界记忆长度回落到默认或上限'
   assert.equal(settings.MEMORY_LENGTH_MAX, 200, '上限防手输大数把整段历史塞进请求');
 });
 
-test('记忆长度整体写（save）：读回一致；损坏值回退默认', async () => {
+test('记忆长度整体写（save）：读回一致；损坏值不再静默回退（口径已变更）', async () => {
   store.delete(MEMORY_KEY);
   assert.deepEqual(await settings.getMemorySummarySettings(), { enabled: true, threshold: 40, configId: '', maxEntries: 100, historyRounds: 30 });
   const saved = await settings.saveMemorySummarySettings({ enabled: false, threshold: 20, historyRounds: 12 });
   assert.deepEqual(saved, { enabled: false, threshold: 20, configId: '', maxEntries: 100, historyRounds: 12 });
   assert.deepEqual(JSON.parse(store.get(MEMORY_KEY)), { enabled: false, threshold: 20, configId: '', maxEntries: 100, historyRounds: 12 });
+  // ⚠️ 两线合并（2026-10-12）：口径**已变更**（D 线的「第四态」修复）。
+  // 键损坏时不再静默回落默认值，而是**抛错**：本域是「读-改-写整键覆盖」，
+  // 回落默认值会让用户「随手改一个字段」就把整键覆盖成默认值（不可逆、无备份）。
+  // 现在 corrupt（含「合法 JSON 但形状不对」的第四态）先 backupCorruptValue 再抛错。
   store.set(MEMORY_KEY, '{ not json');
+  await assert.rejects(
+    () => settings.getMemorySummarySettings(),
+    /读取失败/,
+    '损坏时必须抛错而不是静默回落默认值',
+  );
+  assert.equal(store.get(MEMORY_KEY), '{ not json', '损坏原值必须原样留在盘上（已留副本）');
+  store.clear();
+  // 「键从未存在过」= 首次使用：仍照旧回落默认值（防过度修正）
   assert.deepEqual(await settings.getMemorySummarySettings(), { enabled: true, threshold: 40, configId: '', maxEntries: 100, historyRounds: 30 });
   store.clear();
 });

@@ -4,8 +4,12 @@ import { MEMORY_SUMMARY_PREFIX } from '../memory/memoryConstants.js';
 
 const DEFAULT_SCAN_DEPTH = 4;
 
-// 与 regexEngine 一致：给正则匹配的文本设长度上限，超长时只匹配尾部（最新内容），
-// 避免第三方卡片里的灾难性回溯模式卡死主线程。
+// 与 regexEngine 同一口径：给正则匹配的文本设长度上限，**超长时直接不匹配**（fail-closed），
+// 而不是「截断后只测尾部」。
+// 理由（同 regexEngine.MAX_REGEX_INPUT_CHARS 注释）：截断后测试会把「命中与否」变成
+// 「取决于尾部窗口」的静默行为变化——长消息前段的关键词会莫名其妙不命中；
+// 而超长输入本身正是灾难性回溯（漏检形态，见 regexEngine 的启发式边界）爆炸半径最大的场景。
+// ⇒ 宁可不命中，也不半套匹配。先例：src/localModel/adapter.js:278 的 fail-closed。
 const MAX_REGEX_INPUT_CHARS = 20000;
 
 function escapeRegExp(text) {
@@ -20,10 +24,9 @@ function hasCjk(text) {
   return CJK_PATTERN.test(String(text || ''));
 }
 
+// 超长输入返回 null 表示「不参与匹配」：正则分支据此返回不匹配，而不是截断后测试尾部。
 function regexScope(haystack) {
-  return haystack.length > MAX_REGEX_INPUT_CHARS
-    ? haystack.slice(-MAX_REGEX_INPUT_CHARS)
-    : haystack;
+  return haystack.length > MAX_REGEX_INPUT_CHARS ? null : haystack;
 }
 
 // 兼容 SillyTavern 的 /pattern/flags 键写法：即使条目未显式开启 useRegex 也按正则处理。
@@ -39,11 +42,14 @@ function keywordMatches(keyword, haystack, entry) {
   const slashRegex = keyLooksLikeRegex(keyword);
   if (entry.useRegex || slashRegex) {
     if (isUnsafeRegexPattern(keyword)) return false;
+    const scope = regexScope(haystack);
+    // 超长：不跑正则，直接判不匹配（fail-closed，理由见 MAX_REGEX_INPUT_CHARS 注释）
+    if (scope === null) return false;
     try {
       const source = entry.matchWholeWords && !slashRegex && !hasCjk(keyword)
         ? `\\b(?:${keyword})\\b`
         : keyword;
-      return compileRegexCached(source, flags).test(regexScope(haystack));
+      return compileRegexCached(source, flags).test(scope);
     } catch (error) {
       return false;
     }
@@ -54,9 +60,11 @@ function keywordMatches(keyword, haystack, entry) {
       const needle = caseSensitive ? keyword : keyword.toLowerCase();
       return source.includes(needle);
     }
+    const scope = regexScope(haystack);
+    if (scope === null) return false;
     try {
       const re = compileRegexCached(`\\b${escapeRegExp(keyword)}\\b`, flags);
-      return re.test(regexScope(haystack));
+      return re.test(scope);
     } catch (error) {
       return false;
     }

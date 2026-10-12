@@ -31,6 +31,25 @@ const OUTPUT_ONLY_EXTENSIONS = new Set(['docx']);
 const MAX_PATH_LENGTH = 240;
 const MAX_SANDBOX_ID_LENGTH = 64;
 
+// ---- 工作区列表/读写护栏（**唯一一份**，2026-10-10）----
+//
+// 为什么收敛到这里：store.js（应用私有根）与 safStore.js（SAF 外部根）原先各写一份，
+// 已经漂移成 MAX_DEPTH 12 vs 6。漂移的后果不是"两个后端略有差异"，而是 **SAF 下深度 ≥7
+// 的目录内容既不被列出、也不告警**——列表的 truncated 标记当时只覆盖 MAX_FILES 分支，
+// 而 readTools.js 的 listTruncationNotice 又写死按 12 判 ⇒ 模型把不完整清单当完整事实推理
+//（store.js 注释点名的"推送误删那类事故的放大器"）。常量一份时，下一次"改一处漏一处"
+// 才是可预防的；判据/常量集中在 paths.js 的先例见下面的 HIDDEN_LIST_PREFIXES（内部目录隐形）。
+export const MAX_FILES = 2000;
+// 12：6 会把导入仓库里 src/i18n/locales/zh-CN/x.js 这类真实路径直接藏掉（实测：注入 4 个
+// 深路径文件只列出 2 个）。提到 12 覆盖正常项目结构；MAX_FILES=2000 仍是主护栏。
+export const MAX_DEPTH = 12;
+export const MAX_READ_CHARS = 1024 * 1024;
+// 编辑专用上限：读路径 1MB 截断是为上下文经济；编辑要的是完整性，给到 4MB，
+// 超过则拒绝（见 store.js 的 editWorkspaceFile 截断守卫）。
+export const MAX_EDIT_CHARS = 4 * 1024 * 1024;
+
+export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
+
 export function sanitizeSandboxId(characterId) {
   const clean = String(characterId || '')
     .trim()
@@ -138,6 +157,10 @@ const PROTECTED_WRITE_PREFIXES = Object.freeze([
   '.easychat/sessions/',
   '.easychat/file-history/',
   '.easychat/rollback/',
+  // ⚠️ `.easychat/hooks.json` 不在这里 —— 它是**精确文件**而不是目录前缀，
+  // 放在 PROTECTED_WRITE_FILES（见下）里，理由与实测证据也记在那边的注释里。
+  // 若放这里，`startsWith('.easychat/hooks.json')` 会连 `.easychat/hooks.json.bak`
+  // 一起误拦（那是另一个文件，用户正常备份它不该被拒）。
 ]);
 
 // 归一化成与 store 同口径的相对路径（去 ./、折叠多余 /），再判前缀/精确文件。
@@ -154,13 +177,31 @@ const PROTECTED_WRITE_PREFIXES = Object.freeze([
 //
 // 会改「agent 自身行为」的单文件（2026-10-11 补）：与上面三类审计数据不同——它被改写
 // 等于**代码执行**：`.easychat/plugins.json` 是插件装配源，插件 handler 会在沙盒里执行。
-// （hooks.json / skills / commands / agents / teams 的可写是**刻意设计**——agent 的自我演进
-//  通路，见 workspaceTools 测试「相邻的 agent 资产不受影响」；这里不推翻它。）
+// （skills / commands / agents / teams 的可写是**刻意设计**——agent 的自我演进通路，
+//  见 workspaceTools 测试「相邻的 agent 资产不受影响」；这里不推翻它。）
 // 用户仍可在面板/UI 里装插件；这里只挡 agent 的写工具。
+//
+// ⚠️ 两线合并（2026-10-12）：`.easychat/hooks.json` 也被纳入保护——**两侧各自独立发现**。
+// 依据：hooks.js 曾断言「agent 可读写 —— 它只能**收紧**不能放宽」。那句**不成立**：
+// 写工具不逐条确认，把内容写成 `{}` 就**抹掉用户全部预置禁令** —— 清空就是最彻底的放宽
+//（实测：[{deny run_shell rm -rf},{ask run_shell git push}] → []，而 withDefaultHooks
+// 只补 after_write/after_edit 两个默认提醒，**不补** before_* 规则）。
+// 为什么它属于这一档（而不是「顶多不生效」）：仓库自己已承认它是权限面 ——
+// packs.js 与 packTools.js 明确写「包里能带 .easychat/hooks.json，而它的
+// before_tool / before_prompt 是**工具前门与提示词注入面**」，并为此给
+// install_extension_pack 加了 requiresConfirmation: true。**同一个文件，走「安装包」
+// 要用户点头，走「写文件」却无声覆盖** —— 两个入口的威胁模型不一致，这里是补齐。
+//
+// ⚠️ 两种条目形态（加 hooks.json 时暴露）：
+//   · 以 `/` 结尾 = **目录前缀**：本身（去掉尾斜杠）与其中的任何路径都受保护；
+//   · 不以 `/` 结尾 = **精确文件**：只保护该文件本身。
+// 不能对两者都用 startsWith —— `.easychat/hooks.json.bak` 会因前缀相同被误拦
+//（那是另一个文件，用户/agent 正常备份它不该被拒），属**过度拦截**。
+// ⇒ 精确文件单独成表，与目录前缀分开判。
 const PROTECTED_WRITE_FILES = Object.freeze([
   '.easychat/plugins.json',
+  '.easychat/hooks.json',
 ]);
-
 export function isProtectedWorkspacePath(path) {
   const clean = String(path == null ? '' : path)
     .replace(/\\/g, '/')
@@ -170,6 +211,7 @@ export function isProtectedWorkspacePath(path) {
     .join('/')
     .toLowerCase();
   if (!clean) return false;
+  // 精确文件优先（两张表分工：FILES 是精确匹配，PREFIXES 是目录前缀）。
   if (PROTECTED_WRITE_FILES.includes(clean)) return true;
   return PROTECTED_WRITE_PREFIXES.some(prefix => clean === prefix.slice(0, -1) || clean.startsWith(prefix));
 }
@@ -198,6 +240,13 @@ export function assertWritableWorkspacePath(path) {
 //
 // 为什么放这里（而不是各后端各写一份）：store.js 与 safStore.js 此前各有一份隐形清单，
 // 且**已经不一致**（safStore 漏了 board）。判据集中一处，两个后端共用。
+//
+// ⚠️ P2-7：与上面的 PROTECTED_WRITE_PREFIXES **不是同一份清单**，且**有意如此**：
+// 写保护是「agent 不许写」（审计/快照/基线 + hooks.json），隐形是「不进列表枚举」。
+// 两者**方向不同**：board 与 task_outputs 允许内部直写（board_write / O1 落盘），
+// 但不该被枚举（模型走 board_read / 按 offset 精读，不看原始文件）。
+// ⇒ **PROTECTED ⊄ HIDDEN 是刻意设计**，不是漏同步；改动任一份时请先读这两段注释。
+// （历史上的不一致是「两个后端各写一份」造成的，那已经收敛；这一处是清单**用途**不同。）
 export const HIDDEN_LIST_PREFIXES = Object.freeze([
   '.easychat/sessions/',
   '.easychat/file-history/',

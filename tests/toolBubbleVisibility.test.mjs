@@ -59,6 +59,13 @@ const chatTools = loadModule('src/chat/chatTools.js', {
   '*storage/settings/plugins.js': { getPlugins: async () => [] },
   '*plugins/webSearch.js': { runWebSearch: async () => [] },
   '*plugins/webFetch.js': { runWebFetch: async () => ({}) },
+  // chatTools 现在还给 web_fetch 接上「未知域名授权闸门」，因此多了一个存储依赖。
+  // 桩必须与生产 import 形状一致：不打桩它会拖进 storage/io.js → expo-file-system
+  // （原生模块，Node 里加载即 ERR_MODULE_NOT_FOUND），把纯逻辑测试打挂。
+  '*storage/settings/webFetchWhitelist.js': {
+    addWebFetchWhitelistDomain: async () => {},
+    isWebFetchDomainWhitelisted: async () => false,
+  },
 });
 
 const ID = 'bubble-1';

@@ -198,6 +198,12 @@ test('搜索工具配置：未启用或缺密钥时不暴露（不暴露即不�
     },
     '*storage/settings/plugins.js': { getPlugins: async () => [] },
     '*plugins/webSearch.js': { runWebSearch: async () => [] },
+    // chatTools 现在还给 web_fetch 接上「未知域名授权闸门」（弹窗 + 白名单），
+    // 因此多了一个 storage 依赖。桩必须与生产 import 形状一致，否则模块加载即失败。
+    '*storage/settings/webFetchWhitelist.js': {
+      addWebFetchWhitelistDomain: async () => {},
+      isWebFetchDomainWhitelisted: async () => false,
+    },
   });
   const plugins = [
     { id: 'web-search', type: 'web-search', enabled: false, config: { provider: 'serpapi', apiKey: 'k' } },

@@ -6,6 +6,15 @@ import Module from 'node:module';
 import { createRequire } from 'node:module';
 
 import { buildEmbeddingUrl, DEFAULT_VECTOR_PROVIDER, getVectorProvider } from '../src/vectorMemory/providers.js';
+import {
+  VECTOR_BATCH_SIZE_DEFAULT,
+  VECTOR_BATCH_SIZE_MAX,
+  VECTOR_MAX_CHARS_DEFAULT,
+  VECTOR_MAX_CHARS_MAX,
+  VECTOR_TIMEOUT_MS_DEFAULT,
+  VECTOR_TOP_K_DEFAULT,
+  VECTOR_TOP_K_MAX,
+} from '../src/vectorMemory/limits.js';
 import { tActive } from '../src/i18n/index.js';
 
 const require = createRequire(import.meta.url);
@@ -477,4 +486,251 @@ test('P1-6b：空 messageIds 不触碰任何条目', async () => {
   await vectorStorage.removeVectorIndexForMessages('char-noop', 's1', []);
   const after = await vectorStorage.getVectorIndex('char-noop');
   assert.deepEqual(after, before, '空 id 集合时索引必须一个字节都不变');
+});
+
+// ---------------------------------------------------------------------------
+// 按会话清理的两种语义：归档（可回溯，不清快照）vs 真删除（清快照）
+// ---------------------------------------------------------------------------
+// 背景：removeVectorIndexForSession 同时被两类路径调用，而两者在调用点长得一模一样：
+//  · 归档/分支切换/重生成/修改重发/整段清空（useChatSend.js:1789、useChatSend.js:1895、
+//    ChatScreen.js:1267、ChatScreen.js:1442）——消息被 archiveBranch 存成分支，随时能
+//    checkout 回来（ChatScreen.js:1215 onCheckoutBranch 把分支正文拼回活动时间线）
+//    ⇒ 归档中的消息仍是可召回的有效证据，其 mergedFrom 快照**必须原样保留**（否则误删证据链）。
+//    ⚠️ ChatScreen.js:1442（「全选 + 删除」清空整会话）属于本类：它在 :1431 先 archiveBranch
+//    把整段尾段归档成分支，消息可召回 ⇒ 不传 options 是对的，**不要**给它加 pruneSources。
+//  · 真删除（sessionList/mutations.js 的 deleteSessionInternal / deleteSessionsInternal）
+//    ——这两个函数随后都会 deleteAllBranchesInternal 把归档分支一并清掉，消息再也回不来
+//    ⇒ 与 removeVectorIndexForMessages 的删除语义一致，快照必须一起走（P1-6b）。
+// 存储层分辨不了这两者，所以「清快照」只能由调用方显式选择：默认不清（= 归档语义，
+// 与既有行为逐字节一致），真删除路径传 { pruneSources: true }。
+//
+// 下面两条断言必须**成对**存在：只钉「删除会清」会漏掉误删归档证据，只钉「归档不清」
+// 则会让真删除继续留盘（就是本次要修的那个缺陷）。
+
+// 跨会话合并记忆：条目挂在存活会话 s2，mergedFrom 里一条来自 s1、一条来自 s2。
+// 用它才能把「按会话过滤条目」与「清 mergedFrom 快照」两件事分开验——条目本身的
+// sessionId 若是 s1，它会被会话过滤先拿走，pruneSources 开不开就看不出差别了。
+const CROSS_SESSION_MERGED = {
+  ...MERGED_SNAPSHOT,
+  id: 'merged-cross',
+  sessionId: 's2',
+  mergedFrom: [
+    { id: 'seg-a', sessionId: 's1', messageId: 'm-gone', text: '被归档会话的原文', at: 10 },
+    { id: 'seg-b', sessionId: 's2', messageId: 'm-keep', text: '存活会话的原文', at: 20 },
+  ],
+};
+
+test('按会话清理·归档语义：默认不清 mergedFrom 快照（归档可回溯，快照是有效证据）', async () => {
+  vectorStore.clear();
+  await vectorStorage.saveVectorIndex('char-archive', [
+    { id: 'seg-plain', sessionId: 's1', messageId: 'm1', text: '用户：我喜欢猫', vector: [1, 0] },
+    CROSS_SESSION_MERGED,
+  ]);
+
+  // 归档路径的真实调用形状：只传 (ownerId, sessionId)，不带任何选项。
+  await vectorStorage.removeVectorIndexForSession('char-archive', 's1');
+  const index = await vectorStorage.getVectorIndex('char-archive');
+
+  assert.deepEqual(index.map(item => item.id), ['merged-cross'], '本会话的普通分段仍按会话清掉');
+  const merged = index.find(item => item.id === 'merged-cross');
+  assert.deepEqual(
+    merged.mergedFrom.map(entry => `${entry.sessionId}:${entry.messageId}`),
+    ['s1:m-gone', 's2:m-keep'],
+    '归档不是删除：来自归档会话的快照必须原样保留，否则 checkout 回来就再也读不到原始证据'
+  );
+  assert.ok(
+    JSON.stringify([...vectorStore.values()]).includes('被归档会话的原文'),
+    '归档中的原文仍应留盘（它是可回溯消息的证据，不是残留）'
+  );
+});
+
+test('按会话清理·删除语义：显式 { pruneSources: true } 才清快照，且全删时整条退休', async () => {
+  // 真删除 s1：只清 s1 那一份快照，s2 的原样保留。
+  vectorStore.clear();
+  await vectorStorage.saveVectorIndex('char-forget-2', [CROSS_SESSION_MERGED]);
+  await vectorStorage.removeVectorIndexForSessions('char-forget-2', ['s1'], { pruneSources: true });
+  const [cross] = await vectorStorage.getVectorIndex('char-forget-2');
+  assert.deepEqual(
+    cross.mergedFrom.map(entry => `${entry.sessionId}:${entry.messageId}`),
+    ['s2:m-keep'],
+    '只清被真删会话的那一份快照，别的会话原样保留'
+  );
+  assert.ok(
+    !JSON.stringify([...vectorStore.values()]).includes('被归档会话的原文'),
+    '真删会话的原文不得再留在盘上（包括快照里）'
+  );
+
+  // 快照全被真删 ⇒ 整条退休，与 removeVectorIndexForMessages 同一处置。
+  vectorStore.clear();
+  await vectorStorage.saveVectorIndex('char-forget-3', [{
+    ...MERGED_SNAPSHOT,
+    id: 'merged-all-gone',
+    sessionId: 's2',
+    mergedFrom: [{ id: 'seg-a', sessionId: 's1', messageId: 'm-gone', text: '仅存来源', at: 10 }],
+  }]);
+  await vectorStorage.removeVectorIndexForSession('char-forget-3', 's1', { pruneSources: true });
+  assert.deepEqual(
+    await vectorStorage.getVectorIndex('char-forget-3'),
+    [],
+    '已无可溯源原文的合并记忆整条退休，不留只有结论的孤儿'
+  );
+
+  // 对照：同一份索引走默认（归档）入口，条目必须一个字节都不少——防过度修正。
+  vectorStore.clear();
+  await vectorStorage.saveVectorIndex('char-forget-4', [{
+    ...MERGED_SNAPSHOT,
+    id: 'merged-all-gone',
+    sessionId: 's2',
+    mergedFrom: [{ id: 'seg-a', sessionId: 's1', messageId: 'm-gone', text: '仅存来源', at: 10 }],
+  }]);
+  await vectorStorage.removeVectorIndexForSession('char-forget-4', 's1');
+  const kept = await vectorStorage.getVectorIndex('char-forget-4');
+  assert.equal(kept.length, 1, '默认入口不得清快照（否则归档证据被误删）');
+  assert.equal(kept[0].mergedFrom.length, 1);
+});
+
+test('按会话清理·语义分派钉死在源码：默认分支不清快照，归档调用点不得显式开清', () => {
+  const storageSource = fs.readFileSync(path.resolve('src/storage/vector.js'), 'utf8');
+  const body = storageSource.slice(storageSource.indexOf('export function removeVectorIndexForSessions'));
+  assert.ok(
+    body.includes('options.pruneSources === true'),
+    '清快照必须由调用方显式选择（默认 false），否则归档会被当成删除'
+  );
+  assert.ok(
+    body.includes('if (!pruneSources) return kept;'),
+    '未显式选择时必须早退，保持既有「只按会话过滤」的行为'
+  );
+
+  // 归档/回溯路径是只读依赖（别的批次也会改它），这里只断言**它没有**开清快照：
+  // 一旦有人给归档路径加上 pruneSources，可回溯的消息证据会被误删。
+  // 不钉死调用点数量——该文件会被别的批次改动，数量变化不该让本测试变红。
+  const sendSource = fs.readFileSync(path.resolve('src/chat/useChatSend.js'), 'utf8');
+  const archiveCalls = sendSource
+    .split('\n')
+    .filter(line => line.includes('removeVectorIndexForSession('));
+  assert.ok(archiveCalls.length >= 2, '归档路径的调用点消失了，请复核语义是否被改动');
+  archiveCalls.forEach(line => {
+    assert.ok(
+      !line.includes('pruneSources'),
+      '归档/回溯路径不得清 mergedFrom 快照（归档中的消息随时可 checkout 回来）'
+    );
+  });
+});
+
+// 上面那条只钉了「归档侧**不得**开清」——它**不足以**发现「删除侧忘了开清」：
+// 只钉一半时，pruneSources 可以在生产代码里零调用点（正是本次修的那个半成品状态），
+// 测试照样全绿。这条补上另一半，两条合起来才把「归档 vs 删除」钉成不变量。
+test('按会话清理·真删除调用点必须显式开清快照，归档调用点必须不开（成对不变量）', () => {
+  // 剥注释再匹配：本仓注释里大量引用这两个函数名与选项名（含本次新增的说明），
+  // 不剥注释就会把说明文字当成代码来断言。
+  const stripComments = source => source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  // 只取**调用形状**（带左括号）：import 行里的裸标识符没有括号，天然被排除。
+  const callsIn = relative => stripComments(fs.readFileSync(path.resolve(relative), 'utf8'))
+    .split('\n')
+    .filter(line => /removeVectorIndexForSessions?\(/.test(line));
+
+  // ① 真删除侧：deleteSessionInternal / deleteSessionsInternal 随后都会
+  //    deleteAllBranchesInternal 把归档分支一并清掉 ⇒ 消息再也 checkout 不回来
+  //    ⇒ 必须传 { pruneSources: true }，否则被删消息的原文仍留在盘上、还能在溯源面板读到（P1-6b）。
+  const deleteCalls = callsIn('src/storage/sessionList/mutations.js');
+  assert.ok(
+    deleteCalls.length >= 2,
+    '真删除路径的调用点消失了，请复核语义是否被改动（deleteSession / deleteSessions）'
+  );
+  deleteCalls.forEach(line => {
+    assert.ok(
+      line.includes('pruneSources: true'),
+      `真删除路径必须显式清 mergedFrom 快照（删了消息，记忆里那份原文快照也要一起走）：${line.trim()}`
+    );
+  });
+
+  // ② 归档侧反向断言：归档/分支切换/重生成/修改重发/整段清空的消息被 archiveBranch 存成
+  //    分支、随时可召回 ⇒ 一旦给它们加上 pruneSources，可回溯的证据链会被误删。
+  //    ChatScreen.js:1442（「全选 + 删除」）也在这一侧：它在 :1431 先 archiveBranch。
+  const archiveSources = ['src/chat/useChatSend.js', 'src/ChatScreen.js'];
+  const archiveCallLines = archiveSources.flatMap(callsIn);
+  assert.ok(
+    archiveCallLines.length >= 3,
+    '归档/回溯路径的调用点数量异常（预期 useChatSend 两处 + ChatScreen 两处）'
+  );
+  archiveCallLines.forEach(line => {
+    assert.ok(
+      !line.includes('pruneSources'),
+      `归档/回溯路径不得清 mergedFrom 快照（归档中的消息随时可 checkout 回来）：${line.trim()}`
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 数值边界与默认值：单一真源（limits.js）——三处不得再各手抄一份
+// ---------------------------------------------------------------------------
+// 此前 batchSize=16 在 providers.js（目录真源）、vectorMemory/index.js 的
+// DEFAULT_BATCH_SIZE、storage/vector.js 的兜底字面量各写一份；上限/默认
+// 20/2000/64 与 5/400/16 在 index.js 与 storage/vector.js 各一份；timeoutMs=30000 在
+// providers.js 与 index.js 各一份。收敛到 limits.js 后，源码级与行为级各钉一遍。
+
+test('收敛：三处数值来源唯一，且不再留手抄字面量（源码级）', () => {
+  const strip = relative => fs.readFileSync(path.resolve(relative), 'utf8').replace(/\/\/[^\n]*/g, '');
+
+  const limits = strip('src/vectorMemory/limits.js');
+  assert.ok(!/\bimport\b/.test(limits), 'limits.js 必须零依赖，否则会与 storage/vector.js 形成环');
+
+  const indexSource = strip('src/vectorMemory/index.js');
+  const storageSource = strip('src/storage/vector.js');
+  const providersSource = strip('src/vectorMemory/providers.js');
+
+  // 两侧都必须从 limits.js 取值
+  [indexSource, storageSource].forEach((source, i) => {
+    const label = i === 0 ? 'vectorMemory/index.js' : 'storage/vector.js';
+    assert.ok(source.includes("from './limits.js'") || source.includes("from '../vectorMemory/limits.js'"),
+      `${label} 必须从 limits.js 取数值真源`);
+    // 手抄的夹取字面量必须消失：Math.min(20, …) / Math.min(2000, …) / Math.min(64, …)
+    assert.ok(!/Math\.min\(20,/.test(source), `${label} 不得再手抄 topK 上限 20`);
+    assert.ok(!/Math\.min\(2000,/.test(source), `${label} 不得再手抄 maxChars 上限 2000`);
+    assert.ok(!/Math\.min\(64,/.test(source), `${label} 不得再手抄 batchSize 上限 64`);
+  });
+
+  // providers.js 的目录项也不再手抄 30000 / 16
+  assert.ok(!/timeoutMs:\s*\d+/.test(providersSource), 'providers.js 不得再手抄 timeoutMs 字面量');
+  assert.ok(!/batchSize:\s*\d+/.test(providersSource), 'providers.js 不得再手抄 batchSize 字面量');
+});
+
+test('收敛：两处归一化对同一组边界逐条给出同一结果（行为级）', async () => {
+  const resolved = runtimeModule.exports.normalizeVectorConfig;
+  const viaIndex = input => resolved({ providerId: DEFAULT_VECTOR_PROVIDER.id, ...input });
+
+  // 上限：超限一律夹到 limits.js 的值
+  assert.equal(viaIndex({ topK: 999 }).topK, VECTOR_TOP_K_MAX);
+  assert.equal(viaIndex({ maxChars: 99999 }).maxChars, VECTOR_MAX_CHARS_MAX);
+  assert.equal(viaIndex({ batchSize: 999 }).batchSize, VECTOR_BATCH_SIZE_MAX);
+
+  // 默认：非正/非数一律回落到 limits.js 的默认值
+  assert.equal(viaIndex({ topK: 0 }).topK, VECTOR_TOP_K_DEFAULT);
+  assert.equal(viaIndex({ maxChars: -1 }).maxChars, VECTOR_MAX_CHARS_DEFAULT);
+  assert.equal(viaIndex({}).batchSize, VECTOR_BATCH_SIZE_DEFAULT);
+  assert.equal(viaIndex({}).timeoutMs, VECTOR_TIMEOUT_MS_DEFAULT);
+
+  // storage/vector.js 侧：走真实落盘再读回，确认设置页那条路径用的是同一组数字
+  vectorStore.clear();
+  await vectorStorage.saveVectorMemorySettings({
+    enabled: true,
+    activeId: 'default',
+    configs: [{ id: 'default', name: '默认向量配置', topK: 999, maxChars: 99999, batchSize: 999 }],
+  });
+  const clamped = (await vectorStorage.getVectorMemorySettings()).configs[0];
+  assert.equal(clamped.topK, VECTOR_TOP_K_MAX, '设置页夹取上限必须与发请求侧同源');
+  assert.equal(clamped.maxChars, VECTOR_MAX_CHARS_MAX);
+  assert.equal(clamped.batchSize, VECTOR_BATCH_SIZE_MAX);
+
+  await vectorStorage.saveVectorMemorySettings({
+    enabled: true,
+    activeId: 'default',
+    configs: [{ id: 'default', name: '默认向量配置', topK: 0, maxChars: 0, batchSize: 0 }],
+  });
+  const defaults = (await vectorStorage.getVectorMemorySettings()).configs[0];
+  assert.equal(defaults.topK, VECTOR_TOP_K_DEFAULT);
+  assert.equal(defaults.maxChars, VECTOR_MAX_CHARS_DEFAULT);
+  assert.equal(defaults.batchSize, VECTOR_BATCH_SIZE_DEFAULT);
 });

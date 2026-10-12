@@ -449,13 +449,18 @@ test('模型返回的世界书 / 正则 / 预设被清洗成完整结构', () =>
   assert.deepEqual(entry.keys, ['月亮', '夜晚']);
   assert.equal(entry.content, '月亮的设定');
   assert.equal(entry.position, 4);
-  assert.equal(entry.positionLabel, '按深度插入');
+  // 与下面 placementLabel 同一口径（同族字段）：position 是语言无关的权威取值，
+  // positionLabel 是**当时语言下的文案**，落盘就会随导出/分享传播（英文界面显示中文），
+  // 故生成侧不再产生它；文案由渲染侧按当前语言现算（cardHelpers.positionText）。
+  assert.equal(entry.positionLabel, '');
   assert.equal(entry.depth, 3);
   assert.equal(entry.enabled, true);
 
   assert.equal(patch.regexScripts.length, 1);
   assert.deepEqual(patch.regexScripts[0].placement, [2]);
-  assert.equal(patch.regexScripts[0].placementLabel, 'AI 输出');
+  // 生成侧不再落盘中文文案（选法 a）：placement 是语言无关的数字，文案由渲染侧
+  // 按当前语言现算（cardHelpers.js 的 placementText）。落盘文案会随导出/分享传播。
+  assert.equal(patch.regexScripts[0].placementLabel, '');
 
   // 空 prompt 的预设被丢弃
   assert.equal(patch.presets.length, 1);
@@ -869,7 +874,9 @@ test('条目辅助可改世界书的 constant/position/depth', () => {
   assert.equal(merged.constant, true);
   assert.equal(merged.position, 4);
   assert.equal(merged.depth, 6);
-  assert.equal(merged.positionLabel, '按深度插入');
+  // 保存路径不落盘中文派生文案：position 才是权威字段，旧值必须清掉
+  // （否则「position 已改、positionLabel 还是旧中文」的错配会随导出传播）。
+  assert.equal(merged.positionLabel, '');
   assert.deepEqual(merged.keys, ['b']);
   // 非法 position 不采纳；非布尔 constant 不采纳
   const rejected = mergeEntryAssistPatch(base, 'worldInfo', { position: 99, constant: 'yes' });
@@ -877,7 +884,7 @@ test('条目辅助可改世界书的 constant/position/depth', () => {
   assert.equal(rejected.constant, false);
 });
 
-test('条目辅助可改正则 flags/placement/两种 Only 并同步 placementLabel', () => {
+test('条目辅助可改正则 flags/placement/两种 Only，且不再落盘中文 placementLabel', () => {
   const base = {
     id: 'r1',
     name: '高亮',
@@ -885,6 +892,7 @@ test('条目辅助可改正则 flags/placement/两种 Only 并同步 placementLa
     replaceString: 'bar',
     flags: 'g',
     placement: [2],
+    // 老卡形态：数据里带着中文派生文案。合并后必须清掉，否则英文界面会显示它。
     placementLabel: 'AI 输出',
     markdownOnly: false,
     promptOnly: false,
@@ -898,12 +906,60 @@ test('条目辅助可改正则 flags/placement/两种 Only 并同步 placementLa
   });
   assert.equal(merged.flags, 'gi');
   assert.deepEqual(merged.placement, [1, 2]);
-  assert.equal(merged.placementLabel, '用户输入、AI 输出');
+  // 不落盘文案：placement 已改，旧中文派生值必须清空（否则与 placement 错配）
+  assert.equal(merged.placementLabel, '');
   assert.equal(merged.markdownOnly, true);
   // placement 只接受 1/2；全非法时保留原值
   const kept = mergeEntryAssistPatch(base, 'regexScripts', { placement: [3, 9] });
   assert.deepEqual(kept.placement, [2]);
-  assert.equal(kept.placementLabel, 'AI 输出');
+  // ⚠️ 即便 placement 未变，旧中文派生值也要清掉（2026-10-12）：本函数是**保存路径**，
+  // 任何一次保存都该把卡片归一成新格式 —— placement 才是权威（语言无关），placementLabel
+  // 是渲染侧按当前语言现算的派生物（cardHelpers.placementText）。留着旧值会让它随导出/
+  // 分享传播（英文界面显示中文），这正是本次要根除的；老卡兼容在**读取侧**回落，不在保存侧保留。
+  assert.equal(kept.placementLabel, '', '保存路径必须清掉中文派生值，兼容由读取侧回落负责');
+  // ⚠️ placement 被清成**空数组**时同样必须清（2026-10-12 修正）：旧实现有
+  // `next.placement.length > 0` 前置条件，这种形态下旧中文 label 会残留，而
+  // placementText 在 placement 全认不出时恰好回落到 legacyLabel ⇒ 英文界面显示旧中文，
+  // 等于本字段的原始缺陷没修掉。老卡兼容只在**读取侧**回落，保存路径一律归一。
+  const emptied = mergeEntryAssistPatch(
+    { id: 'r2', name: '旧', findRegex: 'foo', replaceString: 'bar', flags: 'g', placement: [], placementLabel: 'AI 输出' },
+    'regexScripts',
+    { flags: 'gi' }
+  );
+  assert.equal(emptied.placementLabel, '', 'placement 为空数组时也必须清掉旧中文派生值');
+  const rejectedAll = mergeEntryAssistPatch(
+    { id: 'r3', name: '旧', findRegex: 'foo', replaceString: 'bar', flags: 'g', placement: [], placementLabel: 'AI 输出' },
+    'regexScripts',
+    { placement: [3, 9] }
+  );
+  assert.deepEqual(rejectedAll.placement, [], '全非法取值不写回 placement');
+  assert.equal(rejectedAll.placementLabel, '', '取值全非法（placement 落空）时也要清掉旧中文派生值');
+});
+
+test('同族字段 positionLabel：保存路径同样不再落盘中文（世界书位置）', () => {
+  // positionLabel 与 placementLabel 是同一缺陷的两处：都是**当时语言下的文案**被写进
+  // 卡片数据（worldInfo[].positionLabel）。生成/保存侧只留语言无关的 position，
+  // 文案由渲染侧 cardHelpers.positionText 按当前语言现算。
+  const legacy = {
+    id: 'w1',
+    comment: '旧',
+    keys: ['a'],
+    content: '旧',
+    constant: false,
+    position: 1,
+    positionLabel: '角色定义之后',
+    depth: 4,
+    enabled: true,
+  };
+  const merged = mergeEntryAssistPatch(legacy, 'worldInfo', { position: 4 });
+  assert.equal(merged.position, 4);
+  assert.equal(merged.positionLabel, '', 'position 已改，旧中文派生值必须清空');
+  // 生成路径（advanced.js 的 sanitizeWorldEntry）同样不再产生中文文案
+  const entry = sanitizeWorldEntry({ keys: ['a'], content: 'x', position: 4 }, 0);
+  assert.equal(entry.position, 4);
+  assert.equal(entry.positionLabel, '');
+  // 非法的 position 回落 0，且同样不落盘文案
+  assert.equal(sanitizeWorldEntry({ keys: ['a'], content: 'x', position: 99 }, 0).positionLabel, '');
 });
 
 // ================= 问题 A：生成路径必须筛查危险正则 =================
@@ -1108,4 +1164,125 @@ test('mediaPaths：删掉零引用的 FORGE_IMAGE_KEYS，imageKeyLabel 不再过
   assert.equal(source.includes('FORGE_IMAGE_KEYS'), false, '全仓零引用的常量必须删除');
   assert.equal(/export\s+function\s+imageKeyLabel/.test(source), false, '只被本文件调用，不做公共导出');
   assert.ok(/function\s+imageKeyLabel\s*\(/.test(source), '函数本体保留（buildForgeImageName 还在用）');
+});
+
+// ================= placementLabel 不再落盘中文（i18n 修复）=================
+//
+// 背景：placement 是语言无关的数字，但 3 个生成点过去把**当时语言的中文文案**
+// 写进 regexScripts[].placementLabel，随卡片导出/分享传播，英文界面因此显示中文。
+// 选法 (a)：生成侧不再产生中文文案，渲染侧（cardHelpers.placementText）按当前
+// 语言现算。下面用源码级断言钉住「不再有中文表 / 不再生成中文文案」。
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map(line => line.replace(/\/\/.*$/, ''))
+    .join('\n');
+}
+
+const FORGE_ADVANCED_SOURCE = readFileSync(
+  path.join(HERE, '..', 'src', 'cardForge', 'forge', 'advanced.js'), 'utf8'
+);
+const FORGE_ASSIST_SOURCE = readFileSync(
+  path.join(HERE, '..', 'src', 'cardForge', 'forge', 'assist.js'), 'utf8'
+);
+const FORGE_SHARED_SOURCE = readFileSync(
+  path.join(HERE, '..', 'src', 'cardForge', 'forge', 'shared.js'), 'utf8'
+);
+const CARD_PARSER_REGEX_SOURCE = readFileSync(
+  path.join(HERE, '..', 'src', 'character', 'cardParser', 'regexScripts.js'), 'utf8'
+);
+const CHARACTER_EDITORS_SOURCE = readFileSync(
+  path.join(HERE, '..', 'src', 'character', 'editors.js'), 'utf8'
+);
+
+test('生成侧不再产生中文 placementLabel（剥注释后无中文文案赋值）', () => {
+  // 3 个生成点：regexScripts.js 的 normalizeRegexScript、advanced.js 的
+  // sanitizeRegexScript、assist.js 的 mergeEntryAssistPatch。
+  // 判据用「placementLabel 的值里出现中文」而不是「出现了 placementLabel 这个键」——
+  // 保留字段本身（写 ''）是刻意的：老卡透传与形状稳定都靠它。
+  for (const [name, source] of [
+    ['cardParser/regexScripts.js', CARD_PARSER_REGEX_SOURCE],
+    ['cardForge/forge/advanced.js', FORGE_ADVANCED_SOURCE],
+    ['cardForge/forge/assist.js', FORGE_ASSIST_SOURCE],
+  ]) {
+    const code = stripComments(source);
+    const chinese = /placementLabel\s*[:=][^,;\n]*[\u4e00-\u9fff]/.exec(code);
+    assert.equal(chinese, null, `${name} 仍在生成中文 placementLabel：${chinese && chinese[0]}`);
+  }
+  // 反向对照：剥注释的判据确实能抓到旧形态（否则上面是空转）
+  assert.ok(
+    /placementLabel\s*:[^,;\n]*[\u4e00-\u9fff]/.test("placementLabel: 'AI 输出',"),
+    '判据必须能命中旧的中文字面量赋值'
+  );
+});
+
+test('中文 placement 常量表已收敛为 1 份，forge 侧只留语言无关取值', () => {
+  // 此前 regexScripts.js 与 forge/shared.js 各有一份逐字相同的中文表（两个真相源）。
+  const chineseTable = /['"]用户输入['"]/;
+  assert.ok(chineseTable.test(CARD_PARSER_REGEX_SOURCE), 'cardParser 保留唯一的中文兜底表');
+  assert.equal(
+    chineseTable.test(stripComments(FORGE_SHARED_SOURCE)),
+    false,
+    'forge/shared.js 不得再复制中文文案表'
+  );
+  // forge 侧改为语言无关的合法取值清单 + 校验函数（advanced.js 的清洗查它）
+  assert.ok(FORGE_SHARED_SOURCE.includes('export const REGEX_PLACEMENT_KEYS'));
+  assert.ok(FORGE_SHARED_SOURCE.includes('export function isValidRegexPlacement'));
+  assert.ok(FORGE_ADVANCED_SOURCE.includes('isValidRegexPlacement(item)'));
+});
+
+test('生成侧不再产生中文 positionLabel（同族字段：世界书位置）', () => {
+  // positionLabel 与 placementLabel 是同一缺陷的两处：都是**当时语言下的文案**写进卡片数据
+  // （worldInfo[].positionLabel），会随导出/分享传播。判据同样用「值里出现中文」——
+  // 保留字段本身（写 ''）是刻意的：老卡透传与形状稳定都靠它。
+  for (const [name, source] of [
+    ['cardForge/forge/advanced.js', FORGE_ADVANCED_SOURCE],
+    ['cardForge/forge/assist.js', FORGE_ASSIST_SOURCE],
+    ['src/character/editors.js', CHARACTER_EDITORS_SOURCE],
+  ]) {
+    const code = stripComments(source);
+    const chinese = /positionLabel\s*[:=][^,;\n]*[\u4e00-\u9fff]/.exec(code);
+    assert.equal(chinese, null, `${name} 仍在生成中文 positionLabel：${chinese && chinese[0]}`);
+  }
+});
+
+test('渲染侧兜底分支存在：老卡的中文 placementLabel 不会变空白', () => {
+  // 行为级断言在 tests/characterHelpers.test.mjs（placementText 可直测）；
+  // 这里钉住接线：两个渲染点必须把旧 placementLabel 作为回落传进去。
+  const helpers = readFileSync(path.join(HERE, '..', 'src', 'character', 'cardHelpers.js'), 'utf8');
+  assert.ok(helpers.includes('strings.legacyLabel'), 'placementText 必须支持旧值回落');
+  assert.ok(helpers.includes('character.editor.regex.scope.userInput'), '已知范围走词条 key');
+  const detail = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterDetailScreen.js'), 'utf8');
+  assert.ok(detail.includes('legacyLabel: script.placementLabel'), '详情页渲染必须传旧值兜底');
+  // 世界书位置（同族字段）：唯一实现是 cardHelpers.positionText，读取侧旧值同样要兜底
+  assert.ok(helpers.includes('export function positionText'), '位置文案必须有唯一实现');
+  assert.ok(helpers.includes('character.editor.world.positionText.atDepth'), '已知位置走词条 key');
+  assert.ok(CHARACTER_EDITORS_SOURCE.includes('positionText(position, { legacyLabel: entry.positionLabel })'),
+    '编辑器渲染必须走 positionText 并传旧值兜底');
+  // 零消费词条已被真正消费（此前 character.editor.world.constant 是「写好没人用」）
+  assert.ok(detail.includes("t('character.editor.world.constant')"), 'worldEntryMeta 的 strings 已传全');
+});
+
+test('渲染侧没有第二份实现：中文常量表不得再被插进界面', () => {
+  // 平行定义正是本缺陷的成因（两份中文表 = 两个真相源，且其中一份会落盘）。
+  // 界面文件里出现这些中文字面量，说明有人又把常量表抄回渲染路径了。
+  const chineseLiterals = [
+    "'用户输入'", '"用户输入"', "'AI 输出'", '"AI 输出"',
+    "'角色定义之前'", '"角色定义之前"', "'按深度插入'", '"按深度插入"',
+  ];
+  for (const [name, source] of [
+    ['src/character/editors.js', CHARACTER_EDITORS_SOURCE],
+    ['src/character/CharacterDetailScreen.js', readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterDetailScreen.js'), 'utf8')],
+  ]) {
+    const code = stripComments(source);
+    for (const literal of chineseLiterals) {
+      assert.equal(code.includes(literal), false, `${name} 里出现中文文案字面量 ${literal}（应走 i18n 词条）`);
+    }
+    // 两个渲染点都必须经过唯一实现
+    assert.ok(
+      code.includes('placementText') || code.includes('positionText'),
+      `${name} 必须走 cardHelpers 的唯一渲染实现`
+    );
+  }
 });

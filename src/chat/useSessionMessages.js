@@ -93,6 +93,11 @@ export default function useSessionMessages({
   const draftSessionIdRef = useRef('');
   const draftTextRef = useRef('');
   const draftSaveTimerRef = useRef(null);
+  // 草稿「读不出来」（corrupt）的会话：既不回填、也不置空 draftTextRef，并**禁用该会话的草稿自动保存**
+  // ——否则用户接下来的输入会在 400ms 后直接覆盖盘上那份唯一的手打草稿（草稿别处没有副本，
+  // 而消息体损坏时 storage/sessionMessages/messages.js 是会先 backupCorruptValue 的）。
+  // 读改写路径在「读不出」时必须中止，与 storage/worldMap.js 同口径。
+  const draftBlockedSessionIdRef = useRef('');
   // 上一次处理过的主动消息刷新计数：用于把「主动消息落库刷新」与「切会话」区分开。
   const refreshTickRef = useRef(messageRefreshTick);
   const [input, setInput] = useState('');
@@ -106,6 +111,8 @@ export default function useSessionMessages({
   const persistDraftNow = useCallback((sessionId, text) => {
     const id = String(sessionId || '');
     if (!id) return;
+    // 读不出的会话：读改写路径必须中止，绝不拿默认/空值覆盖盘上那份草稿。
+    if (draftBlockedSessionIdRef.current === id) return;
     if (chatOptionsRef.current.keepDraft) {
       saveSessionDraft(id, text).catch(() => {});
     } else {
@@ -126,6 +133,7 @@ export default function useSessionMessages({
     draftSaveTimerRef.current = setTimeout(() => {
       draftSaveTimerRef.current = null;
       if (!chatOptionsRef.current.keepDraft) return;
+      if (draftBlockedSessionIdRef.current === id) return;
       saveSessionDraft(id, value).catch(() => {});
     }, 400);
   }, []);
@@ -187,6 +195,8 @@ export default function useSessionMessages({
       }
       draftSessionIdRef.current = loadSessionId;
       draftTextRef.current = '';
+      // 换会话即解除「读不出」封锁（它只针对上一个会话的键）。
+      draftBlockedSessionIdRef.current = '';
     }
     resetSessionUi();
     setInput('');
@@ -383,16 +393,28 @@ export default function useSessionMessages({
     const targetSessionId = String(activeSessionId);
     let cancelled = false;
     getSessionDraft(targetSessionId)
-      .then(text => {
+      .then(result => {
         if (cancelled) return;
         if (activeSessionIdRef.current !== targetSessionId) return;
+        // 「读不出」≠「没有草稿」：三态分流（storage/sessionMessages/drafts.js 现在返回
+        // { status, text }）。corrupt 时**不回填、不置空 draftTextRef、并禁用该会话的草稿自动保存**
+        // ——否则用户接下来的输入会在 400ms 后覆盖盘上那份唯一的手打草稿。
+        if (String((result && result.status) || '') === 'corrupt') {
+          draftBlockedSessionIdRef.current = targetSessionId;
+          return;
+        }
         // 用户已在异步回填前开始输入时，不覆盖他正在写的内容。
         if (draftTextRef.current) return;
-        const value = String(text || '');
+        const value = String((result && result.text) || '');
         draftTextRef.current = value;
         if (value) setInput(value);
       })
-      .catch(() => {});
+      .catch(() => {
+        // 读取本身抛出（异常路径）同样按「读不出」处理，绝不当作「没有草稿」。
+        if (cancelled) return;
+        if (activeSessionIdRef.current !== targetSessionId) return;
+        draftBlockedSessionIdRef.current = targetSessionId;
+      });
     return () => { cancelled = true; };
   }, [activeSessionId, loaded, chatOptions.keepDraft]);
 

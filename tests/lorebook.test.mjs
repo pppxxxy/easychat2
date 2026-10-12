@@ -116,3 +116,21 @@ test('getUnsafeWorldEntryKeys 只标记会触发正则防护的关键词', () =>
   const safe = entry({ keys: ['\\bword\\b', '/foo/g'], useRegex: true });
   assert.deepEqual(getUnsafeWorldEntryKeys(safe), []);
 });
+
+// 与 regexEngine 同一口径：走**正则**的超长输入 fail-closed，返回「不匹配」而不是截断后测尾部。
+// 纯字面量路径不跑正则、没有回溯风险，因此不受此限（长文本里的普通关键词照常命中）。
+test('超长扫描文本在正则路径上直接判不匹配（不截断后测尾部，避免静默漏命中）', () => {
+  const long = `${'x'.repeat(20001)}apple`;
+  // 正则路径：关键词就在尾部，旧实现会截断后命中，新实现整条不匹配
+  assert.equal(isEntryActive(entry({ keys: ['/apple/'] }), [long]), false);
+  assert.equal(isEntryActive(entry({ keys: ['apple'], useRegex: true }), [long]), false);
+  // matchWholeWords 的非 CJK 分支也走正则
+  assert.equal(isEntryActive(entry({ keys: ['app'], matchWholeWords: true }), [long]), false);
+  // 纯字面量子串匹配不涉及正则，长文本仍照常命中（不是一刀切）
+  assert.equal(isEntryActive(entry({ keys: ['apple'] }), [long]), true);
+
+  // 常规长度照常命中（没有过度修正）
+  assert.equal(isEntryActive(entry({ keys: ['apple'] }), ['apple']), true);
+  assert.equal(isEntryActive(entry({ keys: ['/apple/'] }), ['apple']), true);
+  assert.equal(isEntryActive(entry({ keys: ['app'], matchWholeWords: true }), ['an app here']), true);
+});

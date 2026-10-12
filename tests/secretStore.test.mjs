@@ -26,9 +26,24 @@ const secureMock = {
   getItemAsync: async key => (secureValues.has(key) ? secureValues.get(key) : null),
 };
 
+// 诊断留痕是本次修复的一半（「静默」正是缺陷的本质），所以这里把 diagnostics 换成
+// 可断言的桩：真模块在纯 Node 下没有 AsyncStorage，读不回/置空这两条异常若只走内存
+// 缓存，测试就断言不到「有没有留痕」。
+const diagnostics = [];
+const diagnosticsMock = {
+  recordDiagnostic: (kind, error, context = '') => {
+    diagnostics.push({
+      kind,
+      message: error && error.message !== undefined ? String(error.message) : String(error),
+      context: String(context),
+    });
+  },
+};
+
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'expo-secure-store') return secureMock;
+  if (request === './diagnostics.js' || request.endsWith('/diagnostics.js')) return diagnosticsMock;
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -46,6 +61,8 @@ const {
   isSecretRef,
   protectSecrets,
   hydrateSecrets,
+  readSecureValue,
+  SECRET_UNAVAILABLE_KEY,
   __resetSecretStoreForTests,
 } = mod;
 
@@ -152,13 +169,145 @@ test('安全存储写入失败时透明降级为明文（不丢密钥、不阻�
   }
 });
 
-test('读取引用但安全存储无值时回填空串（不抛错）', async () => {
+// ---- 读侧两条不可逆缺陷（逐行审查：密钥层）----
+// ① 引用还在、值读不回：旧实现静默回填空串 ⇒ UI 空框 ⇒ 用户随手保存 ⇒ 明文 '' 覆盖盘上引用
+//    ⇒ SecureStore 里的旧记录成永久孤儿，密钥不可逆丢失且诊断零记录。
+// ② SecureStore 整体不可用：旧实现原样返回 ⇒ `secure:v1:...` 被当凭据拼进
+//    `Authorization: Bearer ...` 发给服务商。
+
+test('🔴 引用读不回：保留原引用串（绝不回填空串）+ 留痕 + 打标记', async () => {
   __resetSecretStoreForTests();
   secureValues.clear();
+  diagnostics.length = 0;
+  const ref = 'secure:v1:missing_id';
   const hydrated = await hydrateSecrets('@easychat2_api_configs', {
-    configs: [{ id: 'a', apiKey: 'secure:v1:missing_id' }],
+    configs: [{ id: 'a', apiKey: ref }],
+  });
+  // 关键断言：**不是** ''。空串会让用户看到空框并随手保存，把盘上的引用覆盖掉。
+  assert.equal(hydrated.configs[0].apiKey, ref, '读不回必须保留原引用串，不得回填空串');
+  assert.notEqual(hydrated.configs[0].apiKey, '');
+  // 标记必须冒泡到最外层：调用方拿到的是整份 payload，不会去遍历深层节点。
+  assert.equal(hydrated[SECRET_UNAVAILABLE_KEY], true, '顶层必须带 SECRET_UNAVAILABLE_KEY 标记');
+  // 必须留痕（旧实现零记录）。
+  assert.ok(
+    diagnostics.some(item => item.kind === 'secrets' && item.message.includes('无法还原')),
+    '读不回必须记一条 secrets 诊断'
+  );
+  assert.ok(
+    diagnostics.some(item => item.context.includes('@easychat2_api_configs')),
+    '诊断 context 必须带命名空间，便于定位是哪份配置'
+  );
+});
+
+test('🔴 读不回与「确实存了空串」必须可区分：空串是成功、不记诊断', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  diagnostics.length = 0;
+  // 这条记录**确实**是空串（写入侧允许写入空串），读回成功 ⇒ 不是异常，不该刷诊断。
+  secureValues.set('easychat2_secret_@easychat2_api_configs_configs_a_apiKey', '');
+  const hydrated = await hydrateSecrets('@easychat2_api_configs', {
+    configs: [{ id: 'a', apiKey: 'secure:v1:@easychat2_api_configs_configs_a_apiKey' }],
   });
   assert.equal(hydrated.configs[0].apiKey, '');
+  assert.equal(hydrated[SECRET_UNAVAILABLE_KEY], undefined, '成功读回不该打「不可用」标记');
+  assert.deepEqual(diagnostics, [], '确实存了空串是成功路径，不该记诊断');
+});
+
+test('🔴 readSecureValue 对外仍返回字符串（旧契约，单角色锁密码依赖）', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  assert.equal(await readSecureValue('missing_lock_pin'), '', '读不回时对外仍是空串而非 null');
+  await mod.writeSecureValue('some_lock_pin', '1234');
+  assert.equal(await readSecureValue('some_lock_pin'), '1234');
+});
+
+test('🔴 安全存储不可用时：置空引用字段 + 标记 + 留痕，绝不把引用串交给调用方', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  diagnostics.length = 0;
+  const originalGet = secureMock.getItemAsync;
+  const originalSet = secureMock.setItemAsync;
+  // 模拟原生模块 require 失败：isSecretStoreAvailable() 为假。
+  delete secureMock.getItemAsync;
+  delete secureMock.setItemAsync;
+  try {
+    const hydrated = await hydrateSecrets('@easychat2_api_configs', {
+      configs: [{ id: 'a', apiKey: 'secure:v1:apiConfigs_0_apiKey', baseUrl: 'https://a/v1' }],
+    });
+    // 核心断言：引用串**绝不能**流到调用方（网络层没有任何引用串守卫）。
+    assert.equal(hydrated.configs[0].apiKey, '', '不可用时必须置空，不得泄漏内部引用串');
+    assert.equal(
+      JSON.stringify(hydrated).includes('secure:v1:'),
+      false,
+      '整份 payload 序列化后不得残留引用串（它会被拼进 Authorization 头）'
+    );
+    // 非密钥字段不受影响（置空只针对引用串，不能顺手清掉用户配置）。
+    assert.equal(hydrated.configs[0].baseUrl, 'https://a/v1');
+    // 与 ① 共用同一个标记与同一条诊断口径。
+    assert.equal(hydrated[SECRET_UNAVAILABLE_KEY], true);
+    assert.ok(
+      diagnostics.some(item => item.kind === 'secrets' && item.message.includes('无法还原')),
+      '不可用时必须留痕（旧实现零记录）'
+    );
+  } finally {
+    secureMock.getItemAsync = originalGet;
+    secureMock.setItemAsync = originalSet;
+    __resetSecretStoreForTests();
+  }
+});
+
+test('🔴 写侧仍保持「不可用就原样返回」的有意降级（不丢密钥）', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const originalGet = secureMock.getItemAsync;
+  const originalSet = secureMock.setItemAsync;
+  delete secureMock.getItemAsync;
+  delete secureMock.setItemAsync;
+  try {
+    const payload = { configs: [{ id: 'a', apiKey: 'sk-plain-keep' }] };
+    const protectedPayload = await protectSecrets('@easychat2_api_configs', payload);
+    // 写侧与读侧语义相反：写侧怕丢数据（保持明文），读侧怕泄漏凭据（置空）。
+    assert.equal(protectedPayload.configs[0].apiKey, 'sk-plain-keep');
+  } finally {
+    secureMock.getItemAsync = originalGet;
+    secureMock.setItemAsync = originalSet;
+    __resetSecretStoreForTests();
+  }
+});
+
+test('🔴 请求头读不回时同样保留引用串 + 打标记（与标量分支同一口径）', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  diagnostics.length = 0;
+  const ref = 'secure:v1:missing_header_id';
+  const hydrated = await hydrateSecrets('@easychat2_mcp_servers', [{
+    id: 'notes',
+    headers: { Authorization: ref, 'X-Ok': 'plain-value' },
+  }]);
+  // 既有纪律不变：读不回的头**不还原**（不把引用串当真头发出去）。
+  assert.deepEqual(hydrated[0].headers, { 'X-Ok': 'plain-value' });
+  assert.equal(JSON.stringify(hydrated[0].headers).includes('secure:v1:'), false);
+  // 新增：对象字段的读不回也要能冒泡到顶层，否则 UI 无从提示。
+  assert.equal(hydrated[SECRET_UNAVAILABLE_KEY], true);
+  assert.ok(diagnostics.some(item => item.kind === 'secrets'));
+});
+
+test('🔴 读不回不写入缓存：安全存储恢复后同一次运行内可自愈', async () => {
+  __resetSecretStoreForTests();
+  secureValues.clear();
+  const ns = '@easychat2_api_configs';
+  const ref = 'secure:v1:@easychat2_api_configs_configs_a_apiKey';
+  // 先读一次（记录不存在 ⇒ 读不回）。
+  const first = await hydrateSecrets(ns, { configs: [{ id: 'a', apiKey: ref }] });
+  assert.equal(first.configs[0].apiKey, ref);
+  // 之后记录变得可读（Keystore 恢复 / 记录被重新写入）。
+  secureValues.set('easychat2_secret_@easychat2_api_configs_configs_a_apiKey', 'sk-recovered');
+  const second = await hydrateSecrets(ns, { configs: [{ id: 'a', apiKey: ref }] });
+  assert.equal(
+    second.configs[0].apiKey,
+    'sk-recovered',
+    '读不回不得进缓存（缓存异常态等于把异常固化成常态，先例 diagnostics.js:40-58）'
+  );
 });
 
 // ---- 对象字段（MCP 自定义请求头）----

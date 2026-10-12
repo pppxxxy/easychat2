@@ -22,6 +22,9 @@ const transformed = babel.transformSync(sourceCode, {
 const store = new Map();
 const files = new Map();
 const failedGets = new Set();
+// 「只失败一次」的读：用于验「读损坏时先 backupCorruptValue 留副本」——备份那一次
+// 读得回来（瞬时 CursorWindow 超限），所以磁盘上必须真的多出一份 __corrupt_backup。
+const failOnceGets = new Set();
 const failedSets = new Set();
 const failedRemoves = new Set();
 const failedDeletes = new Set();
@@ -29,10 +32,18 @@ const sqliteValues = new Map();
 let setCalls = 0;
 let vectorSetCalls = 0;
 let sqliteEnabled = false;
+// 角色索引损坏时会走 rebuildCharacterItemsFromKeys → AsyncStorage.getAllKeys()；
+// 用它构造「getCharacterLibrary 真的抛错」这条路径（见下方孤儿扫描用例）。
+let getAllKeysCalls = 0;
+let failGetAllKeysFrom = 0;
 
 const AsyncStorage = {
   getItem: async key => {
     if (failedGets.has(key)) throw new Error(`read failed: ${key}`);
+    if (failOnceGets.has(key)) {
+      failOnceGets.delete(key);
+      throw new Error(`read failed once: ${key}`);
+    }
     return store.has(key) ? store.get(key) : null;
   },
   setItem: async (key, value) => {
@@ -57,7 +68,13 @@ const AsyncStorage = {
       store.delete(key);
     }
   },
-  getAllKeys: async () => [...store.keys()],
+  getAllKeys: async () => {
+    getAllKeysCalls += 1;
+    if (failGetAllKeysFrom && getAllKeysCalls >= failGetAllKeysFrom) {
+      throw new Error('getAllKeys failed');
+    }
+    return [...store.keys()];
+  },
 };
 
 const FileSystem = {
@@ -173,6 +190,7 @@ function loadStorage() {
   store.clear();
   files.clear();
   failedGets.clear();
+  failOnceGets.clear();
   failedSets.clear();
   failedRemoves.clear();
   failedDeletes.clear();
@@ -180,6 +198,8 @@ function loadStorage() {
   sqliteEnabled = false;
   setCalls = 0;
   vectorSetCalls = 0;
+  getAllKeysCalls = 0;
+  failGetAllKeysFrom = 0;
   // 清掉上一轮缓存的存储子模块：模块级状态（队列/Set/Map）必须每轮从零开始，
   // 否则跨用例泄漏。子模块之间仍共享同一实例（见 loadStorageModule 的缓存写入）。
   Object.keys(Module._cache).forEach(key => {
@@ -676,17 +696,60 @@ test('输入草稿按会话分键读写且删除会话时一并清理', async ()
   const second = await storage.startNewSession('character-draft');
   await storage.saveSessionDraft(first.id, '还没发出去的字');
   await storage.saveSessionDraft(second.id, '另一个会话的草稿');
-  assert.equal(await storage.getSessionDraft(first.id), '还没发出去的字');
-  assert.equal(await storage.getSessionDraft(second.id), '另一个会话的草稿');
+  // 读侧是三态（与 messages.js 同口径）：'ok' 才代表「读到了草稿」
+  assert.deepEqual(await storage.getSessionDraft(first.id), { status: 'ok', text: '还没发出去的字' });
+  assert.deepEqual(await storage.getSessionDraft(second.id), { status: 'ok', text: '另一个会话的草稿' });
   // 空字符串等价于清除，避免留下空键
   await storage.clearSessionDraft(first.id);
-  assert.equal(await storage.getSessionDraft(first.id), '');
+  assert.deepEqual(await storage.getSessionDraft(first.id), { status: 'missing', text: '' });
   assert.equal(store.has(`@easychat2_session_draft::${first.id}`), false);
   // 删除会话要连草稿一起清掉，避免孤儿键
   await storage.saveSessionDraft(second.id, '又要删了');
   await storage.deleteSession(second.id);
   assert.equal(store.has(`@easychat2_session_draft::${second.id}`), false);
-  assert.equal(await storage.getSessionDraft(second.id), '');
+  assert.deepEqual(await storage.getSessionDraft(second.id), { status: 'missing', text: '' });
+});
+
+// 草稿读失败绝不能与「没有草稿」同形：调用方（chat/useSessionMessages.js 的回填 effect）
+// 拿到 '' 就会把 draftTextRef 置空，随后 400ms 防抖写盘直接覆盖掉用户那份别处没有副本的
+// 手打草稿。对照 messages.js:37-39：损坏先 backupCorruptValue 留副本。
+test('草稿读失败：报 corrupt 而不是空文本，并且先备份原值', async () => {
+  const storage = loadStorage();
+  const key = '@easychat2_session_draft::draft-transient';
+  const original = '用户手打、别处没有副本的草稿';
+  store.set(key, original);
+  // 瞬时读失败：第一次读抛错，备份那一次读得回来
+  failOnceGets.add(key);
+
+  const result = await storage.getSessionDraft('draft-transient');
+  assert.deepEqual(result, { status: 'corrupt', text: '' });
+  assert.equal(
+    store.get(`${key}__corrupt_backup`),
+    original,
+    '损坏必须先留副本（与 messages.js 同一条纪律）'
+  );
+  assert.equal(store.get(key), original, '读失败不得改动原键');
+});
+
+test('草稿确实没有：报 missing 而不是 corrupt，且不产生备份键', async () => {
+  const storage = loadStorage();
+  assert.deepEqual(await storage.getSessionDraft('draft-none'), { status: 'missing', text: '' });
+  assert.equal(store.has('@easychat2_session_draft::draft-none__corrupt_backup'), false);
+  // 空会话 id 同样归入 missing，不会伪装成损坏
+  assert.deepEqual(await storage.getSessionDraft(''), { status: 'missing', text: '' });
+});
+
+test('草稿持续读不出：仍是 corrupt（不会被当成空草稿覆盖），原键一字不动', async () => {
+  const storage = loadStorage();
+  const key = '@easychat2_session_draft::draft-dead';
+  store.set(key, '读不回来的草稿');
+  failedGets.add(key);
+
+  const result = await storage.getSessionDraft('draft-dead');
+  assert.deepEqual(result, { status: 'corrupt', text: '' });
+  assert.equal(store.get(key), '读不回来的草稿');
+  // 三态必须让调用方能区分「读不出」：用它决定不回填、不置空、禁用该会话的草稿自动保存
+  assert.notDeepEqual(result, { status: 'missing', text: '' });
 });
 
 test('启动清理未引用的聊天图片和表情包文件', async () => {
@@ -1310,6 +1373,83 @@ test('孤儿会话扫描隔离备份键并跳过单个读取失败', async () =>
   failedGets.add('@easychat2_messages::orphan-bad');
   const result = await storage.findOrphanSessions();
   assert.deepEqual(result.map(item => item.sessionId), ['orphan-good']);
+});
+
+// ★ 本次修复的**真正目的**（负向用例，防过度修正）：老版本按角色 id 存的消息键
+// （messagesKey(characterId)）形状和会话键一样，绝不能被报成孤儿——否则用户在
+// 「会话恢复」里看到一批并不存在的对话，点恢复还会按原 id 建出重复会话。
+test('遗留角色消息键不被误报成孤儿（排除集正常时）', async () => {
+  const storage = loadStorage();
+  // saveCharacterLibrary 会把 legacy-character 写进索引，它才在返回的角色库里
+  await storage.saveCharacterLibrary([{ id: 'legacy-character', name: '旧角色' }]);
+  store.set('@easychat2_messages::legacy-character', JSON.stringify([
+    { id: 'legacy-1', role: 'user', text: '旧角色键', timestamp: 4 },
+  ]));
+
+  // 唯一候选就是遗留键：正确结果是「没有丢失的对话」，而不是把它报出来
+  assert.deepEqual(await storage.findOrphanSessions(), []);
+  assert.equal(store.has('@easychat2_sessions'), false, '扫描不得凭空写入会话行');
+
+  // 再放一个真孤儿，确认扫描本身照常工作（不是整体失效）
+  store.set('@easychat2_messages::orphan-real', JSON.stringify([
+    { id: 'o1', role: 'user', text: '真孤儿', timestamp: 5 },
+  ]));
+  const orphans = await storage.findOrphanSessions();
+  assert.deepEqual(orphans.map(item => item.sessionId), ['orphan-real']);
+});
+
+// 🔴 回归：orphans.js 原来用 `getCharacterLibrary().catch(() => [])` 把「角色库读失败」
+// 当成「没有角色」⇒ 排除集变空集 ⇒ 排除逻辑整体失效 ⇒ 遗留消息键全部进入 candidates。
+// 同一个函数里两条输入必须同一条纪律：会话列表读不出明确抛错（orphans.js:48-51），
+// 角色库读不出也一样，绝不 fail-open。
+test('角色库只能恢复出不完整列表（合了写闸）时，孤儿扫描明确抛错而不是误报', async () => {
+  const storage = loadStorage();
+  seedDefaultItem();
+  // 索引里有 legacy-character，但它的条目键读不出 ⇒ 返回列表会缺这个 id，
+  // 同时 characters/index.js 合上写闸（writeBlocked）——排除集不可信。
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['default', 'legacy-character']));
+  store.set('@easychat2_messages::legacy-character', JSON.stringify([
+    { id: 'legacy-1', role: 'user', text: '旧角色键', timestamp: 4 },
+  ]));
+  store.set('@easychat2_messages::orphan-real', JSON.stringify([
+    { id: 'o1', role: 'user', text: '真孤儿', timestamp: 5 },
+  ]));
+
+  const recovered = await storage.getCharacterLibrary();
+  assert.deepEqual(recovered.map(item => item.id), ['default'], '前提：恢复出的列表确实缺 id');
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), true, '前提：写闸已合上');
+
+  await assert.rejects(
+    () => storage.findOrphanSessions(),
+    /角色库读取失败/,
+    '排除集可能缺 id 时不得判定孤儿：宁可提示「读不到」，也不能伪装成「有一批丢失的对话」'
+  );
+  assert.equal(store.has('@easychat2_sessions'), false, '抛错路径不得写入任何会话行');
+});
+
+test('角色库真的抛错时孤儿扫描同样抛错（原实现把错误吞成空排除集）', async () => {
+  const storage = loadStorage();
+  // 索引结构坏 → 走 rebuildCharacterItemsFromKeys → getAllKeys 抛错 → getCharacterLibrary
+  // 合闸、记诊断后原样抛出。这正是原来 `.catch(() => [])` 吞掉的那条路径。
+  store.set(CHARACTER_INDEX_KEY, '{broken-index');
+  store.set('@easychat2_messages::legacy-character', JSON.stringify([
+    { id: 'legacy-1', role: 'user', text: '旧角色键', timestamp: 4 },
+  ]));
+  // 第 1 次 getAllKeys 是孤儿扫描自己的；第 2 次是角色库重建扫描，让它失败
+  failGetAllKeysFrom = 2;
+
+  await assert.rejects(() => storage.findOrphanSessions(), /角色库读取失败/);
+  assert.equal(
+    store.has(`${CHARACTER_INDEX_KEY}__corrupt_backup`),
+    true,
+    '前提：角色库读路径确实被走到了（索引坏时先留副本）'
+  );
+  assert.equal(store.has('@easychat2_sessions'), false, '抛错路径不得写入任何会话行');
+  assert.deepEqual(
+    [...store.keys()].filter(key => key.startsWith('@easychat2_messages::')),
+    ['@easychat2_messages::legacy-character'],
+    '不得改动消息键'
+  );
 });
 
 test('向量对账忽略损坏备份键，不逐次嵌套备份', async () => {

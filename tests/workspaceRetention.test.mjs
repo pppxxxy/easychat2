@@ -33,6 +33,7 @@ import {
   appendSessionEvent,
   sessionEventsPath,
 } from '../src/workspace/sessionEvents.js';
+import { tActive } from '../src/i18n/index.js';
 
 // fake store：内存文件表 + 删除记录 + 目录列举（回滚基线要用 listWorkspaceFiles）。
 function makeStore(retention) {
@@ -41,7 +42,8 @@ function makeStore(retention) {
   const store = {
     async writeWorkspaceFile({ path, content }) { files.set(path, content); },
     async readWorkspaceFile({ path }) {
-      if (!files.has(path)) throw new Error('missing');
+      // 与真后端同形：文件不存在 = error.workspace.fileNotFound（见 store.js:120）。
+      if (!files.has(path)) throw new Error(tActive('error.workspace.fileNotFound', { path }));
       return { content: files.get(path) };
     },
     async deleteFile({ path }) { deleted.push(path); files.delete(path); },
