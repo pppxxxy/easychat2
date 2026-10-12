@@ -281,10 +281,12 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
   const github = readSource('src/workspace/screen/GithubPanel.js');
   // H1：工具栏入口 + dispatch + 手动刷新列表 + 日志
   assert.ok(github.includes("t('workspace.github.toolbar.build')"), '工具栏有云构建入口');
-  assert.ok(github.includes('await dispatchWorkflow('), '触发走 restApi');
-  assert.ok(github.includes('await listWorkflowRuns('), '构建列表刷新');
-  assert.ok(github.includes('await downloadRunLogs('), '日志下载');
-  assert.ok(github.includes("t('workspace.github.build.needWorkflow')"), '空 workflow 有明确提示');
+  // 云构建的状态与动作已外提到 github/useGithubBuild.js；触发/列表/日志/空提示跟去新文件。
+  const buildHook = readSource('src/workspace/screen/github/useGithubBuild.js');
+  assert.ok(buildHook.includes('await dispatchWorkflow('), '触发走 restApi');
+  assert.ok(buildHook.includes('await listWorkflowRuns('), '构建列表刷新');
+  assert.ok(buildHook.includes('await downloadRunLogs('), '日志下载');
+  assert.ok(buildHook.includes("t('workspace.github.build.needWorkflow')"), '空 workflow 有明确提示');
   // H2：diff 用 DiffView（unified 文本输入——E5 commit 详情升级）
   assert.ok(github.includes('<DiffView'), 'diff 走 DiffView 组件');
   assert.ok(github.includes('unified={historyDiff.text}'), 'unified 文本作为输入');
