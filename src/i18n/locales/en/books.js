@@ -65,6 +65,9 @@ export const books = {
   'books.comments.quoteFailed.body': 'Could not open this character\'s session. Please retry later.',
   'books.error.noCharacter': 'Please pick a character to read with',
   'books.comments.failed': 'Could not generate the comment. Check your API settings and retry.',
+  // Read-path failure (loading stored comments): kept apart from "generation failed" because
+  // nothing was lost — this read just failed, so retrying is enough.
+  'books.comments.readFailed': 'Could not read the comments — they are still saved, this read just failed (a permission or storage hiccup). Please retry.',
   'books.search.placeholder': 'Search by title',
   'books.search.clear': 'Clear search',
   'books.search.empty.title': 'No matching book',

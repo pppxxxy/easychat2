@@ -21,6 +21,15 @@ export const workspace = {
   'workspace.capability.limit.localModel': '本地模型当前不参与工具循环：本地推理时降级为普通对话，不会读改文件。',
   'workspace.capability.toolsNow': '当前可用工具：{tools}',
   'workspace.capability.toolsNone': '无（询问模式不开放任何工具）',
+  // 按开关注册的三个能力（shell / python / git）的状态行。这三个标志此前只被测试消费，
+  // 卡片只画工具清单——用户看不出「哪个能力开着、某个工具为什么不在清单里」。
+  'workspace.capability.switchesTitle': '按开关注册的能力',
+  'workspace.capability.switch.git': '本地版本控制',
+  'workspace.capability.switch.on': '已生效',
+  'workspace.capability.switch.off': '未生效',
+  // 整行做成模板：语序/标点随语言走，别把中文全角冒号焊死在 JSX 里。
+  'workspace.capability.switch.row': '{name}：{state} · 对应工具：{tools}',
+  'workspace.capability.switch.offNote': '「未生效」的能力，不会出现在下面「当前可用工具」里；缺哪一项条件见上面的边界说明。',
   'workspace.home.title': '工作区',
   'workspace.home.exit': '退出工作区',
   'workspace.home.filesLink': '查看已创建的文件与历史改动',
@@ -427,6 +436,17 @@ export const workspace = {
   'workspace.plugins.market': '内置市场',
   'workspace.plugins.installFailTitle': '安装失败',
   'workspace.plugins.uninstallFailTitle': '卸载失败',
+  // 插件清单的两种「读不出来」（loader.js 的 status）：corrupt（内容损坏）与 error（读失败）。
+  // 文案分开写，因为用户的出路完全不同：损坏要**显式**重置，读失败只需重试。
+  'workspace.plugins.corrupt': '插件清单文件损坏：文件在，但内容解析不出已装插件。已装插件这次显示不出来——这不是「没装」，也不是「丢了」。可以重置清单后重新安装；重置只重写 .easychat/plugins.json 这一份清单，工作区里的其它文件一律不动。',
+  'workspace.plugins.corrupt.reset': '重置插件清单',
+  'workspace.plugins.corrupt.resetConfirmTitle': '重置插件清单？',
+  'workspace.plugins.corrupt.resetConfirmBody': '将把 .easychat/plugins.json 重建成空清单：已安装插件列表会被清空，需要重新安装。插件自己写的文件与工作区其它文件不受影响；损坏的旧内容无法恢复。',
+  'workspace.plugins.corrupt.resetConfirmAction': '重置',
+  'workspace.plugins.corrupt.resetFailTitle': '重置失败',
+  'workspace.plugins.corrupt.rebuiltTitle': '原清单已损坏，已重建',
+  'workspace.plugins.corrupt.rebuiltBody': '安装时发现插件清单内容损坏（解析不出来），本次安装已把清单重建为只含这一个插件。之前装的插件需要重新安装。',
+  'workspace.plugins.readFailed': '插件清单读不出来（这不是「没装插件」）：可能是权限或存储临时故障。为避免用空清单覆盖已有插件，安装与卸载已暂停——请稍后重试。',
   'workspace.settings.board.clearTitle': '清空团队记忆',
   'workspace.settings.board.clearBody': '将删除跨会话黑板的全部内容，团队下次运行会从空白开始。此操作不可撤销。',
   'workspace.settings.permissions': '已记住的授权',

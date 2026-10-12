@@ -19,14 +19,29 @@ export const PLUGINS_FILE = '.easychat/plugins.json';
 export const PLUGINS_FILE_VERSION = 1;
 export const PLUGIN_INSTALL_MAX = 12;
 
-// 纯：把落盘文本解析成插件数组（损坏/空 → []）。
-export function loadPluginsFromText(text) {
+// 纯：把落盘文本解析成 { status, plugins, reason? }。status 两态：
+//   ok      —— 解析出了 { plugins: [...] }（空文件 / 空清单也算 ok，等价于「还没装任何插件」）；
+//   corrupt —— 文件在、但内容坏了：不是合法 JSON、顶层不是对象、或 plugins 不是数组。
+// 为什么「坏」要单独标出来（而不是照旧当空）：坏是**永久态**。
+//   · 当空处理 → 面板显示「还没有安装任何插件」，用户既不知道清单坏了，也不知道下一次
+//     安装会把旧内容顶掉（静默丢失）；
+//   · 像读失败那样直接拒绝写入 → 用户**再也装不上任何插件**（面板没有别的修复入口）。
+// 所以这里如实标出坏，由面板给一个**显式**的「重置插件清单」出路。
+export function parsePluginsText(text) {
   const raw = String(text == null ? '' : text);
-  if (!raw.trim()) return [];
+  if (!raw.trim()) return { status: 'ok', plugins: [] };
   let parsed = null;
-  try { parsed = JSON.parse(raw); } catch (error) { return []; }
-  const list = parsed && Array.isArray(parsed.plugins) ? parsed.plugins : [];
-  return list.map(normalizeManifest).filter(item => item.id);
+  try { parsed = JSON.parse(raw); } catch (error) { return { status: 'corrupt', plugins: [], reason: 'invalidJson' }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { status: 'corrupt', plugins: [], reason: 'notObject' };
+  }
+  if (!Array.isArray(parsed.plugins)) return { status: 'corrupt', plugins: [], reason: 'noPluginsArray' };
+  return { status: 'ok', plugins: parsed.plugins.map(normalizeManifest).filter(item => item.id) };
+}
+
+// 兼容入口：只要插件数组（旧调用方与测试）。损坏与空都返回 []，需要区分时用 parsePluginsText。
+export function loadPluginsFromText(text) {
+  return parsePluginsText(text).plugins;
 }
 
 // 纯：插件数组 → 落盘文本。
@@ -123,18 +138,22 @@ export async function loadPluginRuntime({ store, characterId, capabilities = {} 
     return { ...buildPluginRuntime([], { capabilities }), plugins: [], status: 'missing' };
   }
   const read = await readPluginsText(store, characterId);
-  const plugins = loadPluginsFromText(read.text);
-  // 读失败时运行时只能降级为空（没有可用的清单），但把 status 透出去——
-  // 调用方不会把它误当成「用户一个插件都没装」。
+  const parsed = parsePluginsText(read.text);
+  const plugins = parsed.plugins;
+  // status 四态：ok / missing（文件不存在，首次安装的正常态）/ error（读失败，内容不可知）/
+  // corrupt（文件在、内容坏了）。后两态都必须透出去——调用方不能把它误当成「用户一个插件
+  // 都没装」，否则用户既看不到问题，也不知道该修什么（见 parsePluginsText 的说明）。
+  const status = read.status === 'ok' ? parsed.status : read.status;
   return {
     ...buildPluginRuntime(plugins, { capabilities }),
     plugins,
-    status: read.status,
+    status,
     ...(read.error ? { error: read.error } : {}),
+    ...(parsed.reason ? { reason: parsed.reason } : {}),
   };
 }
 
-// 安装一个插件（幂等：同 id 覆盖）。返回 { ok, error?, plugins }。
+// 安装一个插件（幂等：同 id 覆盖）。返回 { ok, error?, plugins, rebuilt? }。
 export async function installPlugin({ store, characterId, manifest } = {}) {
   const check = validateManifest(manifest);
   if (!check.ok) return { ok: false, error: check.errors.join('；'), plugins: [] };
@@ -144,7 +163,12 @@ export async function installPlugin({ store, characterId, manifest } = {}) {
   if (read.status === 'error') {
     return { ok: false, error: read.error || 'plugins-read-failed', plugins: [] };
   }
-  const existing = loadPluginsFromText(read.text);
+  const parsed = parsePluginsText(read.text);
+  const existing = parsed.plugins;
+  // 内容损坏：**不拒绝**——拒绝就等于把用户锁死（损坏是永久态，清单再也解析不出来，
+  // 用户会永远装不上任何插件）。损坏的内容本来就解析不出来，重建是唯一的出路；但要如实
+  // 告知（rebuilt），面板据此在安装成功时提示「原清单已损坏、本次已重建」，不能静默顶掉。
+  const rebuilt = parsed.status === 'corrupt';
   if (!existing.some(item => item.id === normalized.id) && existing.length >= PLUGIN_INSTALL_MAX) {
     return { ok: false, error: `插件数已达上限 ${PLUGIN_INSTALL_MAX}`, plugins: existing };
   }
@@ -154,7 +178,7 @@ export async function installPlugin({ store, characterId, manifest } = {}) {
   } catch (error) {
     return { ok: false, error: String((error && error.message) || error), plugins: existing };
   }
-  return { ok: true, plugins: next };
+  return { ok: true, plugins: next, ...(rebuilt ? { rebuilt: true } : {}) };
 }
 
 // 卸载一个插件。返回 { ok, plugins }。
@@ -165,7 +189,13 @@ export async function uninstallPlugin({ store, characterId, id } = {}) {
   if (read.status === 'error') {
     return { ok: false, error: read.error || 'plugins-read-failed', plugins: [] };
   }
-  const existing = loadPluginsFromText(read.text);
+  const parsed = parsePluginsText(read.text);
+  const existing = parsed.plugins;
+  // 损坏态下 existing 只能是 []：**不能**据此回答「插件未安装」——那是在用读不到的清单
+  // 断言一件它证明不了的事。如实说明，并指向面板的重置入口。
+  if (parsed.status === 'corrupt') {
+    return { ok: false, error: '插件清单已损坏，无法确认该插件是否已安装；请先重置插件清单', plugins: [] };
+  }
   const next = existing.filter(item => item.id !== key);
   if (next.length === existing.length) return { ok: false, error: '插件未安装', plugins: existing };
   try {
@@ -174,6 +204,28 @@ export async function uninstallPlugin({ store, characterId, id } = {}) {
     return { ok: false, error: String((error && error.message) || error), plugins: existing };
   }
   return { ok: true, plugins: next };
+}
+
+// 用户**显式**「重置插件清单」：把 plugins.json 重建成空清单（返回 { ok, error? }）。
+// 为什么需要这个入口：内容损坏是永久态，解析不出来、又不该像读失败那样拒绝写入
+// （拒绝就等于用户再也装不上插件）。但也不能**自动**重置——那等于静默删掉用户已装插件，
+// 正是要避免的事。所以只提供一个显式动作，由面板加确认框调用。
+// 只重写 .easychat/plugins.json 这一份清单；工作区里的其它文件（插件自己写的文件）一律不动。
+export async function resetPluginsFile({ store, characterId } = {}) {
+  if (!store || typeof store.writeWorkspaceFile !== 'function') {
+    return { ok: false, error: 'plugins-store-unavailable' };
+  }
+  // 读失败时同样拒绝：读不到就写，等于用空清单覆盖一份可能完好的文件。
+  const read = await readPluginsText(store, characterId);
+  if (read.status === 'error') {
+    return { ok: false, error: read.error || 'plugins-read-failed' };
+  }
+  try {
+    await store.writeWorkspaceFile({ characterId, path: PLUGINS_FILE, content: serializePlugins([]) });
+  } catch (error) {
+    return { ok: false, error: String((error && error.message) || error) };
+  }
+  return { ok: true };
 }
 
 export { PLUGIN_MANIFEST_VERSION };
