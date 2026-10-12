@@ -84,6 +84,10 @@ test('能力弹层：自定义参数总开关 + 上下文/输出长度同框 + �
   // 思考参数：折叠 + 点击选择（不再直接摊开输入框 + 格式芯片）
   assert.ok(SETTINGS.includes('thinkingPresetOpen') && SETTINGS.includes('setThinkingPresetOpen(open => !open)'),
     '折叠标题可点击展开');
+  // 2026-10-12：打开弹层时**支持思考的模型默认展开**预设列表——否则每次都要多点一次
+  // 才看得到当前命中的预设（关键项被折叠）。不支持思考时那块本来就不渲染，无副作用。
+  assert.ok(SETTINGS.includes('setThinkingPresetOpen(caps.supportsThinking === true)'),
+    '支持思考的模型默认展开思考参数预设');
   assert.ok(SETTINGS.includes('THINKING_PRESETS.map'), '展开后渲染预设列表');
   assert.ok(SETTINGS.includes('matchedThinkingPreset'), '标题显示当前命中的预设');
   assert.ok(SETTINGS.includes('{!matchedThinkingPreset ? ('), '仅「自定义」时显示手输框');

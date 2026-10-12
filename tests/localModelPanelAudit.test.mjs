@@ -309,6 +309,13 @@ test('v5 设计稿对齐：分段胶囊 / 运行卡三态（就绪绿）/ 状态
   assert.ok(BAR.includes('styles.engineClose'), '关闭按钮样式接线');
   assert.ok(BAR.includes('theme.colors.success'), '就绪点用 success 绿（对齐设计稿）');
   assert.ok(BAR.includes('engineBarWarn'), '回退/出错切警示配色');
+  // 2026-10-12：降级提示是**延时**出现的（engineStatus 的 FALLBACK_NOTICE_DELAY_MS），
+  // 而状态条只在 runtime 广播或父组件重渲染时才算一次——没有这个「到点再渲染一次」的
+  // 定时器，降级发生在没有 token 流动的时刻时警告永远不出现（纯函数层的延时被测到了，
+  // 但接线断了，等于没做）。所以在这里一并钉住接线。
+  assert.ok(BAR.includes('FALLBACK_NOTICE_DELAY_MS'), '组件必须知道延时值');
+  assert.ok(BAR.includes('setTimeout'), '延时到点要有一次重渲染');
+  assert.ok(/noticeTick/.test(BAR), '重渲染要用状态驱动，不能只挂 timer');
 });
 
 test('v5 §3：模型中心为全屏 Modal（非透明弹层）；弹层样式仍留给子弹窗', () => {

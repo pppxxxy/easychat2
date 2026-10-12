@@ -1324,7 +1324,7 @@ export default function SettingsScreen() {
       maxOutput: caps.maxOutput > 0 ? String(caps.maxOutput) : '',
       customParams: caps.customParams === true,
     });
-    setThinkingPresetOpen(false);
+    setThinkingPresetOpen(caps.supportsThinking === true); // 支持思考时默认展开预设列表
     setCapabilityEditorModel(name);
     setCapabilityOpen(true);
   };

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveEngineStatus, ENGINE_TONE, FALLBACK_VISIBLE_MS } from '../src/localModel/engineStatus.js';
+import { deriveEngineStatus, ENGINE_TONE, FALLBACK_NOTICE_DELAY_MS, FALLBACK_VISIBLE_MS } from '../src/localModel/engineStatus.js';
 import {
   __resetRuntimeForTests,
   getRuntimeState,
@@ -30,13 +30,39 @@ test('deriveEngineStatus：loading/ready/error/idle 分级', () => {
   assert.equal(idle.tone, ENGINE_TONE.IDLE);
 });
 
-test('deriveEngineStatus：回退警告优先且在时间窗内过期', () => {
+test('deriveEngineStatus：回退警告延时出现、到点停留、过期恢复常规状态', () => {
   const now = 1_000_000;
   const base = { enabled: true, activeModelId: 'm', activeModelName: 'Qwen', now };
-  const inWindow = deriveEngineStatus({ ...base, runtime: { status: 'ready' }, fallbackAt: now - FALLBACK_VISIBLE_MS + 1 });
-  assert.equal(inWindow.tone, ENGINE_TONE.FALLBACK, '窗口内回退警告优先');
-  const expired = deriveEngineStatus({ ...base, runtime: { status: 'ready' }, fallbackAt: now - FALLBACK_VISIBLE_MS - 1 });
-  assert.equal(expired.tone, ENGINE_TONE.READY, '窗口外恢复常规状态');
+
+  // 延时窗内：不提示（滤掉瞬时抖动），落回常规状态。
+  const justFailed = deriveEngineStatus({ ...base, runtime: { status: 'ready' }, fallbackAt: now });
+  assert.equal(justFailed.tone, ENGINE_TONE.READY, '刚降级时不立刻弹警告');
+  const beforeDelay = deriveEngineStatus({
+    ...base, runtime: { status: 'ready' }, fallbackAt: now - FALLBACK_NOTICE_DELAY_MS + 1,
+  });
+  assert.equal(beforeDelay.tone, ENGINE_TONE.READY, '延时差 1ms 仍不提示');
+
+  // 到点：提示。
+  const atDelay = deriveEngineStatus({
+    ...base, runtime: { status: 'ready' }, fallbackAt: now - FALLBACK_NOTICE_DELAY_MS,
+  });
+  assert.equal(atDelay.tone, ENGINE_TONE.FALLBACK, '到延时点即提示');
+  const inWindow = deriveEngineStatus({
+    ...base, runtime: { status: 'ready' }, fallbackAt: now - FALLBACK_NOTICE_DELAY_MS - FALLBACK_VISIBLE_MS + 1,
+  });
+  assert.equal(inWindow.tone, ENGINE_TONE.FALLBACK, '停留窗内仍提示');
+
+  // 过期：恢复常规状态。
+  const expired = deriveEngineStatus({
+    ...base, runtime: { status: 'ready' }, fallbackAt: now - FALLBACK_NOTICE_DELAY_MS - FALLBACK_VISIBLE_MS - 1,
+  });
+  assert.equal(expired.tone, ENGINE_TONE.READY, '停留窗过后恢复常规状态');
+});
+
+test('降级提示延时是「人类舒适」量级：≥2s 以滤掉抖动，≤5s 以免用户错过', () => {
+  assert.ok(FALLBACK_NOTICE_DELAY_MS >= 2000, '延时太短等于没滤抖动');
+  assert.ok(FALLBACK_NOTICE_DELAY_MS <= 5000, '延时太长用户会以为一直在用本地模型');
+  assert.ok(FALLBACK_VISIBLE_MS >= FALLBACK_NOTICE_DELAY_MS, '停留时间不该短于延时');
 });
 
 test('runtime：setRuntimeFallback 记录时间戳并随快照广播', () => {
