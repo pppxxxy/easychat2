@@ -735,8 +735,8 @@ export default function ChatScreen() {
       // 与会话同角色：先切角色再切会话（切会话的配对守卫会要求角色一致）。
       if (ownerId) await switchCharacter(ownerId);
       await switchSession(id);
-    } catch (error) {}
-  }, [switchCharacter, switchSession]);
+    } catch (error) { Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body')); }
+  }, [switchCharacter, switchSession, t]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     // 用 messagesRef 读取当前消息：回调不该因为流式回复更新 messages 而换引用，
@@ -1065,11 +1065,11 @@ export default function ChatScreen() {
       return;
     }
     Alert.alert(
-      '新建对话',
-      '将开启一段新对话，当前对话保留在会话列表与记忆中。',
+      t('chat.session.newChat.title'),
+      t('chat.session.newChat.bodySingle'),
       [
-        { text: '取消', style: 'cancel' },
-        { text: '新建', style: 'destructive', onPress: () => onNewChat() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('chat.session.newChat.confirm'), style: 'destructive', onPress: () => onNewChat() },
       ]
     );
   }, [onNewChat]);

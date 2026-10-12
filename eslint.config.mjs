@@ -48,101 +48,18 @@ export default [
     //（ProactivePanel 全文件未接 i18n 却不在清单里，即此盲区；详见审查待办）。
     // JSX 正文与模块级导出常量已由下面的**第二批**规则（no-hardcoded-chinese-text）覆盖。
     //
-    // 下面的 `ignores` 是**存量迁移清单（只减不增）**：由规则实测生成——81 个文件、
-    // 763 处（2026-10-02 复测；早期注释里的「32 文件 / 559 处」是 grep 口径的误记，
-    // 已废弃）。迁移方式 = 把文案换成 t('<key>') 并补 src/i18n/locales 双语言词条，
-    // 然后从这里删掉该行；清单只允许变短。新文件一律不得加入。
-    // 按文件的实测计数与分批计划见 .monkeycode/docs/审查待办.md。
+    // 下面的 `ignores` 是**存量迁移清单（只减不增）**：2026-10-12（m1012m14）已**清零**——
+    // 最后 12 处（memorySummary / CardForgeEditor / ChatScreen / modelCatalog / storage/location）
+    // 全部迁完，规则现对全仓零豁免生效。清单只允许变短；新文件一律不得加入。
+    // 迁移方式 = 把文案换成 t('<key>') / tActive('<key>') 并补 src/i18n/locales 双语言词条。
     files: ['src/**/*.js', 'App.js'],
     ignores: [
       'src/i18n/**',
-      // ---- 存量迁移清单（只减不增）----
-      'src/BackupPanel.js',
-      'src/books/comments.js',
-      'src/books/library.js',
-      'src/books/useBookComments.js',
-      'src/CardForgeEditor.js',
-      'src/CardForgeScreen.js',
-      'src/CardPreviewModal.js',
-      'src/character/cardExporter.js',
-      'src/character/cardParser.js',
-      'src/CharacterEditForm.js',
-      // 2026-10-05 CharacterScreen 拆成 CharacterStack + character/ 下的列表页与详情页。
-      // 这条存量债随文件迁移而非新增：实测两屏合计约 170 处 Alert.alert 中文文案，
-      // 全部是 CharacterScreen.js 原有文案的原样搬运（拆分不改文案），故由旧条目改成两条新条目。
-      'src/character/CharacterLibraryScreen.js',
-      'src/character/CharacterDetailScreen.js',
-      'src/chat/attachments.js',
-      'src/chat/stickerImages.js',
-      'src/chat/useChatModelThinking.js',
-      'src/chat/useChatRecorder.js',
-      'src/chat/useChatSend.js',
-      'src/chat/useChatTts.js',
-      'src/chat/useSessionMessages.js',
-      'src/chat/useSessionSwitch.js',
-      'src/ChatScreen.js',
-      // 2026-10-12：src/context/AppContext.js 已迁出——23 处 `throw new Error('中文')`
-      // 全改 tActive（新增 error.app.* 词条；「会话不存在」复用 error.storage.sessionNotFound）。
-      'src/DiagnosticsModal.js',
-      'src/GroupEditForm.js',
-      'src/imageGen/index.js',
-      'src/imageGen/png.js',
-      'src/ImageGenScreen.js',
-      'src/localModel/modelCatalog.js',
-      'src/localModel/ModelLogsModal.js',
-      'src/localModel/modelManager.js',
-      'src/MapPanel.js',
-      'src/memory/memorySummary.js',
-      'src/MemoryScreen.js',
-      'src/MomentsView.js',
-      'src/music/comments.js',
-      'src/music/library.js',
-      'src/music/useMusicComments.js',
-      // 2026-10-12：src/network/api.js 已迁出——它的 `throw new Error` 文案与
-      // `new Error('中文')`（非直接 throw，规则本来也看不见）都换成了 tActive；
-      // 剩下的两处哨兵常量按就地豁免处理（见该文件里的说明）。
-      'src/PluginPanel.js',
-      'src/plugins/webSearch.js',
-      'src/PresetPanel.js',
-      'src/proactive/proactiveMessage.js',
-      'src/prompt/regexEngine.js',
-      'src/screenWatch/comments.js',
-      'src/screenWatch/useScreenWatchComments.js',
-      'src/SearchScreen.js',
-      'src/settings/SamplingCard.js',
-      'src/settings/useUserProfile.js',
-      'src/settings/useVectorSettings.js',
-      'src/SettingsScreen.js',
-      'src/storage/backupStream.js',
-      'src/storage/cardForge.js',
-      'src/storage/characters.js',
-      'src/storage/diary.js',
-      'src/storage/globalPresets.js',
-      'src/storage/localModels.js',
-      'src/storage/location.js',
-      'src/storage/moments.js',
-      'src/storage/personas.js',
-      'src/storage/sessionCore.js',
-      'src/storage/sessionList.js',
-      'src/storage/sessionMessages.js',
-      'src/storage/settings.js',
-      'src/storage/stickers.js',
-      'src/storage/vector.js',
-      'src/storage/worldMap.js',
-      'src/theme/ThemeContext.js',
-      'src/transcription.js',
-      'src/TranscriptionPanel.js',
-      'src/tts/index.js',
-      'src/TtsPanel.js',
-      'src/vectorMemory/index.js',
-      'src/workspace/docx.js',
-      'src/workspace/edit.js',
-      'src/workspace/paths.js',
-      'src/workspace/picker.js',
-      'src/workspace/safStore.js',
-      'src/workspace/shell.js',
-      'src/workspace/store.js',
-      'src/workspace/tools.js',
+      // 首批规则（Alert.alert / throw new Error）的存量清单已**清空**（2026-10-12，m1012m14）：
+      // 剩余 12 处（memorySummary 6 / CardForgeEditor 2 / ChatScreen 2 / modelCatalog 1 /
+      // storage/location 1）全部迁到 t()/tActive() 并补齐 zh-CN/en 词条，规则现在对全仓零豁免生效。
+      // 此前这里挂着的 77 个文件其实早已迁完、只是清单一直没回收——清单只减不增，迁完即删行。
+      // 新文件一律不得加入；`src/i18n/**` 是文案本身，永久豁免。
     ],
     plugins: { local: { rules: { 'no-hardcoded-chinese': noHardcodedChinese } } },
     rules: {

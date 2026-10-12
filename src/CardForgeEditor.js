@@ -451,8 +451,8 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
             compileRegex(merged.findRegex, merged.flags);
           } catch (error) {
             Alert.alert(
-              '正则编译失败',
-              `「${merged.name || '正则脚本'}」编译失败：${(error && error.message) || '语法错误'}。该条改动未应用，请调整后重试。`
+              t('forge.regex.compileFailed.title'),
+              t('forge.regex.compileFailed.body', { name: merged.name || t('forge.regex.unnamedScript'), reason: (error && error.message) || t('forge.regex.syntaxError') })
             );
             return;
           }
@@ -469,11 +469,11 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               preview = '';
             }
             Alert.alert(
-              '正则效果预览',
-              `替换前：\n${sample.slice(0, 300)}\n\n替换后：\n${preview.slice(0, 300)}`,
+              t('forge.regex.preview.title'),
+              t('forge.regex.preview.body', { before: sample.slice(0, 300), after: preview.slice(0, 300) }),
               [
-                { text: '取消', style: 'cancel' },
-                { text: '应用', onPress: commit },
+                { text: t('common.cancel'), style: 'cancel' },
+                { text: t('forge.regex.preview.apply'), onPress: commit },
               ]
             );
             return;
