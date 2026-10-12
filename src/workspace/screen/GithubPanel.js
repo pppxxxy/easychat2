@@ -64,8 +64,6 @@ import {
   createPullRequest,
   createRepo,
   deleteRepo,
-  dispatchWorkflow,
-  downloadRunLogs,
   downloadZip,
   fetchTokenScopes,
   getCommitDiff,
@@ -73,12 +71,13 @@ import {
   listCommits,
   listRepos,
   listTree,
-  listWorkflowRuns,
   renameRepo,
   repoWebUrl,
   truncateDiffText,
 } from '../github/restApi.js';
 import createStyles from './githubPanelStyles.js';
+import BuildSection from './github/BuildSection.js';
+import useGithubBuild from './github/useGithubBuild.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
 const ERROR_KEYS = {
@@ -133,13 +132,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const [skippedOpen, setSkippedOpen] = useState(false);
   // H3：回滚基线——最近一次推送的旧内容快照存在时，展示「回滚」入口。
   const [rollbackInfo, setRollbackInfo] = useState(null);
-  // H1：云构建（Actions）——触发 + 最近构建列表 + 日志查看（手动刷新，不自动轮询：
-  // 手机端不需要长连接，用户想看时点一下）。
-  const [buildWorkflow, setBuildWorkflow] = useState('');
-  const [buildBusy, setBuildBusy] = useState(false);
-  const [buildRuns, setBuildRuns] = useState([]);
-  const [buildLog, setBuildLog] = useState(null);
-  const [buildNotice, setBuildNotice] = useState('');
   // B1 分支选择器：三态（loading / error / chips）；seq 防「快速切仓库时旧响应
   // 后到」把新仓库的分支列表盖回去（网络乱序是常态，不能靠响应先后）。
   const [branchOptions, setBranchOptions] = useState([]);
@@ -196,6 +188,20 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     const code = caught && caught.code;
     return t(ERROR_KEYS[code] || 'workspace.github.err.generic');
   }, [t]);
+
+  // H1 云构建的状态与动作已抽到 github/useGithubBuild.js；展示层在 github/BuildSection.js。
+  const {
+    buildWorkflow,
+    setBuildWorkflow,
+    buildBusy,
+    buildRuns,
+    buildLog,
+    setBuildLog,
+    buildNotice,
+    refreshBuildRuns,
+    submitBuild,
+    openBuildLog,
+  } = useGithubBuild({ current, token, pullBranch, describeError, mountedRef, t });
 
   const refreshLocal = useCallback(async (ownerId = characterId) => {
     const store = storeRef && storeRef.current;
@@ -978,74 +984,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     }
   }, [characterId, confirmPushDiff, current, describeError, pullBranch, pushBusy, refreshLocal, storeRef, t, token]);
 
-  // H1：刷新最近构建（手动——不自动轮询，省电也省限流额度）。定义在 submitBuild 前
-  //（后者依赖前者：useCallback 的 deps 在定义时求值，顺序反了会踩 TDZ）。
-  const refreshBuildRuns = useCallback(async () => {
-    if (!current) return;
-    try {
-      const workflow = String(buildWorkflow || '').trim();
-      const runs = await listWorkflowRuns({
-        token,
-        owner: current.owner,
-        repo: current.repo,
-        ...(workflow ? { workflow } : {}),
-        branch: String(pullBranch || current.branch || '').trim(),
-        perPage: 10,
-      });
-      if (mountedRef.current) setBuildRuns(runs);
-    } catch (caught) {
-      if (mountedRef.current) Alert.alert(t('workspace.github.title'), describeError(caught));
-    }
-  }, [buildWorkflow, current, describeError, pullBranch, t, token]);
-
-  // H1：触发云构建（workflow_dispatch——远端副作用，按钮文案即确认语义）。
-  const submitBuild = useCallback(async () => {
-    if (!current || buildBusy) return;
-    const workflow = String(buildWorkflow || '').trim();
-    if (!workflow) {
-      Alert.alert(t('workspace.github.title'), t('workspace.github.build.needWorkflow'));
-      return;
-    }
-    setBuildBusy(true);
-    setBuildNotice('');
-    try {
-      await dispatchWorkflow({
-        token,
-        owner: current.owner,
-        repo: current.repo,
-        workflow,
-        ref: String(pullBranch || current.branch || '').trim(),
-      });
-      if (mountedRef.current) setBuildNotice(t('workspace.github.build.dispatched'));
-      await refreshBuildRuns();
-    } catch (caught) {
-      Alert.alert(t('workspace.github.title'), describeError(caught));
-    } finally {
-      if (mountedRef.current) setBuildBusy(false);
-    }
-  }, [buildBusy, buildWorkflow, current, describeError, pullBranch, refreshBuildRuns, t, token]);
-
-  // H1：看某次构建的日志（zip 解包在 restApi 里做，这里只展示——头尾截断已在拉取层）。
-  const openBuildLog = useCallback(async runId => {
-    if (!current) return;
-    setBuildLog({ runId, text: t('workspace.github.build.logLoading'), loading: true });
-    try {
-      const result = await downloadRunLogs({
-        token,
-        owner: current.owner,
-        repo: current.repo,
-        runId,
-      });
-      if (mountedRef.current) {
-        setBuildLog({ runId, text: result.text || t('workspace.github.build.logEmpty'), loading: false });
-      }
-    } catch (caught) {
-      if (mountedRef.current) {
-        setBuildLog({ runId, text: describeError(caught), loading: false });
-      }
-    }
-  }, [current, describeError, t, token]);
-
   // H3：一键回滚——把本地恢复到最近一次推送之前（modified 写回旧内容 /
   // removed 恢复文件），再让用户走既有推送确认门同步到远端（不自动弹，避免连环弹窗）。
   const rollbackLastPush = useCallback(async () => {
@@ -1559,69 +1497,21 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
             ) : null}
 
             {layer === 'build' && current ? (
-              <View style={styles.formCard}>
-                <FieldLabel>{t('workspace.github.build.title')}</FieldLabel>
-                <TextInput
-                  style={styles.input}
-                  value={buildWorkflow}
-                  onChangeText={setBuildWorkflow}
-                  placeholder={t('workspace.github.build.workflowPlaceholder')}
-                  placeholderTextColor={theme.colors.textFaint}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <FieldHint>{t('workspace.github.build.hint', {
-                  branch: String(pullBranch || current.branch || '').trim() || '-',
-                })}</FieldHint>
-                <View style={styles.actions}>
-                  <PrimaryButton
-                    title={buildBusy ? t('workspace.github.build.busy') : t('workspace.github.build.action')}
-                    small
-                    onPress={submitBuild}
-                  />
-                  <GhostButton
-                    title={t('workspace.github.build.refresh')}
-                    small
-                    onPress={refreshBuildRuns}
-                  />
-                </View>
-                {buildNotice ? <FieldHint>{buildNotice}</FieldHint> : null}
-                {buildRuns.map(run => (
-                  <TouchableOpacity
-                    key={run.id}
-                    style={styles.manageRow}
-                    onPress={() => openBuildLog(run.id)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={run.status === 'completed'
-                        ? (run.conclusion === 'success' ? 'checkmark-circle' : 'close-circle')
-                        : 'sync-circle'}
-                      size={16}
-                      color={run.status === 'completed' && run.conclusion === 'success'
-                        ? theme.colors.primary
-                        : theme.colors.textMuted}
-                    />
-                    <Text style={styles.historyText} numberOfLines={1}>
-                      {`#${run.id} ${run.displayTitle || run.name}`}
-                    </Text>
-                    <Text style={styles.historyMeta}>
-                      {run.status === 'completed' ? (run.conclusion || 'done') : run.status}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {buildRuns.length === 0 ? (
-                  <FieldHint>{t('workspace.github.build.noRuns')}</FieldHint>
-                ) : null}
-                {buildLog ? (
-                  <>
-                    <FieldLabel>{`#${buildLog.runId} ${t('workspace.github.build.logTitle')}`}</FieldLabel>
-                    <Text style={styles.skippedList} selectable numberOfLines={150}>
-                      {buildLog.text}
-                    </Text>
-                  </>
-                ) : null}
-              </View>
+              <BuildSection
+                styles={styles}
+                theme={theme}
+                t={t}
+                buildWorkflow={buildWorkflow}
+                setBuildWorkflow={setBuildWorkflow}
+                buildBusy={buildBusy}
+                buildRuns={buildRuns}
+                buildLog={buildLog}
+                buildNotice={buildNotice}
+                branch={String(pullBranch || current.branch || '').trim()}
+                onRefresh={refreshBuildRuns}
+                onSubmit={submitBuild}
+                onOpenLog={openBuildLog}
+              />
             ) : null}
 
             {current ? (
