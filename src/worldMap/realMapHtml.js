@@ -6,12 +6,56 @@
 export const DEFAULT_TILE_URL = 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}';
 export const DEFAULT_TILE_SUBDOMAINS = ['1', '2', '3', '4'];
 
-export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFAULT_TILE_SUBDOMAINS } = {}) {
+// 内联 <script> 里 JSON.stringify 的输出**不是安全的**：HTML 解析器先于 JS 解析器工作，
+// 它在 <script> 内容里只认 `</script`（大小写不敏感）这一个终止标记，根本不懂 JS 字符串。
+// 于是只要数据里含 `</script>`，后面的内容就变成文档级 HTML——新开一个 <script> 就能
+// 执行任意 JS。tileUrl 是持久化字段（storage/location.js 的 tileUrl），而备份导入会把
+// 任意 MANAGED_PREFIX 键原样写回（storage/backup.js），所以「构造一个备份包」就足以注入；
+// 本页没有 CSP，RealMapView 又开了 originWhitelist={['*']}（等于放行任何导航），
+// 逃逸后能直接跳转/发外部请求。因此把 <、>、& 一律转成 \uXXXX（JS 里等价，
+// HTML 解析器不再认作标记），U+2028/U+2029 一并转义（老引擎把它们当换行符，
+// 会让内联脚本直接语法错误）。
+export function safeJson(value) {
+  return JSON.stringify(value === undefined ? null : value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+// 文案进的是 HTML 文本节点（不是脚本），按实体转义即可。
+function escapeHtmlText(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// 中文基准文案：调用方（RealMapView）用 t() 覆盖成当前语言。
+// 保留基准值是为了让纯函数调用方与源码级测试不必先装 i18n Provider。
+const DEFAULT_HTML_STRINGS = {
+  attribution: '地图数据 © 高德',
+  zoomIn: '放大',
+  zoomOut: '缩小',
+  recenter: '回到我的位置',
+  hint: '拖动平移 · 双指缩放',
+};
+
+export function buildRealMapHtml({
+  tileUrl = DEFAULT_TILE_URL,
+  subdomains = DEFAULT_TILE_SUBDOMAINS,
+  strings = {},
+} = {}) {
   const template = String(tileUrl || '').trim() || DEFAULT_TILE_URL;
   const subs = Array.isArray(subdomains) && subdomains.length
     ? subdomains.map(String)
     : DEFAULT_TILE_SUBDOMAINS;
-  const config = JSON.stringify({ tileUrl: template, subdomains: subs });
+  const config = safeJson({ tileUrl: template, subdomains: subs });
+  const source = strings && typeof strings === 'object' ? strings : {};
+  const text = key => escapeHtmlText(
+    String(source[key] || '').trim() || DEFAULT_HTML_STRINGS[key]
+  );
 
   return `<!DOCTYPE html>
 <html>
@@ -33,12 +77,12 @@ export function buildRealMapHtml({ tileUrl = DEFAULT_TILE_URL, subdomains = DEFA
 <body>
 <div id="map"></div>
 <div id="marker"></div>
-<div id="attrib">地图数据 © 高德</div>
-<div id="hint">拖动平移 · 双指缩放</div>
+<div id="attrib">${text('attribution')}</div>
+<div id="hint">${text('hint')}</div>
 <div id="controls">
-  <button id="zi" aria-label="放大">+</button>
-  <button id="zo" aria-label="缩小">−</button>
-  <button id="rc" aria-label="回到我的位置">◎</button>
+  <button id="zi" aria-label="${text('zoomIn')}">+</button>
+  <button id="zo" aria-label="${text('zoomOut')}">−</button>
+  <button id="rc" aria-label="${text('recenter')}">◎</button>
 </div>
 <script>
 (function(){

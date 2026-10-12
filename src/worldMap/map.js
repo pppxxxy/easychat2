@@ -4,9 +4,16 @@
 export const MAP_GRID_SIZE = 40;
 export const MAP_CELL_COUNT = MAP_GRID_SIZE * MAP_GRID_SIZE;
 export const MAP_OWNER_SELF = 'self';
+// 无主房：角色被删除后，它留下的房子若不能归给「自己」（自己已经有一栋了），
+// 就必须有一个「谁也不属于」的状态——否则只能硬塞成 self，于是出现两栋 self，
+// 编号都算成 000，而且第二栋再也编辑不了（canAssignOwner 把它当成「自己的另一栋」冲突）。
+export const MAP_OWNER_NONE = 'none';
 export const MAP_HOUSE_NAME_MAX = 24;
 // 房子编号固定补零到 3 位：自己的房子是 000，其余从 001 起。
+// 无主房没有主人可指，因此不给编号（label 为空），也就不会去抢 000。
 export const MAP_HOUSE_NUMBER_PAD = 3;
+// 无主房的默认显示名（调用方可用 strings.orphanedHouse 按当前语言覆盖）。
+const DEFAULT_ORPHANED_HOUSE_NAME = '无主房';
 
 const clean = (value, max = 0) => {
   const text = String(value == null ? '' : value).trim();
@@ -46,7 +53,10 @@ export function normalizeMapHouse(raw) {
   const rawOwnerId = clean(source.ownerId, 80);
   // 屋主是角色但 ownerId 为空属于坏数据（幽灵屋主）：没有可指的角色，
   // 降级为「我的房子」，避免渲染出没有归属的角色房子。
-  const ownerType = source.ownerType === 'character' && rawOwnerId ? 'character' : MAP_OWNER_SELF;
+  // 无主态（MAP_OWNER_NONE）必须原样保留：它就是「谁也归不上」的合法状态。
+  const ownerType = source.ownerType === 'character' && rawOwnerId
+    ? 'character'
+    : (source.ownerType === MAP_OWNER_NONE ? MAP_OWNER_NONE : MAP_OWNER_SELF);
   const residents = Array.isArray(source.residents)
     ? source.residents
       .map(item => clean(item, 80))
@@ -117,21 +127,41 @@ export function removeHouseAtCell(houses, x, y) {
   return normalizeMapHouses(houses).filter(item => !(item.x === gx && item.y === gy));
 }
 
-// 角色被删除时：抹掉它作为屋主的房子归属（降级为“自己”），并从所有房子的住户里移除。
+// 角色被删除时：抹掉它作为屋主的房子归属，并从所有房子的住户里移除。
+//
+// 归属降级必须同时守住「每人最多 1 栋」——这条规则此前只在 UI 指派路径
+// （MapPanel → canAssignOwner）上守，降级路径直接绕过了它：
+//   删掉某角色 → 它名下的房子一律降级为 self → 若用户已有自己的房，就有两栋 self，
+//   assignHouseNumbers 给两栋都发 number=0/label='000'，再编辑第二栋时
+//   canAssignOwner(houses, {type:'self'}) 命中第一栋为冲突 → MapPanel 弹「转移失败」
+//   并 return，改名/改住户都存不进去，只能删房。
+// 现在的规则：用户还没有自己的房 → 这栋归用户（沿用原行为）；用户已经有了 →
+// 这栋变成无主房（MAP_OWNER_NONE），不占「自己」这个唯一名额，也不会去抢 000 号。
 export function detachCharacterFromMap(houses, characterIds) {
   const ids = new Set(
     (Array.isArray(characterIds) ? characterIds : []).map(id => clean(id, 80)).filter(Boolean)
   );
   if (ids.size === 0) return normalizeMapHouses(houses);
-  return normalizeMapHouses(houses).map(house => {
+  const list = normalizeMapHouses(houses);
+  // 降级前先看「自己」是否已经有房：有则后面被摘掉归属的房子只能进无主态。
+  const selfTaken = list.some(house => house.ownerType === MAP_OWNER_SELF);
+  let gaveToSelf = false;
+  return list.map(house => {
     const ownerRemoved = house.ownerType === 'character' && ids.has(house.ownerId);
     const residents = house.residents.filter(id => !ids.has(id));
     if (!ownerRemoved && residents.length === house.residents.length) return house;
+    if (!ownerRemoved) return { ...house, residents };
+    // 只有第一栋能归用户：这一轮里可能有多栋房同时失去屋主。
+    const toSelf = !selfTaken && !gaveToSelf;
+    if (toSelf) gaveToSelf = true;
     return {
       ...house,
-      ownerType: ownerRemoved ? MAP_OWNER_SELF : house.ownerType,
-      ownerId: ownerRemoved ? '' : house.ownerId,
-      ownerName: ownerRemoved ? '' : house.ownerName,
+      ownerType: toSelf ? MAP_OWNER_SELF : MAP_OWNER_NONE,
+      ownerId: '',
+      ownerName: '',
+      // 无主房没有屋主，名字会显示成「无主房」；原来那个角色名不能再留着当房名，
+      // 否则界面上看起来还像那个角色的房子（用户已把它删了）。
+      name: toSelf ? house.name : (house.name || DEFAULT_ORPHANED_HOUSE_NAME),
       residents,
     };
   });
@@ -142,6 +172,9 @@ export function detachCharacterFromMap(houses, characterIds) {
 export function describeHouseOwner(house, characters = [], strings = {}) {
   if (!house) return '';
   const selfHouse = strings.selfHouse || '我的房子';
+  const orphanedHouse = strings.orphanedHouse || DEFAULT_ORPHANED_HOUSE_NAME;
+  // 无主房不能说成「我的房子」：它恰恰是「没有归给自己」的那栋。
+  if (house.ownerType === MAP_OWNER_NONE) return orphanedHouse;
   if (house.ownerType !== 'character') return selfHouse;
   const found = (Array.isArray(characters) ? characters : [])
     .find(item => item && item.id === house.ownerId);
@@ -164,11 +197,16 @@ export function houseResidentNames(house, characters = [], strings = {}) {
 }
 
 // 房子编号：自己的房子固定 000，其余按给定顺序（调用方先排序）从 001 起补零。
-// 返回 [{ house, number, label }]，number 为数字，label 为 3 位字符串。
+// 无主房没有主人可指 → 不发编号（number 为 null、label 为空），因此不会出现
+// 「两栋都叫 000」这种撞号；角色的 001、002 也不会因为多了一栋无主房而整体错位。
+// 返回 [{ house, number, label }]，number 为数字（无主房为 null），label 为 3 位字符串。
 export function assignHouseNumbers(houses) {
   const list = normalizeMapHouses(houses);
   let index = 1;
   return list.map(house => {
+    if (house.ownerType === MAP_OWNER_NONE) {
+      return { house, number: null, label: '' };
+    }
     const isSelf = house.ownerType === MAP_OWNER_SELF;
     const number = isSelf ? 0 : index;
     if (!isSelf) index += 1;
@@ -188,9 +226,11 @@ export function houseNumberLabel(house, houses) {
 
 // 每个人（自己或角色）最多拥有 1 栋房子。返回 ownerId → 已拥有的房子。
 // 自己用 MAP_OWNER_SELF 作为 ownerId，避免与角色 id 混淆。
+// 无主房不属于任何人，不进表（它不占「自己」那唯一一个名额）。
 export function housesByOwner(houses) {
   const map = new Map();
   normalizeMapHouses(houses).forEach(house => {
+    if (house.ownerType === MAP_OWNER_NONE) return;
     const key = house.ownerType === MAP_OWNER_SELF ? MAP_OWNER_SELF : house.ownerId;
     if (key && !map.has(key)) map.set(key, house);
   });
@@ -199,11 +239,17 @@ export function housesByOwner(houses) {
 
 // 校验能不能把某栋房子的屋主设为 owner（自己或角色）。返回 { ok, conflict }。
 // 冲突指该 owner 已经拥有另一栋房子：只允许改「自己这一栋」，不允许再占第二栋。
+// 无主房对任何 owner 都不构成冲突——这正是它存在的意义：删角色留下的房子
+// 必须还能被别人（含用户自己）接管，否则它就永远编辑不了。
 export function canAssignOwner(houses, owner, houseId) {
-  const key = owner && owner.type === 'character' ? clean(owner.id, 80) : MAP_OWNER_SELF;
-  if (owner && owner.type === 'character' && !key) return { ok: false, conflict: null };
+  const type = owner ? owner.type : MAP_OWNER_SELF;
+  // 无主（不指派给任何人）永远不冲突：没人可争。
+  if (type === MAP_OWNER_NONE) return { ok: true, conflict: null };
+  const key = type === 'character' ? clean(owner.id, 80) : MAP_OWNER_SELF;
+  if (type === 'character' && !key) return { ok: false, conflict: null };
   const conflict = normalizeMapHouses(houses).find(house => {
     if (houseId && house.id === houseId) return false;
+    if (house.ownerType === MAP_OWNER_NONE) return false;
     const existingKey = house.ownerType === MAP_OWNER_SELF ? MAP_OWNER_SELF : house.ownerId;
     return existingKey === key;
   }) || null;

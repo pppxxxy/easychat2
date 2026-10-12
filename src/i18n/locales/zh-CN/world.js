@@ -32,4 +32,12 @@ export const world = {
   'world.map.real.html.zoomIn': '放大',
   'world.map.real.html.zoomOut': '缩小',
   'world.map.real.html.recenter': '回到我的位置',
+  'world.map.real.html.hint': '拖动平移 · 双指缩放',
+  'world.map.real.loadFailed': '位置设置读取失败（原数据已备份，未被覆盖）。请稍后重试，或到「设置 → 关于 → 备份与恢复」里恢复备份。',
+  'world.map.real.saveFailed.corrupt': '位置设置读取失败，已备份损坏的原数据；本次改动没有保存。请稍后重试。',
+  // 网格地图：删掉角色后留下的房子若不能归给自己（自己已有房），就进「无主」态。
+  // 这两个键放在 world 域（map 域的键在另一批改动里，本批不碰）。
+  'world.map.house.orphaned': '无主房',
+  'world.map.owner.none': '无主（不指派）',
+  'world.map.owner.noneMeta': '删角色后留下的空房',
 };
