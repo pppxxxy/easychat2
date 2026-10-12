@@ -232,11 +232,12 @@ test('D1 文件面板：导入文件到当前目录（技能生态通路，落�
 });
 
 test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清（成功才清）', () => {
-  const github = readSource('src/workspace/screen/GithubPanel.js');
   // 拉取动作已外提到 github/useRepoPull.js：残留提示与写/清/批结算顺序读新文件。
   const pull = readSource('src/workspace/screen/github/useRepoPull.js');
-  assert.ok(github.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');
-  assert.ok(github.includes("t('workspace.github.pull.foreground', { eta: pullEta })"), '写入阶段带剩余秒数估算');
+  // 拉取进度提示（前台/ETA）已外提到 github/RepoTreeSection.js（展示组件）。
+  const tree = readSource('src/workspace/screen/github/RepoTreeSection.js');
+  assert.ok(tree.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');
+  assert.ok(tree.includes("t('workspace.github.pull.foreground', { eta: pullEta })"), '写入阶段带剩余秒数估算');
   assert.ok(pull.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
   // 顺序契约：先写清单、批结算之后才清——失败/取消路径（在清之前就跳出）保留清单，
   // 下次拉取才能检出「上次没跑完」。
@@ -266,7 +267,6 @@ test('E5 历史浏览与 PR 接线：面板走 restApi、大 diff 截断、PR �
 });
 
 test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清单落盘 / 查看入口', () => {
-  const github = readSource('src/workspace/screen/GithubPanel.js');
   // 推送动作已外提到 github/useRepoPush.js：基线注入与超限提示读新文件。
   const pushHook = readSource('src/workspace/screen/github/useRepoPush.js');
   // G1：推送前读基线并注入（「曾经物化过」的证据）——缺失时传空数组（removed 恒空）
@@ -277,8 +277,10 @@ test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清�
   const pull = readSource('src/workspace/screen/github/useRepoPull.js');
   assert.ok(pull.includes('await writePullSkipped(store, characterId, skippedPayloadNext)'), '拉取成功后写跳过清单');
   assert.ok(pull.includes('await readPullSkipped(storeRef && storeRef.current, characterId)'), '挂载时读清单');
-  assert.ok(github.includes("t('workspace.github.skipped.view', { count: skippedPayload.total })"), '查看清单入口（带计数）');
-  assert.ok(github.includes('formatSkippedList(skippedPayload)'), '清单文本用纯函数格式化');
+  // 跳过清单入口（查看/计数/文本）已外提到 github/RepoTreeSection.js（展示组件）。
+  const tree = readSource('src/workspace/screen/github/RepoTreeSection.js');
+  assert.ok(tree.includes("t('workspace.github.skipped.view', { count: skippedPayload.total })"), '查看清单入口（带计数）');
+  assert.ok(tree.includes('formatSkippedList(skippedPayload)'), '清单文本用纯函数格式化');
   // 顺序契约：写清单在「清残留 manifest」之后（= 真正成功路径），失败/取消不写
   const clearManifestAt = pull.indexOf('await clearPullManifest(store, characterId)');
   const writeSkippedAt = pull.indexOf('await writePullSkipped(');

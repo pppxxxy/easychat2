@@ -11,6 +11,8 @@
     "src/character/GroupCreateModal.js",
     "src/character/useGroupCreation.js",
     "src/character/CharacterDetailScreen.js",
+    "src/character/CharacterEntryModals.js",
+    "src/character/useCardTransfer.js",
     "src/character/editors.js",
     "src/character/characterStyles.js",
     "src/ChatScreen.js",

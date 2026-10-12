@@ -168,6 +168,8 @@ test('端到端：超大卡不生成二维码，但分享码与图片通道仍�
 
 test('UI 接线：详情页有分享入口与剪贴板导入，且都走域内封装', () => {
   const detail = read('src/character/CharacterDetailScreen.js');
+  // 卡片导入/导出/分享的处理逻辑已外提到 character/useCardTransfer.js。
+  const transfer = read('src/character/useCardTransfer.js');
   const modal = read('src/character/CardShareModal.js');
   const exporter = read('src/character/cardExporter.js');
 
@@ -176,7 +178,7 @@ test('UI 接线：详情页有分享入口与剪贴板导入，且都走域内�
   assert.ok(detail.includes("t('character.share.entry')"));
   assert.ok(detail.includes('<CardShareModal'), '渲染分享面板');
   assert.ok(detail.includes('onPress={importFromClipboard}'), '剪贴板导入入口');
-  assert.ok(detail.includes('isCardShareCode(text)'), '导入前先校验是不是分享码');
+  assert.ok(transfer.includes('isCardShareCode(text)'), '导入前先校验是不是分享码');
 
   // 文件写入必须在 cardExporter（域内封装点），UI 不得直接碰 expo-file-system
   assert.ok(!modal.includes("expo-file-system"), 'UI 不得直接 import 文件系统（lint 也会拦）');
