@@ -1,5 +1,6 @@
 import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from '../network/apiVendors.js';
 import { IMAGE_PROVIDERS } from '../imageGen/providers.js';
+import { tActive } from '../i18n/index.js';
 import { DISCLAIMER_SECTIONS } from './disclaimer.js';
 
 // 新手教学 / 使用教程共用内容。
@@ -9,15 +10,18 @@ import { DISCLAIMER_SECTIONS } from './disclaimer.js';
 // - image 为 assets/onboarding 下的截图键，未注册时界面自动跳过
 
 const chatVendorItems = CHAT_API_VENDORS.map(vendor => ({
-  name: vendor.name,
+  name: tActive(vendor.nameKey),
   where: '设置 → API 配置 → 新建',
-  usage: vendor.note,
+  usage: tActive(vendor.noteKey),
 }));
 
 const imageProviderItems = IMAGE_PROVIDERS.map(provider => ({
-  name: provider.label,
+  name: tActive(provider.labelKey),
   where: '扩展 → 生图 → 填密钥',
-  usage: [provider.keyHint, provider.networkNote, provider.corsNote].filter(Boolean).join(' '),
+  usage: [provider.keyHintKey, provider.networkNoteKey, provider.corsNoteKey]
+    .map(key => (key ? tActive(key) : ''))
+    .filter(Boolean)
+    .join(' '),
 }));
 
 export const ONBOARDING_CHAPTERS = [
@@ -59,7 +63,7 @@ export const ONBOARDING_CHAPTERS = [
       },
       ...chatVendorItems,
     ],
-    note: `第三方中转站风险提示：${THIRD_PARTY_RELAY_RISK.join(' ')}`,
+    note: `第三方中转站风险提示：${THIRD_PARTY_RELAY_RISK.map(key => tActive(key)).join(' ')}`,
     outro: {
       body: '配置好 API 后，有任何疑问都可以直接在「聊天」标签问「EasyChat2 助手」——她熟悉 App 的每个功能在哪、怎么用。',
     },

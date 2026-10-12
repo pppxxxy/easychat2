@@ -214,7 +214,7 @@ export default function WorkspacePluginsPanel() {
               return (
                 <View key={item.id} style={styles.card}>
                   <View style={styles.cardHead}>
-                    <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{t(item.nameKey)}</Text>
                     <TouchableOpacity
                       onPress={() => handleInstall(item)}
                       disabled={busy || isInstalled}
@@ -225,7 +225,7 @@ export default function WorkspacePluginsPanel() {
                       </Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.cardDesc}>{item.description}</Text>
+                  <Text style={styles.cardDesc}>{t(item.descriptionKey)}</Text>
                 </View>
               );
             })}

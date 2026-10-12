@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CHAT_API_VENDORS, getChatApiVendor } from '../src/network/apiVendors.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 test('OpenRouter 已内置为聊天厂商，坐标与协议正确', () => {
   const vendor = getChatApiVendor('openrouter');
@@ -11,7 +12,7 @@ test('OpenRouter 已内置为聊天厂商，坐标与协议正确', () => {
   assert.equal(vendor.protocol, 'openai');
   assert.equal(vendor.apiKeyUrl, 'https://openrouter.ai/keys');
   assert.equal(vendor.category.includes('chat'), true);
-  assert.match(vendor.note, /上游|透传/, 'note 应说明聚合上游与错误透传');
+  assert.match(zhCN[vendor.noteKey], /上游|透传/, 'note 应说明聚合上游与错误透传');
 });
 
 test('厂商 id 唯一', () => {

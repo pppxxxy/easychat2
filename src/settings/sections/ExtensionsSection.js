@@ -86,7 +86,7 @@ export default function ExtensionsSection(props) {
             value={inlineImage.providerId}
             options={IMAGE_PROVIDERS.map(provider => ({
               value: provider.id,
-              label: provider.label,
+              label: t(provider.labelKey),
               meta: inlineImageProviders.includes(provider.id)
                 ? t('settings.inlineImage.metaConfigured', { model: String((imageGenProviders[provider.id] || {}).model || provider.defaultModel || '').split(/[\n,]/)[0] || t('settings.inlineImage.defaultModel') })
                 : t('settings.inlineImage.metaNotConfigured'),
@@ -96,9 +96,9 @@ export default function ExtensionsSection(props) {
           />
           {activeImageProvider ? (
             <View style={styles.providerEditor}>
-              <Text style={styles.providerEditorTitle}>{t('settings.inlineImage.providerConfig', { name: activeImageProvider.label })}</Text>
-              {activeImageProvider.keyHint ? (
-                <FieldHint style={styles.hint}>{t('settings.inlineImage.keyHint', { hint: activeImageProvider.keyHint })}</FieldHint>
+              <Text style={styles.providerEditorTitle}>{t('settings.inlineImage.providerConfig', { name: t(activeImageProvider.labelKey) })}</Text>
+              {activeImageProvider.keyHintKey ? (
+                <FieldHint style={styles.hint}>{t('settings.inlineImage.keyHint', { hint: t(activeImageProvider.keyHintKey) })}</FieldHint>
               ) : null}
               <FieldLabel style={styles.label}>{t('settings.api.baseUrl')}</FieldLabel>
               <TextField
@@ -145,8 +145,8 @@ export default function ExtensionsSection(props) {
                   {imageGenTesting === activeImageProvider.id ? t('common.detecting') : t('settings.inlineImage.test')}
                 </Text>
               </TouchableOpacity>
-              {activeImageProvider.networkNote ? (
-                <FieldHint style={styles.hint}>{activeImageProvider.networkNote}</FieldHint>
+              {activeImageProvider.networkNoteKey ? (
+                <FieldHint style={styles.hint}>{t(activeImageProvider.networkNoteKey)}</FieldHint>
               ) : null}
             </View>
           ) : null}

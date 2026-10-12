@@ -8,6 +8,7 @@
 // 展开合并；新增域 = 新建域文件 + 在导出对象里补一行 ...<域>,）。对外导出面
 // （en 命名导出 + default）不变，消费方与测试零改动。
 import { apiPreset } from './en/apiPreset.js';
+import { apiVendor } from './en/apiVendor.js';
 import { app } from './en/app.js';
 import { agentTask } from './en/agentTask.js';
 import { backup } from './en/backup.js';
@@ -50,6 +51,7 @@ import { workspace } from './en/workspace.js';
 import { world } from './en/world.js';
 export const en = {
   ...apiPreset,
+  ...apiVendor,
   ...app,
   ...agentTask,
   ...backup,

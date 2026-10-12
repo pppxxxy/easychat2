@@ -295,7 +295,7 @@ export default function ImageGenScreen() {
 
   const openApiKeyUrl = useCallback(async () => {
     if (!provider.apiKeyUrl) {
-      Alert.alert(t('imageGen.alert.getApiKey.title'), provider.keyHint || t('imageGen.alert.getApiKey.body'));
+      Alert.alert(t('imageGen.alert.getApiKey.title'), provider.keyHintKey ? t(provider.keyHintKey) : t('imageGen.alert.getApiKey.body'));
       return;
     }
     try {
@@ -308,7 +308,7 @@ export default function ImageGenScreen() {
     } catch (error) {
       Alert.alert(t('imageGen.alert.openLinkFailed.title'), provider.apiKeyUrl);
     }
-  }, [provider.apiKeyUrl, provider.keyHint, t]);
+  }, [provider.apiKeyUrl, provider.keyHintKey, t]);
 
   const confirmSettings = useCallback(async () => {
     let extra = {};
@@ -558,7 +558,7 @@ export default function ImageGenScreen() {
                 numberOfLines={1}
                 ellipsizeMode="middle"
               >
-                {provider.label} · {model || t('common.notSet')}
+                {t(provider.labelKey)} · {model || t('common.notSet')}
               </Text>
             </TouchableOpacity>
             <TopicButton
@@ -601,13 +601,13 @@ export default function ImageGenScreen() {
 
         <FieldLabel style={styles.label}>{t('imageGen.serviceLabel')}</FieldLabel>
         <TouchableOpacity style={styles.selectButton} onPress={() => setProviderOpen(true)} activeOpacity={0.8}>
-          <Text style={styles.selectButtonText}>{provider.label}</Text>
+          <Text style={styles.selectButtonText}>{t(provider.labelKey)}</Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
-        {provider.networkNote ? (
+        {provider.networkNoteKey ? (
           <View style={styles.networkNoteRow}>
             <Ionicons name="globe-outline" size={14} color={theme.colors.textMuted} />
-            <Text style={styles.networkNoteText}>{provider.networkNote}</Text>
+            <Text style={styles.networkNoteText}>{t(provider.networkNoteKey)}</Text>
           </View>
         ) : null}
 
@@ -741,14 +741,14 @@ export default function ImageGenScreen() {
       <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>{t('imageGen.providerSettings', { label: provider.label })}</Text>
+            <Text style={styles.modalTitle}>{t('imageGen.providerSettings', { label: t(provider.labelKey) })}</Text>
             <FieldHint style={styles.hint}>{t('imageGen.keyLocalHint')}</FieldHint>
-            {provider.keyHint ? (
-              <FieldHint style={styles.hint}>{t('imageGen.keyHint', { hint: provider.keyHint })}</FieldHint>
+            {provider.keyHintKey ? (
+              <FieldHint style={styles.hint}>{t('imageGen.keyHint', { hint: t(provider.keyHintKey) })}</FieldHint>
             ) : null}
-            {provider.corsNote ? (
+            {provider.corsNoteKey ? (
               <FieldHint style={styles.hint}>
-                {t('imageGen.corsNote', { note: provider.corsNote })}
+                {t('imageGen.corsNote', { note: t(provider.corsNoteKey) })}
               </FieldHint>
             ) : null}
             <FieldLabel style={styles.label}>{t('imageGen.apiAddressLabel')}</FieldLabel>

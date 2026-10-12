@@ -138,6 +138,8 @@ export default [
       'src/onboarding/onboardingContent.js', // 教程内容（AGENTS.md 明列例外）
       'src/storage/characters/shared.js',    // 内置助手的人设名与系统提示（角色卡内容）
       'src/workspace/gitCheckpoint.js',      // CHECKPOINT_FALLBACK_MESSAGE 写入 git 提交信息（持久数据）
+      // 2026-10-12：法务免责声明。条款实质与法律效力相关，英文版须经法务审校后方可上线，
+      // 不宜由开发机翻；待法务提供英文文本后再迁 i18n。故暂列永久豁免（非「不该翻译」）。
       // 2026-10-12：settings/searchIndex.js 的**标签**已全部迁走（label → labelKey，
       // 复用卡片自己的 settings.<x>.* 键，分区名同理）。留在这里只剩 keywords——
       // 那些是「用户会输入什么」的匹配词，中英混排、不该翻译。
@@ -153,6 +155,8 @@ export default [
       // 工具描述整族都是模型提示词（tools 的 description 字段）：整目录豁免，
       // 新增工具文件也自动在内——这正是我们要的，工具描述不该翻成英文界面语言。
       'src/workspace/toolDefs/**',
+      'src/workspace/plugins/market.js',        // market 项的 manifest 是落盘元数据/模型提示词/插件代码（非界面文案）；
+                                              // 界面用的 name/description 已改走 *Key（m1012m16），此处豁免的是前者
       // 2026-10-12（合并后按新规则实测补登，main 独有、对方分支早于这些功能）：
       'src/settings/presets.js',                // BUILTIN_PROMPTS：内置预设提示词（模型输入，刻意不导出）
       'src/mcp/serverDocs.js',                  // 内置 MCP Server 的文档资源（发给外部 agent 的说明）
@@ -227,21 +231,14 @@ export default [
       'src/character/cardHelpers.js',
       'src/chat/reactiveCompact.js',
       'src/chat/voiceMessages.js',
-      'src/games/games.js',
-      'src/imageGen/providers.js',
-      'src/localModel/modelCatalog.js',
-      'src/localModel/modelState.js',
       'src/memory/memoryBuckets.js',
-      'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
       // 2026-10-12：src/plugins/providers.js 已迁出（provider/keyLink 的 label → 仅 labelKey，
       // 删掉冗余中文/英文兜底；PluginPanel 简化成 t(labelKey)）。
       // 2026-10-12：src/settings/presets.js 已迁出——导出常量只留 id + nameKey/descriptionKey，
       // 名称/描述进 preset.builtin.* 词条；提示词搬到**未导出**的 BUILTIN_PROMPTS
       //（模型输入，按铁律不进 i18n，规则本来也不查未导出常量）。
-      'src/tts/providers.js',
       'src/vectorMemory/providers.js',
-      'src/workspace/plugins/market.js',
       // 第三批扩宽（第一轮）新增 (a)：join() 分隔符 / 返回对象字面量的命中，中文都会
       // 出现在用户看得见的地方（界面文案、导出文件、错误提示），按 (a) 的定义待迁移。
       'src/apiProtocols/stream.js',
