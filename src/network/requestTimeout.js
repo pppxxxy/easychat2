@@ -34,14 +34,17 @@ export function timeoutMsFor(phase) {
   return FIRST_BYTE_TIMEOUT_MS;
 }
 
-// 超时错误文案：如实说清在等什么（「首个响应」与「非流式整包」是两件事）。
-export function timeoutMessage(phase) {
-  if (phase === 'nonstream') {
-    return '等待响应超时（非流式请求需服务端算完整篇再回包），请检查网络或 API 地址，可稍后重试';
-  }
-  if (phase === 'idle') return '请求超时，请检查网络后重试';
-  return '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）';
-}
+// 超时错误文案：**不在本模块**。三档文案（error.api.timeoutNonstream / timeoutIdle /
+// timeoutFirstByte）由 api.js 在挂表那一刻按档用 tActive 取用——同一个 phase 同时决定
+// 阈值与文案（见 api.js 的 armIdleTimer），这里只管「哪一档、多少毫秒」。
+//
+// 2026-10-12 删除：本模块曾导出 `timeoutMessage(phase)`，返回硬编码中文，与 api.js 的
+// 三档词条是**同一句话的两份拷贝**。api.js 迁 i18n 后它已不在任何生产路径上
+//（全仓 grep 只剩 tests/apiStreaming.test.mjs 引用，无兼容调用方），留着的唯一效果是让
+// 下一个人以为改超时文案要改两处，且其中一处永远不跟随语言。删掉而不是迁 i18n，是因为
+// 迁完仍是第二份重复文案，没有第二个消费方需要它。
+// 文案契约现在钉在词条上：tests/apiStreaming.test.mjs 断言三档词条各不相同且说清在等什么，
+// scripts/find_missing_i18n_keys.js 保证词条不漏登记。
 
 // 该档是否属于「等首字节」——降级链的 firstByte 标记用它（非流式不是首字节等待）。
 export function isFirstBytePhase(phase) {

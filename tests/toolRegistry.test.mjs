@@ -129,6 +129,46 @@ test('runTool 透传界面侧提示字段（noticeKey/noticeParams）；缺失�
   );
 });
 
+// D（2026-10-12）：钩子改写 content 的分支**有意**丢掉 noticeKey/noticeParams。
+//
+// 这不是期望行为，而是**已知取舍的锚点**：宿主钩子（workspace/screen/ChatPanel.js:1321）是
+// 「追加」语义（正文 + `[工作区钩子] …`），而展示层（workspace/conversation.js 的
+// toolNoticeText → screen/ToolCallRow.js:151 的 `notice || resultText`）取到 noticeKey 会
+// **整段替换**正文——若在这里透传 notice，用户自己配的 on_tool_result 提醒就会对用户隐身。
+// 取舍理由、以及「今天不可达（三条带 notice 的结果全是 isError: true）」的事实，写在
+// registry.js 的 applyResultHook 注释里。将来展示层能同时显示词条与正文时，本测试应当改成
+// 断言 notice 也活着出来。
+test('结果钩子改写 content 时有意丢弃 notice（「追加」语义下的已知取舍锚点）', async () => {
+  registerTool({
+    name: 'git_like',
+    readOnly: true,
+    parameters: {},
+    execute: async () => ({
+      content: '正文（给模型读的中文）',
+      isError: false,
+      noticeKey: 'workspace.chat.tool.notice.gitNoRepo',
+      noticeParams: { steps: 's1' },
+    }),
+  });
+
+  // 不注入钩子：notice 照常透传（第 1 跳的契约不受本取舍影响）
+  const plain = await runTool({ name: 'git_like', arguments: '{}' }, { mode: AGENT_MODES.READ });
+  assert.equal(plain.noticeKey, 'workspace.chat.tool.notice.gitNoRepo');
+  assert.deepEqual(plain.noticeParams, { steps: 's1' });
+
+  // 注入与 ChatPanel.js:1327 同形的「追加」钩子：钩子追加的正文可见，notice 被丢弃
+  const hooked = await runTool({ name: 'git_like', arguments: '{}' }, {
+    mode: AGENT_MODES.READ,
+    onToolResult: async (call, result) => ({
+      content: `${result.content}\n\n[工作区钩子] 记得核对退出码`,
+      isError: result.isError === true,
+    }),
+  });
+  assert.match(hooked.content, /\[工作区钩子\] 记得核对退出码/, '用户配的钩子提醒必须对用户可见');
+  assert.equal('noticeKey' in hooked, false, '有意丢弃：透传会让展示层整段替换正文、把钩子提醒藏起来');
+  assert.equal('noticeParams' in hooked, false);
+});
+
 test('listToolsForMode 按 ask/read/write 门控', () => {
   registerTool({ name: 'read_a', readOnly: true, parameters: {}, execute: async () => 'a' });
   registerTool({ name: 'write_b', readOnly: false, parameters: {}, execute: async () => 'b' });

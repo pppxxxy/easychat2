@@ -9,10 +9,10 @@ import {
   IDLE_TIMEOUT_MS,
   NONSTREAM_TIMEOUT_MS,
   isFirstBytePhase,
-  timeoutMessage,
   timeoutMsFor,
   timeoutPhase,
 } from '../src/network/requestTimeout.js';
+import { translate } from '../src/i18n/index.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -414,9 +414,23 @@ test('P1 回归：超时档位纯函数（首字节 / 空闲 / 非流式），�
   assert.ok(NONSTREAM_TIMEOUT_MS > FIRST_BYTE_TIMEOUT_MS, '非流式（最慢的调用）阈值要更宽');
   assert.equal(isFirstBytePhase('nonstream'), false);
   assert.equal(isFirstBytePhase('first-byte'), true);
-  assert.match(timeoutMessage('nonstream'), /非流式/);
-  assert.match(timeoutMessage('first-byte'), /首个响应/);
-  assert.match(timeoutMessage('idle'), /请求超时/);
+  // 三档超时文案的契约钉在**词条**上，不在本模块的某个函数上：requestTimeout.js 的
+  // timeoutMessage() 已删除（它曾是同一句话的第二份硬编码拷贝、且无生产调用方），
+  // 文案唯一来源是 api.js 的 armIdleTimer 按档取用的这三个 key。
+  // 这里断言「三档各不相同且说清在等什么」——非流式整包 / 首字节 / 吐字中卡住是三件事。
+  const timeoutText = key => translate('zh-CN', key);
+  assert.match(timeoutText('error.api.timeoutNonstream'), /非流式/);
+  assert.match(timeoutText('error.api.timeoutFirstByte'), /首个响应/);
+  assert.match(timeoutText('error.api.timeoutIdle'), /请求超时/);
+  assert.equal(
+    new Set([
+      timeoutText('error.api.timeoutNonstream'),
+      timeoutText('error.api.timeoutFirstByte'),
+      timeoutText('error.api.timeoutIdle'),
+    ]).size,
+    3,
+    '三档文案必须各不相同（否则「在等什么」就说不清了）',
+  );
 });
 
 // 行为测试：假 XHR 不回包，把时钟拨到阈值，看超时错误挂在哪个档位。
