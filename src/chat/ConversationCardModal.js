@@ -218,14 +218,27 @@ export default function ConversationCardModal({
               <View style={styles.summaryRow}>
                 <Ionicons name="chatbubbles-outline" size={15} color={theme.colors.primaryMuted} />
                 <Text style={styles.summaryText}>
-                  {t('chat.cardFromChat.selected', { count: transcript.kept })}
+                  {t('chat.cardFromChat.selected', { count: transcript.selected })}
                 </Text>
               </View>
-              {transcript.dropped > 0 ? (
+              {/* 计数必须如实反映三件事（问题 E / F）：
+                  1) 上面一行是**真实勾选数**（transcript.selected），不是过滤后的 kept——
+                     旧实现喂的是 kept，选 20 条含 3 条备注时会写「已选 17 条」，3 条无声消失；
+                  2) filtered：其中不是对话消息（system / note / 空文本）而被剔除的条数；
+                  3) 三元组：过滤后保留几条、其中几条被裁到单条上限、几条因总预算被整条丢弃。
+                  裁剪过去是静默的（clipText 截到 600 字且不上报），这里必须显式给出。 */}
+              {transcript.filtered > 0 ? (
                 <Text style={styles.warnText}>
-                  {t('chat.cardFromChat.dropped', { count: transcript.dropped })}
+                  {t('forge.conversation.filtered', { count: transcript.filtered })}
                 </Text>
               ) : null}
+              <Text style={styles.breakdownText}>
+                {t('forge.conversation.breakdown', {
+                  kept: transcript.kept,
+                  clipped: transcript.clipped,
+                  dropped: transcript.dropped,
+                })}
+              </Text>
               <TextField
                 value={hint}
                 onChangeText={setHint}
@@ -329,6 +342,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(11),
     lineHeight: fonts.scaled(16),
     marginTop: 8,
+  },
+  // 保留/裁剪/丢弃三元组：正常情况不是「警告」，用中性色，避免每次打开面板都像出错。
+  breakdownText: {
+    color: theme.colors.textMuted,
+    fontSize: fonts.scaled(11),
+    lineHeight: fonts.scaled(16),
+    marginTop: 6,
   },
   hintInput: { marginTop: 12, minHeight: 64 },
   primaryButton: { marginTop: 12 },

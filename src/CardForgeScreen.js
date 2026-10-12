@@ -358,7 +358,7 @@ export default function CardForgeScreen() {
     let patch = null;
     try {
       patch = await askModel(
-        buildAdvancedPrompt(baseState, baseState && baseState.draft),
+        buildAdvancedPrompt(baseState, { draft: baseState && baseState.draft, sections }),
         controller.signal
       );
     } catch (error) {

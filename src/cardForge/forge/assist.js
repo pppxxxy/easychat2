@@ -1,6 +1,16 @@
 // Field, tag and collection-entry assistance prompts, parsing and merging.
 
-import { WORLD_POSITION_LABELS, REGEX_PLACEMENT_LABELS, MAX_PRESERVED_TEXT, clean } from './shared.js';
+import {
+  WORLD_POSITION_LABELS,
+  REGEX_PLACEMENT_LABELS,
+  MAX_PRESERVED_TEXT,
+  ENTRY_KEYS_MAX_COUNT,
+  clean,
+  collapseOnlyFlags,
+  entryFieldLimit,
+} from './shared.js';
+// 危险正则标记与生成路径（advanced.js）用同一份启发式，不另写一份（问题 A）。
+import { isUnsafeRegexPattern } from '../../prompt/regexEngine.js';
 
 // ---- 单字段辅助生成（问题 2）----
 // 制卡编辑器每个字段旁的「辅助生成」：用户描述想改的地方，模型只改写这一个字段。
@@ -89,7 +99,12 @@ function projectEntryFields(entry, fields) {
     } else if (ENTRY_ASSIST_BOOLEAN_FIELDS.has(field)) {
       projected[field] = source[field] === true;
     } else if (ENTRY_ASSIST_NUMBER_FIELDS.has(field)) {
-      const value = Number(source[field]);
+      // 缺省口径同 cardParser 的 firstNumber：null / '' 视为「没给」。
+      // Number(null) === 0 会让 depth 缺省的条目在提示词里显示成 0，模型照抄回来
+      // 就把「倒数第 4 条」改成了「最末一条旁」（问题 C 的同源分支）。
+      const raw = source[field];
+      const missing = raw === null || raw === undefined || raw === '';
+      const value = missing ? NaN : Number(raw);
       projected[field] = Number.isFinite(value) ? value : (field === 'depth' ? 4 : 0);
     } else {
       projected[field] = String(source[field] || '');
@@ -195,29 +210,46 @@ export function mergeEntryAssistPatch(entry, kind, patch) {
   fields.forEach(field => {
     if (field === 'keys') {
       const keys = Array.isArray(source.keys)
-        ? source.keys.map(item => clean(item, 60)).filter(Boolean)
+        ? source.keys.map(item => clean(item, entryFieldLimit('worldInfo', 'keys'))).filter(Boolean)
         : splitAssistList(source.keys);
-      if (keys.length > 0) next.keys = keys;
+      if (keys.length > 0) next.keys = keys.slice(0, ENTRY_KEYS_MAX_COUNT);
     } else if (ENTRY_ASSIST_BOOLEAN_FIELDS.has(field)) {
       if (typeof source[field] === 'boolean') next[field] = source[field];
     } else if (field === 'position') {
       const value = Number(source[field]);
       if (Number.isInteger(value) && value >= 0 && value <= 7) next.position = value;
     } else if (field === 'depth') {
+      // depth 的缺省口径与生成路径（advanced.js 的 normalizeWorldDepth，照抄
+      // cardParser 的 firstNumber）一致：空值不算 0。
       const value = Number(source[field]);
-      if (Number.isFinite(value)) next.depth = Math.trunc(value);
+      if (source[field] !== null && source[field] !== undefined && source[field] !== '' && Number.isFinite(value)) {
+        next.depth = Math.trunc(value);
+      }
     } else if (field === 'placement') {
       const placement = normalizeAssistPlacement(source[field]);
       if (placement.length > 0) next.placement = placement;
     } else if (typeof source[field] === 'string' && source[field].trim()) {
-      next[field] = clean(source[field], MAX_PRESERVED_TEXT);
+      // 上限查共用表（问题 D）：这里过去一律按 MAX_PRESERVED_TEXT 截断，
+      // 于是「辅助生成」能落一条 50 万字的 comment，而同名字段走模型生成路径时
+      // 只保留 120 字——同一字段两条路径两种上限。
+      next[field] = clean(source[field], entryFieldLimit(kind, field));
     }
   });
   if (kind === 'worldInfo' && next.position !== base.position) {
     next.positionLabel = WORLD_POSITION_LABELS[next.position];
   }
-  if (kind === 'regexScripts' && Array.isArray(next.placement) && next.placement.length > 0) {
-    next.placementLabel = next.placement.map(key => REGEX_PLACEMENT_LABELS[key] || `范围 ${key}`).join('、');
+  if (kind === 'regexScripts') {
+    // markdownOnly / promptOnly 互斥收口（问题 B）：见 shared.js 的 collapseOnlyFlags。
+    const collapsed = collapseOnlyFlags(next, base);
+    if (collapsed !== next) {
+      next.markdownOnly = collapsed.markdownOnly;
+      next.promptOnly = collapsed.promptOnly;
+    }
+    // 危险正则标记与生成路径同一口径（问题 A），辅助改写后编辑器仍能给出告警。
+    next.unsafe = isUnsafeRegexPattern(next.findRegex);
+    if (Array.isArray(next.placement) && next.placement.length > 0) {
+      next.placementLabel = next.placement.map(key => REGEX_PLACEMENT_LABELS[key] || `范围 ${key}`).join('、');
+    }
   }
   return next;
 }
@@ -225,6 +257,7 @@ export function mergeEntryAssistPatch(entry, kind, patch) {
 function splitAssistList(value) {
   return String(value || '')
     .split(/[、,，]+/)
-    .map(item => clean(item, 60))
-    .filter(Boolean);
+    .map(item => clean(item, entryFieldLimit('worldInfo', 'keys')))
+    .filter(Boolean)
+    .slice(0, ENTRY_KEYS_MAX_COUNT);
 }

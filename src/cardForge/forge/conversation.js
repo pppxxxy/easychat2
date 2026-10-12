@@ -18,19 +18,31 @@ export const CONVERSATION_TRANSCRIPT_MAX_CHARS = 6000;
 // 不单独设闸的话它一条就能吃光整个预算，把其余对话全挤掉。
 export const CONVERSATION_MESSAGE_MAX_CHARS = 600;
 
+// 裁剪一条消息，并**显式**带出「有没有被裁」这个事实。
+// 旧实现只返回字符串，裁剪因此是静默的：注释承诺「不做静默截断」，
+// 实际却把 600 字以上的消息砍掉且不上报（问题 E）。返回值改成
+// { text, clipped } 后，调用方才能把裁剪条数如实报给用户。
 function clipText(text, maxChars) {
   const value = String(text || '').replace(/\s+/g, ' ').trim();
   const limit = Number.isFinite(maxChars) && maxChars > 0
     ? Math.trunc(maxChars)
     : CONVERSATION_MESSAGE_MAX_CHARS;
-  return value.length > limit ? `${value.slice(0, limit)}…` : value;
+  if (value.length <= limit) return { text: value, clipped: false };
+  return { text: `${value.slice(0, limit)}…`, clipped: true };
 }
 
 // 把选中的消息转成「说话人：内容」逐行文本。
 //
 // 超预算时保留**最近**的消息并从最早处丢弃：角色当前的状态最能代表它，而且
-// 用户多选时通常更在意后半段。丢弃条数如实返回，由提示词与界面告知用户，
+// 用户多选时通常更在意后半段。丢弃条数如实返回，由界面告知用户，
 // 不做「静默截断」——那会让人以为整段对话都被参考了。
+//
+// 返回的计数分三类，语义互不重叠（问题 E / F）：
+// - selected：调用方传进来的原始条数，也就是用户在聊天页真实勾选的数量；
+// - filtered：其中不是对话消息（system / note / 空文本 / 占位）而被剔除的条数；
+// - kept / clipped / dropped：过滤后剩下的 total 条里，保留了几条、其中几条被
+//   裁到单条上限、几条因总预算被整条丢弃（kept + dropped === total，clipped 是
+//   kept 的子集，不重复计入 dropped）。
 export function formatConversationTranscript(messages, options = {}) {
   const userName = String(options.userName || '').trim() || '用户';
   const characterName = String(options.characterName || '').trim() || '角色';
@@ -41,32 +53,38 @@ export function formatConversationTranscript(messages, options = {}) {
     ? Math.trunc(options.messageMaxChars)
     : CONVERSATION_MESSAGE_MAX_CHARS;
 
+  const selectedCount = Array.isArray(messages) ? messages.length : 0;
   const rows = (Array.isArray(messages) ? messages : [])
     .filter(message => message && (message.role === 'user' || message.role === 'assistant'))
     .map(message => {
       const speaker = message.role === 'user'
         ? userName
         : (String(message.speakerName || '').trim() || characterName);
-      const text = clipText(message.text, messageMaxChars);
-      return text ? `${speaker}：${text}` : '';
+      const clipped = clipText(message.text, messageMaxChars);
+      return { text: clipped.text ? `${speaker}：${clipped.text}` : '', clipped: clipped.clipped };
     })
-    .filter(Boolean);
+    .filter(row => row.text);
 
   const kept = [];
+  let keptClipped = 0;
   let total = 0;
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index];
-    const extra = kept.length === 0 ? row.length : row.length + 1;
+    const extra = kept.length === 0 ? row.text.length : row.text.length + 1;
     if (total + extra > maxChars) break;
     kept.unshift(row);
+    if (row.clipped) keptClipped += 1;
     total += extra;
   }
 
   return {
-    text: kept.join('\n'),
+    text: kept.map(row => row.text).join('\n'),
     kept: kept.length,
+    clipped: keptClipped,
     dropped: rows.length - kept.length,
     total: rows.length,
+    selected: selectedCount,
+    filtered: selectedCount - rows.length,
   };
 }
 

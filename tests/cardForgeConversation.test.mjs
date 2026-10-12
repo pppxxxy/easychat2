@@ -44,6 +44,12 @@ test('formatConversationTranscript：跳过系统消息、占位消息与空文�
   assert.ok(result.text.includes('用户：真实发言'));
   assert.ok(!result.text.includes('系统提示'));
   assert.equal(result.total, 2, 'system 与空文本不计入');
+  // 问题 F：selected 是**真实勾选数**（过滤前的原始条数），filtered 是被剔除的条数。
+  // 旧实现把过滤后的 kept 当「已选」喂给界面，选 20 条含 3 条备注时会显示「已选 17 条」，
+  // 那 3 条无声消失。
+  assert.equal(result.selected, 5, 'selected 必须是调用方传进来的原始条数');
+  assert.equal(result.filtered, 3, 'system / 空文本 / null 都要如实计入 filtered');
+  assert.equal(result.selected - result.filtered, result.total);
 });
 
 test('formatConversationTranscript：单条超长消息被裁剪，不吃光预算', () => {
@@ -51,6 +57,21 @@ test('formatConversationTranscript：单条超长消息被裁剪，不吃光预�
   const result = formatConversationTranscript([msg('assistant', long)], { characterName: '角色' });
   assert.ok(result.text.length < long.length, '超长消息被裁剪');
   assert.ok(result.text.endsWith('…'), '裁剪处有省略标记');
+  // 问题 E：裁剪过去是静默的（截到 600 字且不上报）。必须如实计数。
+  assert.equal(result.clipped, 1, '被裁过的消息必须计入 clipped');
+  assert.equal(result.kept, 1);
+  assert.equal(result.dropped, 0);
+});
+
+test('formatConversationTranscript：clipped 只统计「保留下来的」被裁消息，不重复计入 dropped', () => {
+  const long = '啊'.repeat(CONVERSATION_MESSAGE_MAX_CHARS + 50);
+  const many = [msg('user', long), ...Array.from({ length: 30 }, (unused, index) => msg('user', `第${index}条`))];
+  const result = formatConversationTranscript(many, { userName: '用户', maxChars: 60 });
+  assert.ok(result.dropped > 0, '预算很小，超长那条会被整条丢弃');
+  assert.equal(result.clipped, 0, '整条被丢弃的不算裁剪（kept + dropped === total，clipped 是 kept 的子集）');
+  assert.equal(result.kept + result.dropped, result.total);
+  assert.equal(result.selected, 31);
+  assert.equal(result.filtered, 0);
 });
 
 test('formatConversationTranscript：超预算时保留最近的，并如实报告省略条数', () => {
@@ -69,6 +90,9 @@ test('formatConversationTranscript：空输入返回空文本而不是崩', () =
   assert.equal(result.text, '');
   assert.equal(result.kept, 0);
   assert.equal(result.total, 0);
+  assert.equal(result.clipped, 0);
+  assert.equal(result.selected, 0);
+  assert.equal(result.filtered, 0);
 });
 
 test('formatConversationTranscript：不传预算时用默认总预算（6000 字）', () => {

@@ -67,6 +67,25 @@ test('面板：关闭/卸载时中止在途请求，避免结果写回已关闭�
   assert.ok(MODAL.includes('signal: controller.signal'));
 });
 
+test('面板：素材计数如实显示「真实勾选数 + 过滤数 + 保留/裁剪/丢弃」三元组', () => {
+  // 问题 F：喂给界面的必须是真实勾选数（selected），不是过滤后的 kept——
+  // 否则选 20 条含 3 条备注时会显示「已选 17 条」，那 3 条无声消失。
+  assert.ok(
+    MODAL.includes("t('chat.cardFromChat.selected', { count: transcript.selected })"),
+    '已选条数用 selected（真实勾选数）'
+  );
+  assert.equal(MODAL.includes('{ count: transcript.kept }'), false, '不得再拿过滤后的 kept 当已选数');
+  assert.ok(MODAL.includes("t('forge.conversation.filtered', { count: transcript.filtered })"), '显示被过滤掉的条数');
+  // 问题 E：裁剪过去是静默的（clipText 截到 600 字且不上报），面板必须给出三元组
+  assert.ok(MODAL.includes("t('forge.conversation.breakdown'"), '显示保留/裁剪/丢弃三元组');
+  ['kept', 'clipped', 'dropped'].forEach(field => {
+    assert.ok(
+      MODAL.includes(`${field}: transcript.${field}`),
+      `三元组必须带上 ${field}`
+    );
+  });
+});
+
 test('制卡页与对话制卡共用同一份系统提示词与采样参数', () => {
   assert.ok(SHARED.includes('export const FORGE_SYSTEM'));
   assert.ok(SHARED.includes('export const FORGE_SAMPLING_OVERRIDES'));

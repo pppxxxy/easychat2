@@ -29,7 +29,7 @@ import {
 } from './cardForge/forge.js';
 import { deleteForgeImage, pickForgeImage } from './cardForge/media.js';
 import { createRegexScript, createWorldEntry } from './character/cardParser.js';
-import { applyRegexScripts, compileRegex } from './prompt/regexEngine.js';
+import { applyRegexScripts, compileRegex, isUnsafeRegexPattern } from './prompt/regexEngine.js';
 import CardPreviewModal from './CardPreviewModal.js';
 import { makeCharacterPresetId } from './character/characterPresets.js';
 import { AIGC_META_FIELD, AIGC_NOTICE_TEXT, buildAigcMeta, isValidAigcMeta } from './aigc/attribution.js';
@@ -734,10 +734,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                   {expanded ? (
                     <View style={styles.entryBody}>
                       <View style={styles.entryActions}>
-                        <AssistButton
-                          label={t('forge.world.groupLabel')}
-                          onPress={() => openAssist({ kind: 'entry', listKey: 'worldInfo', index, label: t('forge.world.groupLabel') })}
-                        />
+                        <AssistButton label={t('forge.world.groupLabel')} onPress={() => openAssist({ kind: 'entry', listKey: 'worldInfo', index, label: t('forge.world.groupLabel') })} />
                       </View>
                       <TextField
                         style={styles.entryInput}
@@ -795,6 +792,9 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               const summary = String(script.findRegex || '').trim()
                 ? t('forge.regex.summary', { find: script.findRegex, replace: script.replaceString || t('forge.regex.emptyValue') })
                 : t('forge.regex.unset');
+              // 危险正则标记（问题 A）：与 advanced.js 生成路径、聊天引擎共用 regexEngine 的
+              // isUnsafeRegexPattern（不另写一份启发式）；引擎对它直接 continue（聊天里永不生效），制卡端必须给出可见告警。
+              const unsafe = isUnsafeRegexPattern(script.findRegex);
               return (
                 <View key={entryKey} style={styles.entryCard}>
                   <View style={styles.entryHeader}>
@@ -808,6 +808,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                       <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.textFaint} />
                       <Text style={styles.entryTitle} numberOfLines={1}>{script.name || t('forge.regex.entryFallback', { n: index + 1 })}</Text>
                       {script.enabled === false ? <Text style={styles.entryDisabled}>{t('forge.disabled')}</Text> : null}
+                      {unsafe ? <Text style={styles.entryUnsafe}>{t('forge.regex.unsafeBadge')}</Text> : null}
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => removeEntry('regexScripts', index)} hitSlop={8} accessibilityLabel={t('forge.regex.deleteA11y')}>
                       <Text style={styles.removeText}>{t('forge.delete')}</Text>
@@ -816,10 +817,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                   {expanded ? (
                     <View style={styles.entryBody}>
                       <View style={styles.entryActions}>
-                        <AssistButton
-                          label={t('forge.regex.groupLabel')}
-                          onPress={() => openAssist({ kind: 'entry', listKey: 'regexScripts', index, label: t('forge.regex.groupLabel') })}
-                        />
+                        <AssistButton label={t('forge.regex.groupLabel')} onPress={() => openAssist({ kind: 'entry', listKey: 'regexScripts', index, label: t('forge.regex.groupLabel') })} />
                       </View>
                       <TextField
                         style={styles.entryInput}
@@ -833,6 +831,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                         onChangeText={findRegex => updateEntry('regexScripts', index, { findRegex })}
                         placeholder={t('forge.regex.findPlaceholder')}
                       />
+                      {unsafe ? <Text style={styles.entryUnsafe}>{t('forge.regex.unsafeHint')}</Text> : null}
                       <TextField
                         style={styles.entryInput}
                         value={String(script.replaceString || '')}
@@ -1170,6 +1169,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),
   },
+  entryUnsafe: { marginLeft: 6, color: theme.colors.danger, fontSize: fonts.scaled(11) },
   entryBody: {
     marginTop: 2,
   },
