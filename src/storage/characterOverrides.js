@@ -31,16 +31,6 @@ export const CHARACTER_OVERRIDES_SCHEMA_VERSION = 1;
 // 与 schedule.js 同款：整表覆盖写用队列串行化，避免两次并发保存互相覆盖。
 const overridesMutation = createMutationQueue();
 
-const EMPTY = {
-  chatApiConfigId: '',
-  chatModel: '',
-  ocrApiConfigId: '',
-  ocrModel: '',
-  ttsProviderId: '',
-  ttsVoice: '',
-  transcriptionConfigId: '',
-};
-
 function text(value) {
   return String(value === undefined || value === null ? '' : value).trim();
 }
@@ -161,5 +151,3 @@ async function deleteCharacterOverridesInternal(characterIds) {
 
 // 角色删除时清理其专属配置（谁的数据谁负责，见 storage/characterLifecycle.js）。
 onCharacterDeleted('characterRuntimeOverrides', deleteCharacterOverridesInternal);
-
-export { EMPTY as EMPTY_CHARACTER_OVERRIDES };

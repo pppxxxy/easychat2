@@ -4,12 +4,6 @@
 
 import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
 
-// 目录提供方：hf-mirror 复用 HuggingFace 的搜索/文件接口，仅下载主机不同。
-export const CATALOG_PROVIDERS = [
-  { id: 'huggingface', name: 'Hugging Face', revision: 'main' },
-  { id: 'modelscope', name: '魔搭社区', revision: 'master' },
-];
-
 const SOURCE_PROVIDER = {
   huggingface: 'huggingface',
   'hf-mirror': 'huggingface',

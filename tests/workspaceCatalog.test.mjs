@@ -92,9 +92,10 @@ test('MCP 客户端：超时（Aborted）必须转成可诊断的错误码', () 
     '20s 会把 GitHub MCP 冷启动误杀成超时，已放宽');
 });
 
-test('OAuth 回跳依赖 app.json 的 scheme（深链回调的载体）', () => {
+test('app.json 的 scheme 与深链跳转对齐（悬浮窗「说话」easychat2://screen-watch）', () => {
   const appJson = JSON.parse(readSource('app.json'));
   assert.equal(appJson.expo.scheme, 'easychat2');
-  const bridge = readSource('src/mcp/oauthBridge.js');
-  assert.ok(bridge.includes("GITHUB_OAUTH_REDIRECT = 'easychat2://github-mcp-callback'"), '回跳 URI 与 scheme 对齐');
+  // 注：OAuth 回跳（easychat2://github-mcp-callback，原 src/mcp/oauthBridge.js）已随
+  // 死代码清理删除——设置页不再走网页授权（见上一条用例），scheme 现在只服务
+  // App.js 的悬浮窗深链。这条断言保留：scheme 一旦改错，深链会静默失效。
 });

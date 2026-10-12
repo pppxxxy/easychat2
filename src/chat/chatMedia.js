@@ -1,8 +1,8 @@
-export const IMAGE_MESSAGE_KIND = 'image';
+const IMAGE_MESSAGE_KIND = 'image';
 export const STICKER_MESSAGE_KIND = 'sticker';
 export const VIDEO_MESSAGE_KIND = 'video';
 
-export function isMediaMessage(message) {
+function isMediaMessage(message) {
   return !!(message && message.image && (
     !message.kind
     || message.kind === IMAGE_MESSAGE_KIND

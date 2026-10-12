@@ -144,14 +144,6 @@ export function createSessionRunRegistry() {
       if (command) notify();
       return command;
     },
-    // 取同优先级同 mode 的一批（通知批量呈现）。
-    dequeueCommandBatch(sessionId, maxPriority, mode) {
-      const queue = queues.get(String(sessionId || ''));
-      if (!queue) return [];
-      const batch = queue.dequeueBatch(maxPriority, mode);
-      if (batch.length > 0) notify();
-      return batch;
-    },
     peekCommand(sessionId, maxPriority) {
       const queue = queues.get(String(sessionId || ''));
       return queue ? queue.peek(maxPriority) : undefined;
