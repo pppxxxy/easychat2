@@ -128,7 +128,7 @@ export default [
       // 新增工具文件也自动在内——这正是我们要的，工具描述不该翻成英文界面语言。
       'src/workspace/toolDefs/**',
       // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
-      'src/games/games.js',
+      // 2026-10-12：src/games/games.js 已迁出（name/description → nameKey/descriptionKey）。
       'src/imageGen/providers.js',
       // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
       // 2026-10-12：src/localModel/modelCatalog.js 已迁出（CATALOG_PROVIDERS 为死导出，已删）。

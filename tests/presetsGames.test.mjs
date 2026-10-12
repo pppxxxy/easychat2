@@ -12,13 +12,16 @@ import GLOBAL_PRESETS, {
 } from '../src/settings/presets.js';
 import { isStaleReply } from '../src/chat/chatRace.js';
 import { localeSource } from './helpers/localeSource.mjs';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 test('内置游戏表：id 唯一、字段齐全、HTML 可渲染', () => {
   const ids = GAMES.map(game => game.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(GAMES.length >= 5);
   for (const game of GAMES) {
-    assert.ok(game.name && game.description, game.id);
+    assert.ok(game.nameKey && game.descriptionKey, game.id);
+    assert.equal(game.name, undefined, `${game.id} 不应把名称硬编码在导出常量里`);
+    assert.equal(game.description, undefined, `${game.id} 不应把描述硬编码在导出常量里`);
     if (game.native) {
       // 原生游戏（如 daily-wife 需读角色库）走 RN 面板，无 HTML。
       assert.ok(!game.html, `${game.id} 原生游戏不应带 html`);
@@ -37,8 +40,8 @@ test('游戏清单：两款抽象名是刻意命名（规避版权风险），�
   // 并确认 games.js 顶部保留意图说明——「修正」成具体作品名会先让这里变红。
   const snakeBattle = GAMES.find(game => game.id === 'snake-battle');
   const thunder = GAMES.find(game => game.id === 'thunder-fighter');
-  assert.equal(snakeBattle.name, '蛇蛇蛇蛇蛇蛇蛇蛇');
-  assert.equal(thunder.name, '战机战机战机战机');
+  assert.equal(zhCN[snakeBattle.nameKey], '蛇蛇蛇蛇蛇蛇蛇蛇');
+  assert.equal(zhCN[thunder.nameKey], '战机战机战机战机');
   const source = readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'games', 'games.js'),
     'utf8'

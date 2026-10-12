@@ -57,12 +57,12 @@ export default function GamesView() {
         <Ionicons name="game-controller" size={20} color={theme.colors.primaryContrast} />
       </View>
       <View style={styles.gameText}>
-        <Text style={styles.gameName}>{item.name}</Text>
-        <Text style={styles.gameDescription}>{item.description}</Text>
+        <Text style={styles.gameName}>{t(item.nameKey)}</Text>
+        <Text style={styles.gameDescription}>{t(item.descriptionKey)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={theme.colors.textFaint} />
     </TouchableOpacity>
-  ), [openGame, styles]);
+  ), [openGame, styles, t]);
 
   if (activeGame && activeGame.native === 'daily-wife') {
     return <DailyWifeView onBack={backToList} />;
@@ -89,7 +89,7 @@ export default function GamesView() {
             <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
             <Text style={styles.backButtonText}>{t('ext.games.back')}</Text>
           </TouchableOpacity>
-          <Text style={styles.gameBarTitle}>{activeGame.name}</Text>
+          <Text style={styles.gameBarTitle}>{t(activeGame.nameKey)}</Text>
         </View>
         {failed ? (
           <EmptyState
