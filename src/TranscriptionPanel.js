@@ -87,7 +87,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
     const preset = vendor && typeof vendor === 'object' ? vendor : null;
     const next = {
       id: makeConfigId(),
-      name: preset ? preset.name : t('transcription.config.newName'),
+      name: preset ? t(preset.nameKey) : t('transcription.config.newName'),
       baseUrl: preset ? preset.baseUrl : '',
       apiKey: '',
       model: preset ? preset.model : '',
@@ -250,9 +250,9 @@ export default function TranscriptionPanel({ visible, onClose }) {
                   onPress={() => addConfig(vendor)}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel={t('transcription.addVendor.a11y', { vendor: vendor.name })}
+                  accessibilityLabel={t('transcription.addVendor.a11y', { vendor: t(vendor.nameKey) })}
                 >
-                  <Text style={styles.vendorChipText}>{vendor.name}</Text>
+                  <Text style={styles.vendorChipText}>{t(vendor.nameKey)}</Text>
                 </TouchableOpacity>
               ))}
               <TouchableOpacity
@@ -267,7 +267,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
             </View>
             {TRANSCRIPTION_API_VENDORS.map(vendor => (
               <Text key={`${vendor.id}-note`} style={styles.vendorNote}>
-                {vendor.name}：{vendor.note}
+                {t(vendor.nameKey)}：{t(vendor.noteKey)}
               </Text>
             ))}
 

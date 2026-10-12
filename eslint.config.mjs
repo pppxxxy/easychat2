@@ -133,7 +133,8 @@ export default [
       // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
       // 2026-10-12：src/localModel/modelCatalog.js 已迁出（CATALOG_PROVIDERS 为死导出，已删）。
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
-      'src/network/apiVendors.js',
+      // 2026-10-12：src/network/apiVendors.js 已迁出（vendor/protocol name/note → *Key；
+      // 风险提示数组 → key 数组；新增 apiVendor 词条域）。
       'src/onboarding/disclaimerContent.js',
       // 2026-10-12：src/tts/providers.js 已迁出（label→labelKey 复用 tts.providerName.*；
       // field.label/placeholder→*Key；unsupportedNote→unsupportedNoteKey）。

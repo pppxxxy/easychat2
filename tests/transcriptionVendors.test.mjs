@@ -17,11 +17,12 @@ test('转写厂商预设表：id 唯一、字段齐全、端点为 OpenAI 兼容
     assert.ok(vendor.id, '厂商必须有 id');
     assert.equal(ids.has(vendor.id), false, `厂商 id 重复：${vendor.id}`);
     ids.add(vendor.id);
-    assert.ok(vendor.name, '厂商必须有名称');
-    assert.match(vendor.baseUrl, /^https:\/\/[^\s]+\/audio\/transcriptions$/, `${vendor.name} 端点必须是 transcriptions 绝对地址`);
-    assert.ok(vendor.model, `${vendor.name} 必须有默认模型名`);
-    assert.ok(vendor.apiKeyUrl, `${vendor.name} 必须有密钥获取页`);
-    assert.ok(vendor.note, `${vendor.name} 必须有说明`);
+    assert.ok(vendor.nameKey, '厂商必须有名称 key');
+    assert.match(vendor.baseUrl, /^https:\/\/[^\s]+\/audio\/transcriptions$/, `${vendor.id} 端点必须是 transcriptions 绝对地址`);
+    assert.ok(vendor.model, `${vendor.id} 必须有默认模型名`);
+    assert.ok(vendor.apiKeyUrl, `${vendor.id} 必须有密钥获取页`);
+    assert.ok(vendor.noteKey, `${vendor.id} 必须有说明 key`);
+    assert.ok(zhCN[vendor.nameKey] && zhCN[vendor.noteKey], `${vendor.id} 的 zh 词条应存在`);
   }
   // 用户报告的 DeepSeek 类纯文本来源场景：至少提供国内直连选项
   const siliconflow = getTranscriptionVendor('siliconflow-stt');
@@ -47,7 +48,7 @@ test('TranscriptionPanel 接入厂商预设芯片：点选即预填端点与模�
   const source = read('src/TranscriptionPanel.js');
   assert.match(source, /TRANSCRIPTION_API_VENDORS/, '面板应引用厂商预设表');
   assert.match(source, /addConfig\(vendor\)/, '点厂商芯片应带预设新增配置');
-  assert.match(source, /name: preset \? preset\.name : t\('transcription\.config\.newName'\)/, '新增时应预填厂商名称（默认名走 i18n 键）');
+  assert.match(source, /name: preset \? t\(preset\.nameKey\) : t\('transcription\.config\.newName'\)/, '新增时应预填厂商名称（默认名走 i18n 键）');
   assert.equal(zhCN['transcription.config.newName'], '新配置', '语言包中文值正确');
   assert.match(source, /baseUrl: preset \? preset\.baseUrl : ''/, '新增时应预填端点');
   assert.match(source, /model: preset \? preset\.model : ''/, '新增时应预填模型名');

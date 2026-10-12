@@ -997,7 +997,7 @@ export default function SettingsScreen() {
     const list = apiStateRef.current.configs;
     const auth = preset.auth || {};
     const created = createApiConfig({
-      name: preset.name,
+      name: t(preset.nameKey),
       baseUrl: preset.baseUrl || '',
       vendorId: preset.id,
       protocol: preset.protocol || 'openai',
@@ -1995,13 +1995,13 @@ export default function SettingsScreen() {
                   activeOpacity={0.8}
                 >
                   <View style={styles.vendorRowHead}>
-                    <Text style={styles.vendorName}>{vendor.name}</Text>
+                    <Text style={styles.vendorName}>{t(vendor.nameKey)}</Text>
                     <Text style={styles.vendorCategory}>
                       {vendor.category.map(item => (item === 'image' ? t('settings.vendorPicker.categoryImage') : t('settings.vendorPicker.categoryChat'))).join(' / ')}
                     </Text>
                   </View>
                   <Text style={styles.vendorBaseUrl}>{vendor.baseUrl || t('settings.vendorPicker.urlFromConsole')}</Text>
-                  <Text style={styles.vendorNote}>{vendor.note}</Text>
+                  <Text style={styles.vendorNote}>{t(vendor.noteKey)}</Text>
                 </TouchableOpacity>
               ))}
               <Text style={styles.vendorSectionLabel}>{t('settings.vendorPicker.protocols')}</Text>
@@ -2021,7 +2021,7 @@ export default function SettingsScreen() {
                       <Text style={styles.vendorCategory}>{t('settings.vendorPicker.comingSoon')}</Text>
                     ) : null}
                   </View>
-                  <Text style={styles.vendorNote}>{preset.note}</Text>
+                  <Text style={styles.vendorNote}>{t(preset.noteKey)}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -2191,7 +2191,7 @@ export default function SettingsScreen() {
                               activeOpacity={0.8}
                             >
                               <Text style={[styles.presetName, active && styles.presetNameActive]}>
-                                {preset.name}
+                      {t(preset.nameKey)}
                               </Text>
                               <Text style={styles.presetHint}>{preset.hint}</Text>
                             </TouchableOpacity>

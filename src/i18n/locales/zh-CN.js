@@ -12,6 +12,7 @@
 // 展开合并；新增域 = 新建域文件 + 在导出对象里补一行 ...<域>,）。对外导出面
 // （zhCN 命名导出 + default）不变，消费方与测试零改动。
 import { apiPreset } from './zh-CN/apiPreset.js';
+import { apiVendor } from './zh-CN/apiVendor.js';
 import { app } from './zh-CN/app.js';
 import { agentTask } from './zh-CN/agentTask.js';
 import { backup } from './zh-CN/backup.js';
@@ -54,6 +55,7 @@ import { workspace } from './zh-CN/workspace.js';
 import { world } from './zh-CN/world.js';
 export const zhCN = {
   ...apiPreset,
+  ...apiVendor,
   ...app,
   ...agentTask,
   ...backup,
