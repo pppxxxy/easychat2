@@ -61,11 +61,22 @@ const KNOWN_CARD_DATA_KEYS = new Set([
   'group_only_greetings',
 ]);
 
+// 保留键：卡片 JSON 是第三方可控输入，这几个键在对象上**不是普通数据键**——
+// `__proto__` 会改原型（`output['__proto__'] = x` 换的是 output 的原型，还不产生 own 属性，
+// Object.keys 里看不见 ⇒ 静默丢键、导出写不回去、往返不保真）；`constructor` / `prototype`
+// 会撞上继承链并原样成为 own 属性带出去。
+// 先例见 chat/toolNoticeVisibility.js:27（同一组键，那边有测试钉死：
+// tests/toolNoticeVisibility.test.mjs）。
+// ⚠️ 不要改用 Object.defineProperty 去「保住」__proto__：那只是把危险键塞成 own 属性，
+// cardExporter 展开时又会把它写进新对象。
+const RESERVED_PASSTHROUGH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function collectPassthroughExtensions(extensions) {
   const output = {};
   if (!isPlainObject(extensions)) return output;
   Object.keys(extensions).forEach(key => {
     if (CONSUMED_EXTENSION_KEYS.has(key)) return;
+    if (RESERVED_PASSTHROUGH_KEYS.has(key)) return;
     output[key] = extensions[key];
   });
   return output;
@@ -76,6 +87,7 @@ function collectPassthroughExtra(base) {
   if (!isPlainObject(base)) return output;
   Object.keys(base).forEach(key => {
     if (KNOWN_CARD_DATA_KEYS.has(key)) return;
+    if (RESERVED_PASSTHROUGH_KEYS.has(key)) return;
     output[key] = base[key];
   });
   return output;
