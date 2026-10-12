@@ -57,12 +57,33 @@ export default `<!DOCTYPE html>
   var snake, dir, nextDir, food, score, timer, alive;
   var scoreEl = document.getElementById('score');
 
+  // 食物落点：**有界重试**，照同目录 SNAKE_BATTLE_HTML.js 的 safeSpawn（for(t<30) 有界重试 + 兜底返回）。
+  // 此前是无界 do/while：tick 吃到食物只 unshift 不 pop（见下），蛇长单调 +1，长到
+  // COUNT*COUNT = 20*20 = 400 格全占满时随机候选集为空 ⇒ 循环永不退出 ⇒ JS 线程锁死、
+  // WebView 整页冻结（只能靠 RN 原生返回键逃离）。本文件曾是 5 个游戏里唯一的无界重试。
   function placeFood() {
-    var spot;
-    do {
-      spot = { x: Math.floor(Math.random() * COUNT), y: Math.floor(Math.random() * COUNT) };
-    } while (snake.some(function (part) { return part.x === spot.x && part.y === spot.y; }));
-    food = spot;
+    for (var t = 0; t < 30; t++) {
+      var spot = { x: Math.floor(Math.random() * COUNT), y: Math.floor(Math.random() * COUNT) };
+      if (!snake.some(function (part) { return part.x === spot.x && part.y === spot.y; })) {
+        food = spot;
+        return true;
+      }
+    }
+    // 兜底（有限步）：随机 30 次没撞上空位就按格子穷举扫一遍。safeSpawn 的兜底是「随机再取
+    // 一次」，那里是连续空间、随机必然可用；这里只有 400 个离散格，随机兜底可能把食物放到
+    // 蛇身上（蛇头永远到不了自己的身体）⇒ 变成软卡死，所以改成确定性穷举，同样有界。
+    for (var y = 0; y < COUNT; y++) {
+      for (var x = 0; x < COUNT; x++) {
+        if (!snake.some(function (part) { return part.x === x && part.y === y; })) {
+          food = { x: x, y: y };
+          return true;
+        }
+      }
+    }
+    // 扫完仍无空位 = 棋盘已填满：不放食物（food = null）。下一 tick 蛇头无空格可进，
+    // 必然撞到自身走 gameOver —— 是「结束」，不再是「冻结」。
+    food = null;
+    return false;
   }
 
   function start() {
@@ -85,7 +106,8 @@ export default `<!DOCTYPE html>
     if (head.x < 0 || head.y < 0 || head.x >= COUNT || head.y >= COUNT) return gameOver();
     if (snake.some(function (part) { return part.x === head.x && part.y === head.y; })) return gameOver();
     snake.unshift(head);
-    if (head.x === food.x && head.y === food.y) {
+    // food 可能为 null（棋盘已填满，placeFood 不再放食物）：必须判空，否则读 food.x 直接抛错。
+    if (food && head.x === food.x && head.y === food.y) {
       score += 1;
       scoreEl.textContent = '得分：' + score;
       placeFood();
@@ -113,7 +135,8 @@ export default `<!DOCTYPE html>
     ctx.fillStyle = '#20203a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#ff5a5f';
-    ctx.fillRect(food.x * CELL + 2, food.y * CELL + 2, CELL - 4, CELL - 4);
+    // 同上：棋盘填满后 food 为 null，不能无条件读 food.x。
+    if (food) ctx.fillRect(food.x * CELL + 2, food.y * CELL + 2, CELL - 4, CELL - 4);
     snake.forEach(function (part, index) {
       ctx.fillStyle = index === 0 ? '#8b85ff' : '#6c63ff';
       ctx.fillRect(part.x * CELL + 1, part.y * CELL + 1, CELL - 2, CELL - 2);

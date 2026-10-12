@@ -2,8 +2,8 @@
 // 原生面板（读角色库），WebView 拿不到 RN 存储，走 GamesView 的 native 分支。
 // 「今日」语义：按「本地日期 + 称呼」稳定抽取，同一天同称呼固定同一位，跨天自动换。
 
-import React, { useMemo, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppState, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { pickDailyCharacter, buildDailyDateStr } from './dailyWife.js';
@@ -12,16 +12,39 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 export default function DailyWifeView({ onBack }) {
-  const { characters, loaded } = useApp();
+  // startupError：App 启动读角色库失败时的可见错误态（AppContext 注释自称「任何界面都能
+  // 读到」，此前全仓零消费方）。不读它就会把失败回落的内置 EasyChat2 助手当成
+  // 「今天你的老婆是」——用户既看不到错误，也以为自己抽到了助手。
+  const { characters, loaded, startupError } = useApp();
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [mode, setMode] = useState('wife');
 
-  const dateStr = useMemo(() => buildDailyDateStr(), []);
+  // 「今日」语义靠日期串，挂载时算一次就冻结了日期 → 应用长期驻留后台再回前台会跨天不换人，
+  // 与 dailyWife.js / 本文件顶部注释的「跨天自动换」矛盾（buildDailyDateStr 本身接受 now）。
+  // 照 agentTaskScheduler.js:46 与 ProactivePanel.js:454 的 AppState 写法：回前台重算。
+  const [dateStr, setDateStr] = useState(() => buildDailyDateStr());
+  const refreshDateStr = useCallback(() => {
+    // 同一天不触发重渲染（返回原值时 React 会跳过 setState）。
+    setDateStr(current => {
+      const next = buildDailyDateStr();
+      return next === current ? current : next;
+    });
+  }, []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', next => {
+      if (next === 'active') refreshDateStr();
+    });
+    return () => subscription.remove();
+  }, [refreshDateStr]);
+
+  // 只有「加载完成且没有启动错误」时才参与抽取：初始/失败回落快照是 [DEFAULT_CHARACTER]，
+  // 拿它抽取等于把内置助手当今日老婆（P2-2）。
+  const pickable = loaded && !startupError && characters.length > 0;
   const picked = useMemo(
-    () => pickDailyCharacter(characters, dateStr, mode),
-    [characters, dateStr, mode]
+    () => (pickable ? pickDailyCharacter(characters, dateStr, mode) : null),
+    [pickable, characters, dateStr, mode]
   );
 
   const isWife = mode === 'wife';
@@ -61,20 +84,18 @@ export default function DailyWifeView({ onBack }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {loaded && characters.length === 0 ? (
+        {startupError ? (
           <View style={styles.emptyBox}>
-            <Ionicons name="people-outline" size={36} color={theme.colors.textFaint} />
-            <Text style={styles.emptyTitle}>{t('dailyWife.empty.title')}</Text>
-            <Text style={styles.emptyHint}>
-              {t('dailyWife.empty.hint')}
-            </Text>
+            <Ionicons name="alert-circle-outline" size={36} color={theme.colors.danger} />
+            <Text style={styles.emptyTitle}>{t('error.storage.characterIndexReadFailed')}</Text>
+            <Text style={styles.emptyHint}>{String(startupError.body || startupError.title || '')}</Text>
           </View>
-        ) : !picked ? (
+        ) : !loaded ? (
           <View style={styles.emptyBox}>
             <Ionicons name="hourglass-outline" size={36} color={theme.colors.textFaint} />
             <Text style={styles.emptyTitle}>{t('dailyWife.loading')}</Text>
           </View>
-        ) : (
+        ) : picked ? (
           <View style={[styles.cardBox, tokens.elevation(2, theme)]}>
             <View style={styles.avatarWrap}>
               {picked.avatarUri ? (
@@ -114,6 +135,16 @@ export default function DailyWifeView({ onBack }) {
             <Text style={styles.hintText}>
               {t('dailyWife.tomorrowHint')}
             </Text>
+          </View>
+        ) : (
+          // 角色库空（或库里没有任何可抽取的条目）时才落到这里。此前这个空态写成
+          // `loaded && characters.length === 0`，而 characterLibrary 删光也至少留一张卡、
+          // AppContext 初始与失败回落都是 [DEFAULT_CHARACTER]，所以它恒不可达——
+          // 真正被渲染的永远是「内置助手当今日老婆」的卡片分支。
+          <View style={styles.emptyBox}>
+            <Ionicons name="people-outline" size={36} color={theme.colors.textFaint} />
+            <Text style={styles.emptyTitle}>{t('dailyWife.empty.title')}</Text>
+            <Text style={styles.emptyHint}>{t('dailyWife.empty.hint')}</Text>
           </View>
         )}
       </ScrollView>
