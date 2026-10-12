@@ -82,6 +82,17 @@ export const error = {
   'error.api.baseUrlMissing': '请先在“设置 → API 配置”里填写 API 地址。',
   'error.api.modelMissing': '请先在“设置 → API 配置”里添加并选择模型。',
   'error.api.invalidUrl': '请填写有效的 HTTP(S) API 地址。',
+  // 2026-10-12：api.js 的请求期错误文案 + requestTimeout.js 的三档超时文案。
+  // 后者此前在 requestTimeout.js 里以 `return '中文'` 硬编码——两条 lint 规则都看不见
+  //（规则只查 Alert.alert / throw new Error / JSX 正文 / 导出常量），是真正的盲区。
+  'error.api.httpFailed': '请求失败（HTTP {status}）',
+  'error.api.badResponse': '接口返回错误。',
+  'error.api.unparsable': '接口返回了无法解析的内容。',
+  'error.api.networkFailed': '网络请求失败，请检查网络或 API 地址。',
+  'error.api.aborted': '请求已中断。',
+  'error.api.timeoutFirstByte': '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）',
+  'error.api.timeoutIdle': '请求超时，请检查网络后重试',
+  'error.api.timeoutNonstream': '等待响应超时（非流式请求需服务端算完整篇再回包），请检查网络或 API 地址，可稍后重试',
   'error.transcription.notConfigured': '未配置语音转写服务',
   'error.transcription.timeout': '转写请求超时，请检查网络后重试',
   'error.transcription.networkFailed': '转写请求失败，请检查网络',

@@ -9,7 +9,7 @@ import {
   IDLE_TIMEOUT_MS,
   NONSTREAM_TIMEOUT_MS,
   isFirstBytePhase,
-  timeoutMessage,
+  timeoutMessageKey,
   timeoutMsFor,
   timeoutPhase,
 } from '../src/network/requestTimeout.js';
@@ -414,9 +414,15 @@ test('P1 回归：超时档位纯函数（首字节 / 空闲 / 非流式），�
   assert.ok(NONSTREAM_TIMEOUT_MS > FIRST_BYTE_TIMEOUT_MS, '非流式（最慢的调用）阈值要更宽');
   assert.equal(isFirstBytePhase('nonstream'), false);
   assert.equal(isFirstBytePhase('first-byte'), true);
-  assert.match(timeoutMessage('nonstream'), /非流式/);
-  assert.match(timeoutMessage('first-byte'), /首个响应/);
-  assert.match(timeoutMessage('idle'), /请求超时/);
+  // 文案不再硬编码在 requestTimeout.js（那是两条 lint 规则都看不见的盲区），
+  // 改成返回 i18n key；措辞钉在语言包里（zh/en key 集合一致另有 i18n 守卫）。
+  assert.equal(timeoutMessageKey('nonstream'), 'error.api.timeoutNonstream');
+  assert.equal(timeoutMessageKey('first-byte'), 'error.api.timeoutFirstByte');
+  assert.equal(timeoutMessageKey('idle'), 'error.api.timeoutIdle');
+  const zhError = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/error.js'), 'utf8');
+  assert.match(zhError, /'error\.api\.timeoutNonstream': '[^']*非流式/);
+  assert.match(zhError, /'error\.api\.timeoutFirstByte': '[^']*首个响应/);
+  assert.match(zhError, /'error\.api\.timeoutIdle': '[^']*请求超时/);
 });
 
 // 行为测试：假 XHR 不回包，把时钟拨到阈值，看超时错误挂在哪个档位。

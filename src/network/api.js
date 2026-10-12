@@ -22,7 +22,8 @@ import { tActive } from '../i18n/index.js';
 import { trimMessagesToContext } from '../localModel/localContext.js';
 // 超时策略（纯函数，见 requestTimeout.js）：首字节 / 空闲 / 非流式三档。流式未吐字放宽，
 // 非流式（压缩摘要/记忆总结/制卡）另给阈值——它没有「首字节」这回事。
-import { isFirstBytePhase, timeoutMessage, timeoutMsFor, timeoutPhase } from './requestTimeout.js';
+// 判定层只给 i18n key（timeoutMessageKey），文案由本文件的 tActive 翻——见那个函数的注释。
+import { isFirstBytePhase, timeoutMessageKey, timeoutMsFor, timeoutPhase } from './requestTimeout.js';
 // 参数被拒判定（400/422）：见 requestErrors.js——它决定 400/422 是否可降级换模型。
 import { isParamRejectedError } from './requestErrors.js';
 // P0-7 下半：降级链的判定层（纯函数，见同目录 fallbackModels.js）。
@@ -44,8 +45,18 @@ export function trimOnlineMessages(messages, { contextWindow = 0, reserveOutputT
 
 // 接口没有收到内容时的占位文本。调用方可用它区分“真的没回复”，
 // 避免把这段占位当成角色的真实回复（例如写入动态评论）。
+//
+// ⚠️ 这是**哨兵**，不是文案，**故意不进 i18n**（故对 i18n 规则就地豁免）：
+//   - 约 10 个模块用 `text === EMPTY_REPLY_TEXT` 做身份比较（CardForge/ChatScreen/日记/
+//     动态/音乐评论/群聊…），翻译它会让所有比较在语言切换后失效；
+//   - sessionCompaction 靠它把占位从摘要里**剔除**，比较一旦漏掉，占位文本会写进记忆摘要；
+//   - 它会被持久化进消息内容，跨语言/跨重启读取时必须是同一个字符串。
+// 真要本地化，方向是「显示层认出这个哨兵再 t()」，而不是让常量本身随语言变化。
+// eslint-disable-next-line local-i18n/no-hardcoded-chinese-text
 export const EMPTY_REPLY_TEXT = '没有收到回复。';
 // 旧版哨兵文案：isConfigChangedError 仍兼容匹配它（老会话/旧调用方抛出的实例）。
+// 同理是哨兵而非文案：新错误走 code === 'CONFIG_CHANGED'，这里只为兼容历史实例。
+// eslint-disable-next-line local-i18n/no-hardcoded-chinese-text
 export const CONFIG_CHANGED_ERROR = '模型来源已切换，请重新发送';
 
 // 配置指纹变化时中止在途请求：文案走 i18n，分类判定改看 code，不再依赖文案相等。
@@ -156,7 +167,7 @@ function formatApiError(text, status) {
 
   const trimmed = (text || '').trim();
   if (!trimmed || trimmed.startsWith('<')) {
-    return `请求失败（HTTP ${status}）`;
+    return tActive('error.api.httpFailed', { status });
   }
   return trimmed.slice(0, 300);
 }
@@ -164,11 +175,11 @@ function formatApiError(text, status) {
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   // 复用共享错误解析：error.message + metadata.raw（OpenRouter 上游真凶）。
-  return describeErrorPayload(payload.error) || '接口返回错误。';
+  return describeErrorPayload(payload.error) || tActive('error.api.badResponse');
 }
 
 export function createAbortError() {
-  const error = new Error('已停止生成。');
+  const error = new Error(tActive('error.agent.generationStopped'));
   error.name = 'AbortError';
   error.canceled = true;
   return error;
@@ -521,7 +532,7 @@ async function requestOnce(messages, options, attempt) {
           return;
         }
         if (!sawPayloadData && parseFailures > 0) {
-          fail(new Error('接口返回了无法解析的内容。'));
+          fail(new Error(tActive('error.api.unparsable')));
           xhr.abort();
           return;
         }
@@ -537,7 +548,7 @@ async function requestOnce(messages, options, attempt) {
       const phase = timeoutPhase({ stream, sawFirstByte });
       const waitingFirstByte = isFirstBytePhase(phase);
       idleTimer = setTimeout(() => {
-        const timeoutError = new Error(timeoutMessage(phase));
+        const timeoutError = new Error(tActive(timeoutMessageKey(phase)));
         // 结构化标记（P0-7）：降级链靠字段判定「值不值得换模型重试」，不看文案。
         timeoutError.timeout = true;
         timeoutError.firstByte = waitingFirstByte;
@@ -743,17 +754,17 @@ async function requestOnce(messages, options, attempt) {
         fullText = parsed.text;
         finishWithConfig(() => succeed(makeResult()));
       } catch (error) {
-        fail(new Error('接口返回了无法解析的内容。'));
+        fail(new Error(tActive('error.api.unparsable')));
       }
     };
 
     xhr.onerror = () => {
-      const networkError = new Error('网络请求失败，请检查网络或 API 地址。');
+      const networkError = new Error(tActive('error.api.networkFailed'));
       // 结构化标记（P0-7）：网络不可达是可降级失败（换模型/换线路都可能成功）。
       networkError.network = true;
       fail(networkError);
     };
-    xhr.onabort = () => fail(canceled ? createAbortError() : new Error('请求已中断。'));
+    xhr.onabort = () => fail(canceled ? createAbortError() : new Error(tActive('error.api.aborted')));
 
     if (settled) return;
     try {

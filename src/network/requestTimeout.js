@@ -34,13 +34,17 @@ export function timeoutMsFor(phase) {
   return FIRST_BYTE_TIMEOUT_MS;
 }
 
-// 超时错误文案：如实说清在等什么（「首个响应」与「非流式整包」是两件事）。
-export function timeoutMessage(phase) {
-  if (phase === 'nonstream') {
-    return '等待响应超时（非流式请求需服务端算完整篇再回包），请检查网络或 API 地址，可稍后重试';
-  }
-  if (phase === 'idle') return '请求超时，请检查网络后重试';
-  return '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）';
+// 超时错误文案的 **i18n key**：如实说清在等什么（「首个响应」与「非流式整包」是两件事）。
+//
+// 为什么返回 key 而不是文案：本模块是「纯函数，零依赖」的判定层，一旦 import tActive
+// 就不再纯、也不好直测；而此前这里直接 `return '中文'`，两条 lint 规则都看不见
+//（规则只查 Alert.alert / throw new Error / JSX 正文 / 导出常量），英文用户拿到的是中文。
+// 现在 key 交给调用方（api.js，本就 import 了 tActive）翻译，词条落在 locales/*/error.js 的
+// error.api.timeout*，于是文案也进了「zh/en key 集合必须一致」的守卫范围。
+export function timeoutMessageKey(phase) {
+  if (phase === 'nonstream') return 'error.api.timeoutNonstream';
+  if (phase === 'idle') return 'error.api.timeoutIdle';
+  return 'error.api.timeoutFirstByte';
 }
 
 // 该档是否属于「等首字节」——降级链的 firstByte 标记用它（非流式不是首字节等待）。

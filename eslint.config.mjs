@@ -97,7 +97,9 @@ export default [
       'src/music/comments.js',
       'src/music/library.js',
       'src/music/useMusicComments.js',
-      'src/network/api.js',
+      // 2026-10-12：src/network/api.js 已迁出——它的 `throw new Error` 文案与
+      // `new Error('中文')`（非直接 throw，规则本来也看不见）都换成了 tActive；
+      // 剩下的两处哨兵常量按就地豁免处理（见该文件里的说明）。
       'src/PluginPanel.js',
       'src/plugins/webSearch.js',
       'src/PresetPanel.js',
@@ -206,7 +208,7 @@ export default [
       'src/localModel/modelCatalog.js',
       'src/localModel/modelState.js',
       'src/memory/memoryBuckets.js',
-      'src/network/api.js',
+      // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
       'src/onboarding/onboardingContent.js',
