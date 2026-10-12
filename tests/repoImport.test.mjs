@@ -190,8 +190,10 @@ test('套餐：id 引用的条目都存在，full 含 gitconfig 且需提交身�
 
 test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工作台单一导入入口', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/FilesPanel.js'), 'utf8');
-  // 下载中心弹层的 JSX 已外提到 files/CatalogSheet.js（纯展示组件）；按钮绑定跟着去新文件。
+  // 下载中心弹层的 JSX 已外提到 files/CatalogSheet.js（纯展示组件）；状态与写入编排在
+  // files/useCatalogDownloads.js——按钮绑定/定义断言分别跟着去这两个文件。
   const catalogSheet = fs.readFileSync(path.resolve('src/workspace/screen/files/CatalogSheet.js'), 'utf8');
+  const catalogDownloads = fs.readFileSync(path.resolve('src/workspace/screen/files/useCatalogDownloads.js'), 'utf8');
   const order = [
     panel.indexOf('styles.statusBar'),
     panel.indexOf('styles.importRow'),
@@ -203,7 +205,7 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
   // 对话面板 ⚙ 的单一来源，文件面板不再重复显示。
   assert.ok(!panel.includes('styles.collapsedHeader'), '调参折叠卡不得复活');
   // 定义与按钮绑定都要在：只留定义不解绑按钮不算接线（注入验证抓过子串盲区）。
-  assert.match(panel, /const handleBundleWrite = useCallback/, '套餐一键写入（定义）');
+  assert.match(catalogDownloads, /const handleBundleWrite = useCallback/, '套餐一键写入（定义）');
   assert.match(catalogSheet, /onPress=\{\(\) => onBundleWrite\(bundle\.id\)\}/, '套餐一键写入（按钮绑定）');
   assert.ok(panel.includes('catalogStatuses'), '写入状态徽章已接线');
   // 旧布局的杂混按钮行不得复活；聊天入口归单屏，不再挂在文件面板上。

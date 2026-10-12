@@ -31,16 +31,16 @@ import { getCharacterLibrary } from '../../storage/characters.js';
 import { resolveWorkspaceAssistant } from '../assistant.js';
 import { buildDocxBytes, bytesToBase64, splitDocxParagraphs } from '../docx.js';
 import { createWorkspaceStore, describeWorkspaceRoot } from '../native.js';
-import { isAllowedWorkspaceFile, isAllowedWorkspaceOutputFile } from '../paths.js';
+import { isAllowedWorkspaceFile } from '../paths.js';
 import { isRichPreview } from '../filePreview.js';
 import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
-import { CATALOG_ITEMS, buildCatalogContent, findCatalogBundle, findCatalogItem } from '../catalog.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
 import { searchWorkspaceFiles } from '../fileSearch.js';
 import ConfirmBar from './ConfirmBar.js';
 import CatalogSheet from './files/CatalogSheet.js';
+import useCatalogDownloads from './files/useCatalogDownloads.js';
 import FileHistorySheet from '../FileHistorySheet.js';
 import { isTextLike, pickAttachment, readTextAttachment } from '../../chat/attachments.js';
 import createStyles from './filesPanelStyles.js';
@@ -103,15 +103,6 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   const [changes, setChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState('');
-  // 环境与配置下载：目录弹层、需输入的模板表单（.gitconfig 的提交身份）、自定义 URL。
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  // 套餐：写入进度 {id, done, total}；条目状态 'absent' | 'same' | 'diff'（弹层打开时比对）。
-  const [bundleBusy, setBundleBusy] = useState(null);
-  const [catalogStatuses, setCatalogStatuses] = useState({});
-  const [catalogInputs, setCatalogInputs] = useState({});
-  const [catalogBusyId, setCatalogBusyId] = useState('');
-  const [customUrl, setCustomUrl] = useState('');
-  const [customBusy, setCustomBusy] = useState(false);
   // 打开面板那一刻的后端。中途用户在设置里改根时，面板内的操作仍按打开时的根走，
   // 避免「列出来的是 A 文件夹的文件、删的却是 B 文件夹」。
   const storeRef = useRef(null);
@@ -146,6 +137,24 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // 环境与配置下载（下载中心）的状态与写入编排已抽到 files/useCatalogDownloads.js；
+  // 展示层在 files/CatalogSheet.js。此处只解构出面板/弹层要用的状态与动作。
+  const {
+    catalogOpen,
+    setCatalogOpen,
+    bundleBusy,
+    catalogStatuses,
+    catalogInputs,
+    setCatalogInputs,
+    catalogBusyId,
+    customUrl,
+    setCustomUrl,
+    customBusy,
+    handleCatalogWrite,
+    handleBundleWrite,
+    handleCustomDownload,
+  } = useCatalogDownloads({ storeRef, characterId, mountedRef, files, refresh, t });
 
   useEffect(() => {
     if (!visible) return;
@@ -470,145 +479,6 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       .then(() => { if (mountedRef.current) setChanges([]); })
       .catch(() => {});
   }, [characterId]);
-
-  // —— 环境与配置下载 ——
-  // 写入走 store.writeWorkspaceFile：与面板手写同一条路径，自动进历史改动。
-  // quiet 变体供套餐逐条调用（不逐条弹框，整组结束统一报告；失败向上抛）。
-  const writeCatalogFileQuiet = useCallback(async (path, content) => {
-    const store = storeRef.current;
-    if (!store) throw new Error('workspace store unavailable');
-    await store.writeWorkspaceFile({ characterId, path, content });
-    if (mountedRef.current) await refresh();
-  }, [characterId, refresh]);
-
-  const writeCatalogFile = useCallback(async (path, content) => {
-    const store = storeRef.current;
-    if (!store) {
-      Alert.alert(t('workspace.panel.err.save'), t('workspace.panel.err.save'));
-      return;
-    }
-    try {
-      await store.writeWorkspaceFile({ characterId, path, content });
-      if (!mountedRef.current) return;
-      await refresh();
-      Alert.alert(t('workspace.panel.catalog.doneTitle'), t('workspace.panel.catalog.doneBody', { file: path }));
-    } catch (caught) {
-      Alert.alert(t('workspace.panel.err.save'), t('workspace.panel.err.save'));
-    }
-  }, [characterId, refresh, t]);
-
-  const handleCatalogWrite = useCallback(async itemId => {
-    const item = findCatalogItem(itemId);
-    if (!item || catalogBusyId) return;
-    setCatalogBusyId(itemId);
-    try {
-      const content = buildCatalogContent(item, catalogInputs[itemId] || {});
-      await writeCatalogFile(item.file, content);
-      setCatalogStatuses(current => ({ ...current, [itemId]: 'same' }));
-    } finally {
-      if (mountedRef.current) setCatalogBusyId('');
-    }
-  }, [catalogBusyId, catalogInputs, writeCatalogFile]);
-
-  // 弹层打开时比对每条状态：沙盒没有 → absent；有且内容一致 → same；有但不同 → diff。
-  // 只比内容字符串相等，不做 diff UI。gitconfig 内容随输入变化，以当前输入为准。
-  const loadCatalogStatuses = useCallback(async () => {
-    const store = storeRef.current;
-    if (!store) return;
-    const next = {};
-    for (const item of CATALOG_ITEMS) {
-      try {
-        if (!files.includes(item.file)) {
-          next[item.id] = 'absent';
-          continue;
-        }
-        const result = await store.readWorkspaceFile({ characterId, path: item.file });
-        const expected = buildCatalogContent(item, catalogInputs[item.id] || {});
-        next[item.id] = String(result && result.content) === expected ? 'same' : 'diff';
-      } catch (error) {
-        next[item.id] = 'absent';
-      }
-    }
-    if (mountedRef.current) setCatalogStatuses(next);
-  }, [catalogInputs, characterId, files]);
-
-  useEffect(() => {
-    if (catalogOpen) loadCatalogStatuses();
-  }, [catalogOpen, loadCatalogStatuses]);
-
-  // 一键套餐：逐条走单条写入路径（自动进历史改动）；单条失败不中断，结束统一报告。
-  const handleBundleWrite = useCallback(async bundleId => {
-    const bundle = findCatalogBundle(bundleId);
-    if (!bundle || bundleBusy || catalogBusyId) return;
-    setBundleBusy({ id: bundleId, done: 0, total: bundle.items.length });
-    const failures = [];
-    const written = [];
-    const gitIdentity = bundle.needsGitIdentity ? (catalogInputs.gitconfig || {}) : {};
-    try {
-      for (let index = 0; index < bundle.items.length; index += 1) {
-        const item = findCatalogItem(bundle.items[index]);
-        if (item) {
-          try {
-            const content = buildCatalogContent(item, item.id === 'gitconfig' ? gitIdentity : {});
-            await writeCatalogFileQuiet(item.file, content);
-            written.push(item.file);
-          } catch (error) {
-            failures.push(item.file);
-          }
-        }
-        if (mountedRef.current) setBundleBusy({ id: bundleId, done: index + 1, total: bundle.items.length });
-      }
-    } finally {
-      if (mountedRef.current) setBundleBusy(null);
-    }
-    await refresh();
-    if (mountedRef.current) loadCatalogStatuses();
-    if (mountedRef.current) {
-      const summary = `${t('workspace.panel.catalog.bundle.donePrefix', { count: written.length })}\n${written.join('\n')}`;
-      const failureNote = failures.length > 0
-        ? `\n\n${t('workspace.panel.catalog.bundle.failures', { list: failures.join('\n') })}`
-        : '';
-      Alert.alert(t('workspace.panel.catalog.bundle.doneTitle'), summary + failureNote);
-    }
-  }, [bundleBusy, catalogBusyId, catalogInputs, loadCatalogStatuses, refresh, t, writeCatalogFileQuiet]);
-
-  // 自定义 URL 下载：仅 https、20s 超时、512KB 上限；文件名取 URL 末段再过命名清洗。
-  const handleCustomDownload = useCallback(async () => {
-    if (customBusy) return;
-    const url = String(customUrl || '').trim();
-    if (!/^https:\/\//.test(url)) {
-      Alert.alert(t('workspace.panel.catalog.custom.title'), t('workspace.panel.catalog.custom.errHttp'));
-      return;
-    }
-    setCustomBusy(true);
-    try {
-      const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = setTimeout(() => { if (controller) controller.abort(); }, 20000);
-      let response;
-      try {
-        response = await fetch(url, { signal: controller ? controller.signal : undefined });
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const text = await response.text();
-      if (text.length > 512 * 1024) {
-        Alert.alert(t('workspace.panel.catalog.custom.title'), t('workspace.panel.catalog.custom.errSize'));
-        return;
-      }
-      const rawName = url.split('/').pop().split('?')[0] || 'download.txt';
-      // 白名单内的名字（如 .gitignore）原样保留；其余走命名清洗并补 .txt。
-      const path = isAllowedWorkspaceOutputFile(rawName)
-        ? rawName
-        : ensureTextFileName(sanitizeWorkspaceFileName(rawName, 'download'));
-      await writeCatalogFile(path, text);
-      setCustomUrl('');
-    } catch (caught) {
-      Alert.alert(t('workspace.panel.catalog.custom.title'), t('workspace.panel.catalog.custom.errFetch'));
-    } finally {
-      if (mountedRef.current) setCustomBusy(false);
-    }
-  }, [customBusy, customUrl, t, writeCatalogFile]);
 
   // —— 文件区分组与下钻（诉求④）——
   // 根层：工作区自己的散文件 + 每个导入项目一张卡；进入项目/目录后逐层列出直接子项。
