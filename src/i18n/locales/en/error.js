@@ -31,6 +31,19 @@ export const error = {
   'error.storage.locationPinInvalid': 'Invalid pin coordinates.',
   'error.storage.momentsReadFailed': 'Failed to read moments. Please try again later.',
   'error.storage.worldMapReadFailed': 'Failed to read the map. Please try again later.',
+  // Messages for the "read failed → refuse to write back" guard (variant ①): when the
+  // previous value cannot be read we do not overwrite it; the caller asks the user to
+  // deal with the corrupted data instead of silently resetting their settings.
+  'error.storage.securityReadFailed': 'Failed to read privacy settings. Saving was aborted so the lock list is not wiped. Please try again later.',
+  'error.storage.mcpServersReadFailed': 'Failed to read the MCP server list. Saving was aborted so existing servers are not wiped. Please try again later.',
+  'error.storage.chatOptionsReadFailed': 'Failed to read chat and appearance settings. Saving was aborted so the other options are not reset. Please try again later.',
+  'error.storage.permissionsReadFailed': 'Failed to read permission rules. Saving was aborted so the remembered permissions are not overwritten. Please try again later.',
+  'error.storage.personasReadFailed': 'Failed to read personas. Saving was aborted so the other personas are not overwritten. Please try again later.',
+  'error.storage.globalPresetsReadFailed': 'Failed to read global preset switches. Saving was aborted so they are not reset. Please try again later.',
+  'error.storage.proactiveSettingsReadFailed': 'Failed to read scheduled message settings. Saving was aborted so the time slots are not wiped. Please try again later.',
+  'error.storage.sessionStatsReadFailed': 'Failed to read session statistics. Saving was aborted so other sessions\' statistics are not wiped. Please try again later.',
+  'error.storage.characterIndexReadFailed': 'Failed to read the character index. Saving was aborted so the character library is not overwritten. Please try again later.',
+  'error.storage.legacyMessagesReadFailed': 'Failed to read legacy chat history. Migration was skipped so the conversation is not lost. Please try again later.',
   'error.tts.invalidBaseUrl': 'Please enter a valid speech service URL.',
   'error.tts.wssUnsupported': 'This speech service uses WebSocket (wss), which this engine does not support yet. Please use another engine or an HTTP endpoint.',
   'error.tts.tencentSignerNotImplemented': 'Tencent Cloud speech signing (TC3-HMAC-SHA256) is not implemented yet, so this engine cannot be used for now.',

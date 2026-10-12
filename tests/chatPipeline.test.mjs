@@ -11,6 +11,12 @@ import {
   filterRequestMedia,
   resolveVoiceFormat,
 } from '../src/prompt/chatPipeline.js';
+// P0-1：在线媒体能力对象的产出方（发送路径 `filterRequestMedia(requestMessages, onlineMedia)`
+// 用的就是它）。这里做**接线**断言：能力对象 → 裁剪结果，钉住「建了 video_url 又发不出去」。
+import {
+  EMPTY_ONLINE_REQUEST_CONTEXT,
+  resolveOnlineRequestContext,
+} from '../src/chat/onlineRequestContext.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 2026-10-05 CharacterScreen 拆分为 CharacterStack + character/CharacterLibraryScreen.js
@@ -537,6 +543,73 @@ test('filterRequestMedia：video_url 默认裁剪、allowVideo 时保留、混�
     ],
   }], { allowVision: true });
   assert.deepEqual(mixed[0].content.map(part => part.type), ['image_url'], '只裁视频、保留图片');
+});
+
+// P0-1 接线回归：**建出 video_url** 与 **把 video_url 发出去** 是两件事，之前的测试只钉了前者
+//（上面那条）与协议透传（tests/apiProtocols.test.mjs），发送路径中间那一步（能力对象 →
+// filterRequestMedia）没人钉——于是「在线支持视频却永远发不出去」的静默丢件活了很久。
+test('P0-1 接线：在线 + 声明视频 + OpenAI 兼容时 video_url 必须发得出去；本地链路仍裁剪', () => {
+  const videoMessage = {
+    kind: 'video',
+    image: { uri: 'file:///v.mp4', name: 'v.mp4', mime: 'video/mp4' },
+    dataUri: 'data:video/mp4;base64,QUJD',
+    includeVideo: true,
+  };
+  const requestMessages = buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '',
+    userProfile: {},
+    globalPresets: [],
+    imageMessages: [videoMessage],
+  });
+  assert.ok(
+    JSON.stringify(requestMessages).includes('video_url'),
+    '前置：buildRequestMessages 建出了 video_url'
+  );
+
+  // 能力按**当前模型**解析（与发送侧 videoEnabled 同一来源）；配置级 supportsVideo 是旧字段，故意置 false。
+  const configs = [{ id: 'compat-video', name: '兼容端点+视频模型', protocol: 'openai', model: 'm-video', supportsVideo: false }];
+  const helpers = {
+    getModel: config => config.model,
+    getCapabilities: (config, modelName) => (modelName === 'm-video'
+      ? { supportsVideo: true, contextWindow: 128000 }
+      : {}),
+  };
+
+  const online = resolveOnlineRequestContext(configs, 'compat-video', '', helpers);
+  assert.equal(online.media.allowVideo, true, '在线媒体能力对象必须带 allowVideo（P0-1 的根因就是这里缺字段）');
+  const onlineMessages = filterRequestMedia(requestMessages, online.media);
+  assert.ok(
+    JSON.stringify(onlineMessages).includes('video_url'),
+    '在线 + 支持视频时视频必须活到请求里（不得被裁成一行【视频：名称】）'
+  );
+  assert.equal(onlineMessages.some(item => item.role === 'user' && Array.isArray(item.content)), true);
+
+  // 本地链路：filterRequestMedia 的默认 allowVideo=false 必须继续裁剪（本地 llama.cpp 无视频能力）。
+  const localMessages = filterRequestMedia(requestMessages, { allowVision: true, allowAudio: true });
+  assert.equal(JSON.stringify(localMessages).includes('video_url'), false, '本地链路仍裁剪视频');
+  assert.ok(JSON.stringify(localMessages).includes('【视频：v.mp4】'), '裁剪后退化为文本描述，不是静默丢件');
+
+  // 协议不是 OpenAI 兼容（Responses/Anthropic 没有 video_url 类型）→ 不得放开
+  const responses = resolveOnlineRequestContext(
+    [{ id: 'resp', protocol: 'responses', model: 'm-video' }], 'resp', '', helpers
+  );
+  assert.equal(responses.media.allowVideo, false, 'Responses 协议不得放开视频');
+
+  // 模型未声明 supportsVideo → 不得放开
+  const noVideo = resolveOnlineRequestContext(
+    [{ id: 'plain', protocol: 'openai', model: 'm-plain' }], 'plain', '', helpers
+  );
+  assert.equal(noVideo.media.allowVideo, false, '模型未声明视频能力不得放开');
+
+  // 取不到配置的安全默认：什么都不支持，视频必须裁剪
+  assert.equal(EMPTY_ONLINE_REQUEST_CONTEXT.media.allowVideo, false, '安全默认不得放开视频');
+  assert.equal(
+    JSON.stringify(filterRequestMedia(requestMessages, EMPTY_ONLINE_REQUEST_CONTEXT.media)).includes('video_url'),
+    false,
+    '取不到配置时按安全默认裁剪视频'
+  );
 });
 
 test('P5：buildRequestMessages 展开 toolTrace，tool 消息透传到请求', () => {

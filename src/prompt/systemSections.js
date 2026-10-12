@@ -164,6 +164,22 @@ export function buildSystemChunks(sections) {
   return chunks;
 }
 
+// 段下标 → 块下标的换算（planSystemCache 按**段**编号，buildSystemChunks 按**块**编号）。
+//
+// 为什么需要换算：缓存断点由 planSystemCache 按段口径算出（endIndex = 最长 stable 连续段
+// 之后的下标），而协议层是按**块**打标（systemCache.markIndex = 断点所在块的下标，见
+// apiProtocols/messages.js）。块把连续同稳定性的段并成一项，所以同一个位置在两种口径下
+// 编号不同——直接把段下标当块下标用会打错块（P0-2 就是这么错的）。
+//
+// 换算方式：只对断点之前的段再切一次块，块数 - 1 就是断点所在块。复用 buildSystemChunks，
+// 不另写一套扫描（两处口径必须永远一致）。endIndex 为 0（没有 stable 段）时返回 -1。
+export function chunkIndexForSectionEnd(sections, endIndex) {
+  const list = Array.isArray(sections) ? sections : [];
+  const limit = Math.min(Math.max(0, Number(endIndex) || 0), list.length);
+  if (limit === 0) return -1;
+  return buildSystemChunks(list.slice(0, limit)).length - 1;
+}
+
 // 按缓存断点把系统提示切成「可缓存前缀 + 其余」。断点为 0 时前缀为空串（调用方据此不打标记）。
 export function splitSystemForCache(sections, breakIndex) {
   const list = Array.isArray(sections) ? sections : [];

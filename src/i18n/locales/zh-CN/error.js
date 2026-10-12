@@ -31,6 +31,18 @@ export const error = {
   'error.storage.locationPinInvalid': '标注点坐标无效',
   'error.storage.momentsReadFailed': '动态记录读取失败，请稍后重试',
   'error.storage.worldMapReadFailed': '地图读取失败，请稍后重试',
+  // 以下 10 条是「读失败 → 拒绝写回」守卫（变体①）的报错文案：读不出原值时不覆盖，
+  // 由调用方提示用户「先处理损坏数据」，而不是静默把用户配置冲成默认值。
+  'error.storage.securityReadFailed': '隐私安全设置读取失败，已中止保存以免锁名单被清空，请稍后重试',
+  'error.storage.mcpServersReadFailed': 'MCP 服务器列表读取失败，已中止保存以免已有服务器被清空，请稍后重试',
+  'error.storage.chatOptionsReadFailed': '聊天与外观设置读取失败，已中止保存以免其余选项被重置，请稍后重试',
+  'error.storage.permissionsReadFailed': '授权规则读取失败，已中止保存以免已记住的授权被覆盖，请稍后重试',
+  'error.storage.personasReadFailed': '人设读取失败，已中止保存以免其余人设被覆盖，请稍后重试',
+  'error.storage.globalPresetsReadFailed': '全局预设开关读取失败，已中止保存以免开关被整体重置，请稍后重试',
+  'error.storage.proactiveSettingsReadFailed': '定时主动消息设置读取失败，已中止保存以免时段配置被清空，请稍后重试',
+  'error.storage.sessionStatsReadFailed': '会话统计读取失败，已中止保存以免其他会话的统计被清空，请稍后重试',
+  'error.storage.characterIndexReadFailed': '角色索引读取失败，已中止保存以免角色库被覆盖，请稍后重试',
+  'error.storage.legacyMessagesReadFailed': '旧版聊天记录读取失败，已跳过迁移以免对话丢失，请稍后重试',
   'error.tts.invalidBaseUrl': '请填写有效的语音服务地址',
   'error.tts.wssUnsupported': '该语音服务使用 WebSocket 协议（wss），当前引擎暂不支持，请改用其他引擎或 HTTP 端点',
   'error.tts.tencentSignerNotImplemented': '腾讯云语音签名（TC3-HMAC-SHA256）尚未实现，暂时无法使用该引擎',

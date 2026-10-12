@@ -2,7 +2,7 @@ import { buildWorldInfoText, collectActiveWorldInfo } from './lorebook.js';
 import { getMessagePromptText } from '../chat/chatMedia.js';
 import { imageDescriptionFailed, imageDescriptionPrefix } from '../chat/imageDescriptionPrompt.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
-import { buildSystemChunks, buildSystemSections, composeSystemText, planSystemCache } from './systemSections.js';
+import { buildSystemChunks, buildSystemSections, chunkIndexForSectionEnd, composeSystemText, planSystemCache } from './systemSections.js';
 import { expandHistoryWithTraces } from '../chat/toolTrace.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
@@ -254,16 +254,23 @@ export function buildRequestMessages({ character, historyMessages, userText, use
 
   const systemMessage = { role: 'system', content: systemContent };
   if (cachePlan.cacheable) {
-    // 断点落在**最长 stable 连续段的末尾**（不再是「从第 0 段起连续 stable」——
-    // 那样有世界书时一个断点都不打）。
-    // chunks：连续同稳定性的块（stable 段并成一块）；markIndex 取**最后一个 stable 块**
-    // ——它就是「最长 stable 连续段」所在的那块。Anthropic 把 cache_control 打在这块上，
-    // 断点之前的全部内容（含排在系统提示最前的动态世界书）一并进缓存前缀。
-    // prefixText / restText 按 markIndex 从块拼出（**不是**按段下标切）：块间与段间都是
-    // 空一行，但按段切会让「前缀 + 空行 + 其余」与原文差一个分隔符（切点两侧都是段时
-    // 空行被算两次）。按块切才保证两段拼回逐字节等于 systemContent。
+    // 断点落在**最长 stable 连续段**的末尾——位置必须复用 planSystemCache 算出的
+    // endIndex，**不能**再自己取「最后一个 stable 块」。
+    //
+    // 事故形态（P0-2）：生产段序是 stable(base/persona/example) … dynamic(worldAfter) …
+    // stable(角色/全局预设) … dynamic(摘要/记忆/群聊/本轮任务) … stable(format 在最后)。
+    // 「最后一个 stable 块」往往只是**长度 1 的连续段**（format），于是 prefixText = 整条系统
+    // 提示、restText = ''，把每轮都变的时间/位置/摘要/记忆/世界书全塞进了缓存前缀：
+    // 每轮必然 miss，却还要照付 1.25× 的缓存写入溢价（比不开缓存更贵）。
+    //
+    // endIndex 是**段**口径的下标，chunks 是**块**口径，故用 chunkIndexForSectionEnd 换算
+    //（换算复用 buildSystemChunks，不另写一套扫描；两种口径必须永远一致）。
     const chunks = buildSystemChunks(systemSections);
-    const markIndex = chunks.reduce((found, chunk, index) => (chunk.stable ? index : found), -1);
+    const markIndex = chunkIndexForSectionEnd(systemSections, cachePlan.endIndex);
+    // prefixText / restText 按块拼出（**不是**按段下标切）：块间与段间都是空一行，但按段切会让
+    // 「前缀 + 空行 + 其余」与原文差一个分隔符（切点两侧都是段时空行被算两次）。按块切才保证
+    // 两段拼回逐字节等于 systemContent。断点之前的动态段（如排在最前的世界书）只能一并进
+    // 缓存前缀——缓存是**前缀制**，断点前的动态内容不是「被当成稳定」，只是躲不开。
     const prefixText = chunks.slice(0, markIndex + 1).map(chunk => chunk.text).join('\n\n');
     const restText = chunks.slice(markIndex + 1).map(chunk => chunk.text).join('\n\n');
     if (prefixText) systemMessage.systemCache = { prefixText, restText, chunks, markIndex };
@@ -310,6 +317,9 @@ export function filterRequestMedia(messages, { allowVision = false, allowAudio =
           return;
         }
         // 视频（video_url）默认一律裁剪——本地 llama.cpp 链路没有视频输入能力。
+        // **这个默认值不许改**：它正是本地路径的正确行为；在线路径由端点能力显式放开
+        //（allowVideo 由 chat/onlineRequestContext.js 按「模型声明 supportsVideo + OpenAI
+        // 兼容协议」产出，与发送侧 videoEnabled 同源），别在这里兜底。
         if (part.type === 'video_url') {
           if (allowVideo) parts.push(part);
           return;

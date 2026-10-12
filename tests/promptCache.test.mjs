@@ -25,11 +25,82 @@ test('系统提示携带缓存计划：前缀 + 其余拼回原文', () => {
   const system = messages.find(m => m.role === 'system');
   assert.ok(system.systemCache, '应带 systemCache');
   const { prefixText } = system.systemCache;
-  // P1（2026-10-11）：断点落在**最长 stable 连续段**（base+persona+format）末尾，
-  // 摘要（dynamic，排在 format 之前）也一并进缓存前缀。
+  // P0-2 口径修正：这里的段序是 base(stable) → summary(dynamic) → format(stable)。
+  // planSystemCache 按**字符数**取最长 stable 连续段，format 那段（[输出格式] + 三条指令）
+  // 比 base（'你的名字是测试角色。'）长 ⇒ 断点落在整条系统提示的末尾，摘要排在断点之前，
+  // 于是也在缓存前缀里。注意「在断点之前」≠「stable」：缓存是**前缀制**，断点前的动态段
+  // 躲不开（真正的错法是断点打得太靠后，把每轮都变的动态段一起锁进前缀——见下面的回归）。
   assert.ok(prefixText.includes('你的名字是测试角色。'), '稳定段在缓存前缀里');
-  assert.ok(prefixText.includes('[记忆摘要]'), '断点之前的动态段也进前缀（按块打标）');
+  assert.ok(prefixText.includes('[记忆摘要]'), '断点之前的动态段也进前缀（前缀制，不是被当成稳定）');
   assert.equal(rejoin(system.systemCache), system.content, '拼回与原文一致');
+});
+
+// P0-2 回归（断点取错块）：每轮 miss + 照付 1.25× 写入溢价。
+//
+// 事故形态：旧实现取「**最后一个** stable 块」当断点，而生产段序是
+// stable(base/persona/example) … dynamic(worldAfter) … stable(预设) … dynamic(摘要/记忆/
+// 群聊/本轮任务) … stable(format 在最后) ——「最后一个 stable 块」往往只是长度 1 的连续段
+//（format），于是 prefixText = 整条系统提示、restText = ''，把每轮都变的摘要/记忆也塞进了
+// 缓存前缀：每轮必然 miss，还要照付缓存写入溢价。
+// 正确位置是 planSystemCache 算出的「最长 stable 连续段」末尾（按字符数取最长）。
+test('P0-2 回归：断点落在最长 stable 连续段末尾，动态段不得进缓存前缀', () => {
+  // 段序：base(stable，长人设) → summary(dynamic) → memory(dynamic) → format(stable)。
+  // base 的字符数远大于 format 那段，所以最长 stable 段就是 base 这一段。
+  const longBase = '设定'.repeat(200);
+  const messages = buildRequestMessages({
+    character: { name: '测试角色', systemPrompt: longBase, regexScripts: [] },
+    historyMessages: [],
+    userText: '你好',
+    summaryText: '一段摘要',
+    memorySnippets: '一条记忆',
+  });
+  const system = messages.find(m => m.role === 'system');
+  const { prefixText, restText, chunks, markIndex } = system.systemCache;
+  assert.equal(markIndex, 0, '断点落在最长 stable 段（base）所在块，而不是最后那个 stable 块（format）');
+  assert.equal(chunks[markIndex].stable, true, '断点块必须是 stable 块');
+  assert.ok(prefixText.includes(longBase), '前缀就是那段 stable 内容');
+  assert.equal(prefixText.includes('[记忆摘要]'), false, '摘要（dynamic）不得进缓存前缀');
+  assert.equal(prefixText.includes('一条记忆'), false, '记忆召回（dynamic）不得进缓存前缀');
+  assert.equal(prefixText.includes('[输出格式]'), false, '断点之后的 stable 段也不进前缀');
+  assert.ok(restText.includes('[记忆摘要]'), '摘要落在断点之后');
+  assert.ok(restText.includes('[输出格式]'), '格式段落在断点之后');
+  assert.equal(rejoin(system.systemCache), system.content, '切分后拼回原文逐字节一致');
+});
+
+test('P0-2：dynamic 夹在 stable 之间时，段下标与块下标必须换算（不能直接当块用）', () => {
+  // 段序：base(stable, 短) → worldAfter(dynamic) → 角色预设(stable) → 全局预设(stable)
+  //      → summary(dynamic) → format(stable)
+  // 最长 stable 连续段 = 角色预设 + 全局预设（两段并成**一个**块）：段口径 endIndex 指向
+  // summary，块口径 markIndex 必须是那个并块（下标 2）——直接把段下标当块下标就会打错块。
+  const messages = buildRequestMessages({
+    character: {
+      name: '测试角色',
+      systemPrompt: '短',
+      regexScripts: [],
+      presets: [{ prompt: '预设甲'.repeat(100) }],
+      worldInfo: [{ content: '世界书内容', position: 1, constant: true }],
+    },
+    historyMessages: [],
+    userText: '你好',
+    globalPresets: ['预设乙'.repeat(100)],
+    summaryText: '一段摘要',
+  });
+  const system = messages.find(m => m.role === 'system');
+  const { prefixText, restText, chunks, markIndex } = system.systemCache;
+  assert.deepEqual(
+    chunks.map(chunk => chunk.stable),
+    [true, false, true, false, true],
+    '块序：base(stable)/worldAfter(dynamic)/预设(stable)/summary(dynamic)/format(stable)'
+  );
+  assert.equal(markIndex, 2, '断点落在「角色预设 + 全局预设」那个并块上');
+  assert.equal(chunks[markIndex].stable, true, '断点块必须是 stable 块');
+  assert.ok(prefixText.includes('世界书内容'), '断点之前的动态段一并进前缀（前缀制，躲不开）');
+  assert.ok(prefixText.includes('预设甲') && prefixText.includes('预设乙'), '最长 stable 段在断点块里');
+  assert.equal(prefixText.includes('一段摘要'), false, '断点之后的 dynamic 不进前缀');
+  assert.equal(prefixText.includes('[输出格式]'), false, '断点之后的 stable 也不进前缀');
+  assert.ok(restText.includes('一段摘要'), '摘要落在断点之后');
+  assert.ok(restText.includes('[输出格式]'), '格式段落在断点之后');
+  assert.equal(rejoin(system.systemCache), system.content, '切分后拼回原文逐字节一致');
 });
 
 test('首段是动态内容（时间感知）时，断点落在后面的稳定段上（P1：不再放弃缓存）', () => {
