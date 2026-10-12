@@ -30,10 +30,10 @@ import {
   MEMORY_FILTERS,
   SCREEN_WATCH_FILTER,
   screenThreadPreview,
-  splitScreenThreads,
 } from './memory/memoryBuckets.js';
 import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
 import MemoryCheckupModal from './memory/MemoryCheckupModal.js';
+import useScreenWatchThreads from './memory/useScreenWatchThreads.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
@@ -41,11 +41,6 @@ import { EmptyState } from './ui/index.js';
 import SearchScreen from './SearchScreen.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
-import {
-  clearScreenWatchThreads,
-  deleteScreenWatchThread,
-  getScreenWatchThreads,
-} from './screenWatch/threads.js';
 
 // 会话行的显示名：群聊用群名（缺省拼成员名），单聊用角色名。
 // 行渲染与长按操作单都要用，抽出来避免两处各写一遍后漂移。
@@ -94,91 +89,17 @@ export default function MemoryScreen({ navigation }) {
   const [userName, setUserName] = useState('');
   const switchLockRef = useRef(false);
 
-  // 看屏幕对话（screenWatch/threads.js）：不进「全部」视图，只在「屏幕对话」chip
-  // 下以行形式展示/删除 —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
-  const [threads, setThreads] = useState([]);
-
-  const reloadThreads = useCallback(async () => {
-    try {
-      setThreads(await getScreenWatchThreads());
-    } catch (error) {
-      setThreads([]);
-    }
-  }, []);
-
-  const { active: activeThreads, empty: emptyThreads } = useMemo(
-    () => splitScreenThreads(threads),
-    [threads]
-  );
-
-  const handleDeleteThread = useCallback(thread => {
-    if (!thread) return;
-    const name = String(thread.characterName || '').trim() || t('common.characterFallback');
-    Alert.alert(
-      t('memory.screenWatch.delete.title'),
-      t('memory.screenWatch.delete.body', { name }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            deleteScreenWatchThread(thread.id)
-              .then(() => reloadThreads())
-              .catch(() => {});
-          },
-        },
-      ]
-    );
-  }, [reloadThreads, t]);
-
-  // 长按屏幕对话行：与主列表一致的「长按出操作单」交互（这里只有删除）。
-  const onThreadActions = useCallback(thread => {
-    const name = String(thread.characterName || '').trim() || t('common.characterFallback');
-    const buttons = [
-      { text: t('common.delete'), style: 'destructive', onPress: () => handleDeleteThread(thread) },
-    ];
-    if (Platform.OS === 'ios') buttons.push({ text: t('common.cancel'), style: 'cancel' });
-    Alert.alert(name, screenThreadPreview(thread) || undefined, buttons, { cancelable: true });
-  }, [handleDeleteThread, t]);
-
-  // 空会话（0 条 entry）不逐行展示，聚合成一行可一键清理的入口。
-  const handleClearEmptyThreads = useCallback(() => {
-    if (emptyThreads.length === 0) return;
-    Alert.alert(
-      t('memory.screenWatch.clearEmptyConfirm.title'),
-      t('memory.screenWatch.clearEmptyConfirm.body', { count: emptyThreads.length }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            Promise.all(emptyThreads.map(thread => deleteScreenWatchThread(thread.id).catch(() => {})))
-              .then(() => reloadThreads());
-          },
-        },
-      ]
-    );
-  }, [emptyThreads, reloadThreads, t]);
-
-  const handleClearAllThreads = useCallback(() => {
-    if (threads.length === 0) return;
-    Alert.alert(
-      t('memory.screenWatch.clearAllConfirm.title'),
-      t('memory.screenWatch.clearAllConfirm.body', { count: threads.length }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            clearScreenWatchThreads().then(() => reloadThreads()).catch(() => {});
-          },
-        },
-      ]
-    );
-  }, [reloadThreads, t, threads.length]);
+  // 看屏幕对话（screenWatch）的管理已抽到 memory/useScreenWatchThreads.js：
+  // 加载 / 拆分（有内容 vs 空）/ 删除 / 一键清理；存储与纯逻辑仍在原模块。
+  const {
+    threads,
+    activeThreads,
+    emptyThreads,
+    reloadThreads,
+    onThreadActions,
+    handleClearEmptyThreads,
+    handleClearAllThreads,
+  } = useScreenWatchThreads({ t });
 
   const scanOrphans = useCallback(async () => {
     try {
