@@ -305,6 +305,7 @@ export const chat = {
   'chat.session.ownerMissing.newChatBody': '这段历史对话可以继续查看，恢复角色资料后才能新建或发送消息。',
   'chat.session.newChat.title': '新建对话',
   'chat.session.newChat.body': '将为当前群聊开启一段新对话，旧对话保留在「记忆」中。',
+  'chat.session.newChat.bodySingle': '将开启一段新对话，当前对话保留在会话列表与记忆中。',
   'chat.session.newChat.confirm': '新建',
   'chat.session.newChatFailed.title': '新建对话失败',
   'chat.session.newChatFailed.body': '请稍后重试。',

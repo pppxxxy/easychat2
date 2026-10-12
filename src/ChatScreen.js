@@ -1065,11 +1065,11 @@ export default function ChatScreen() {
       return;
     }
     Alert.alert(
-      '新建对话',
-      '将开启一段新对话，当前对话保留在会话列表与记忆中。',
+      t('chat.session.newChat.title'),
+      t('chat.session.newChat.bodySingle'),
       [
-        { text: '取消', style: 'cancel' },
-        { text: '新建', style: 'destructive', onPress: () => onNewChat() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('chat.session.newChat.confirm'), style: 'destructive', onPress: () => onNewChat() },
       ]
     );
   }, [onNewChat]);

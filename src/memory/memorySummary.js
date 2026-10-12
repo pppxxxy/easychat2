@@ -13,6 +13,7 @@ import {
 import { capMemoryEntries, DEFAULT_MEMORY_MAX_ENTRIES, MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
 import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';
 import { normalizeCompactionFocus } from '../chat/compaction.js';
+import { tActive } from '../i18n/index.js';
 
 export { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX };
 // 内置助手判定与「世界书记忆退休」共用同一份纯逻辑（见 memory/memoryRetire.js）。
@@ -366,7 +367,7 @@ export async function invalidateHistorySummaries({
   });
   const summaryState = await getSessionSummariesStatus(targetSession.id);
   if (summaryState.status === 'corrupt') {
-    throw new Error('记忆摘要读取失败，请稍后重试');
+    throw new Error(tActive('error.memory.summaryReadFailed'));
   }
   const survivingSummaries = selectSurvivingSessionSummaries(
     summaryState.summaries,
@@ -538,14 +539,14 @@ export async function applySummary({
  }) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   if (list.length === 0) {
-    throw new Error('没有可总结的消息');
+    throw new Error(tActive('error.memory.nothingToSummarize'));
   }
   const summaryRevision = getSessionSummaryRevision(session.id);
   const summaryState = scoped
     ? await getSessionSummariesStatus(session.id)
     : { status: 'ok', summaries: [] };
   if (scoped && summaryState.status === 'corrupt') {
-    throw new Error('记忆摘要读取失败，请稍后重试');
+    throw new Error(tActive('error.memory.summaryReadFailed'));
   }
   const existingSessionSummaries = summaryState.summaries || [];
   const memories = buildMemorySummaryText(character, existingSessionSummaries, scoped);
@@ -562,14 +563,14 @@ export async function applySummary({
     return { entry: null, boundary: null, summary: '', keywords: [], scoped, skipped: true };
   }
   if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
-    throw new Error('会话摘要已重置');
+    throw new Error(tActive('error.memory.summaryReset'));
   }
   const boundary = list[list.length - 1].id;
   const effectiveScoped = typeof getCurrentScope === 'function'
     ? Boolean(getCurrentScope())
     : scoped;
   if (effectiveScoped !== scoped) {
-    const error = new Error('记忆作用域已变化');
+    const error = new Error(tActive('error.memory.scopeChanged'));
     error.canceled = true;
     throw error;
   }
@@ -592,7 +593,7 @@ export async function applySummary({
     && JSON.stringify(currentCharacter.worldInfo || [])
       !== JSON.stringify(character.worldInfo || [])
   ) {
-    const error = new Error('角色已在总结期间更新');
+    const error = new Error(tActive('error.memory.characterUpdated'));
     error.canceled = true;
     throw error;
   }
@@ -615,7 +616,7 @@ export async function applySummary({
   }, maxIndex);
   entry.boundary = boundary;
   if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
-    throw new Error('会话摘要已重置');
+    throw new Error(tActive('error.memory.summaryReset'));
   }
   const appendSummary = current => {
     const latestWorldInfo = Array.isArray(current && current.worldInfo) ? current.worldInfo : [];
@@ -632,7 +633,7 @@ export async function applySummary({
   await updateCharacter(appendSummary);
   try {
     if (!isSessionSummaryRevisionCurrent(session.id, summaryRevision)) {
-      throw new Error('会话摘要已重置');
+      throw new Error(tActive('error.memory.summaryReset'));
     }
     await setSessionSummarizedUpTo(session.id, boundary, summaryRevision);
   } catch (error) {

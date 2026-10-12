@@ -301,6 +301,7 @@ export const chat = {
   'chat.session.ownerMissing.newChatBody': 'You can keep viewing this conversation history, but starting a new chat or sending messages requires the character data to be restored first.',
   'chat.session.newChat.title': 'New chat',
   'chat.session.newChat.body': 'This will start a new conversation for the current group; the old conversation stays in "Memories".',
+  'chat.session.newChat.bodySingle': 'This will start a new conversation; the current one stays in the session list and memories.',
   'chat.session.newChat.confirm': 'Create',
   'chat.session.newChatFailed.title': 'Failed to create chat',
   'chat.session.newChatFailed.body': 'Please try again later.',

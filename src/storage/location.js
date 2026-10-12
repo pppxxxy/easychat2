@@ -12,6 +12,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
+import { tActive } from '../i18n/index.js';
 
 export const LOCATION_KEY = '@easychat2_location';
 // 清单上限：手写的小数据，但入口在手机上，过多会让列表难用。
@@ -157,7 +158,7 @@ export function updateLocationSettings(updater) {
     const stored = await readJsonStatus(LOCATION_KEY);
     if (stored.status === 'corrupt') {
       await backupCorruptValue(LOCATION_KEY);
-      throw new Error('位置设置读取失败，请稍后重试');
+      throw new Error(tActive('error.storage.locationReadFailed'));
     }
     const current = normalizeLocationSettings(stored.value);
     const next = typeof updater === 'function' ? await updater(current) : current;

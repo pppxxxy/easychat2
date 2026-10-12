@@ -3,6 +3,7 @@
 // 约定：只收录含 `.gguf` 的仓库，文件列表只保留 `.gguf` 与配套 mmproj。
 
 import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
+import { tActive } from '../i18n/index.js';
 
 // 目录提供方：hf-mirror 复用 HuggingFace 的搜索/文件接口，仅下载主机不同。
 export const CATALOG_PROVIDERS = [
@@ -253,7 +254,7 @@ const CATALOG_ADAPTERS = {
 function resolveFetch(options) {
   if (options && typeof options.fetchImpl === 'function') return options.fetchImpl;
   if (typeof fetch === 'function') return fetch;
-  throw new Error('当前环境不支持网络请求');
+  throw new Error(tActive('error.localModel.fetchUnsupported'));
 }
 
 async function requestJson(request, options) {
