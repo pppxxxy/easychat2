@@ -28,6 +28,7 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'MemoryScreen.js'), 'utf8');
+const VIEW_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'memory', 'useMemoryListView.js'), 'utf8');
 const SEARCH_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'SearchScreen.js'), 'utf8');
 const SWITCHER_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'SwitcherModal.js'), 'utf8');
 const SESSION_ROW_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'memory', 'SessionRow.js'), 'utf8');
@@ -148,24 +149,24 @@ test('会话时间文案走 i18n：昨天 / M月D日 不再硬编码', () => {
 
 test('记忆界面接入分组折叠与展开全部', () => {
   assert.ok(SCREEN_SOURCE.includes("from './memory/memoryBuckets.js'"));
-  assert.ok(SCREEN_SOURCE.includes('groupSessionsByAge'));
-  assert.ok(SCREEN_SOURCE.includes('buildMemoryListData'));
-  assert.ok(SCREEN_SOURCE.includes('expandedGroups'));
-  assert.ok(SCREEN_SOURCE.includes('toggleGroup'));
-  assert.ok(SCREEN_SOURCE.includes('toggleAllGroups'));
+  assert.ok(VIEW_SOURCE.includes('groupSessionsByAge'));
+  assert.ok(VIEW_SOURCE.includes('buildMemoryListData'));
+  assert.ok(VIEW_SOURCE.includes('expandedGroups'));
+  assert.ok(VIEW_SOURCE.includes('toggleGroup'));
+  assert.ok(VIEW_SOURCE.includes('toggleAllGroups'));
   assert.ok(SCREEN_SOURCE.includes("t('memory.expandAll')"), '应引用展开全部的 i18n 键');
   assert.equal(zhCN['memory.expandAll'], '展开全部', '语言包中文值正确');
   assert.ok(SCREEN_SOURCE.includes("t('memory.collapseAll')"), '应引用折叠全部的 i18n 键');
   assert.equal(zhCN['memory.collapseAll'], '折叠全部', '语言包中文值正确');
   // 编辑模式强制展开，保证折叠里的会话可被点选
-  assert.ok(SCREEN_SOURCE.includes('editing ? new Set(groups.map(group => group.id))'));
+  assert.ok(VIEW_SOURCE.includes('editing ? new Set(groups.map(group => group.id))'));
   // 首屏默认展开第一组，避免只剩标题的回归（且只自动展开一次）
-  assert.ok(SCREEN_SOURCE.includes('autoExpandedRef'));
-  assert.ok(SCREEN_SOURCE.includes('setExpandedGroups(new Set([groups[0].id]))'));
+  assert.ok(VIEW_SOURCE.includes('autoExpandedRef'));
+  assert.ok(VIEW_SOURCE.includes('setExpandedGroups(new Set([groups[0].id]))'));
   // 回归：分组结构整体换掉后（如「全部置顶」后只剩「置顶」组）旧展开 id 失效，
   // 必须补展开，否则列表只剩折叠组头、看起来像会话丢失。
   assert.ok(
-    SCREEN_SOURCE.includes('groups.some(group => current.has(group.id)) ? current : new Set([groups[0].id])'),
+    VIEW_SOURCE.includes('groups.some(group => current.has(group.id)) ? current : new Set([groups[0].id])'),
     '分组结构换掉后应补展开'
   );
 });
@@ -181,18 +182,18 @@ test('记忆页头部收敛：⋯ 菜单 + 筛选 chips + 吸顶组头', () => {
     '常驻计数文字应已移除（计数在各分组头里）'
   );
   // 筛选 chips：先筛选再分组
-  assert.ok(SCREEN_SOURCE.includes('filterSessionsForMemory'));
-  assert.ok(SCREEN_SOURCE.includes('MEMORY_FILTERS'));
+  assert.ok(VIEW_SOURCE.includes('filterSessionsForMemory'));
+  assert.ok(VIEW_SOURCE.includes('MEMORY_FILTERS'));
   assert.ok(SCREEN_SOURCE.includes('memoryFilter'));
   // 吸顶组头
-  assert.ok(SCREEN_SOURCE.includes('stickyHeaderIndices'));
+  assert.ok(VIEW_SOURCE.includes('stickyHeaderIndices'));
   // 回归：Android 上 FlatList 同渲染既换 data 又换 stickyHeaderIndices 会原生崩溃
   // （facebook/react-native#25157），因此吸顶只在 iOS 启用。
   assert.ok(
-    SCREEN_SOURCE.includes("() => (Platform.OS === 'ios'"),
+    VIEW_SOURCE.includes("() => (Platform.OS === 'ios'"),
     '吸顶组头应仅在 iOS 启用'
   );
-  assert.ok(SCREEN_SOURCE.includes('react-native#25157'), '应注明崩溃来源便于回归追溯');
+  assert.ok(VIEW_SOURCE.includes('react-native#25157'), '应注明崩溃来源便于回归追溯');
 });
 
 test('会话行三处统一：同一 SessionRow 组件，常驻操作按钮已删', () => {

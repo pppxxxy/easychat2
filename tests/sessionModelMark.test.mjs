@@ -22,6 +22,7 @@ const SESSIONS_BARREL = read('src', 'storage', 'sessions.js');
 const STORAGE_BARREL = read('src', 'storage.js');
 const CHAT_SEND = read('src', 'chat', 'useChatSend.js');
 const MEMORY_SCREEN = read('src', 'MemoryScreen.js');
+const MEMORY_VIEW = read('src', 'memory', 'useMemoryListView.js');
 
 test('provider：本地模块不可用时走在线并通知 api（真实调用）', async () => {
   const { sendWithModelProvider } = await import('../src/network/modelProvider.js');
@@ -82,9 +83,9 @@ test('发送链接线：onProviderResolved 回传 + 成功后 markSessionModel �
 });
 
 test('记忆页呈现：本地 chip 按数据有无出现，badge 与长按模型全名', () => {
-  assert.ok(MEMORY_SCREEN.includes('hasLocalSessions(visibleSessions)'));
+  assert.ok(MEMORY_VIEW.includes('hasLocalSessions(visibleSessions)'));
   // 门控表达式整体锚定：裸 'LOCAL_FILTER' 子串会被 import 行误命中（substring 陷阱）
-  assert.ok(MEMORY_SCREEN.includes('[...MEMORY_FILTERS, LOCAL_FILTER]'));
+  assert.ok(MEMORY_VIEW.includes('[...MEMORY_FILTERS, LOCAL_FILTER]'));
   assert.ok(MEMORY_SCREEN.includes('memoryChips'));
   // badge 放不下全名，长按操作单副标题补上
   assert.ok(MEMORY_SCREEN.includes('本地 · '));
