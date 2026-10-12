@@ -129,7 +129,7 @@ export default [
       'src/workspace/toolDefs/**',
       // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
       // 2026-10-12：src/games/games.js 已迁出（name/description → nameKey/descriptionKey）。
-      'src/imageGen/providers.js',
+      // 2026-10-12：src/imageGen/providers.js 已迁出（label/keyHint/corsNote/networkNote → *Key）。
       // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
       // 2026-10-12：src/localModel/modelCatalog.js 已迁出（CATALOG_PROVIDERS 为死导出，已删）。
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
