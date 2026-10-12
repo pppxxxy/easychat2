@@ -82,7 +82,7 @@ export default function SessionRecoveryModal({
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>{t('sessionRecovery.title')}</Text>
-          <TouchableOpacity onPress={closeAll} hitSlop={8} accessibilityLabel={t('common.close')}>
+          <TouchableOpacity onPress={closeAll} hitSlop={8} accessibilityLabel={t('sessionRecovery.closeA11y')}>
             <Ionicons name="close" size={22} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </View>
