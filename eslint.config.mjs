@@ -130,8 +130,8 @@ export default [
       // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
       'src/games/games.js',
       'src/imageGen/providers.js',
-      'src/localModel/modelCatalog.js',
       // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
+      // 2026-10-12：src/localModel/modelCatalog.js 已迁出（CATALOG_PROVIDERS 为死导出，已删）。
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
