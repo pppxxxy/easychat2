@@ -59,6 +59,7 @@
     "src/GroupEditForm.js",
     "src/MomentsView.js",
     "src/CardForgeEditor.js",
+    "src/cardForge/editorStyles.js",
     "src/books/ChapterImages.js",
     "src/books/ChapterNotice.js",
     "src/books/ChapterOutro.js",
