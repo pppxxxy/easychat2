@@ -22,6 +22,8 @@ ios/
 !plugins/screenOverlay/android/**
 !plugins/chaquopy/android/
 !plugins/chaquopy/android/**
+!plugins/networkSecurity/android/
+!plugins/networkSecurity/android/**
 *.jks
 *.keystore
 .env

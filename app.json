@@ -26,6 +26,7 @@
       "./plugins/withProactiveMessage",
       "./plugins/withLocalApiServer",
       "./plugins/withShellExecutor",
+      "./plugins/withNetworkSecurity",
       "./plugins/withScreenOverlay",
     [
       "./plugins/withChaquopy",
