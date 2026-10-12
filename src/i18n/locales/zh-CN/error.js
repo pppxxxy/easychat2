@@ -243,6 +243,9 @@ export const error = {
   'error.localModel.pathEmpty': '本地模型文件路径为空',
   'error.localModel.requestCanceled': '本地模型请求已取消',
   'error.localModel.apiServerUnsupported': '当前环境不支持本地 API 服务（仅 Android 原生构建可用）',
+  // A1 修复（2026-10-12）：上一次卸载没释放干净时就**不再继续加载**（fail-closed）。
+  // 语义是「宁可这次加载失败，也不在泄漏的原生上下文之上再分配一份」（后者在手机上直接 OOM）。
+  'error.localModel.releaseIncomplete': '上一次模型上下文未能释放，已取消本次加载以免内存叠加。请重启应用后重试',
   'error.localModel.unknown': '未知错误',
   'error.localModel.resourceBusy': '本地模型资源被占用',
   'error.localModel.inferenceFailed': '本地模型推理失败',

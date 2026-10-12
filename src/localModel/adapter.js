@@ -34,6 +34,11 @@ export function isLocalModelModuleAvailable() {
 
 let current = null;
 
+// A1：释放失败时原生 llama context（数 GB）仍活着，但 JS 侧不能就此丢掉句柄——
+// 句柄丢了泄漏就再也无法重试（unload 会走「无 current ⇒ 已释放」的早退），
+// 下一次 load 还会在泄漏之上再 initLlama 一份（叠加分配 OOM）。失败的那份挂这里等重试。
+let pendingRelease = null;
+
 function unavailableError() {
   const error = new Error(tActive('error.localModel.unavailable'));
   error.code = 'LOCAL_MODEL_UNAVAILABLE';
@@ -145,7 +150,20 @@ export async function loadLocalModel(model, { onProgress } = {}) {
   }
   const key = modelKey(model);
   if (current && current.key === key) return current;
-  await unloadLocalModel();
+  // 卸载并检查返回值：unloadLocalModel() 返回 false 的语义是「原生上下文可能仍活着」
+  // （见其注释），旧实现直接忽略返回值继续 initLlama ⇒ 在泄漏之上再分配一份 ⇒ 手机 OOM。
+  const released = await unloadLocalModel();
+  if (!released) {
+    // fail-closed（口径同 :278 跨对话清缓存的「宁可损失，不可叠加」）：释放没成功
+    // 就绝不继续 initLlama，宁可这次加载失败，也不叠加第二份原生上下文。
+    const error = new Error(tActive('error.localModel.releaseIncomplete'));
+    error.code = 'RELEASE_INCOMPLETE';
+    recordModelLog('load', `取消加载：上一次模型上下文释放未完成（key=${key}）`, {
+      level: 'error',
+      context: buildLoadContext(model, key),
+    });
+    throw error;
+  }
 
   const runtimeModelId = String((model && (model.id || model.modelId)) || '');
   setRuntimeLoading(runtimeModelId, 0);
@@ -188,12 +206,42 @@ export async function loadLocalModel(model, { onProgress } = {}) {
 // 返回是否完全释放：删除已加载模型等场景必须知道「内存真的还回来了」——
 // 释放失败时原生上下文可能泄漏，调用方应中止后续破坏性操作（如删文件）。
 export async function unloadLocalModel() {
+  // 先重试上次失败的释放：current 已被清掉但原生句柄还挂在 pendingRelease 上
+  // （旧实现失败时也把 current 置 null ⇒ 泄漏永久不可恢复，返回值的语义只对
+  // 第一次有意义）。重试成功才清挂件，失败继续留着给下一次。
+  if (pendingRelease) {
+    const retried = await releaseContext(pendingRelease.context, pendingRelease.key);
+    if (retried) {
+      pendingRelease = null;
+      setRuntimeIdle();
+      return true;
+    }
+    setRuntimeError(new Error('模型释放未完全成功'), '');
+    return false;
+  }
   if (!current) {
     setRuntimeIdle();
     return true;
   }
   const { context, key } = current;
-  current = null;
+  const released = await releaseContext(context, key);
+  if (released) {
+    // 只有真的释放成功才丢句柄：失败时保留 current（下一次 unload 可重试，
+    // 返回 false 也才有意义——旧实现把 current = null 放在释放之前，返回 false
+    // 之后 JS 侧已无句柄可重试，下一次 load 还会在泄漏上再 initLlama 一份）。
+    current = null;
+    setRuntimeIdle();
+    return true;
+  }
+  // 失败：current 保留（面板的「已加载」仍如实显示），句柄另存一份给重试。
+  pendingRelease = { context, key };
+  setRuntimeError(new Error('模型释放未完全成功'), '');
+  return false;
+}
+
+// 释放单个常驻上下文（多模态 + 主上下文）；任一步失败即视为未完全释放。
+// 与调用方的记账解耦：本函数只回答「原生侧还回来了吗」。
+async function releaseContext(context, key) {
   let releaseFailed = false;
   try {
     if (context && typeof context.releaseMultimodal === 'function') await context.releaseMultimodal();
@@ -213,8 +261,6 @@ export async function unloadLocalModel() {
   }
   // 释放失败时上下文可能泄漏在原生侧，不能记成「已释放」误导排查。
   recordModelLog('unload', releaseFailed ? '模型释放未完全成功' : '模型已释放', { context: key });
-  if (!releaseFailed) setRuntimeIdle();
-  else setRuntimeError(new Error('模型释放未完全成功'), '');
   return !releaseFailed;
 }
 

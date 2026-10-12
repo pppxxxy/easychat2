@@ -28,9 +28,18 @@ function normalizeStore(raw) {
 
 // 读统计表并**保留读取状态**（读路径对外行为不变：损坏时仍给空统计，界面不崩）。
 // 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+// **形状校验收进读函数**：readJsonStatus 的 `ok` 只保证 JSON.parse 成功，值可能是
+// null / 原语 / 数组。「合法 JSON 但形状不是对象」的第四态此前被 normalizeStore 吞成
+// 空表、status 仍是 ok ⇒ :53 只拦 corrupt 的守卫放行 ⇒ 整键覆盖，其它会话的统计被清空。
+// 形状坏与 corrupt 折进同一个 status 后守卫无需改动即 fail-closed。
+// 判据形态照 settings/tts.js:50-56、globalPresets.js:89-93、security.js 同批修复。
 async function readSessionStatsStatus() {
   const stored = await readJsonStatus(SESSION_STATS_KEY);
-  if (stored.status === 'corrupt') {
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok'
+      && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
+  ) {
     await backupCorruptValue(SESSION_STATS_KEY);
     return { status: 'corrupt', store: {} };
   }

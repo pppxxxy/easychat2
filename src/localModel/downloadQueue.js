@@ -88,11 +88,22 @@ export function checkDiskSpace({ freeBytes = 0, requiredBytes = 0, headroomRatio
 }
 
 // 镜像回退判定（纯函数）：只有官方源 huggingface 且改写结果有效时给出回退目标。
+// ⚠️ 必须**同时**改写 mmprojUrl（A2）：回退机制存在的唯一理由就是官方源不可达，
+// 只改模型本体则 mmproj 仍走 huggingface ⇒ 模型下完、mmproj 必失败 ⇒
+// modelManager 的失败清理由把刚下完的模型删掉（modelManager.js:239）⇒ 任务 error
+// ⇒ 用户重试 ⇒ 无限循环白耗带宽。URL 为空/改写无效时**不返回空串覆盖**原值。
 export function resolveMirrorFallback(task = {}) {
   if (String(task.sourceId || '') !== MIRROR_FALLBACK_FROM) return null;
   const rewritten = rewriteDownloadSourceUrl(task.modelUrl, MIRROR_FALLBACK_SOURCE_ID);
   if (!rewritten || rewritten === task.modelUrl) return null;
-  return { modelUrl: rewritten, sourceId: MIRROR_FALLBACK_SOURCE_ID };
+  const mmprojRewritten = rewriteDownloadSourceUrl(task.mmprojUrl, MIRROR_FALLBACK_SOURCE_ID);
+  return {
+    modelUrl: rewritten,
+    // 空串不覆盖：调用方用 `fallback.mmprojUrl || baseInput.mmprojUrl` 兜底，
+    // 这里也保持「未改写 = 空串」的诚实形态，不假装改写成功。
+    mmprojUrl: mmprojRewritten && mmprojRewritten !== task.mmprojUrl ? mmprojRewritten : '',
+    sourceId: MIRROR_FALLBACK_SOURCE_ID,
+  };
 }
 
 // 归一化任务：id 由模型标识推导（与 modelManager 下载落点一致），保证同一模型不重复排队。

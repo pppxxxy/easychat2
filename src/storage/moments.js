@@ -96,12 +96,26 @@ function normalizeProactiveSettings(raw) {
 
 // 读主动消息设置并**保留读取状态**（读路径对外行为不变：损坏时仍给空设置，面板不崩）。
 // 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+//
+// **形状校验收进读函数**：readJsonStatus 名义三态，但 `ok` 只保证「JSON.parse 成功」，
+// 值可以是 null / 原语 / 数组。「合法 JSON 但形状不是对象」是真实存在的第四态，
+// readJsonStatus 不替调用方判形状。此前这里 `ok` 无条件保留，形状问题被
+// normalizeProactiveSettings 吞成空设置而 status 仍是 ok ⇒ 下面只拦 corrupt 的写守卫放行
+// ⇒ 保存整键覆盖、用户每个角色的时段/人格/自定义提示词全丢。
+// 现在形状坏与 corrupt 折进同一个 status，写守卫无需改动即自动 fail-closed。
+// 判据形态照 src/storage/settings/tts.js:50-56、globalPresets.js:89-93、security.js 同批修复。
 async function readProactiveSettingsStatus() {
   const stored = await readJsonStatus(PROACTIVE_SETTINGS_KEY);
-  if (stored.status === 'corrupt') {
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok'
+      && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
+  ) {
     // 与其它集合一致：损坏先备份，不静默覆盖用户的时间设置
     await backupCorruptValue(PROACTIVE_SETTINGS_KEY);
-    return { status: 'corrupt', settings: { slots: [], apiConfigId: '', model: '' } };
+    // corrupt 分支与 diary.js:38、sessionStats.js:35 统一走 normalizeXxx(null)，
+    // 不再硬编码一份「恰好等于默认值」的字面量（两处一旦不同步就会各自漂移）。
+    return { status: 'corrupt', settings: normalizeProactiveSettings(null) };
   }
   return {
     status: stored.status === 'ok' ? 'ok' : 'missing',

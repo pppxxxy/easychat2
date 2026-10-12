@@ -234,6 +234,10 @@ export const error = {
   'error.localModel.pathEmpty': 'The local model file path is empty.',
   'error.localModel.requestCanceled': 'The local model request was canceled.',
   'error.localModel.apiServerUnsupported': 'The local API server is not supported in this environment (Android native builds only).',
+  // A1 fix (2026-10-12): when the previous unload did not release cleanly we refuse to
+  // continue loading (fail-closed) — better to fail this load than allocate a second
+  // native context on top of a leaked one (which OOMs on phones).
+  'error.localModel.releaseIncomplete': 'The previous model context could not be released. Loading was cancelled to avoid stacking memory. Please restart the app and try again.',
   'error.localModel.unknown': 'Unknown error',
   'error.localModel.resourceBusy': 'The local model resource is busy.',
   'error.localModel.inferenceFailed': 'Local model inference failed.',
