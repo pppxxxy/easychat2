@@ -11,6 +11,8 @@
 // 生效值的取法：`store.retention`（`createWorkspaceStore` 从工作区设置带下来）。
 // 假 store / 老数据没有这个字段 → 一律走默认，行为与加这个模块之前逐字一致。
 
+import { clampInt } from '../utils/clampInt.js';
+
 export const HISTORY_KEEP_DEFAULT = 200;
 export const ROLLBACK_KEEP_DEFAULT = 3;
 export const SESSION_EVENTS_MAX_KB_DEFAULT = 512;
@@ -30,23 +32,21 @@ export const DEFAULT_RETENTION = Object.freeze({
   sessionEventsMaxKb: SESSION_EVENTS_MAX_KB_DEFAULT,
 });
 
-function clampInt(value, bounds, fallback) {
-  const num = Math.floor(Number(value));
-  if (!Number.isFinite(num)) return fallback;
-  return Math.min(bounds.max, Math.max(bounds.min, num));
-}
+// 整数夹取用唯一实现 utils/clampInt.js（此处曾有一份接 bounds 对象的私有副本）。
 
 // 归一化：非法/缺失一律回落默认；合法值夹进区间（不静默接受 0 或负数）。
 export function normalizeRetention(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
-    historyKeep: clampInt(source.historyKeep, RETENTION_BOUNDS.historyKeep, HISTORY_KEEP_DEFAULT),
-    rollbackKeep: clampInt(source.rollbackKeep, RETENTION_BOUNDS.rollbackKeep, ROLLBACK_KEEP_DEFAULT),
-    sessionEventsMaxKb: clampInt(
-      source.sessionEventsMaxKb,
-      RETENTION_BOUNDS.sessionEventsMaxKb,
-      SESSION_EVENTS_MAX_KB_DEFAULT
-    ),
+    historyKeep: clampInt(source.historyKeep, {
+      ...RETENTION_BOUNDS.historyKeep, fallback: HISTORY_KEEP_DEFAULT,
+    }),
+    rollbackKeep: clampInt(source.rollbackKeep, {
+      ...RETENTION_BOUNDS.rollbackKeep, fallback: ROLLBACK_KEEP_DEFAULT,
+    }),
+    sessionEventsMaxKb: clampInt(source.sessionEventsMaxKb, {
+      ...RETENTION_BOUNDS.sessionEventsMaxKb, fallback: SESSION_EVENTS_MAX_KB_DEFAULT,
+    }),
   };
 }
 

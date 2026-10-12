@@ -5,6 +5,8 @@
 // 纯扫描函数（searchWorkspaceText）与工具壳分离：前者零 I/O、Node 可直测命中矩阵与
 // 预算；后者只负责取文件列表、逐个读入（受同一时间预算约束）再交给纯函数。
 
+import { clampInt } from '../../utils/clampInt.js';
+
 export const SEARCH_DEFAULTS = Object.freeze({
   contextLines: 2,
   maxContextLines: 5,
@@ -23,11 +25,7 @@ export const SEARCH_DEFAULTS = Object.freeze({
 // 而不是在工具内就地截断丢失中段。纯函数默认 8KB 仍用于常规小结果。
 export const SEARCH_TOOL_OUTPUT_CHARS = 1024 * 1024;
 
-function clampInt(value, fallback, min, max) {
-  const n = Math.trunc(Number(value));
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
+// 整数夹取用唯一实现 utils/clampInt.js（此处曾有一份参数顺序不同的私有副本）。
 
 // 纯扫描。files = [{ path, content }]；now/startTime 可注入以便确定性测试时间预算。
 // 返回 { text, matchCount, fileCount, truncated, error, message }。
@@ -56,8 +54,12 @@ export function searchWorkspaceText(files, {
       };
     }
   }
-  const ctx = clampInt(contextLines, SEARCH_DEFAULTS.contextLines, 0, SEARCH_DEFAULTS.maxContextLines);
-  const perFile = clampInt(maxMatchesPerFile, SEARCH_DEFAULTS.maxMatchesPerFile, 1, SEARCH_DEFAULTS.maxMatchesPerFileCap);
+  const ctx = clampInt(contextLines, {
+    min: 0, max: SEARCH_DEFAULTS.maxContextLines, fallback: SEARCH_DEFAULTS.contextLines,
+  });
+  const perFile = clampInt(maxMatchesPerFile, {
+    min: 1, max: SEARCH_DEFAULTS.maxMatchesPerFileCap, fallback: SEARCH_DEFAULTS.maxMatchesPerFile,
+  });
   const list = Array.isArray(files) ? files : [];
 
   const blocks = [];

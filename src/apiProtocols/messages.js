@@ -3,14 +3,10 @@ import { toAnthropicImagePart, toTextParts } from './multimodal.js';
 // Z/M/D 整合：system 断点位置由 prompt/systemSections 的稳定前缀决定（systemCache），
 // TTL/off 开关复用 D 系 cacheControl——两边合成一套。
 import { DEFAULT_PROMPT_CACHE_TTL, cacheControlFor } from './cacheControl.js';
+import { safeJsonParse } from '../utils/safeJson.js';
 
-function safeParseJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    return null;
-  }
-}
+// 工具调用参数是模型给的**字符串**，可能不是合法 JSON——解析失败当空对象（回退 null）。
+// 实现在 utils/safeJson.js（此前这里另有一份同名 safeParseJson）。
 
 // OpenAI 兼容：内部形态即目标形态，原样返回；**只剥内部字段**（协议里没有它们）：
 //   systemCache —— 内部缓存计划字段（见 prompt/systemSections.js）
@@ -119,7 +115,7 @@ export function toAnthropicRequest(messages, { cacheTtl = DEFAULT_PROMPT_CACHE_T
           type: 'tool_use',
           id: String(call && call.id || ''),
           name: String(fn.name || ''),
-          input: safeParseJson(String(fn.arguments || '')) || {},
+          input: safeJsonParse(String(fn.arguments || '')) || {},
         });
       });
       pushTurn('assistant', blocks);

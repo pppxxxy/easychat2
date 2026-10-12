@@ -10,6 +10,8 @@
 //
 // 纯逻辑 + `new Function`，Node 可直测（Node 与 Hermes 都支持 `new Function`）。
 
+import { safeJsonStringify } from '../../utils/safeJson.js';
+
 export const SANDBOX_DEFAULT_TIMEOUT_MS = 3000;
 export const SANDBOX_LOG_MAX = 4000;
 
@@ -27,7 +29,7 @@ export function createCapabilityContext({ permissions = [], capabilities = {}, l
   const lines = [];
   const push = (...args) => {
     if (lines.length >= 200) return;
-    lines.push(args.map(a => (typeof a === 'string' ? a : safeJson(a))).join(' '));
+    lines.push(args.map(a => (typeof a === 'string' ? a : safeJsonStringify(a))).join(' '));
   };
   const ctx = {
     // log 永远可用（纯内存，无副作用）。
@@ -48,10 +50,6 @@ export function createCapabilityContext({ permissions = [], capabilities = {}, l
     ctx.notify = text => cap.notify(String(text == null ? '' : text));
   }
   return ctx;
-}
-
-function safeJson(value) {
-  try { return JSON.stringify(value); } catch (error) { return String(value); }
 }
 
 // 编译一段 handler 源码为**异步**函数（handler 里可 `await ctx.read(...)`）。handler 是

@@ -16,18 +16,13 @@
 // 每轮一次的读改写成本可接受；等文件真的变大再考虑分片（审查待办留痕）。
 
 import { SESSION_EVENTS_MAX_KB_DEFAULT, retentionOf, sessionEventsMaxBytes } from './retention.js';
+import { utf8ByteLength } from '../utils/byteLength.js';
 
 // UTF-8 字节长度：retention 的上限是「KB」（字节），而 `String.length` 是 UTF-16 码元数——
-// CJK 下 1 字符≈3 字节，用 .length 比会把上限放大到实际的三倍。手算避免依赖 TextEncoder
-// （RN 各运行时对它的支持不一）。纯函数，无依赖。
-export function utf8ByteLength(text) {
-  let bytes = 0;
-  for (const ch of String(text == null ? '' : text)) {
-    const cp = ch.codePointAt(0);
-    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-  }
-  return bytes;
-}
+// CJK 下 1 字符≈3 字节，用 .length 比会把上限放大到实际的三倍。实现在 utils/byteLength.js
+// （此前这里还有一份 for...of + codePointAt 的手写副本，与本文件外的那份语义已略有出入）；
+// 这里 import + re-export 保持既有引用面不变。
+export { utf8ByteLength };
 
 export const SESSIONS_DIR = '.easychat/sessions';
 export const SESSION_EVENT_TYPES = Object.freeze([

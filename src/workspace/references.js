@@ -8,6 +8,7 @@
 // 记为「定义」，否则记为「引用」。启发式、不追求完备（真 LSP 不可行）。
 
 import { extractSymbols, languageFromPath } from './symbols.js';
+import { clampInt } from '../utils/clampInt.js';
 
 export const REFERENCES_DEFAULTS = Object.freeze({
   contextLines: 0,
@@ -18,11 +19,7 @@ export const REFERENCES_DEFAULTS = Object.freeze({
   timeBudgetMs: 2500,
 });
 
-function clampInt(value, fallback, min, max) {
-  const n = Math.trunc(Number(value));
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
+// 整数夹取用唯一实现 utils/clampInt.js（此处曾有一份参数顺序不同的私有副本）。
 
 export function escapeRegExp(text) {
   return String(text == null ? '' : text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -50,8 +47,12 @@ export function scanReferences(files, {
 } = {}) {
   const matcher = buildSymbolPattern(symbol);
   if (!matcher) return { text: '', fileCount: 0, total: 0, definitions: 0, references: 0, truncated: false, error: 'empty-symbol' };
-  const ctx = clampInt(contextLines, REFERENCES_DEFAULTS.contextLines, 0, REFERENCES_DEFAULTS.maxContextLines);
-  const perFile = clampInt(maxMatchesPerFile, REFERENCES_DEFAULTS.maxMatchesPerFile, 1, REFERENCES_DEFAULTS.maxMatchesPerFileCap);
+  const ctx = clampInt(contextLines, {
+    min: 0, max: REFERENCES_DEFAULTS.maxContextLines, fallback: REFERENCES_DEFAULTS.contextLines,
+  });
+  const perFile = clampInt(maxMatchesPerFile, {
+    min: 1, max: REFERENCES_DEFAULTS.maxMatchesPerFileCap, fallback: REFERENCES_DEFAULTS.maxMatchesPerFile,
+  });
   const list = Array.isArray(files) ? files : [];
 
   const blocks = [];

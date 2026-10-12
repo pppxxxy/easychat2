@@ -22,6 +22,7 @@ import {
   setJsonRaw,
   setJsonWithSecrets,
 } from '../io.js';
+import { clampInt } from '../../utils/clampInt.js';
 
 const IMAGE_RECOGNITION_KEY = '@easychat2_image_recognition';
 const IMAGE_RECOGNITION_CACHE_KEY = '@easychat2_image_recognition_cache';
@@ -54,13 +55,7 @@ export const MAX_DESCRIPTION_CHARS = 2000;
 export const SCREEN_WATCH_SOURCES = ['main', 'ocr'];
 export const DEFAULT_SCREEN_WATCH_SOURCE = 'main';
 
-function clampInt(value, min, max, fallback) {
-  const number = Math.floor(Number(value));
-  if (!Number.isFinite(number)) return fallback;
-  if (number < min) return min;
-  if (number > max) return max;
-  return number;
-}
+// 整数夹取用唯一实现 utils/clampInt.js（此处曾有一份参数顺序不同的私有副本）。
 
 function normalizeSource(value) {
   const raw = String(value || '');
@@ -78,9 +73,15 @@ export function normalizeImageRecognitionSettings(raw) {
     apiConfigId: String(source.apiConfigId || ''),
     model: String(source.model || '').trim(),
     descriptionPrompt: prompt,
-    maxOutputTokens: clampInt(source.maxOutputTokens, 32, MAX_OUTPUT_TOKENS_LIMIT, DEFAULT_MAX_OUTPUT_TOKENS),
-    timeoutSeconds: clampInt(source.timeoutSeconds, MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS),
-    concurrency: clampInt(source.concurrency, 1, MAX_CONCURRENCY, DEFAULT_CONCURRENCY),
+    maxOutputTokens: clampInt(source.maxOutputTokens, {
+      min: 32, max: MAX_OUTPUT_TOKENS_LIMIT, fallback: DEFAULT_MAX_OUTPUT_TOKENS,
+    }),
+    timeoutSeconds: clampInt(source.timeoutSeconds, {
+      min: MIN_TIMEOUT_SECONDS, max: MAX_TIMEOUT_SECONDS, fallback: DEFAULT_TIMEOUT_SECONDS,
+    }),
+    concurrency: clampInt(source.concurrency, {
+      min: 1, max: MAX_CONCURRENCY, fallback: DEFAULT_CONCURRENCY,
+    }),
     // 主模型本身支持识图时，是否把原图也一并交给它（描述仍然照发）。
     attachOriginal: source.attachOriginal === true,
     screenWatchSource: normalizeSource(source.screenWatchSource),
@@ -150,7 +151,7 @@ async function readCacheTable() {
 // 按「最近使用」裁剪到上限：保留 at 最大的 N 条（写入时刷新 at）。
 export function pruneImageRecognitionCache(entries, limit = DEFAULT_CACHE_ENTRIES) {
   const source = entries && typeof entries === 'object' && !Array.isArray(entries) ? entries : {};
-  const max = clampInt(limit, 1, MAX_CACHE_ENTRIES, DEFAULT_CACHE_ENTRIES);
+  const max = clampInt(limit, { min: 1, max: MAX_CACHE_ENTRIES, fallback: DEFAULT_CACHE_ENTRIES });
   const list = Object.entries(source)
     .map(([key, value]) => ({ key, entry: normalizeCacheEntry(value) }))
     .filter(item => item.entry);

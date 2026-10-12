@@ -10,6 +10,8 @@
 //
 // 纯解析（parseSseText）与客户端分离：前者可 Node 直测；后者注入 fetch 亦可直测。
 
+import { safeJsonParse } from '../utils/safeJson.js';
+
 export const SDK_DEFAULT_BASE_URL = 'http://127.0.0.1:8686';
 export const AGENT_RUN_OBJECT = 'agent.run';
 
@@ -29,13 +31,10 @@ export function parseSseText(text) {
     }
     if (dataLines.length === 0) continue;
     const data = dataLines.join('\n');
-    events.push({ event, data: data === '[DONE]' ? '[DONE]' : safeJson(data) });
+    // 解析失败时保留原文（回退即 text 本身）——实现在 utils/safeJson.js。
+    events.push({ event, data: data === '[DONE]' ? '[DONE]' : safeJsonParse(data, data) });
   }
   return { events, rest };
-}
-
-function safeJson(text) {
-  try { return JSON.parse(text); } catch (error) { return text; }
 }
 
 // 从 OpenAI 风格 chunk 里取增量文本（兼容 chat.completion.chunk 与 responses 事件）。

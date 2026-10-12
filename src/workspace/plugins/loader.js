@@ -13,6 +13,7 @@
 import { normalizeManifest, validateManifest, PLUGIN_MANIFEST_VERSION } from './manifest.js';
 import { createSlotRegistry } from './registry.js';
 import { runInSandbox } from './sandbox.js';
+import { safeJsonStringify } from '../../utils/safeJson.js';
 
 export const PLUGINS_FILE = '.easychat/plugins.json';
 export const PLUGINS_FILE_VERSION = 1;
@@ -71,7 +72,7 @@ export function buildPluginRuntime(plugins, { capabilities = {}, source = 'exten
           const logs = outcome.logs && outcome.logs.length ? `\n[插件日志]\n${outcome.logs.join('\n')}` : '';
           if (!outcome.ok) return { content: `插件执行失败：${outcome.error}${logs}`, isError: true };
           const value = outcome.value;
-          const text = typeof value === 'string' ? value : safeJson(value);
+          const text = typeof value === 'string' ? value : safeJsonStringify(value);
           return `${text || '（插件无输出）'}${logs}`;
         },
       });
@@ -82,10 +83,6 @@ export function buildPluginRuntime(plugins, { capabilities = {}, source = 'exten
     }
   }
   return { registry, tools, hooks, pluginIds };
-}
-
-function safeJson(value) {
-  try { return JSON.stringify(value); } catch (error) { return String(value); }
 }
 
 async function readPluginsText(store, characterId) {

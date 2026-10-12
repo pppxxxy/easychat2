@@ -6,6 +6,8 @@
 //
 // 依赖注入 store（legacy / SAF 后端同一接口），零原生依赖，Node 可直测。
 
+import { utf8ByteLength } from '../utils/byteLength.js';
+
 export const TASK_OUTPUT_ROOT = '.task_outputs';
 export const TOOL_RESULTS_DIR = '.task_outputs/tool-results';
 // 每沙盒保留份数（近似「每会话」上限）。
@@ -20,21 +22,9 @@ export const TASK_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 
 const TASK_OUTPUT_INDEX = '.task_outputs/index.json';
 
-// UTF-8 字节数（中文 3 字节，代理对 4 字节）。避免依赖 Buffer / storage 层。
-function utf8Length(text) {
-  const s = String(text === undefined || text === null ? '' : text);
-  let bytes = 0;
-  for (let i = 0; i < s.length; i += 1) {
-    const code = s.charCodeAt(i);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff) {
-      bytes += 4;
-      i += 1;
-    } else bytes += 3;
-  }
-  return bytes;
-}
+// 字节计数用唯一实现 utils/byteLength.js：这里曾手写第三份（且把孤立代理算成 4 字节，
+// 与实现的 3 字节不一致）。清单里的 size 与沙盒总量预算必须同一口径，否则「超预算」
+// 的判定会随调用点漂移。
 
 // tool_use_id → 白名单文件名：只留 [a-zA-Z0-9_-]，防路径穿越与非法字符。
 export function sanitizeToolOutputName(toolUseId, fallback = 'result') {
@@ -90,7 +80,7 @@ export async function persistToolResult({ store, characterId, toolUseId, content
     return null;
   }
   const index = await readIndex(store, characterId);
-  index[name] = utf8Length(text);
+  index[name] = utf8ByteLength(text);
   // LRU 清理（份数 + 字节双约束）尽力而为：失败不影响本次落盘结果。
   await pruneToolResults({ store, characterId, max, maxBytes, index }).catch(() => {});
   return { path, name };

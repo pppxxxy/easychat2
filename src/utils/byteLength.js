@@ -5,9 +5,12 @@
 //（与各自独立编码的结果一致）——所有调用方都拿它判「是否超过内联/截断阈值」，
 // 数错就会让阈值口径不一致。
 //
-// 为什么单独成文件：这段逻辑曾在**四处**各写一份——storage/io.js、
-// storage/backupStream.js（分片累加版）、chat/RichHtmlMessage.js、workspace/memory.js。
-// 与 src/utils/format.js 同因：逐字相同的实现散在各处，改一处就会漂移。现在只有这一份。
+// 为什么单独成文件：这段逻辑曾在**多处**各写一份——storage/io.js、
+// storage/backupStream.js（分片累加版）、chat/RichHtmlMessage.js、workspace/memory.js；
+// 2026-10-12 第二批又收编了 workspace/taskOutputs.js 与 workspace/sessionEvents.js
+//（后者写成 for...of + codePointAt，前者把孤立代理算成 4 字节，与这里的 3 字节不一致）。
+// 与 src/utils/format.js 同因：逐字相同的实现散在各处，改一处就会漂移。现在只有这一份；
+// 消费方清单与「再长一份就红」的检查在 tests/byteLengthSingleSource.test.mjs。
 
 export function utf8ByteLength(text) {
   const value = String(text || '');
