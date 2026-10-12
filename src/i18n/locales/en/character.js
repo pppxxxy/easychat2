@@ -42,6 +42,7 @@ export const character = {
   'character.detail.importParseFail.fallback': 'Please check that the file format is correct.',
   'character.detail.importEmpty.title': 'Unable to Import',
   'character.detail.importEmpty.body': 'No character content found in the file. Please check the card structure is complete.',
+  'character.detail.importNoCardData': 'This image contains no character card data. Please upload a character card JSON file or a PNG with embedded data.',
   'character.detail.importSummary.body': 'Character loaded: {name}; {world} world entries, {regex} regex scripts, {presets} presets; {greeting}',
   'character.detail.importSummary.withGreeting': 'greeting included',
   'character.detail.importSummary.noGreeting': 'no greeting',

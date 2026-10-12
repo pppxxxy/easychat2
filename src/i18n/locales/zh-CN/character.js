@@ -42,6 +42,7 @@ export const character = {
   'character.detail.importParseFail.fallback': '请确认文件格式是否正确。',
   'character.detail.importEmpty.title': '无法导入',
   'character.detail.importEmpty.body': '未从文件中识别到角色内容，请确认卡片结构是否完整。',
+  'character.detail.importNoCardData': '该图片不包含角色卡数据，请上传角色卡 JSON 文件或含数据的 PNG 图片。',
   'character.detail.importSummary.body': '已加载角色：{name}，世界书 {world} 条，正则 {regex} 条，预设 {presets} 条，{greeting}',
   'character.detail.importSummary.withGreeting': '含开场白',
   'character.detail.importSummary.noGreeting': '无开场白',

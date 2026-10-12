@@ -219,6 +219,7 @@ export const error = {
   'error.memory.summaryReset': '会话摘要已重置',
   'error.memory.scopeChanged': '记忆作用域已变化',
   'error.memory.characterUpdated': '角色已在总结期间更新',
+  'error.chat.reactiveCompactFailed': '上下文超限，已尝试自动压缩仍失败，请手动压缩或精简会话。',
   'error.storage.locationReadFailed': '位置设置读取失败，请稍后重试',
   'error.presets.invalid': '预设需要有效的 ID、名称和提示词',
   'error.presets.listInvalid': '预设列表格式错误',

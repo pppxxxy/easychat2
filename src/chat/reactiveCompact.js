@@ -13,7 +13,9 @@ import {
 } from './compactionPipeline.js';
 
 export const REACTIVE_KEEP_RECENT = 5;
-export const REACTIVE_FAILED_MESSAGE = '上下文超限，已尝试自动压缩仍失败，请手动压缩或精简会话。';
+// 失败文案走 i18n：这里只留 key，由消费方（useChatSend）用 tRef 翻译，避免把界面语言
+// 钉死在模块加载期。词条见 src/i18n/locales/*/chat.js 的 error.chat.reactiveCompactFailed。
+export const REACTIVE_FAILED_MESSAGE_KEY = 'error.chat.reactiveCompactFailed';
 
 // 错误矩阵：code/type 或 message 命中任一子串即判为上下文超限（大小写不敏感）。
 export const CONTEXT_OVERFLOW_CODES = Object.freeze([

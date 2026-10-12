@@ -5,11 +5,12 @@ import assert from 'node:assert/strict';
 import { findOrphanToolMessages } from '../src/agent/resultClearing.js';
 import { COMPACTION_MARKER } from '../src/chat/compaction.js';
 import {
-  REACTIVE_FAILED_MESSAGE,
+  REACTIVE_FAILED_MESSAGE_KEY,
   REACTIVE_KEEP_RECENT,
   isContextOverflowError,
   runReactiveCompact,
 } from '../src/chat/reactiveCompact.js';
+import { zhCN } from '../src/i18n/locales/zh-CN.js';
 
 function round(id, content) {
   return [
@@ -84,7 +85,8 @@ test('配对边界：切割点落在 toolUse↔结果之间时回退（无孤儿
   });
   assert.equal(findOrphanToolMessages(result.messages).length, 0, '不得产生孤儿 tool 消息');
   assert.equal(REACTIVE_KEEP_RECENT, 5);
-  assert.match(REACTIVE_FAILED_MESSAGE, /自动压缩仍失败/);
+  assert.equal(REACTIVE_FAILED_MESSAGE_KEY, 'error.chat.reactiveCompactFailed');
+  assert.match(zhCN['error.chat.reactiveCompactFailed'], /自动压缩仍失败/);
   assert.ok(String(result.messages[0].content).includes(COMPACTION_MARKER));
 });
 

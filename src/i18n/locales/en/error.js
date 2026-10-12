@@ -214,6 +214,7 @@ export const error = {
   'error.memory.summaryReset': 'The conversation summary has been reset.',
   'error.memory.scopeChanged': 'The memory scope has changed.',
   'error.memory.characterUpdated': 'The character was updated while summarizing.',
+  'error.chat.reactiveCompactFailed': 'The context limit was exceeded and automatic compaction still failed. Please compact manually or trim the conversation.',
   'error.storage.locationReadFailed': 'Failed to read location settings. Please try again later.',
   'error.presets.invalid': 'A preset needs a valid ID, name, and prompt.',
   'error.presets.listInvalid': 'Invalid preset list format.',
