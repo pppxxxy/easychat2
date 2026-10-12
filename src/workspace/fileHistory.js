@@ -24,6 +24,7 @@
 // 篡改历史；快照失败不阻塞写入（尽力而为，写主流程优先）。
 
 import { HISTORY_KEEP_DEFAULT, retentionOf } from './retention.js';
+import { tActive } from '../i18n/index.js';
 
 export const FILE_HISTORY_DIR = '.easychat/file-history';
 export const FILE_HISTORY_INDEX = `${FILE_HISTORY_DIR}/index.json`;
@@ -34,7 +35,16 @@ export const FILE_HISTORY_ENTRIES_DIR = `${FILE_HISTORY_DIR}/entries`;
 // ——防超大文件把 SAF 写爆。
 export const HISTORY_MAX = HISTORY_KEEP_DEFAULT;
 export const HISTORY_ENTRY_MAX_CHARS = 256 * 1024;
-export const FILE_HISTORY_SOURCES = Object.freeze(['tool', 'push-baseline']);
+// 来源枚举。**只收真正的生产者**（收敛，不是补写入者）：
+//   · 'tool'    —— 写工具落笔前的快照（writeTools 的 snapshotBeforeWrite）。
+//   · 'restore' —— 用户点「恢复」时，被这次恢复覆盖掉的**当时内容**（restoreFileHistory）。
+// ⚠️ 此前这里还有一个 'push-baseline'，它在**生产代码里零写入者**（全仓 grep 只命中声明、
+// UI 分支与语言包），是死枚举值。三条依据说明它不该落这里：
+//   1) retention.js 把 file-history 与 rollback 登记为**不同保留域**（HISTORY_MAX vs
+//      ROLLBACK_KEEP），合并会让两套保留期互相打架；
+//   2) 本文件自述「工具级（路径级）」历史，而 push baseline 是**推送级**（含 sha/commit 语义）；
+//   3) 推送成功的快照确实存在，但落点是 GithubPanel 的 `writeRollbackSnapshot` —— H3 有落点。
+export const FILE_HISTORY_SOURCES = Object.freeze(['tool', 'restore']);
 
 function entryPath(id) {
   return `${FILE_HISTORY_ENTRIES_DIR}/${String(id).replace(/[^a-z0-9-]/gi, '')}.json`;
@@ -117,20 +127,48 @@ export function summarizeFileHistory(index) {
   return [...map.values()].sort((left, right) => right.latestAt - left.latestAt);
 }
 
-// 内部：读 index（不存在/坏 → 空数组）。
+// 「索引还没建」与「索引读失败」的判据（**引用先例**：plugins/loader.js:104-114 的
+// isWorkspaceFileMissing，同一条 i18n 文案 + 同义的 ENOENT code 约定）。
+// 两个后端在文件不存在时抛的都是 error.workspace.fileNotFound（store.js:120、
+// safStore.js:178/180），底层文件系统直接冒上来的 ENOENT 同义；**其余异常**
+//（SAF 授权瞬时失效、文件被截断、并发写坏、JSON 坏）才是「读失败」。
+//
+// 为什么这条判据在本模块是生死线：readIndex 一旦把「读失败」当成「空索引」，
+// recordFileHistory 就会拿 [新 meta] 去**整体覆写** index.json（见下面的 writeIndex）。
+// 那一刻磁盘上几百条旧快照文件还在，但 index 里不再有它们 —— readFileHistoryEntry 以
+// index 成员资格为准 ⇒ 那些快照**永远查不到、也删不掉**（轮换同样管不到），历史在 UI 上
+// 等于被清空且不可恢复。这是本模块唯一的后悔药，所以宁可这次不记快照。
+// 同款反模式的修复先例：boardStore.js:42-48（空内容不写、不覆盖已有文件）。
+function isIndexMissing(error) {
+  if (!error) return false;
+  if (error.code === 'ENOENT') return true;
+  const message = String(error.message || '');
+  if (!message) return false;
+  return message === tActive('error.workspace.fileNotFound', { path: FILE_HISTORY_INDEX });
+}
+
+// 内部：读 index —— 返回 { ok, index }。三态而非两态：
+//   ok:true  + index:[]  —— 确实还没有索引（新建工作区）：**可以**从零开始写；
+//   ok:true  + index:[…] —— 读到完整列表；
+//   ok:false             —— 读不到 / 内容不是数组（JSON 坏、被截断）：**绝不能**当空索引。
+// 只有真正的新建路径才允许 writeIndex 从零写；其余情况写前的调用方必须走 ok:false。
 async function readIndex(store, characterId) {
   try {
     const result = await store.readWorkspaceFile({ characterId, path: FILE_HISTORY_INDEX });
     const parsed = JSON.parse(String((result && result.content) || '[]'));
-    return Array.isArray(parsed) ? parsed : [];
+    // 读到但不是数组 = 内容形态坏掉（截断/被别的东西占了路径）：也是读失败，不是「空」。
+    return Array.isArray(parsed) ? { ok: true, index: parsed } : { ok: false, index: [] };
   } catch (error) {
-    return [];
+    if (isIndexMissing(error)) return { ok: true, index: [] };
+    return { ok: false, index: [] };
   }
 }
 
 // IO：读整个索引（工作区回退规划用，见 workspace/rewind.js）。不存在/坏 → 空数组。
+// 这里的「坏 → 空数组」是**只读**路径的降级：rewind 据此当作「没有历史可回退」，
+// 不会写回任何东西，所以不会造成上面那种覆写。写路径（recordFileHistory）不看这个函数。
 export async function readFileHistoryIndex(store, characterId) {
-  return readIndex(store, characterId);
+  return (await readIndex(store, characterId)).index;
 }
 
 // 内部：写 index（失败静默——旁路机制）。
@@ -149,6 +187,7 @@ async function writeIndex(store, characterId, index) {
 
 // IO：记录一条写前快照。oldContent 为空字符串表示「新建」（同样记录，删除可逆）。
 // 返回 { ok, id }；失败 { ok: false }（绝不抛错——快照尽力而为，写主流程优先）。
+// 「失败」包含**索引读失败**（不区分原因，见 readIndex）：那一次快照不记，索引原样不动。
 export async function recordFileHistory(store, characterId, { path, oldContent, source = 'tool', at = 0 } = {}) {
   if (!store || typeof store.writeWorkspaceFile !== 'function') return { ok: false };
   const target = String(path || '').trim();
@@ -158,13 +197,18 @@ export async function recordFileHistory(store, characterId, { path, oldContent, 
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const at1 = Number.isFinite(Number(at)) && Number(at) > 0 ? Math.floor(Number(at)) : Date.now();
   try {
+    // **先读索引，且读失败就立刻放弃这次快照**（返回 { ok:false }，与 line 151 的既有契约一致）。
+    // 顺序上放在写条目文件之前：读失败时连条目文件都不落，免得留下一个永远进不了 index 的孤儿。
+    // 宁可这次不记快照（写主流程优先），也绝不拿一份「自以为的完整列表」整体覆写唯一索引。
+    const read = await readIndex(store, characterId);
+    if (!read.ok) return { ok: false };
+    const index = read.index;
     // 条目文件：内容在限额内才落盘（超限只留元数据，restorable: false）。
     await store.writeWorkspaceFile({
       characterId,
       path: entryPath(id),
       content: JSON.stringify({ id, path: target, content: restorable ? content : '', at: at1 }),
     });
-    const index = await readIndex(store, characterId);
     const meta = normalizeHistoryEntry({
       id,
       path: target,
@@ -201,7 +245,7 @@ export async function recordFileHistory(store, characterId, { path, oldContent, 
 
 // IO：某路径的历史（最新在前，最多 limit 条元数据）。
 export async function listFileHistory(store, characterId, path, { limit = 20 } = {}) {
-  const index = await readIndex(store, characterId);
+  const { index } = await readIndex(store, characterId);
   const target = String(path || '');
   return index
     .filter(item => item && item.path === target)
@@ -210,7 +254,7 @@ export async function listFileHistory(store, characterId, path, { limit = 20 } =
 
 // IO：全部有历史的文件（总览列表，按最新时间倒序）。
 export async function listFileHistoryPaths(store, characterId) {
-  return summarizeFileHistory(await readIndex(store, characterId));
+  return summarizeFileHistory((await readIndex(store, characterId)).index);
 }
 
 // IO：读单条旧内容（元数据 + 内容文件；超限条目如实返回 content: null）。
@@ -219,7 +263,7 @@ export async function readFileHistoryEntry(store, characterId, id) {
   const entryId = String(id || '').trim();
   if (!entryId) return null;
   try {
-    const index = await readIndex(store, characterId);
+    const index = (await readIndex(store, characterId)).index;
     const found = index.find(item => item && item.id === entryId);
     if (!found) return null;
     const result = await store.readWorkspaceFile({ characterId, path: entryPath(entryId) });
@@ -252,7 +296,9 @@ export async function restoreFileHistory(store, characterId, id, { currentConten
     await recordFileHistory(store, characterId, {
       path: entry.path,
       oldContent: currentContent,
-      source: 'tool',
+      // 这不是「工具写入」，是恢复动作自动生成的快照。归到 'tool' 会让用户在历史列表里
+      // 把自己点「恢复」产生的记录误认成模型的写入（两者语义不同，必须能区分）。
+      source: 'restore',
     });
   }
   try {

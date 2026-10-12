@@ -97,3 +97,59 @@ test('H1 工具契约：触发有副作用需确认 / 读日志纯读；execute 
   );
   assert.match(emptyLog, /run_remote_build/, '空记录引导先触发');
 });
+
+// 🔴 日志下载失败不得吞成空串后仍报 ok:true（2026-10-10）。
+// ok:true 是**主动的错误断言**：上层会按「这次构建没有任何日志」呈现给模型，模型据此推理
+//（例如以为 workflow 没产出、进而去改构建配置）。这里同时钉住两端：ci.js 如实报 ok:false，
+// 工具层把它如实翻成「读取构建日志失败」。
+test('H1 latestLog：日志下载失败 → ok:false（不折叠成「没有日志」）；工具层如实提示', async () => {
+  const previousRequire = globalThis.require;
+  const previousFetch = globalThis.fetch;
+  // token 惰性取（ci.js 用 require 拉存储模块，避免把 AsyncStorage 拖进纯 Node 图）
+  globalThis.require = () => ({
+    getGithubMcpSettings: async () => ({ enabled: true, authMethod: 'pat', githubToken: 'tk' }),
+  });
+  const calls = [];
+  globalThis.fetch = async url => {
+    calls.push(String(url));
+    if (String(url).endsWith('/logs')) {
+      // 列表拿到了 run，但日志 zip 拉不下来（403/500/网络）——downloadRunLogs 会抛
+      return {
+        ok: false, status: 500, headers: { get: () => null },
+        json: async () => ({ message: 'server error' }), text: async () => 'server error',
+      };
+    }
+    return {
+      ok: true, status: 200, headers: { get: () => null },
+      json: async () => ({
+        workflow_runs: [{
+          id: 42, name: 'CI', display_title: 'CI', status: 'completed', conclusion: 'success',
+          head_branch: 'main', head_sha: 'abc1234',
+        }],
+      }),
+      text: async () => '',
+    };
+  };
+  try {
+    const { ciBridge } = await import('../src/workspace/ci.js');
+    const result = await ciBridge.latestLog({ owner: 'o', repo: 'r' });
+    assert.equal(result.ok, false, '下载失败必须 ok:false，不得 ok:true + 空 text');
+    assert.equal(result.error, 'log-download-failed');
+    assert.equal(typeof result.detail, 'string');
+    assert.ok(calls.some(url => url.endsWith('/logs')), '确实走到了日志下载那一步');
+
+    // 工具层：ok:false 被正确处理成「读取构建日志失败」（isError），不崩、不谎报「没有日志」
+    const localStore = { async listWorkspaceFiles() { return ['repos/o/r/main/a.js']; } };
+    const out = await GET_BUILD_LOG_DEFINITION.execute(
+      { store: localStore, ci: { async latestLog() { return { ok: false, error: 'log-download-failed' }; } } },
+      {},
+      { characterId: 'c1' },
+    );
+    assert.equal(out.isError, true);
+    assert.match(out.content, /失败/);
+    assert.equal(/没有日志/.test(out.content), false, '不得退化成「没有日志」');
+  } finally {
+    if (previousRequire === undefined) delete globalThis.require; else globalThis.require = previousRequire;
+    if (previousFetch === undefined) delete globalThis.fetch; else globalThis.fetch = previousFetch;
+  }
+});

@@ -7,6 +7,12 @@
 // 安全边界：只允许扩展根目录下的文件进包/落盘（isPackablePath），拒绝路径穿越（..）；
 // 落盘前再过一道**写工具同款**的受保护路径守卫（assertWritableWorkspacePath）——
 // 本模块走 store.writeWorkspaceFile 直写，绕开了写工具的路径守卫，所以守卫要在这里补一份。
+//
+// ⚠️ 一个**有意**的例外（2026-10-12）：`.easychat/hooks.json` 同时是导出白名单成员
+// （PACK_FILES）与受保护写入路径（paths.js 的 PROTECTED_WRITE_PREFIXES，P1-4 加的）。
+// 「同一文件两个入口两种判定」本身不是问题，**判定依据是什么**才是问题：
+// 写工具入口无逐条确认 ⇒ 硬拦；装包入口有 requiresConfirmation ⇒ 确认后可写。
+// 判据见下面的 isConfirmedPackPath，放行依据与调用方不变量见 installWorkspacePack。
 
 import { assertWritableWorkspacePath, isProtectedWorkspacePath } from './paths.js';
 
@@ -41,6 +47,18 @@ export function isPackablePath(path) {
   return PACK_ROOTS.some(root => value.startsWith(root) && value.length > root.length);
 }
 
+// 纯函数：路径是否属于「导出白名单 ∩ 受保护写入路径」这个**交集**（今天恰好只有
+// `.easychat/hooks.json`，但判据写成交集本身，而不是把文件名硬编码第二遍）。
+//
+// 为什么需要这个交集判据：这两个清单由**不同批次**各自维护，交集一旦非空，
+// 导出的包在安装时必然被 assertWritableWorkspacePath 拒掉 —— 用户看到的是
+// 「我自己导出的包，装回去却报错」。此处把交集**显式建模**，让「哪些文件是
+// 确认后可写的」成为可读、可测的一件事，而不是一个只有跑起来才发现的隐式状态。
+export function isConfirmedPackPath(path) {
+  const value = String(path == null ? '' : path).trim();
+  return PACK_FILES.includes(value) && isProtectedWorkspacePath(value);
+}
+
 // 纯函数：由扩展文件构造一个包对象（过滤非法/超限；files 输入 [{ path, content }]）。
 export function buildPack({ name, description = '', files = [], now = Date.now() } = {}) {
   const entries = [];
@@ -71,6 +89,12 @@ export function buildPack({ name, description = '', files = [], now = Date.now()
 // 并入 result.errors 如实汇报。受保护路径（审计流 / 写前快照 / 推送基线）走这里：
 // 包格式白名单本来就不放它们进来，但静默丢弃会让「有人拿包来改审计流」这件事
 // 在安装结果里彻底消失（用户与模型都看不见）。
+//
+// ⚠️ 这条 rejected 分支对 `.easychat/hooks.json` **永不触发**（它在 isPackablePath
+// 就已被放行，属于上面说的有意例外）。原先这是个隐式事实 —— 两条判据各自被测，
+// 交集没人测，于是「安全防线对它无效」这件事谁也不知道。现在它被写成注释 +
+// packs.test.mjs 的交叉用例（`PACK_FILES ∩ 受保护` 的往返），
+// 而不是继续留在「读代码才能发现」的状态里。
 export function parsePack(input) {
   let data = input;
   if (typeof input === 'string') {
@@ -155,6 +179,14 @@ export async function collectWorkspacePack(store, characterId, { name, descripti
 // before_tool / before_prompt 是工具前门与提示词注入面——装一个包就等于让第三方
 // 改写「哪些工具拦得住」并往系统提示里塞指令。所以：写前逐个文件过守卫，
 // 被拒的计入 errors 如实汇报（不静默跳过，也不整包失败——其余文件照常安装）。
+//
+// ⚠️ **调用方不变量**（放行 isConfirmedPackPath 的前提，改动前必读：
+// 见函数内 isConfirmedPackPath 那段注释）：本函数目前**只有** packTools.js 的
+// install_extension_pack 一个调用方，而它声明了 `requiresConfirmation: true`
+// （packTools.js:50，加它的理由正是「包里能带 hooks.json」）。
+// 「确认门后可写 hooks.json」这条判定**依赖这个事实**：将来若有新调用方在**没有**
+// 确认门的情况下调本函数，它就会静默获得「把 hooks.json 写进工作区」的能力。
+// ⇒ 新增调用方时，要么给它加确认门，要么在这里显式传参收紧（不要靠读注释记得）。
 export async function installWorkspacePack(store, characterId, pack, { overwrite = false } = {}) {
   const parsed = parsePack(pack);
   if (!parsed.ok) {
@@ -167,16 +199,34 @@ export async function installWorkspacePack(store, characterId, pack, { overwrite
   const skipped = [];
   const errors = [...(parsed.rejected || [])];
   for (const file of parsed.pack.files) {
-    // 说明（如实）：当前 PACK_ROOTS / PACK_FILES 与受保护前缀（.easychat/sessions/、
-    // file-history/、rollback/）没有交集，所以这道闸在**今天**是防御性的第二层——
-    // 受保护路径在 parsePack 就被挡下并记进 rejected。留着它是为了「以后有人往
-    // PACK_ROOTS 里加一个覆盖到受保护前缀的根」时，守卫不会因为少写一行而消失。
+    // 说明（2026-10-12 **更正**）：原先这里写「PACK_ROOTS / PACK_FILES 与受保护前缀
+    // （sessions/、file-history/、rollback/）没有交集，所以这道闸今天是防御性的第二层」。
+    // 那句话在 paths.js 把 `.easychat/hooks.json` 加进 PROTECTED_WRITE_PREFIXES（P1-4）
+    // 之后**就不成立了** —— 交集非空，而后果是必然的：
+    //   合法导出的包（含 hooks.json）安装时 100% 撞上下面这道闸 ⇒ errors 里必然出现
+    //   「我自己的备份装不回来」；同时 packs.js 上面那条 rejected 分支对它永不触发，
+    //   所以「不静默丢弃」这条防线对它一点用都没有。两条判据各自都对，交集没人测。
+    //
+    // 放行依据（这是本次修法的全部理由，请连同 paths.js:141-157 的对称性批评一起读）：
+    // 判定的差别必须来自**调用方的威胁模型**，不能来自文件名 ——
+    //   · 写工具入口（paths.js 的 assertWritableWorkspacePath 服务它）：**无**逐条确认，
+    //     内容写成 `{}` 就能抹掉用户全部预置禁令 ⇒ 必须硬拦。本模块**不碰**那条路；
+    //   · 装包入口（本函数）：install_extension_pack 已声明 requiresConfirmation: true，
+    //     而 packTools.js:6-9 加它的**理由正是**「包里能带 .easychat/hooks.json」。
+    //     ⇒ 用户已看着原文逐条点过头；这里再叠一道路径守卫，新增的用户可见判断是**零**，
+    //     唯一确定的效果是让「导出→安装」这条合法往返断掉。
+    //
+    // 放行面**只有** isConfirmedPackPath 这个交集（今天恰好是 hooks.json 一个文件）：
+    // sessions/ file-history/ rollback/ 连 isPackablePath 都过不了，仍在上面的 parsePack
+    // 被挡下并如实记进 rejected ⇒ 本次没有放宽它们（有交叉用例钉住）。
     try {
       assertWritableWorkspacePath(file.path);
     } catch (error) {
-      const reason = error && error.message ? error.message : '受保护路径';
-      errors.push(`${file.path}：${reason}`);
-      continue;
+      if (!isConfirmedPackPath(file.path)) {
+        const reason = error && error.message ? error.message : '受保护路径';
+        errors.push(`${file.path}：${reason}`);
+        continue;
+      }
     }
     if (!overwrite) {
       try {

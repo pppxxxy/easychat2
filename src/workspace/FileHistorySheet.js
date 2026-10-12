@@ -39,6 +39,22 @@ import {
 
 const FILE_LIMIT = 50;
 
+// 来源 → 语言包键的**显式映射**。原先是一段三元表达式，其中 `source === 'push-baseline'`
+// 那条分支**永不成立** —— 全仓没有任何生产代码以该来源调用 recordFileHistory（死枚举值）。
+//
+// ✅ 收敛已完成（2026-10-12）：`push-baseline` 已从 fileHistory.js 的 FILE_HISTORY_SOURCES
+// 移除（它在生产代码里零写入者），枚举现为 `['tool', 'restore']`，本表与之对齐。
+// 若 index 里真出现 'push-baseline'（今天无生产者，只有手工改过内部文件的极端情况），
+// 它会走下面的兜底显示成「工具写入」；这个兜底现在只服务真正未知的来源。
+//
+// 这张表的键必须与 FILE_HISTORY_SOURCES 对齐（两处清单，靠 tests/workspaceFileHistorySources.test.mjs
+// 钉住「代码里不得再出现 push-baseline」）；兜底默认值与 normalizeHistoryEntry 的收敛口径
+// 一致（未知来源一律当 'tool'，两边同一个默认值，不会各说各话）。
+const HISTORY_SOURCE_KEYS = Object.freeze({
+  tool: 'workspace.fileHistory.source.tool',
+  restore: 'workspace.fileHistory.source.restore',
+});
+
 function formatTime(at) {
   const date = new Date(Number(at) || 0);
   if (!Number.isFinite(date.getTime()) || date.getTime() <= 0) return '';
@@ -196,10 +212,11 @@ export default function FileHistorySheet({
     );
   }, [t, doRestore]);
 
+  // 来源文案：显式映射表，**不再有三元兜底里的死分支**（原 'push-baseline' 无生产者；
+  // 该枚举值的撤除落点在 fileHistory.js，本批因并发改动未动 —— 详见上面映射表的说明）。
+  // 未知来源退回「工具写入」，与 normalizeHistoryEntry 的收敛口径一致。
   const sourceLabel = useCallback(source => (
-    source === 'push-baseline'
-      ? t('workspace.fileHistory.source.pushBaseline')
-      : t('workspace.fileHistory.source.tool')
+    t(HISTORY_SOURCE_KEYS[source] || HISTORY_SOURCE_KEYS.tool)
   ), [t]);
 
   const list = activePath ? entries : overview;

@@ -2,6 +2,11 @@
 // 测试用内存实现），故本模块零原生依赖、可 Node 直测。
 
 import {
+  MAX_DEPTH,
+  MAX_EDIT_CHARS,
+  MAX_FILES,
+  MAX_READ_CHARS,
+  WORKSPACE_LIMITS,
   assertAllowedWorkspaceFile,
   assertAllowedWorkspaceOutputFile,
   isHiddenListEntry,
@@ -12,14 +17,9 @@ import {
 import { applyWorkspaceEdit } from './edit.js';
 import { tActive } from '../i18n/index.js';
 
-const MAX_FILES = 2000;
-// 6 会把导入仓库里 src/i18n/locales/zh-CN/x.js 这类真实路径直接藏掉（实测：注入 4 个
-// 深路径文件只列出 2 个）。提到 12 覆盖正常项目结构；MAX_FILES=2000 仍是主护栏。
-const MAX_DEPTH = 12;
-const MAX_READ_CHARS = 1024 * 1024;
-// 编辑专用上限：读路径 1MB 截断是为上下文经济；编辑要的是完整性，给到 4MB，
-// 超过则拒绝（见 editWorkspaceFile 的截断守卫）。
-const MAX_EDIT_CHARS = 4 * 1024 * 1024;
+// 护栏常量只有一份，在 paths.js（此前这里与 safStore.js 各一份，已漂移成 12 vs 6）。
+// 这里保留 WORKSPACE_LIMITS 这个名字给既有调用方（toolDefs/readTools.js、symbolsTool.js、测试）。
+export { WORKSPACE_LIMITS };
 
 function assertFileSystem(fileSystem) {
   if (!fileSystem || typeof fileSystem.readAsStringAsync !== 'function') {
@@ -53,7 +53,14 @@ async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter
     state.truncated = true;
     return;
   }
-  if (depth > MAX_DEPTH) return;
+  // 深度到顶也必须置 truncated（2026-10-10）：原先这里只 return，于是「深目录内容没列出」
+  // 这件事在结果里**没有任何痕迹**（truncated 只表示 MAX_FILES 到顶），模型会把不完整清单
+  // 当完整事实推理。纯函数 listTruncationNotice 只能按结果规模**推断**深度上限，推断不出来
+  // 的时候（见那边注释）就得靠这个权威标记。
+  if (depth > MAX_DEPTH) {
+    state.truncated = true;
+    return;
+  }
   let entries = [];
   try {
     entries = await fileSystem.readDirectoryAsync(directoryUri);
@@ -197,25 +204,29 @@ export async function moveWorkspaceDirectory({ root, characterId, from, to, file
   return { from: source, to: target, moved: true };
 }
 
-export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
-
 // 列表截断提示（G1.7，纯函数）：命中护栏时如实告知，让模型知道「没看到 ≠ 不存在」。
 //
 // 为什么必须有：列表静默截断是「推送误删」那类事故的放大器——模型（和用户）看到
-// 一份不完整的清单，却当成完整的事实来推理。两处护栏分别可判定：
-//  · 文件数到顶（walk 写满即停，length 可等于 MAX_FILES）；
-//  · 有目录正好处在深度上限（它本身会被列出，但内容不会再展开）。
-export function listTruncationNotice(files) {
+// 一份不完整的清单，却当成完整的事实来推理。
+//
+// 参数口径（2026-10-10 修）：**生效的值由调用方给**（maxFiles/maxDepth），不再写死模块内
+// 的常量——两个后端的深度上限曾经一个 12 一个 6，这里写死 12 就成了「SAF 下 6 层深目录
+// 既不列出也不告警」的另一半 bug。truncated 是后端 walk 的**权威标记**（深度或文件数到顶
+// 都会置位）；按结果规模推断只是第二意见，推断不出是哪条护栏时宁可笼统告警也不静默。
+export function listTruncationNotice(files, { truncated = false, maxFiles = MAX_FILES, maxDepth = MAX_DEPTH } = {}) {
   const list = Array.isArray(files) ? files : [];
-  const atFileCap = list.length >= MAX_FILES;
+  const atFileCap = list.length >= maxFiles;
   const deepDirs = list.filter(entry => {
     const text = String(entry || '');
-    return text.endsWith('/') && text.split('/').filter(Boolean).length >= MAX_DEPTH;
+    return text.endsWith('/') && text.split('/').filter(Boolean).length >= maxDepth;
   });
-  if (!atFileCap && deepDirs.length === 0) return '';
+  if (!atFileCap && deepDirs.length === 0 && !truncated) return '';
   const reasons = [];
-  if (atFileCap) reasons.push(`文件数达到上限 ${MAX_FILES} 条`);
-  if (deepDirs.length > 0) reasons.push(`${deepDirs.length} 个目录已达 ${MAX_DEPTH} 层深度上限，其内容未展开`);
+  if (atFileCap) reasons.push(`文件数达到上限 ${maxFiles} 条`);
+  if (deepDirs.length > 0) reasons.push(`${deepDirs.length} 个目录已达 ${maxDepth} 层深度上限，其内容未展开`);
+  // 兜底：后端已置 truncated，但按结果规模推断不出是哪条护栏（例如内部目录被隐形后，
+  // 条目数掉到上限以下）。宁可笼统，也不让「清单不完整」这件事没有痕迹。
+  if (reasons.length === 0) reasons.push(`文件数或目录深度已达上限（${maxFiles} 条 / ${maxDepth} 层）`);
   return `（注意：本列表可能不完整——${reasons.join('；')}。用 subdir 指定子目录可看到其余部分）`;
 }
 
@@ -262,11 +273,14 @@ export async function deleteWorkspaceDirectory({ root, characterId, path, fileSy
   const uri = `${sandboxDirectory(root, characterId)}${relative}`;
   const info = await getInfo(fileSystem, uri);
   if (!info || !info.exists || info.isDirectory === false) return { path: relative, deleted: false };
-  let children = [];
+  let children = null;
   try {
     children = await fileSystem.readDirectoryAsync(uri);
   } catch (error) {
-    children = [];
+    // **读不到 ≠ 空目录**（2026-10-10，与 boardStore.js:42-48 同款反模式的修复同一判据）。
+    // deleteAsync 是**递归**语义：把读失败当空目录 = 直接放行删除，整棵非空目录树不可逆消失。
+    // 校验读不出来时只能拒删——「宁可拒删，不可误删」，让用户重试而不是把数据删掉。
+    return { path: relative, deleted: false };
   }
   if (children.length > 0) throw new Error(tActive('error.workspace.dirNotEmpty'));
   await fileSystem.deleteAsync(uri, { idempotent: true });

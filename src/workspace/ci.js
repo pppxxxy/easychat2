@@ -48,7 +48,12 @@ export const ciBridge = {
       const logs = await downloadRunLogs({ token, owner, repo, runId: run.id, limit: 32 * 1024 });
       text = logs.text;
     } catch (error) {
-      text = '';
+      // 下载失败**不能**吞成空串再对外报 ok:true（2026-10-10）。ok:true 是主动的错误断言：
+      // 调用方 toolDefs/ciTools.js:104-111 只在 !ok 时提示「读取构建日志失败」，ok 时会走
+      // 「暂时没有日志」那条文案 ⇒ 上层按「这次构建没有任何日志」呈现给模型 ⇒ 模型据此
+      // 推理（例如以为 workflow 没产出、进而去改构建配置）。调用方对 ok:false 的处理是显式
+      // 的（非 no-token 一律「读取构建日志失败」+ isError），不会崩，所以如实返回。
+      return { ok: false, error: 'log-download-failed', detail: String((error && error.message) || '') };
     }
     return { ok: true, run, text };
   },

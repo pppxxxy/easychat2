@@ -31,6 +31,25 @@ const OUTPUT_ONLY_EXTENSIONS = new Set(['docx']);
 const MAX_PATH_LENGTH = 240;
 const MAX_SANDBOX_ID_LENGTH = 64;
 
+// ---- 工作区列表/读写护栏（**唯一一份**，2026-10-10）----
+//
+// 为什么收敛到这里：store.js（应用私有根）与 safStore.js（SAF 外部根）原先各写一份，
+// 已经漂移成 MAX_DEPTH 12 vs 6。漂移的后果不是"两个后端略有差异"，而是 **SAF 下深度 ≥7
+// 的目录内容既不被列出、也不告警**——列表的 truncated 标记当时只覆盖 MAX_FILES 分支，
+// 而 readTools.js 的 listTruncationNotice 又写死按 12 判 ⇒ 模型把不完整清单当完整事实推理
+//（store.js 注释点名的"推送误删那类事故的放大器"）。常量一份时，下一次"改一处漏一处"
+// 才是可预防的；判据/常量集中在 paths.js 的先例见下面的 HIDDEN_LIST_PREFIXES（内部目录隐形）。
+export const MAX_FILES = 2000;
+// 12：6 会把导入仓库里 src/i18n/locales/zh-CN/x.js 这类真实路径直接藏掉（实测：注入 4 个
+// 深路径文件只列出 2 个）。提到 12 覆盖正常项目结构；MAX_FILES=2000 仍是主护栏。
+export const MAX_DEPTH = 12;
+export const MAX_READ_CHARS = 1024 * 1024;
+// 编辑专用上限：读路径 1MB 截断是为上下文经济；编辑要的是完整性，给到 4MB，
+// 超过则拒绝（见 store.js 的 editWorkspaceFile 截断守卫）。
+export const MAX_EDIT_CHARS = 4 * 1024 * 1024;
+
+export const WORKSPACE_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });
+
 export function sanitizeSandboxId(characterId) {
   const clean = String(characterId || '')
     .trim()

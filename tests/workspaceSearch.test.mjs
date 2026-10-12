@@ -198,8 +198,12 @@ test('list_workspace_files：命中上限时附截断告警行', async () => {
   const out = await listDef.execute({}, { mode: AGENT_MODES.READ, characterId: 'c1' });
   assert.match(out, /a\.js\nb\.js/);
   // 截断告警行来自 store 的权威 truncated 标记（listTruncationNotice 按结果规模
-  // 推断不出这个合成场景：只有 2 个文件），两处措辞统一为「文件数达到上限 N 条」。
-  assert.match(out, /本列表可能不完整——文件数达到上限 2000 条/);
+  // 推断不出这个合成场景：只有 2 个文件）。
+  // ⚠️ 措辞已扩到「文件数**或目录深度**」（2026-10-12）：此前只提文件数，而两后端的
+  // 深度截断**都不置 truncated**（同一个 bug 的另一半，已修）⇒ SAF 下深度 ≥7 的目录
+  // 既不列出也不告警。现在深度截断同样置 truncated，文案必须如实涵盖两种成因。
+  assert.match(out, /本列表可能不完整——文件数或目录深度已达上限/);
+  assert.match(out, /2000 条/);
 });
 
 test('list_workspace_files：桩 store 只有旧方法时无截断标记（向后兼容）', async () => {

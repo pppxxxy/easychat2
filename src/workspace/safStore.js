@@ -15,6 +15,11 @@
 // readText / writeText / writeBase64 / delete。
 
 import {
+  MAX_DEPTH,
+  MAX_EDIT_CHARS,
+  MAX_FILES,
+  MAX_READ_CHARS,
+  WORKSPACE_LIMITS,
   assertAllowedWorkspaceFile,
   assertAllowedWorkspaceOutputFile,
   isHiddenListEntry,
@@ -25,11 +30,10 @@ import {
 import { applyWorkspaceEdit } from './edit.js';
 import { tActive } from '../i18n/index.js';
 
-const MAX_FILES = 2000;
-const MAX_DEPTH = 6;
-const MAX_READ_CHARS = 1024 * 1024;
-// 编辑专用上限，与 legacy 后端 store.js 同值（见那边的说明）。
-const MAX_EDIT_CHARS = 4 * 1024 * 1024;
+// 护栏常量只有一份，在 paths.js（此前这里 MAX_DEPTH=6、store.js=12，两个后端漂移：
+// SAF 下深度 ≥7 的目录内容既不列出也不告警）。SAF_LIMITS 这个名字保留给既有测试/调用方，
+// 它指的**就是同一个冻结对象**——"同值"由结构保证，不靠两边各写一遍 12 维持。
+export const SAF_LIMITS = WORKSPACE_LIMITS;
 
 const TEXT_MIME = 'text/plain';
 // .docx 的官方 MIME：SAF 的 createFile 用它给新建文档定类型，写内容仍是我们自己的字节。
@@ -92,7 +96,12 @@ async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, s
     state.truncated = true;
     return;
   }
-  if (depth > MAX_DEPTH) return;
+  // 与 legacy 后端同款：深度到顶也是截断，必须置标记（原先这里静默 return，
+  // 加上 MAX_DEPTH=6 的漂移，SAF 下 7 层以上的目录内容既不列出也不告警）。
+  if (depth > MAX_DEPTH) {
+    state.truncated = true;
+    return;
+  }
   const children = await listChildren(adapter, directoryUri);
   for (const child of children) {
     if (results.length >= MAX_FILES) {
@@ -282,6 +291,10 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       if (segments.length === 0) return { path: relative, deleted: false };
       const dirUri = await locateDirectory(characterId, segments, false);
       if (!dirUri) return { path: relative, deleted: false };
+      // **故意不 try/catch**（别"统一"成 store.js 里那种吞异常再当空目录的写法）：
+      // adapter.listChildren 抛错时异常直接外传 ⇒ 下面那行 deleteDirectory 根本不会执行，
+      // 也就不会用递归语义删掉一棵非空目录树。这里的"不安全写法"反而是安全的那一侧，
+      // 而 legacy 后端（store.js:265-272）已改成读失败即 return { deleted:false } 的同款结论。
       const children = await adapter.listChildren(dirUri);
       if (children.length > 0) throw new Error(tActive('error.workspace.dirNotEmpty'));
       if (typeof adapter.deleteDirectory !== 'function') throw new Error(tActive('error.workspace.adapterNoDelete'));
@@ -358,5 +371,3 @@ export function createExpoSafAdapter(fileSystemModule) {
     },
   };
 }
-
-export const SAF_LIMITS = Object.freeze({ MAX_FILES, MAX_DEPTH, MAX_READ_CHARS, MAX_EDIT_CHARS });

@@ -223,7 +223,9 @@ export const workspace = {
   'workspace.fileHistory.size': '{size} 字符',
   'workspace.fileHistory.baseline': '最初版本',
   'workspace.fileHistory.source.tool': '工具写入',
-  'workspace.fileHistory.source.pushBaseline': '推送基线',
+  // 恢复动作自动生成的快照（被这次恢复覆盖掉的当时内容）。与「工具写入」区分开：
+  // 否则用户会把自己点「恢复」产生的记录误认成模型的写入。
+  'workspace.fileHistory.source.restore': '恢复前快照',
   'workspace.fileHistory.notRestorable': '内容过大，只记录了信息，不能恢复',
   'workspace.fileHistory.previewTitle': '恢复后会变成这样（左=当前，右=该版本）',
   'workspace.fileHistory.restore': '恢复',

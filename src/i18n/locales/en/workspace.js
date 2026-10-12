@@ -224,7 +224,9 @@ export const workspace = {
   'workspace.fileHistory.size': '{size} chars',
   'workspace.fileHistory.baseline': 'first version',
   'workspace.fileHistory.source.tool': 'Tool write',
-  'workspace.fileHistory.source.pushBaseline': 'Push baseline',
+  // Snapshot auto-created by a restore (the content it overwrote); kept distinct from
+  // "Tool write" so users don't mistake their own restore action for a model write.
+  'workspace.fileHistory.source.restore': 'Pre-restore snapshot',
   'workspace.fileHistory.notRestorable': 'Too large — metadata only, cannot be restored',
   'workspace.fileHistory.previewTitle': 'What restoring would change (left = current, right = this version)',
   'workspace.fileHistory.restore': 'Restore',

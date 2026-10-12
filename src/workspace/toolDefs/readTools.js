@@ -53,11 +53,16 @@ export const READ_ONLY_TOOL_DEFINITIONS = [
         const list = Array.isArray(files) ? files : [];
         const body = list.length ? list.join('\n') : '（工作区为空）';
         // G1.7：截断必须**可见**——静默截断的清单会被当成完整事实推理（误删类事故的放大器）。
-        // listTruncationNotice 按结果规模推断（文件数到顶 + 目录达深度上限两种护栏）；
-        // store 的 truncated 标记是权威值。两者取并集，避免桩后端只有旧方法时漏报。
-        const notice = listTruncationNotice(list)
+        // listTruncationNotice 现在接收**生效的**护栏值（此前它写死模块内的 12，而 SAF 后端的
+        // 实际深度上限是 6 ⇒ SAF 下 6 层深目录既不列出也不告警）；store 的 truncated 标记是
+        // 后端 walk 的权威值（深度/文件数到顶都会置位）。两者取并集，避免桩后端只有旧方法时漏报。
+        const notice = listTruncationNotice(list, {
+          truncated,
+          maxFiles: WORKSPACE_LIMITS.MAX_FILES,
+          maxDepth: WORKSPACE_LIMITS.MAX_DEPTH,
+        })
           || (truncated
-            ? `（注意：本列表可能不完整——文件数达到上限 ${WORKSPACE_LIMITS.MAX_FILES} 条。用 subdir 指定子目录可看到其余部分）`
+            ? `（注意：本列表可能不完整——文件数或目录深度达到上限（${WORKSPACE_LIMITS.MAX_FILES} 条 / ${WORKSPACE_LIMITS.MAX_DEPTH} 层）。用 subdir 指定子目录可看到其余部分）`
             : '');
         return notice ? `${body}\n\n${notice}` : body;
       });
