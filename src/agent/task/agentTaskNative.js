@@ -39,10 +39,10 @@ export function cancelAgentTask(taskId) {
   return native.cancel(String(taskId || ''));
 }
 
-export function cancelAgentTasksForRole(roleId) {
-  if (!isAgentTaskNativeAvailable()) return Promise.resolve(false);
-  return native.cancelRole(String(roleId || ''));
-}
+// 这里**故意没有** cancelAgentTasksForRole：原生 cancelRole 只按 roleId 过滤，与执行器类型无关，
+// 所以它和主动消息的「取消角色全部时间槽」是同一个调用。那份实现由 proactive/proactiveMessage.js
+// 的 onCharacterDeleted 钩子在角色删除时统一调用（一次清掉主动消息槽与本文件的 AGENT 槽）。
+// 两处各写一遍只会让人误以为它们清的是不同的东西。
 
 // 执行完成后展示通知（复用主动消息的通知渠道与头像）。原生缺席时静默。
 export function notifyAgentTaskResult(taskId, text) {

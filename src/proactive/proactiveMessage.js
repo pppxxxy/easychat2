@@ -4,6 +4,7 @@ import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 
 
 import { normalizePendingMessages } from './proactiveInbox.js';
 import { tActive } from '../i18n/index.js';
+import { onCharacterDeleted } from '../storage/characterLifecycle.js';
 
 const native = Platform.OS === 'android' ? NativeModules.ProactiveMessage : null;
 
@@ -50,10 +51,39 @@ export async function cancelDailySchedule(slotId) {
   return requireNative().cancel(slotId);
 }
 
-// 取消某角色的全部时间槽
+// 取消某角色的全部时间槽。
+// 注意这是**角色级**取消：原生 cancelRole 只按 roleId 过滤，所以它一并清掉同一角色下
+// `executor: 'AGENT'` 的定时任务槽（两类槽共用 MessageStore）。角色删除的清理就靠这一处
+// ——见文件末尾的 onCharacterDeleted 钩子。
 export async function cancelRoleSchedules(roleId) {
   return requireNative().cancelRole(roleId);
 }
+
+// 角色删除时清掉它的原生定时槽（主动消息 + 定时 Agent 任务都在里面）。
+//
+// 为什么必须在这里做：JS 侧的作息/任务记录各有自己的 onCharacterDeleted 钩子（storage/schedule.js、
+// storage/agentTasks.js），但**原生闹钟/Worker 是另一份存储**（Kotlin MessageStore）——只清 JS
+// 会留下一个「到点仍被系统唤起、但 JS 侧已经没有这个角色」的僵尸定时器：白耗电，且有机会
+// 按已删角色的旧快照发消息。此前 cancelRoleSchedules 没有任何调用方，就是漏在这里。
+//
+// 分层：钩子注册在**领域模块**里（本文件），方向是 proactive → storage/characterLifecycle，
+// 与既有 9 个钩子同款；反过来让 storage 去 import agent/proactive 会成环（guard 会拦）。
+onCharacterDeleted('proactiveNativeSchedules', async characterIds => {
+  if (!native || typeof native.cancelRole !== 'function') return;
+  const ids = Array.isArray(characterIds) ? characterIds : [];
+  for (const id of ids) {
+    const roleId = String(id || '').trim();
+    if (!roleId) continue;
+    // 单个失败不打断其余角色：清理是尽力而为，不能因为一个原生异常漏掉其它角色。
+    // 用 Promise.resolve 包一层，是为了兼容「原生同步返回布尔」的旧实现——直接 .catch 会抛
+    // TypeError，而 runCharacterCleanup 只把它记成诊断，等于整轮清理静默失效。
+    try {
+      await Promise.resolve(native.cancelRole(roleId)).catch(() => {});
+    } catch (error) {
+      // 同步抛也吃掉：理由同上，交给 runCharacterCleanup 的「尽力而为」语义。
+    }
+  }
+});
 
 // apiKey 来自用户自己在设置页填写的值（仍走原生加密存储；本函数不落明文日志）。
 // protocol/authHeader/authScheme/extraHeadersJson 由 JS 按所选协议计算（见 proactiveRequest.js）。
