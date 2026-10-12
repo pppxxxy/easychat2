@@ -28,6 +28,22 @@ function unsupported(message) {
   return error;
 }
 
+// 坏 .docx 用独立 code（不是 UNSUPPORTED_FORMAT）：`.docx` 明明在支持列表里，套用
+// 「目前只支持 txt / Markdown / Word(.docx) / HTML」是答非所问——用户会以为 .docx 不被
+// 支持，而真实原因是文件损坏/不是真 docx。同文件「解压太大」早已这么做（DOCX_TOO_LARGE），
+// 这里补齐另外两种失败形态，各自配一条说清原因的文案。
+function docxInvalid() {
+  const error = new Error('.docx 文件无法解压，请确认文件有效');
+  error.code = 'DOCX_INVALID';
+  return error;
+}
+
+function docxNoBody() {
+  const error = new Error('.docx 缺少正文（word/document.xml）');
+  error.code = 'DOCX_NO_BODY';
+  return error;
+}
+
 // 解码 XML/HTML 命名与数字实体；&amp; 最后解，避免二次解码。
 export function decodeEntities(text) {
   const source = String(text || '');
@@ -122,9 +138,9 @@ function extractDocx(bytes, inflateLimit = DOCX_INFLATE_LIMIT_BYTES) {
     entry = extractDocxDocument(bytes, inflateLimit);
   } catch (error) {
     if (error && error.code === 'DOCX_TOO_LARGE') throw error;
-    throw unsupported('.docx 文件无法解压，请确认文件有效');
+    throw docxInvalid();
   }
-  if (!entry) throw unsupported('.docx 缺少正文（word/document.xml）');
+  if (!entry) throw docxNoBody();
   return documentXmlToText(strFromU8(entry));
 }
 

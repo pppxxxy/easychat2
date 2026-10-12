@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 import {
+  BAD_RATIO_THRESHOLD,
+  FFFD_THRESHOLD,
+  HZ_MIN_HAN_RATIO,
   decodeBytes,
   decodeHz,
   detectBom,
@@ -12,6 +16,8 @@ import {
   replacementRatio,
   sniffBinary,
   sniffBinaryMagic,
+  textStats,
+  undesirableRatio,
 } from '../src/books/decodeText.js';
 
 test('BOM 识别（UTF-8 / UTF-16LE / UTF-16BE）', () => {
@@ -146,9 +152,109 @@ test('HZ-GB-2312（~{...~} 转义）识别与解码', () => {
   );
   assert.equal(looksLikeHz(Buffer.from('pre ~{VPND~} post', 'ascii')), true);
   assert.equal(looksLikeHz(Buffer.from('no tilde here', 'ascii')), false);
-  const r = decodeBytes(Buffer.from('pre ~{VPND~} post', 'ascii'));
+  // 真 HZ 是中文正文：段与段之间用 ASCII 退出 GB 模式（GB 段内不允许 0x20 空格）。
+  // 5ZR;UB=第一章、VPND=中文、2bJT=测试、DZH]=内容（用本仓 gb18030 解码器反查核对）。
+  const hz = '~{5ZR;UB~} ~{VPND~}~{2bJT~}~{DZH]~}';
+  const r = decodeBytes(Buffer.from(hz, 'ascii'));
   assert.equal(r.encoding, 'hz-gb-2312');
-  assert.equal(r.text, 'pre 中文 post');
+  assert.equal(r.text, '第一章 中文测试内容');
+});
+
+test('HZ 内容门槛：纯 ASCII 里的合法 ~{…~} 不得被判 HZ（原文逐字不变）', () => {
+  // looksLikeHz 只数签名出现次数，不校验配对与上下文；而 ~{…~} 之间的字节会被当 GB2312
+  // 重解——VPND 剥高位正是「中文」的 GB2312 字节，所以英文散文/代码里的一个 HZ 转义
+  // 以前会被**静默改写**：printf("~{VPND~}") → printf("中文")。
+  const prose = 'The HZ syntax is ~{VPND~} for CJK text, see the manual.';
+  assert.equal(looksLikeHz(Buffer.from(prose, 'ascii')), true, '前提：签名确实命中');
+  assert.ok(textStats('The HZ syntax is 中文 for CJK text, see the manual.').han < HZ_MIN_HAN_RATIO,
+    '前提：误判后解出的汉字占比远低于门槛');
+  const r = decodeBytes(Buffer.from(prose, 'ascii'));
+  assert.equal(r.encoding, 'utf-8', '无中文正文的签名命中不是 HZ，放回常规流程');
+  assert.equal(r.text, prose, '原文必须逐字不变（不得被当 GB2312 重解）');
+
+  const code = 'printf("~{VPND~}")';
+  const r2 = decodeBytes(Buffer.from(code, 'ascii'));
+  assert.equal(r2.encoding, 'utf-8');
+  assert.equal(r2.text, code);
+
+  // 已知取舍（如实钉住，别当回归修）：HZ 段短、ASCII 框架长的样本（如一行英文里的一个
+  // 中文词）也会被门槛放回候选评分，最终按 utf-8 逐字收下——用户看到的是原文里的
+  // ~{…~}，而不是被静默改写成别的字。这是 decodeText.js 里「宁可放回候选评分，也不
+  // 误吞一份普通文本」的既定取向。
+  const short = 'pre ~{VPND~} post';
+  const rShort = decodeBytes(Buffer.from(short, 'ascii'));
+  assert.equal(rShort.encoding, 'utf-8');
+  assert.equal(rShort.text, short);
+});
+
+test('全 NUL / 近全 NUL 输入抛 NOT_TEXT（NUL 是合法 UTF-8，不得整本当文本导入）', () => {
+  // 修复前 isStrictUtf8 排在 NUL 复核之前：0x00 ≤ 0x7f 是合法 UTF-8 单字节，全零文件被
+  // 当 utf-8 收下（encoding:'utf-8'、无替换符），importBook 的 text.trim() 又不裁 NUL
+  // ⇒ 落库成一本「打开后什么都没有」的书，全程无报错。
+  assert.throws(
+    () => decodeBytes(Buffer.alloc(1024, 0x00)),
+    (error) => error && error.code === 'NOT_TEXT',
+    '全零文件必须抛 NOT_TEXT',
+  );
+  const nearly = Buffer.alloc(1024, 0x00);
+  nearly[5] = 0x41;
+  assert.throws(
+    () => decodeBytes(nearly),
+    (error) => error && error.code === 'NOT_TEXT',
+    '近全零同样不许落成文本',
+  );
+  // 前提：辅助函数本来就判对了，问题只在于那条路径根本不咨询它（本条钉住「别再排回去」）。
+  assert.equal(sniffBinary(Buffer.alloc(1024, 0x00)), true, '高 NUL 兜底');
+});
+
+test('NUL 复核不得误杀真实 UTF-16 文本（ASCII 的 UTF-16 NUL 字节占比 50%）', () => {
+  // 顺序约束：UTF-16 零字节启发必须排在 NUL 复核之前。ASCII 的 UTF-16 文本同时踩中
+  // 两个坑——字节序列本身是合法 UTF-8（NUL 合法），且 NUL 字节占比过半（会被判二进制）。
+  const text = 'Hello world, this is ASCII text stored as UTF-16LE. 0123456789';
+  const le = Buffer.from(text, 'utf16le');
+  assert.equal(isStrictUtf8(le), true, '前提：ASCII 的 UTF-16 字节序列本身就是合法 UTF-8');
+  assert.equal(sniffBinary(le), true, '前提：NUL 字节占比过半，NUL 复核会判它二进制');
+  assert.equal(looksLikeUtf16(le), 'utf-16le', '前提：零字节启发认得它');
+  const rLe = decodeBytes(le);
+  assert.equal(rLe.encoding, 'utf-16le');
+  assert.equal(rLe.text, text);
+  assert.equal(/[\u0000\uFFFD]/.test(rLe.text), false, '不得含 NUL/替换符');
+
+  const be = Buffer.from(le);
+  for (let i = 0; i + 1 < be.length; i += 2) {
+    const swap = be[i];
+    be[i] = be[i + 1];
+    be[i + 1] = swap;
+  }
+  const rBe = decodeBytes(be);
+  assert.equal(rBe.encoding, 'utf-16be');
+  assert.equal(rBe.text, text);
+});
+
+test('UTF-32 BOM 与正文不符时不得裸返回（落回候选/二进制复核）', () => {
+  // FF FE 00 00 开头但正文是 UTF-16LE：detectUtf32Bom 认领，解出来是成片 U+FFFD。
+  // 修复前该分支裸返回 { encoding:'utf-32le', replacementRatio:1 } ⇒ 落库成一本「全是 �」的书。
+  const mismatch = Buffer.from([0xff, 0xfe, 0x00, 0x00, 0x41, 0x00, 0x42, 0x00]);
+  let outcome = null;
+  try {
+    outcome = decodeBytes(mismatch);
+  } catch (error) {
+    outcome = error;
+  }
+  assert.notEqual(outcome.encoding, 'utf-32le', '不得按 UTF-32LE 静默收下');
+  assert.ok(
+    outcome instanceof Error && (outcome.code === 'NOT_TEXT' || outcome.code === 'ENCODING'),
+    `应落回候选评分/二进制复核，实际：${JSON.stringify(outcome && outcome.encoding)}`,
+  );
+
+  // 全零碎片同理：解出的是成片 NUL（replacementRatio 为 0，只有 NUL 复核看得见），
+  // 修复前它连二进制魔数与 NUL 复核都绕过了。
+  const zeros = Buffer.alloc(2048, 0x00);
+  zeros[0] = 0xff;
+  zeros[1] = 0xfe;
+  assert.throws(() => decodeBytes(zeros), (error) => error && error.code === 'NOT_TEXT');
+
+  // 正向面（真 UTF-32 仍要能解出）由上面的「UTF-32 BOM（LE/BE）解码正确」覆盖。
 });
 
 test('HZ 解码从严：高位字节/非法转义/奇数 GB 段一律拒绝', () => {
@@ -191,4 +297,46 @@ test('二进制文件抛 NOT_TEXT（魔数），普通文本不误伤', () => {
   assert.equal(sniffBinaryMagic(Buffer.from('普通文本', 'utf8')), false);
   assert.equal(sniffBinary(Buffer.alloc(1024, 0x00)), true, '高 NUL 兜底');
   assert.equal(sniffBinary(Buffer.from('abc', 'utf8')), false);
+});
+
+// ---- 三处「坏码位」口径：包含关系必须只有一处定义 ----
+//
+// 以前 replacementRatio（只数 FFFD）、undesirableRatio（+NUL+非字符）、textStats.bad（+控制符）
+// 各写一遍循环，改一处必漏两处；且同一个 ENCODING_FFFD_THRESHOLD 同时作用在前两者的**不同分母**
+// 上。现在统一由 isBadCodePoint 派生、阈值按分母拆成 FFFD_THRESHOLD / BAD_RATIO_THRESHOLD。
+// 下面把三者的包含关系钉住——这是重构「不改变行为」的证据。
+test('坏码位三口径保持包含关系（重构不改行为）', () => {
+  // U+FFFD：三者都算。
+  assert.equal(replacementRatio('\uFFFD'), 1);
+  assert.equal(undesirableRatio('\uFFFD'), 1);
+  assert.equal(textStats('\uFFFD').bad, 1);
+  // U+0000 NUL：replacementRatio 不算（它的语义严格是「替换符占比」），另两个算。
+  assert.equal(replacementRatio('\u0000'), 0);
+  assert.equal(undesirableRatio('\u0000'), 1);
+  assert.equal(textStats('\u0000').bad, 1);
+  // 非字符 U+FFFE / U+FDD0：同上。
+  assert.equal(replacementRatio('\uFFFE\uFDD0'), 0);
+  assert.equal(undesirableRatio('\uFFFE\uFDD0'), 1);
+  assert.equal(textStats('\uFFFE\uFDD0').bad, 1);
+  // 控制符 BEL：只有 textStats.bad 算（候选评分要惩罚「解出一堆控制符」的乱码）。
+  assert.equal(replacementRatio('\u0007'), 0);
+  assert.equal(undesirableRatio('\u0007'), 0);
+  assert.equal(textStats('\u0007').bad, 1);
+  // 制表/换行/回车是正常文本，三者都不算。
+  for (const fn of [replacementRatio, undesirableRatio]) assert.equal(fn('\t\n\r'), 0);
+  assert.equal(textStats('\t\n\r').bad, 0);
+  // 空串一律 0（分母为 0 的分支）。
+  assert.equal(replacementRatio(''), 0);
+  assert.equal(undesirableRatio(''), 0);
+  // 阈值按分母拆名后仍是同一个值，且两个名字都在。
+  assert.equal(FFFD_THRESHOLD, BAD_RATIO_THRESHOLD);
+});
+
+test('cjkRatio 死代码不得回归（职责已由 candidateScore 的 han/big5 bonus 承担）', () => {
+  // 全仓复核过：src 0 引用、tests 0 引用，注释自述的「区分 GB18030 与 BIG5」职责
+  // 已由 candidateScore 的 han/big5 bonus 承担（decodeText.js 的 candidateScore）。
+  const source = fs.readFileSync('src/books/decodeText.js', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  assert.equal(source.includes('cjkRatio'), false, 'cjkRatio 不得再出现（含重新引入）');
 });

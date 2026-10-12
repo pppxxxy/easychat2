@@ -64,3 +64,54 @@ test('新手教程包含世界书、正则脚本与预设章节', () => {
   assert.match(getOnboardingChapter('lorebook').intro, /关键词/);
   assert.match(getOnboardingChapter('presets').intro, /系统提示词/);
 });
+
+// ---- 未知 chapterId 不得静默变成「空白弹窗」----
+//
+// 背景：8 处屏把章节 id 手写在字面量里（SettingsScreen / ImageGenScreen / MemoryScreen /
+// MomentsView / CharacterDetailScreen / CharacterLibraryScreen），经 setTopic(...) 交给
+// ChapterModal → getOnboardingChapters。旧实现 `ids.map(id => CHAPTER_MAP[id]).filter(Boolean)`
+// 把未知 id 静默丢掉，整组都认不出时返回空数组 ⇒ 弹窗只剩标题和关闭按钮，无报错无提示。
+// 这是结构性风险（当前字面量全部匹配，属潜在而非现网缺陷），所以下面那条机械扫描最值钱。
+
+test('所有 setTopic 字面量都必须是已知章节 id（结构性风险机械化）', () => {
+  const ids = new Set(ONBOARDING_CHAPTERS.map(chapter => chapter.id));
+  assert.ok(ids.size > 0, '前提：能取到章节 id 集合');
+
+  // 只读源码文本，不去改那 8 处屏（本批所有权外）。
+  const root = path.resolve('src');
+  const files = fs.readdirSync(root, { recursive: true })
+    .filter(name => typeof name === 'string' && name.endsWith('.js'))
+    .map(name => path.join(root, name));
+  assert.ok(files.length > 100, `前提：确实扫到了 src 下的源码（实际 ${files.length} 个）`);
+
+  const offenders = [];
+  let literalCount = 0;
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8');
+    // 只认字符串字面量：setTopic(null) / setTopic(topic) 之类不是「手写章节 id」。
+    for (const match of source.matchAll(/setTopic\(\s*'([^']*)'\s*\)/g)) {
+      literalCount += 1;
+      if (!ids.has(match[1])) offenders.push(`${path.relative(root, file)}: setTopic('${match[1]}')`);
+    }
+  }
+  assert.ok(literalCount >= 8, `前提：扫到的 setTopic 字面量数量应覆盖那 8 处屏（实际 ${literalCount}）`);
+  assert.deepEqual(offenders, [], `以下 setTopic 字面量不在 CHAPTER_MAP 内（改名/写错会让弹窗空白）：\n${offenders.join('\n')}`);
+});
+
+test('未知 chapterId 回退到全量教程，不得返回空数组（空白弹窗）', () => {
+  const ids = ONBOARDING_CHAPTERS.map(chapter => chapter.id);
+  // 整组都认不出：以前返回 []（ChapterModal 渲染成空白弹窗），现在回退全量。
+  assert.deepEqual(
+    getOnboardingChapters(['no-such-topic']).map(chapter => chapter.id),
+    ids,
+    '整组未知时必须回退全量，而不是空数组',
+  );
+  // 混着写错：保留认得出的那些（既有行为，不得回归成「一个都不显示」）。
+  assert.deepEqual(
+    getOnboardingChapters(['memory', 'no-such-topic']).map(chapter => chapter.id),
+    ['memory'],
+  );
+  // 空数组/非数组仍按「没有指定 topic」处理 → 全量。
+  assert.equal(getOnboardingChapters([]).length, ids.length);
+  assert.equal(getOnboardingChapters(null).length, ids.length);
+});

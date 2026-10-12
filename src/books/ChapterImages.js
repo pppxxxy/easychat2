@@ -10,19 +10,23 @@ export default function ChapterImages({ images = [], height = 200, style }) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
   const scrollRef = useRef(null);
+  // 必须在 hooks **之前**归一：effect 的依赖数组会在渲染阶段求值，images=null 时
+  // `images.length` 直接抛 TypeError，下面那行 `if (!images || ...)` 的守卫永远救不了
+  // （守卫写了但形状不对）。Array.isArray 兜底与 ChapterSections.js:11 / ChapterNotice.js:14 同形。
+  const list = Array.isArray(images) ? images : [];
 
   useEffect(() => {
     setIndex(0);
     scrollRef.current?.scrollTo({ x: 0, animated: false });
-  }, [images.length, images[0] && images[0].source]);
+  }, [list.length, list[0] && list[0].source]);
 
-  if (!images || images.length === 0) return null;
-  const safeIndex = Math.min(Math.max(index, 0), images.length - 1);
+  if (list.length === 0) return null;
+  const safeIndex = Math.min(Math.max(index, 0), list.length - 1);
 
   const onMomentumScrollEnd = event => {
     if (width <= 0) return;
     const next = Math.round(event.nativeEvent.contentOffset.x / width);
-    setIndex(Math.max(0, Math.min(next, images.length - 1)));
+    setIndex(Math.max(0, Math.min(next, list.length - 1)));
   };
 
   return (
@@ -40,7 +44,7 @@ export default function ChapterImages({ images = [], height = 200, style }) {
             onMomentumScrollEnd={onMomentumScrollEnd}
             scrollEventThrottle={16}
           >
-            {images.map((item, itemIndex) => (
+            {list.map((item, itemIndex) => (
               <View key={`page-${itemIndex}`} style={[styles.page, { width }]}>
                 <Image source={item.source} style={[styles.image, { height }]} resizeMode="contain" />
               </View>
@@ -48,9 +52,9 @@ export default function ChapterImages({ images = [], height = 200, style }) {
           </ScrollView>
         ) : null}
       </View>
-      {images.length > 1 ? (
+      {list.length > 1 ? (
         <View style={styles.dots}>
-          {images.map((item, itemIndex) => (
+          {list.map((item, itemIndex) => (
             <View
               key={`dot-${itemIndex}`}
               style={[styles.dot, itemIndex === safeIndex && styles.dotActive]}
@@ -58,8 +62,8 @@ export default function ChapterImages({ images = [], height = 200, style }) {
           ))}
         </View>
       ) : null}
-      {images[safeIndex] && images[safeIndex].caption ? (
-        <Text style={styles.caption}>{images[safeIndex].caption}</Text>
+      {list[safeIndex] && list[safeIndex].caption ? (
+        <Text style={styles.caption}>{list[safeIndex].caption}</Text>
       ) : null}
     </View>
   );
