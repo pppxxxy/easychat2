@@ -88,6 +88,39 @@ const REGEX_PLACEMENT_TEXT_KEYS = {
   6: 'character.editor.regex.scope.reasoning',
 };
 
+// 世界书条目「位置」的「数字 → 词条 key」映射。与上面的正则映射同理：position 是语言无关
+// 的数字（0-7，见 cardParser 的 normalizeWorldPosition），文案随界面语言变。
+// 这是 placementText 的**同族缺陷**：位置文案过去既是中文常量表、又会被插进模板渲染
+// （editors.js），于是英文界面显示「位置：角色定义之前」；同一份中文还被写进卡片数据
+// （worldInfo[].positionLabel）。此处收口成唯一实现，写入侧见 forge/*.js 的清空。
+const WORLD_POSITION_TEXT_KEYS = {
+  0: 'character.editor.world.positionText.beforeChar',
+  1: 'character.editor.world.positionText.afterChar',
+  2: 'character.editor.world.positionText.beforeAuthorNote',
+  3: 'character.editor.world.positionText.afterAuthorNote',
+  4: 'character.editor.world.positionText.atDepth',
+  5: 'character.editor.world.positionText.beforeExample',
+  6: 'character.editor.world.positionText.afterExample',
+  7: 'character.editor.world.positionText.anchor',
+};
+
+// 世界书位置的展示文案——**唯一**实现（editors.js 走它）。参数语义与 placementText 对齐：
+//  · position：语言无关的数字。
+//  · strings.legacyLabel：旧卡落盘的中文 positionLabel，认不出数字时回落到它，
+//    避免老条目在界面上变成空白（正是 placementText 的 legacyLabel 先例）。
+//  · strings.positionFallback：认不出的数字用哪个模板（含 {key} 占位）。
+// 认得出的数字**以词条为准**，legacyLabel 只兜底：position 才是权威字段。
+export function positionText(position, strings = {}) {
+  const numeric = Math.trunc(Number(position));
+  const key = Number.isFinite(numeric) ? WORLD_POSITION_TEXT_KEYS[numeric] : undefined;
+  const text = key ? tActive(key) : '';
+  if (text) return text;
+  const legacyLabel = String(strings.legacyLabel || '').trim();
+  if (legacyLabel) return legacyLabel;
+  const fallback = strings.positionFallback || tActive('character.editor.world.positionFallback');
+  return fallback.replace('{key}', String(position));
+}
+
 // 正则作用范围的展示文案——**唯一**实现（CharacterDetailScreen 与 editors.js 都走它）。
 //
 // 修复背景：此前这里只把「认不出的范围」走词条，已知的 1/2/3/5/6 直接读
@@ -138,6 +171,15 @@ export function hasCardContent(card) {
   );
 }
 
+// 卡片数据里「语言相关文案」派生字段的清洗：positionLabel / placementLabel 存的都是
+// **当时语言下的文案**（老卡里是中文），而权威字段是语言无关的 position / placement。
+// 导入即落库，属于**保存路径**，与 cardForge/forge/assist.js 的 mergeEntryAssistPatch
+// 同一口径（那里已在保存路径清这两个字段）：不清就会让旧中文随导出/分享继续传播，
+// 英文界面照样显示中文。只在确实带值时才重建对象，干净卡片原样透传（不制造无谓 diff）。
+function clearLanguageDerivedLabel(list, field) {
+  return list.map(item => (item && item[field] ? { ...item, [field]: '' } : item));
+}
+
 export function buildCharacterPatch(card, strings = {}) {
   const fields = card.fields || {};
   return {
@@ -154,8 +196,12 @@ export function buildCharacterPatch(card, strings = {}) {
     creatorNotes: fields.creatorNotes || '',
     postHistoryInstructions: fields.postHistoryInstructions || '',
     tags: Array.isArray(fields.tags) ? fields.tags : [],
-    worldInfo: stripMemorySummaryEntries(card.worldInfo),
-    regexScripts: Array.isArray(card.regexScripts) ? card.regexScripts : [],
+    worldInfo: clearLanguageDerivedLabel(stripMemorySummaryEntries(card.worldInfo), 'positionLabel'),
+    // 老卡透传时同样清掉中文派生文案（见 clearLanguageDerivedLabel）。
+    regexScripts: clearLanguageDerivedLabel(
+      Array.isArray(card.regexScripts) ? card.regexScripts : [],
+      'placementLabel'
+    ),
     presets: Array.isArray(card.presets) ? card.presets : [],
     // 透传隐式 AI 标识（与 cardForge/forge.js 一致），否则导入的 AI 生成卡丢失追溯信息。
     aigcMeta: card.aigcMeta && typeof card.aigcMeta === 'object' ? card.aigcMeta : null,

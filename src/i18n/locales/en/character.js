@@ -192,6 +192,19 @@ export const character = {
   'character.editor.world.contentPlaceholder': 'Content injected into the prompt on hit',
   'character.editor.world.constant': 'Always on (no keyword needed)',
   'character.editor.world.position': 'Position: {label}',
+  // World position wording (resolved by cardHelpers.positionText in the active language).
+  // Same defect as the regex scope.* keys below: editors.js used to interpolate the Chinese
+  // constant table straight into the template, so the English UI showed "Position: 角色定义之前";
+  // that same Chinese was also written into card data (worldInfo[].positionLabel).
+  'character.editor.world.positionText.beforeChar': 'Before character definition',
+  'character.editor.world.positionText.afterChar': 'After character definition',
+  'character.editor.world.positionText.beforeAuthorNote': "Before author's note",
+  'character.editor.world.positionText.afterAuthorNote': "After author's note",
+  'character.editor.world.positionText.atDepth': 'Insert at depth',
+  'character.editor.world.positionText.beforeExample': 'Before example messages',
+  'character.editor.world.positionText.afterExample': 'After example messages',
+  'character.editor.world.positionText.anchor': 'Anchor',
+  'character.editor.world.positionFallback': 'Position {key}',
   'character.editor.world.role': 'Role: {role}',
   'character.editor.regex.entryFallback': 'Regex {n}',
   'character.editor.regex.namePlaceholder': 'Regex script name',

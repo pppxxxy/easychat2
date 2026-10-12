@@ -12,7 +12,9 @@ import { getUnsafeWorldEntryKeys } from '../prompt/lorebook.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
-import { splitKeywords, placementText } from './cardHelpers.js';
+// positionText 与 placementText 同一先例：位置/范围的文案按当前语言现算，
+// 不读卡片数据里的中文派生值（老卡的旧值只作为 legacyLabel 兜底，避免变空白）。
+import { splitKeywords, placementText, positionText } from './cardHelpers.js';
 
 const WORLD_POSITION_KEYS = Object.keys(WORLD_POSITION_LABELS)
   .map(Number)
@@ -107,7 +109,11 @@ export function WorldEntryEditor({ entry, index, onChange, onRemove }) {
   const cyclePosition = () => {
     const current = WORLD_POSITION_KEYS.indexOf(position);
     const next = WORLD_POSITION_KEYS[(current + 1) % WORLD_POSITION_KEYS.length];
-    onChange({ position: next, positionLabel: WORLD_POSITION_LABELS[next] });
+    // 只改 position，不再落盘 positionLabel（与下方 togglePlacement 清 placementLabel
+    // 同一先例）：它是**当时语言下的文案**，写进卡片数据就会随导出/分享传播，英文界面显示
+    // 中文。文案改由渲染侧 cardHelpers.positionText 按当前语言现算；清空旧值避免
+    // 「position 已改、positionLabel 还是旧中文」的错配残留。
+    onChange({ position: next, positionLabel: '' });
   };
   const cycleRole = () => {
     const current = WORLD_ROLES.indexOf(entry.role);
@@ -164,7 +170,7 @@ export function WorldEntryEditor({ entry, index, onChange, onRemove }) {
       />
       <View style={styles.cycleRow}>
         <TouchableOpacity style={styles.cycleButton} onPress={cyclePosition} activeOpacity={0.8}>
-          <Text style={styles.cycleButtonText}>{t('character.editor.world.position', { label: WORLD_POSITION_LABELS[position] })}</Text>
+          <Text style={styles.cycleButtonText}>{t('character.editor.world.position', { label: positionText(position, { legacyLabel: entry.positionLabel }) })}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.cycleButton} onPress={cycleRole} activeOpacity={0.8}>
           <Text style={styles.cycleButtonText}>{t('character.editor.world.role', { role: entry.role })}</Text>

@@ -96,7 +96,11 @@ export function sanitizeWorldEntry(item, index) {
     caseSensitive: source.caseSensitive === true,
     matchWholeWords: source.matchWholeWords === true,
     position,
-    positionLabel: WORLD_POSITION_LABELS[position],
+    // 不再落盘 positionLabel（与下方 placementLabel 同一先例）：它是**当时语言下的文案**，
+    // 写进卡片数据就会随导出/分享传播，英文界面显示中文。权威字段是语言无关的 position，
+    // 文案由渲染侧按当前语言现算（cardHelpers.js 的 positionText）；老卡里的旧值在读取侧
+    // 作为 legacyLabel 回落，见那里。
+    positionLabel: '',
     role: ['system', 'user', 'assistant'].includes(source.role) ? source.role : 'system',
     order: 100,
     depth: normalizeWorldDepth(source.depth),

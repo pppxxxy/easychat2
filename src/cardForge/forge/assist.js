@@ -1,7 +1,6 @@
 // Field, tag and collection-entry assistance prompts, parsing and merging.
 
 import {
-  WORLD_POSITION_LABELS,
   MAX_PRESERVED_TEXT,
   ENTRY_KEYS_MAX_COUNT,
   clean,
@@ -237,7 +236,9 @@ export function mergeEntryAssistPatch(entry, kind, patch) {
     }
   });
   if (kind === 'worldInfo' && next.position !== base.position) {
-    next.positionLabel = WORLD_POSITION_LABELS[next.position];
+    // position 改了，旧的中文派生文案就作废：清空让渲染侧按当前语言现算
+    // （cardHelpers.positionText）。与下方 placementLabel 同一先例。
+    next.positionLabel = '';
   }
   if (kind === 'regexScripts') {
     // markdownOnly / promptOnly 互斥收口（问题 B）：见 shared.js 的 collapseOnlyFlags。
@@ -248,10 +249,15 @@ export function mergeEntryAssistPatch(entry, kind, patch) {
     }
     // 危险正则标记与生成路径同一口径（问题 A），辅助改写后编辑器仍能给出告警。
     next.unsafe = isUnsafeRegexPattern(next.findRegex);
-    if (Array.isArray(next.placement) && next.placement.length > 0) {
-      // 清掉可能存在的旧中文派生值（老卡或上一轮落盘的），让渲染侧按当前语言现算。
-      next.placementLabel = '';
-    }
+    // 清掉可能存在的旧中文派生值（老卡或上一轮落盘的），让渲染侧按当前语言现算。
+    //
+    // ⚠️ 这里**不看 placement 是否为空**（2026-10-12 修正）：本函数是**保存路径**，
+    // 任何一次保存都该把卡片归一成新格式。旧写法加了「placement.length > 0」前置条件，
+    // 于是「placement 被清成空数组（模型给的取值全非法 / 用户清空）+ 旧中文 label 还在」时
+    // 残留下来——而 placementText 在 placement 全部认不出时恰好回落到 legacyLabel
+    // （见 cardHelpers.js），英文界面照样显示旧中文，等于本字段的原始缺陷没修掉。
+    // 老卡兼容由**读取侧**回落负责，不在保存侧保留（与下方 kept 断言的注释同一口径）。
+    next.placementLabel = '';
   }
   return next;
 }

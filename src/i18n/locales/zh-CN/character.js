@@ -191,6 +191,18 @@ export const character = {
   'character.editor.world.contentPlaceholder': '命中后注入提示词的内容',
   'character.editor.world.constant': '常驻（无需关键词）',
   'character.editor.world.position': '位置：{label}',
+  // 世界书位置文案（cardHelpers.positionText 按当前语言取）。与上面正则 scope.* 同一缺陷：
+  // 此前 editors.js 把中文常量表直接插进模板，英文界面显示「位置：角色定义之前」，
+  // 同一份中文还会被写进卡片数据（worldInfo[].positionLabel）。
+  'character.editor.world.positionText.beforeChar': '角色定义之前',
+  'character.editor.world.positionText.afterChar': '角色定义之后',
+  'character.editor.world.positionText.beforeAuthorNote': '作者注释之前',
+  'character.editor.world.positionText.afterAuthorNote': '作者注释之后',
+  'character.editor.world.positionText.atDepth': '按深度插入',
+  'character.editor.world.positionText.beforeExample': '示例消息前',
+  'character.editor.world.positionText.afterExample': '示例消息后',
+  'character.editor.world.positionText.anchor': '锚点',
+  'character.editor.world.positionFallback': '位置 {key}',
   'character.editor.world.role': '角色：{role}',
   'character.editor.regex.entryFallback': '正则 {n}',
   'character.editor.regex.namePlaceholder': '正则脚本名称',
