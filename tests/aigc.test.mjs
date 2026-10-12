@@ -176,7 +176,9 @@ test('动态与生图界面有 AI 生成显式标识', () => {
 
 test('免责声明带版本号：条款更新后存量用户需重新确认', () => {
   // 免责声明常量 2026-09-28 随 storage 拆分移至 src/storage/settings.js，断言改指向新文件。
-  assert.ok(STORAGE_SETTINGS.includes('export const DISCLAIMER_VERSION = 3;'));
+  // 2026-10-12：3 → 4。两份手写的条款副本已按「对用户更严格」统一为单一来源
+  // （TEXT 改为由 SECTIONS 派生），条款文字实质变更，必须 bump 才能让存量用户重新确认。
+  assert.ok(STORAGE_SETTINGS.includes('export const DISCLAIMER_VERSION = 4;'));
   assert.ok(STORAGE_SETTINGS.includes('return raw === String(DISCLAIMER_VERSION);'));
   assert.ok(STORAGE_SETTINGS.includes('String(DISCLAIMER_VERSION)'));
   // 既有合规项：标识保留、禁止用途、技术局限
@@ -194,7 +196,8 @@ test('免责声明带版本号：条款更新后存量用户需重新确认', ()
   assert.ok(DISCLAIMER.includes('个人敏感信息'));
   assert.ok(DISCLAIMER.includes('语音转写（录音音频）'));
   assert.ok(DISCLAIMER.includes('通过仓库 Issues 提交投诉'));
-  // 结构化条款与纯文本同源：新增章节必须同时出现在两处
+  // 结构化条款与纯文本同源：整段文本由 DISCLAIMER_SECTIONS 派生（单一来源），
+  // 因此这里的章节名断言同时覆盖了两份。逐句互查见 tests/disclaimerContent.test.mjs。
   const titles = DISCLAIMER_SECTIONS.map(section => section.title);
   for (const title of ['用户行为规范', '数据与隐私', '责任限制', '服务变更与投诉']) {
     assert.ok(titles.includes(title), `结构化条款缺少「${title}」节`);

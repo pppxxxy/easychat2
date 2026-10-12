@@ -7,7 +7,13 @@ const ONBOARDING_DONE_KEY = '@easychat2_onboarding_done';
 
 // 免责声明版本：条款变更时 bump——存量用户已确认的是旧版本号，
 // 首启会重新弹出确认，保证新条款对全部用户生效（法律效力前提）。
-export const DISCLAIMER_VERSION = 3;
+//
+// 3 → 4（2026-10-12）：条款**实质变更**——整段文本与分节两份手写副本已漂移
+// （SECTIONS 独有「不得干扰、破坏本软件的正常运行。」「因配置错误导致的安全问题…
+// 由用户自行承担。」；TEXT 独有「除聊天外」「均由你自行选择与授权」），现按
+// 「对用户更严格」统一为单一来源并把 TEXT 改为派生。文字变了就必须 bump：
+// 否则老用户手里确认过的仍是旧文本，新条款对他们没有效力前提。
+export const DISCLAIMER_VERSION = 4;
 
 export async function isDisclaimerAcknowledged() {
   const raw = await AsyncStorage.getItem(DISCLAIMER_ACK_KEY);
