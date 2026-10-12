@@ -197,11 +197,19 @@ export const character = {
   'character.editor.regex.namePlaceholder': 'Regex script name',
   'character.editor.regex.findLabel': 'Match expression',
   'character.editor.regex.findPlaceholder': 'e.g. \\bfoo\\b',
-  'character.editor.regex.unsafeHint': 'This expression has nested unbounded quantifiers (risk of catastrophic backtracking); to avoid freezing the UI it will be skipped at runtime.',
+  'character.editor.regex.unsafeHint': 'This expression matches the "recognized nested unbounded quantifiers" heuristic (possible catastrophic backtracking); to avoid freezing the UI it will be skipped at runtime. Note: the heuristic only covers some patterns and is not a safety guarantee — expressions it misses can still stall the UI, so rewrite the expression yourself.',
   'character.editor.regex.replaceLabel': 'Replace with',
   'character.editor.regex.replacePlaceholder': 'Replacement text; leave empty to delete matches',
   'character.editor.regex.flagsHint': '/pattern/flags uses inline flags; for a bare pattern, empty flags replace only the first match.',
   'character.editor.regex.scopeLabel': 'Scope',
+  // Regex scope wording (resolved by cardHelpers.js placementText in the active
+  // language). These used to be hardcoded Chinese constants that were written
+  // into card data (regexScripts[].placementLabel), so the English UI showed Chinese.
+  'character.editor.regex.scope.userInput': 'User input',
+  'character.editor.regex.scope.aiOutput': 'AI output',
+  'character.editor.regex.scope.quickCommand': 'Quick command',
+  'character.editor.regex.scope.worldInfo': 'World info',
+  'character.editor.regex.scope.reasoning': 'Reasoning',
   'character.editor.regex.scopeFallback': 'Scope {key}',
   'character.editor.regex.scopeHint': 'AI output includes the first message and assistant history.',
   'character.editor.regex.markdownOnly': 'Display only',

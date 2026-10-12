@@ -196,11 +196,19 @@ export const character = {
   'character.editor.regex.namePlaceholder': '正则脚本名称',
   'character.editor.regex.findLabel': '匹配表达式',
   'character.editor.regex.findPlaceholder': '例如：\\bfoo\\b',
-  'character.editor.regex.unsafeHint': '该表达式存在嵌套无界量词，疑似灾难性回溯；为避免卡死界面，运行时会跳过此脚本。',
+  'character.editor.regex.unsafeHint': '该表达式命中「已识别的嵌套无界量词」启发式，疑似灾难性回溯；为避免卡死界面，运行时会跳过此脚本。注意：该启发式只覆盖部分写法，并非安全保证，未命中的表达式仍可能卡顿，请自行改写。',
   'character.editor.regex.replaceLabel': '替换为',
   'character.editor.regex.replacePlaceholder': '替换后的文本，可留空表示删除',
   'character.editor.regex.flagsHint': '/表达式/flags 使用内嵌 flags；裸表达式的 flags 留空时仅替换首个匹配。',
   'character.editor.regex.scopeLabel': '作用范围',
+  // 正则作用范围的文案（cardHelpers.js 的 placementText 按当前语言取）。
+  // 此前这几条文案硬编码在 cardParser/forge 的常量表里并**落进卡片数据**
+  // （regexScripts[].placementLabel），英文界面因此长期显示中文。
+  'character.editor.regex.scope.userInput': '用户输入',
+  'character.editor.regex.scope.aiOutput': 'AI 输出',
+  'character.editor.regex.scope.quickCommand': '快捷命令',
+  'character.editor.regex.scope.worldInfo': '世界信息',
+  'character.editor.regex.scope.reasoning': '推理',
   'character.editor.regex.scopeFallback': '范围 {key}',
   'character.editor.regex.scopeHint': 'AI 输出包含开场白与助手历史消息。',
   'character.editor.regex.markdownOnly': '仅用于界面显示',

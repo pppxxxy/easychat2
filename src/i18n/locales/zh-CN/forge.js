@@ -77,9 +77,10 @@ export const forge = {
   'forge.regex.empty': '还没有正则脚本。',
   'forge.regex.summary': '查找：{find} → 替换：{replace}',
   // 危险正则告警（问题 A）：advanced.js 与聊天引擎共用 isUnsafeRegexPattern 判定，
-  // 引擎对灾难性回溯模式直接跳过，所以这里必须让用户看见「为什么不生效」。
+  // 引擎对**已识别的**嵌套无界量词直接跳过，所以这里必须让用户看见「为什么不生效」。
+  // ⚠️ 文案不得声称「危险正则都会被拦」：该判定是降误伤优先的启发式，漏检形态仍会卡死。
   'forge.regex.unsafeBadge': '危险正则',
-  'forge.regex.unsafeHint': '该表达式存在嵌套无界量词，疑似灾难性回溯；为避免卡死界面，聊天时会跳过此脚本（等于永不生效）。请改写表达式（例如避免 (a+)+ 这类嵌套量词）后再启用。',
+  'forge.regex.unsafeHint': '该表达式命中「已识别的嵌套无界量词」启发式，疑似灾难性回溯；为避免卡死界面，聊天时会跳过此脚本（等于永不生效）。该启发式并非安全保证，未命中的写法仍可能卡顿；请改写表达式（例如避免 (a+)+ 这类嵌套量词）后再启用。',
   'forge.regex.emptyValue': '（空）',
   'forge.regex.unset': '未设置查找内容',
   'forge.regex.expandA11y': '展开正则脚本 {n}',
