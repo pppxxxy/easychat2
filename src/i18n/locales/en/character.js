@@ -264,10 +264,18 @@ export const character = {
   'character.library.delete.fail.cleanupSessions': 'The character was deleted, but cleaning up its linked memories failed ({reason}). They are still on the Memories page; you can delete them there later.',
   'character.library.delete.introBatch': 'The {count} selected characters will be deleted.',
   'character.library.delete.introSingle': 'Delete "{name}"?',
-  'character.library.delete.onlyCharacter': 'Character only',
+  // "Character only" must be HONEST: moments are not protected by this button — the
+  // onCharacterDeleted hook registered at storage/moments.js:285 deletes moments by
+  // characterId on EVERY character delete and cannot see what the user chose
+  // (storage/characterState.js runs the hooks without any user intent). The old wording
+  // promised something it could not deliver: the user explicitly picked "character only"
+  // and the moments were still silently removed. State the fact instead.
+  // Why not "let the hook know the intent": there are 9 registrants, so the signature
+  // change costs far more than it is worth.
+  'character.library.delete.onlyCharacter': 'Character only (moments still deleted)',
   'character.library.delete.readFail.body': 'Couldn\'t read linked data. Please try again later.',
   'character.library.delete.title': 'Delete character',
-  'character.library.delete.withLinked': '{intro}\nLinked data: {details}. Delete it too?',
+  'character.library.delete.withLinked': '{intro}\nLinked data: {details}. Delete it too? (the character-only choice still deletes moments)',
   'character.library.deleteAll.body': 'This deletes every character except the default one and cannot be undone. Type "删除" to confirm.',
   'character.library.deleteAll.confirm': 'Confirm deletion',
   'character.library.deleteAll.title': 'Delete all characters',

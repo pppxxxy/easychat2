@@ -261,10 +261,16 @@ export const character = {
   'character.library.delete.fail.cleanupSessions': '角色已删除，但关联记忆清理失败（{reason}）。记忆仍留在记忆页，可稍后手动删除。',
   'character.library.delete.introBatch': '将删除选中的 {count} 个角色。',
   'character.library.delete.introSingle': '确定删除「{name}」吗？',
-  'character.library.delete.onlyCharacter': '仅删角色',
+  // 「仅删角色」必须**如实**：动态并不受这个按钮保护——storage/moments.js:285 注册的
+  // onCharacterDeleted 钩子在**每次**删角色时按 characterId 清动态，且钩子拿不到「用户选了什么」
+  // （storage/characterState.js 跑钩子时不带用户意图）。旧文案「仅删角色」承诺了一件做不到的事，
+  // 用户明确选了它，动态仍被静默删除。这里把事实写进按钮与说明，让承诺与行为一致
+  // （与 characterLibraryDelete.js 里「动态其实已经由角色删除本身带走」那条注释同口径）。
+  // 之所以不改成「让钩子知道用户意图」：注册方有 9 个，改签名改动面远大于收益。
+  'character.library.delete.onlyCharacter': '仅删角色（动态仍会一并删除）',
   'character.library.delete.readFail.body': '没能读出关联数据，请稍后重试。',
   'character.library.delete.title': '删除角色',
-  'character.library.delete.withLinked': '{intro}\n关联数据：{details}。是否一并删除？',
+  'character.library.delete.withLinked': '{intro}\n关联数据：{details}。是否一并删除？（选「仅删角色」也会删除动态）',
   'character.library.deleteAll.body': '这会删除除默认角色外的全部角色，且无法恢复。请输入「删除」以确认。',
   'character.library.deleteAll.confirm': '确认删除',
   'character.library.deleteAll.title': '删除全部角色',
