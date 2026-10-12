@@ -13,6 +13,10 @@ import {
   setJsonWithSecrets,
 } from './io.js';
 import { tActive } from '../i18n/index.js';
+// provider 默认值只认 providers.js 的目录（唯一真源）：此前这里手抄了一份
+// 'openai-embeddings' / 'https://api.openai.com/v1' / 'text-embedding-3-small'，
+// 目录一改就悄悄漂移。providers.js 只依赖 i18n（纯 JS），不构成循环依赖。
+import { DEFAULT_VECTOR_PROVIDER } from '../vectorMemory/providers.js';
 
 const VECTOR_MEMORY_KEY = '@easychat2_vector_memory';
 const VECTOR_MEMORY_CONFIGS_KEY = '@easychat2_vector_memory_configs';
@@ -29,10 +33,16 @@ function normalizeVectorMemoryConfig(raw) {
     id: String(source.id || ''),
     name: String(source.name || ''),
     enabled: source.enabled === true,
-    providerId: String(source.providerId || 'openai-embeddings'),
-    baseUrl: String(source.baseUrl || 'https://api.openai.com/v1'),
+    providerId: String(source.providerId || DEFAULT_VECTOR_PROVIDER.id),
+    // 空地址/空模型必须原样落盘，**不得**回填 provider 默认值：此前这里手抄了
+    // api.openai.com 与 text-embedding-3-small 两份兜底，用户清空「接口地址」后 500ms
+    // 防抖落盘即被回填，回读又把地址灌回输入框（useVectorSettings 的 setVectorPayload），
+    // 输入框「自己长回地址」；随后生成时聊天正文与别家 Key 被发往用户从未配置的第三方。
+    // 向量 provider 在 UI 上不可选，兜底等于替用户凭空指定目的地——缺失交由
+    // embedTexts 的原始值守卫报 error.vectorMemory.baseUrlRequired。
+    baseUrl: String(source.baseUrl || ''),
     apiKey: String(source.apiKey || ''),
-    model: String(source.model || 'text-embedding-3-small'),
+    model: String(source.model || ''),
     topK: Number.isFinite(topK) && topK > 0 ? Math.min(20, topK) : 5,
     maxChars: Number.isFinite(maxChars) && maxChars > 0 ? Math.min(2000, maxChars) : 400,
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? Math.min(64, batchSize) : 16,
@@ -236,6 +246,27 @@ export function removeVectorIndexForSession(characterId, sessionId) {
   return removeVectorIndexForSessions(characterId, [sessionId]);
 }
 
+// 清掉一条记忆里「来源已被删除」的 mergedFrom 快照，并决定这条记忆的去留。
+//
+// 为什么必须清：合并记忆（origin='merged'）把**被合并的原文**整段抄进了
+// mergedFrom[].text（写入见 memory/MemoryProvenanceModal.js 的合并分支，读出并展示见
+// memory/provenance.js:64-75 的 memorySources）。它的 item.messageId 是 ''（合并记忆没有
+// 单条来源消息），所以按 messageId 过滤的删除路径**永远命中不了它**——用户删掉消息后，
+// 被删的原文仍然留在盘上，并且还能在溯源面板里全文读到（P1-6b）。
+// 删除语义见 evidence.deleteConfirm.body「原始对话消息不受影响」：反向同样成立——
+// 删了消息，记忆里那份原文快照也必须一起走。
+// 返回 [] = 整条退休；没有命中任何快照（含没有 mergedFrom 的普通记忆/脏数据）时
+// **原样返回同一个对象**，绝不因为「过滤了一次」就重写条目。
+function pruneMergedSources(item, hitSource) {
+  const merged = Array.isArray(item.mergedFrom) ? item.mergedFrom : [];
+  const kept = merged.filter(entry => !hitSource(entry));
+  if (kept.length === merged.length) return [item];
+  // 全部来源都被删：这条合并记忆已没有任何可溯源的原文，整条退休——与普通记忆
+  // 「消息没了，记忆也没了」同一处置。否则会留下一条只有结论、没有任何来源的记忆，
+  // 而它的正文恰恰是从被删消息合并出来的。
+  return kept.length === 0 ? [] : [{ ...item, mergedFrom: kept }];
+}
+
 export function removeVectorIndexForMessages(characterId, sessionId, messageIds) {
   const targetSession = String(sessionId || '');
   const ids = new Set(
@@ -243,10 +274,14 @@ export function removeVectorIndexForMessages(characterId, sessionId, messageIds)
       .map(id => String(id || ''))
       .filter(Boolean)
   );
+  // 命中判据：会话与消息 id 同时对上（跨会话同 id 不是同一条消息，不能误删）。
+  const hit = (entrySession, entryMessage) => (
+    String(entrySession || '') === targetSession && ids.has(String(entryMessage || ''))
+  );
   return updateVectorIndex(characterId, current => (
-    ids.size === 0 ? current : current.filter(item => (
-      String(item.sessionId || '') !== targetSession || !ids.has(String(item.messageId || ''))
-    ))
+    ids.size === 0 ? current : current
+      .filter(item => !hit(item.sessionId, item.messageId))
+      .flatMap(item => pruneMergedSources(item, entry => hit(entry.sessionId, entry.messageId)))
   ));
 }
 
