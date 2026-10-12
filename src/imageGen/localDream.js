@@ -11,6 +11,7 @@
 
 import { decodeBase64ToBytes, encodePngBase64FromRgb } from './png.js';
 import { tActive } from '../i18n/index.js';
+import { joinUrlQuery, splitUrlQuery } from '../utils/urlQuery.js';
 
 export const LOCAL_DREAM_DEFAULT_URL = 'http://127.0.0.1:8081';
 export const LOCAL_DREAM_GENERATE_PATH = '/generate';
@@ -111,11 +112,15 @@ export function buildLocalDreamBody({
 }
 
 // 生成 URL：baseUrl 允许用户填到 /generate 或根地址，统一归一。
+// 后缀判定只看「路径」部分（先例：src/vectorMemory/providers.js:41-48）：整串 endsWith
+// 时，带 query 的地址（.../generate?api-version=…）必然不中，path 会被再追加一次 →
+// 404。回拼时 query 原样接回，幂等。
 export function localDreamEndpoint(baseUrl, path) {
-  const base = String(baseUrl || LOCAL_DREAM_DEFAULT_URL).trim().replace(/\/+$/, '');
-  if (!base) return `${LOCAL_DREAM_DEFAULT_URL}${path}`;
-  if (base.toLowerCase().endsWith(path.toLowerCase())) return base;
-  return `${base}${path}`;
+  const base = String(baseUrl || LOCAL_DREAM_DEFAULT_URL).trim();
+  const { path: pathOnly, query } = splitUrlQuery(base);
+  if (!pathOnly) return `${LOCAL_DREAM_DEFAULT_URL}${path}`;
+  if (pathOnly.toLowerCase().endsWith(path.toLowerCase())) return joinUrlQuery(pathOnly, query);
+  return joinUrlQuery(`${pathOnly}${path}`, query);
 }
 
 // 把一条 SSE 事件的 type 归一为 { type, payload }。

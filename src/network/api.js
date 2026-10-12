@@ -7,6 +7,7 @@ import {
 } from '../storage/apiConfigs.js';
 import { getSamplingSettings, getThinkingSettings } from '../storage/settings.js';
 import { registerSecretValues } from '../storage/secrets.js';
+import { isSecretRef } from '../storage/secretStore.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 import {
   buildRequestBody,
@@ -20,6 +21,7 @@ import {
 } from '../apiProtocols.js';
 import { tActive } from '../i18n/index.js';
 import { trimMessagesToContext } from '../localModel/localContext.js';
+import { joinUrlQuery, splitUrlQuery } from '../utils/urlQuery.js';
 // 超时策略（纯函数，见 requestTimeout.js）：首字节 / 空闲 / 非流式三档。流式未吐字放宽，
 // 非流式（压缩摘要/记忆总结/制卡）另给阈值——它没有「首字节」这回事。
 import { isFirstBytePhase, timeoutMsFor, timeoutPhase } from './requestTimeout.js';
@@ -120,9 +122,9 @@ export function buildSamplingParams(settings) {
   return params;
 }
 
-// 把单次请求的 overrides（{ temperature?, maxTokens? }）叠加到采样参数上。
-// 只认这两个键，值为有限数字才生效；结果仍用请求体的 snake_case 键名，
-// 交给 buildRequestBody 按协议归一（openai 原样、responses 转 max_output_tokens、anthropic 转 max_tokens）。
+// 把单次请求的 overrides（{ temperature?, maxTokens? }）叠加到采样参数上。只认这两个键，
+// 值为有限数字才生效；结果仍用请求体的 snake_case 键名，交给 buildRequestBody 按协议归一
+// （openai 原样、responses 转 max_output_tokens、anthropic 转 max_tokens）。
 export function mergeSamplingOverrides(samplingParams, overrides) {
   const base = samplingParams && typeof samplingParams === 'object' ? { ...samplingParams } : {};
   const source = overrides && typeof overrides === 'object' ? overrides : null;
@@ -134,15 +136,14 @@ export function mergeSamplingOverrides(samplingParams, overrides) {
   return base;
 }
 
+// 后缀判定只看「路径」部分（先例：src/vectorMemory/providers.js:41-48）：整串判定时带
+// query 的地址必然不中，端点被追加进 query 值 → 404。聊天请求走 normalizeProtocolUrl，本函数只被设置页探测模型用，两处必须同口径。
 export function normalizeChatUrl(baseUrl) {
-  const trimmed = ((baseUrl || '').trim() || 'https://api.deepseek.com').replace(/\/+$/, '');
-  if (/\/chat\/completions$/i.test(trimmed)) {
-    return trimmed;
-  }
-  if (/\/v1$/i.test(trimmed)) {
-    return `${trimmed}/chat/completions`;
-  }
-  return `${trimmed}/v1/chat/completions`;
+  const { path, query } = splitUrlQuery(String(baseUrl || '').trim());
+  const base = path || 'https://api.deepseek.com';
+  if (/\/chat\/completions$/i.test(base)) return joinUrlQuery(base, query);
+  if (/\/v1$/i.test(base)) return joinUrlQuery(`${base}/chat/completions`, query);
+  return joinUrlQuery(`${base}/v1/chat/completions`, query);
 }
 
 function formatApiError(text, status) {
@@ -193,8 +194,7 @@ export function isCanceledError(error) {
 
 // E1：usage 宽容解析——三种方言一次归一（缓存经济学的地基：没有它就没有命中观测）。
 //   OpenAI 系 prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens /
-//   Anthropic cache_read_input_tokens（其 input_tokens 不含缓存，并入 prompt，
-//   统一成「prompt ⊇ cached」口径）。流式与非流式共用；解析不出返回 null。
+//   Anthropic cache_read_input_tokens（input_tokens 不含缓存，并入 prompt，统一成「prompt ⊇ cached」口径）。流式与非流式共用；解析不出返回 null。
 export function extractUsage(payload) {
   if (!payload || typeof payload !== 'object') return null;
   const source = payload.usage
@@ -210,10 +210,9 @@ export function extractUsage(payload) {
   const cacheCreation = num(source.cache_creation_input_tokens);
   const cachedHit = num(source.prompt_cache_hit_tokens)
     || num(source.prompt_tokens_details && source.prompt_tokens_details.cached_tokens);
-  // 按**方言**显式分支（2026-10-11 P1）：判据是字段**在不在**，不是值真不真——
-  // prompt_tokens 合法为 0（全命中缓存），用 `||` 会把它跳过并误取 input_tokens，
-  // 于是缓存命中率 Σcached/Σprompt 可能 >100%。OpenAI/DeepSeek 的 prompt_tokens 是
-  // 「含缓存」的全量（存在就以它为准）；Anthropic 的 input_tokens 不含缓存，并入 prompt。
+  // 按**方言**显式分支（2026-10-11 P1）：判据是字段**在不在**，不是值真不真——prompt_tokens
+  // 合法为 0（全命中缓存），用 `||` 会把它跳过并误取 input_tokens，于是缓存命中率可能 >100%。
+  // OpenAI/DeepSeek 的 prompt_tokens 是「含缓存」的全量；Anthropic 的 input_tokens 不含缓存，并入 prompt。
   const has = value => Number.isFinite(Number(value));
   const rawPrompt = has(source.prompt_tokens)
     ? num(source.prompt_tokens)
@@ -242,13 +241,10 @@ async function resolveChatConfig(options = {}) {
 }
 
 // 结构化流式请求：返回完整文本、思考文本与 tool_calls 累积结果，供 agent 循环使用。
-// 注意：这里返回**原始空文本**，不做 EMPTY_REPLY_TEXT 兜底——工具轮里
-// 「text 为空 + tool_calls」是正常形态，占位文本会污染 assistant 历史。
-//
-// P0-7 降级链（下半）：这里是**所有在线请求的唯一收口**（聊天走 agent/loop.js，
-// 群聊/记忆总结/压缩/日记/动态/制卡各自直连），所以接线只能放在这一层。按
-// `planFallbackChain` 依次尝试：只有**可判定失败**（429 / 5xx / 超时 / 网络不可达，
-// 以及参数被拒的 400/422）且**本轮还没有任何产出**才换下一个模型。
+// 注意：这里返回**原始空文本**，不做 EMPTY_REPLY_TEXT 兜底——工具轮里「text 为空 +
+// tool_calls」是正常形态，占位文本会污染 assistant 历史。
+// P0-7 降级链（下半）：这里是**所有在线请求的唯一收口**（聊天走 agent/loop.js，群聊/记忆
+// 总结/压缩/日记/动态/制卡各自直连），故接线只能放在这一层。按 `planFallbackChain` 依次尝试：只有**可判定失败**（429 / 5xx / 超时 / 网络不可达，以及参数被拒的 400/422）且**本轮还没有任何产出**才换下一个模型。
 export async function streamChatCompletion(messages, options = {}) {
   const onChunk = options && typeof options.onChunk === 'function' ? options.onChunk : null;
   const onReasoning = options && typeof options.onReasoning === 'function' ? options.onReasoning : null;
@@ -281,6 +277,12 @@ export async function streamChatCompletion(messages, options = {}) {
   if (!config.apiKey) {
     throw new Error(tActive('error.api.apiKeyMissing'));
   }
+  // ⚠️ 引用串绝不能出网（2026-10-12）：hydrate 在「安全存储可用但单条读不回」时**刻意保留**
+  // 原引用串（回填空串会让用户保存时明文覆盖 ⇒ SecureStore 旧记录成孤儿 ⇒ 不可逆丢失，
+  // 见 secretStore 的读侧纪律）；代价是它在内存里、网络层是唯一出口 ⇒ 这里 fail-closed。
+  if (isSecretRef(config.apiKey)) {
+    throw new Error(tActive('error.storage.secretsUnavailable'));
+  }
   if (!String(config.baseUrl || '').trim()) {
     throw new Error(tActive('error.api.baseUrlMissing'));
   }
@@ -299,9 +301,8 @@ export async function streamChatCompletion(messages, options = {}) {
   const thinkingSettings = await getThinkingSettings().catch(() => null);
   const samplingSettings = await getSamplingSettings().catch(() => null);
 
-  // 尝试顺序：主模型在前 + 去重后的降级项。没配降级项时链长为 1，走的就是原来的
-  // 单次请求路径（零行为变化）。配置解析、设置读取只在循环外做一次：换模型重试
-  // 不该重读存储，否则重试期间设置变化会让同一轮请求前后口径不一致。
+  // 尝试顺序：主模型在前 + 去重后的降级项。没配降级项时链长为 1，走的就是原来的单次请求
+  // 路径（零行为变化）。配置解析、设置读取只在循环外做一次：换模型重试不该重读存储，否则重试期间设置变化会让同一轮请求前后口径不一致。
   const chain = planFallbackChain({ model, fallbackModels: config.fallbackModels });
   const attempts = chain.length ? chain : [model];
   let lastError = null;
@@ -376,9 +377,8 @@ function notifyModelFallback(options, info) {
   }
 }
 
-// 单次请求：一次 XHR 往返（含流式解析）。降级链的每一环都调它。
-// 除 `model` 外的解析结果由 streamChatCompletion 传入（换模型不重做配置解析、不重读设置）；
-// 但**按模型解析**的三项（能力、输出预算、上下文窗口）必须在每次尝试里重算。
+// 单次请求：一次 XHR 往返（含流式解析）。降级链的每一环都调它。除 `model` 外的解析结果由
+// streamChatCompletion 传入（换模型不重做配置解析、不重读设置）；但**按模型解析**的三项（能力、输出预算、上下文窗口）必须在每次尝试里重算。
 async function requestOnce(messages, options, attempt) {
   const config = attempt.config;
   const model = attempt.model;
@@ -408,9 +408,9 @@ async function requestOnce(messages, options, attempt) {
       ? modelCaps.maxOutput
       : DEFAULT_MAX_OUTPUT_TOKENS;
   }
-  // F4 在线路径上下文硬裁剪：只在模型**声明了** contextWindow（且未显式关闭）时生效。
-  // 未声明窗口时不做任何裁剪——避免按 200K 兜底误伤大窗口模型；即便「记忆总结」关闭、
-  // 80% 自动压缩不接线，超窗请求也有这最后一道防线。
+  // F4 在线路径上下文硬裁剪：只在模型**声明了** contextWindow（且未显式关闭）时生效。未声明
+  // 窗口时不做任何裁剪——避免按 200K 兜底误伤大窗口模型；即便「记忆总结」关闭、80% 自动压缩
+  // 不接线，超窗请求也有这最后一道防线。
   const requestMessages = trimOnlineMessages(messages, {
     contextWindow: modelCaps.contextWindow,
     reserveOutputTokens: Number(samplingParams.max_tokens) > 0 ? Number(samplingParams.max_tokens) : 0,

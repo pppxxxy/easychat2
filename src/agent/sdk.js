@@ -1,7 +1,8 @@
 // EasyChat2 Agent SDK（JS/TS 兼容）——差距 #3「程序化接口 / SDK」的客户端。
 //
-// 依赖为零：只用注入的 fetch（默认 globalThis.fetch）。驱动本机「本地 OpenAI 兼容 server」
-// （plugins/localApiServer：`/v1/chat/completions`、`/v1/agent`、`/v1/models`，回环 + Bearer）。
+// 无外部运行时依赖：只用注入的 fetch（默认 globalThis.fetch）。驱动本机「本地 OpenAI 兼容
+// server」（plugins/localApiServer：`/v1/chat/completions`、`/v1/agent`、`/v1/models`，回环 + Bearer）。
+// 唯一的 import 是零依赖叶子 utils/urlQuery.js（URL 拆分/回拼），不引入任何环境耦合。
 //
 // 三个方法：
 //   listModels()                         → 已安装模型清单
@@ -9,6 +10,8 @@
 //   streamChat({ messages, model, ... }) → 流式聊天（SSE），逐 token 回调
 //
 // 纯解析（parseSseText）与客户端分离：前者可 Node 直测；后者注入 fetch 亦可直测。
+
+import { splitUrlQuery } from '../utils/urlQuery.js';
 
 export const SDK_DEFAULT_BASE_URL = 'http://127.0.0.1:8686';
 export const AGENT_RUN_OBJECT = 'agent.run';
@@ -49,8 +52,26 @@ export function chunkText(chunk) {
   return '';
 }
 
+// 把用户填的 baseUrl 归一到「根」：baseUrl 允许是根地址、带 /v1，或直接是某个完整端点
+// （/v1/models、/v1/agent、/v1/chat/completions）——后者此前会被无条件再追加一次 /v1/...
+// → 404。后缀判定只看「路径」部分（先例：src/vectorMemory/providers.js:41-48）：带 query
+// 的地址（...?api-version=…）整串判定必然不中，故先切 query 再判后缀，回拼时接回。
+function agentRootOf(path) {
+  let root = String(path || '').replace(/\/+$/, '');
+  const suffixes = ['/v1/chat/completions', '/v1/models', '/v1/agent'];
+  for (let i = 0; i < suffixes.length; i += 1) {
+    const suffix = suffixes[i];
+    if (root.toLowerCase().endsWith(suffix)) {
+      root = root.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return root.replace(/\/v1$/i, '');
+}
+
 export function createAgentClient({ baseUrl = SDK_DEFAULT_BASE_URL, apiKey = '', fetchImpl = null } = {}) {
-  const root = String(baseUrl || SDK_DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const { path, query } = splitUrlQuery(String(baseUrl || SDK_DEFAULT_BASE_URL).trim());
+  const root = agentRootOf(path || SDK_DEFAULT_BASE_URL);
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
   if (!doFetch) throw new Error('createAgentClient requires fetch (pass fetchImpl)');
 
@@ -61,13 +82,13 @@ export function createAgentClient({ baseUrl = SDK_DEFAULT_BASE_URL, apiKey = '',
   });
 
   async function listModels() {
-    const res = await doFetch(`${root}/v1/models`, { headers: headers() });
+    const res = await doFetch(`${root}/v1/models${query}`, { headers: headers() });
     if (!res.ok) throw new Error(`listModels 失败：HTTP ${res.status}`);
     return res.json();
   }
 
   async function runAgent({ prompt = '', mode = 'read', characterId = 'default', extra = {} } = {}) {
-    const res = await doFetch(`${root}/v1/agent`, {
+    const res = await doFetch(`${root}/v1/agent${query}`, {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify({ prompt, mode, characterId, ...extra }),
@@ -79,7 +100,7 @@ export function createAgentClient({ baseUrl = SDK_DEFAULT_BASE_URL, apiKey = '',
 
   // 流式聊天：逐 token 调 onToken(text)。返回完整文本。
   async function streamChat({ messages = [], model = '', onToken = null, extra = {} } = {}) {
-    const res = await doFetch(`${root}/v1/chat/completions`, {
+    const res = await doFetch(`${root}/v1/chat/completions${query}`, {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify({ model, messages, stream: true, ...extra }),

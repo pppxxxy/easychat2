@@ -12,6 +12,7 @@ import {
 } from './localDream.js';
 import { tActive } from '../i18n/index.js';
 import { isReservedPathKey as isReservedPathKeyShared } from '../utils/reservedPathKeys.js';
+import { splitUrlQuery } from '../utils/urlQuery.js';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 0;
@@ -286,8 +287,13 @@ function listUrlFor(provider, baseUrl) {
   const path = provider.listModelsPath !== undefined ? provider.listModelsPath : '/v1/models';
   if (!path) return '';
   if (provider.custom) {
-    const directory = stripKnownSuffix(trimmed, provider.baseUrlSuffixes);
-    return `${directory}${path}`;
+    // 后缀剥离只看「路径」部分（先例：src/vectorMemory/providers.js:41-48）。整串 endsWith
+    // 时，带 query 的地址（.../images/generations?api-version=…）必然不中，于是
+    // /images/generations 没被剥掉、listModelsPath 被追加进 query 值 → 404。
+    // 同函数内两种口径此前不一致：非 custom 分支经 originOf（:269-272）天然切掉 query，
+    // custom 分支不切。这里把 custom 也对齐为「只认路径」，两分支口径一致。
+    const { path: directory } = splitUrlQuery(trimmed);
+    return `${stripKnownSuffix(directory, provider.baseUrlSuffixes)}${path}`;
   }
   const origin = originOf(trimmed);
   return origin ? `${origin}${path}` : '';
