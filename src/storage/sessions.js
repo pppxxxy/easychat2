@@ -15,6 +15,9 @@ export {
   getSessions,
   saveSessions,
   getActiveSessionId,
+  // 三态版本（ok/missing/corrupt）：调用方据此判断「键从未设过」还是「读不出」，
+  // 只有前者允许把解析出的指针写回盘（见 context/sessionLibrary.shouldPersistResolvedId）。
+  getActiveSessionIdStatus,
   setActiveSessionId,
   setProtectedChatImageUris,
   setProtectedVoiceUris,

@@ -9,6 +9,7 @@ import {
   isMessageGroup,
   regenerateMessageIds,
   selectSessionsForCharacters,
+  shouldPersistResolvedId,
 } from '../src/context/sessionLibrary.js';
 
 test('恢复会话沿用原 id，时间取消息时间戳', () => {
@@ -194,4 +195,17 @@ test('会话模型标识：kind 归一化 + 名称截断 + 无变化返回 null'
   assert.equal(kept.pinned, true);
   // 非法会话对象安全返回
   assert.equal(applySessionModelMark(null, { modelKind: 'local' }), null);
+});
+
+// 活动指针（会话/角色）三态写回裁定：corrupt 一律不写，ok/missing 且解析结果确实变了才写。
+// 依据：这两处此前是裸 getItem + JSON.parse + catch 返回 ''，不是 readJson 路径，
+// 读失败返回 '' 会让调用方解析出另一段会话/另一个角色再落盘，用户「上次停在的对话」被改掉。
+test('shouldPersistResolvedId：corrupt 不写回，ok/missing 且结果变化才写', () => {
+  assert.equal(shouldPersistResolvedId('missing', 's-new', ''), true, '键从未存在过 → 写回');
+  assert.equal(shouldPersistResolvedId('corrupt', 's-other', ''), false, '读失败 → 保持原值不动');
+  assert.equal(shouldPersistResolvedId('corrupt', 's-other', 's-old'), false);
+  assert.equal(shouldPersistResolvedId('ok', 's1', 's1'), false, '解析结果与盘上一致 → 不写');
+  assert.equal(shouldPersistResolvedId('ok', 's1', 's0'), true, 'ok 且解析结果变了（失效指针修正）→ 写回');
+  assert.equal(shouldPersistResolvedId('missing', '', ''), false, '空解析结果不写回');
+  assert.equal(shouldPersistResolvedId('ok', '', 's-old'), false, '解析为空（会话被删空）不写回');
 });
