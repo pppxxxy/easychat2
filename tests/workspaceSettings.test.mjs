@@ -28,8 +28,15 @@ const transformed = babel.transformSync(fs.readFileSync(workspaceStoragePath, 'u
 }).code;
 
 const store = new Map();
+// 「读会抛错」的注入开关：把某个键的 getItem 变成抛错（模拟真机上的 CursorWindow 单值
+// 读取上限 / 底层读失败）。这是本项目既有的注入方式（内存 Map + 模块加载替换），
+// 不引入任何假 store 对象。
+const failingKeys = new Set();
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failingKeys.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
 };
@@ -40,6 +47,18 @@ const ioStub = {
       return raw ? JSON.parse(raw) : fallback;
     } catch (error) {
       return fallback;
+    }
+  },
+  // 与 src/storage/io.js:160 同口径的最小实现：getItem 抛错 / JSON 坏 → corrupt，
+  // 键不存在 → missing，正常 → ok。被测代码靠它区分「键不在」与「读失败」。
+  readJsonStatus: async key => {
+    let raw;
+    try {
+      raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
     }
   },
   createMutationQueue: () => {
@@ -59,6 +78,9 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
   if (request === './io.js') return ioStub;
   if (request === '../workspace/settings.js') return { normalizeWorkspaceSettings };
+  // 抛错文案走 i18n（存储层不许硬编码中文，见 eslint-rules/no-hardcoded-chinese.mjs）：
+  // 这里按既有先例（sessionBranches.test.mjs）返回键名，避免加载整棵词条树。
+  if (request === '../i18n/index.js') return { tActive: key => String(key) };
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -237,4 +259,55 @@ test('patchWorkspaceSettings 非法补丁被归一化挡住', async () => {
   assert.equal(after.location.kind, 'app');
   assert.equal(after.allowCommandExecution, false);
   assert.equal(after.mode, 'write');
+});
+
+// 读失败一次就把设置整键抹掉——这是本批要修的形态（storage/workspace.js 的 7 处之一）。
+// 变体①「拒绝写回」（参考 src/storage/worldMap.js:37「读失败就抛错中止：绝不用空列表
+// 覆盖已有地图」）：patchWorkspaceSettings 在读失败时抛错，绝不用「默认设置」当现值
+// 合并补丁后整键写回——否则模式 / 文件夹 / 两个执行开关 / 本地 git 会被一次性重置。
+test('patchWorkspaceSettings：读失败时抛错中止，绝不用默认设置覆盖整键', async () => {
+  store.clear();
+  failingKeys.clear();
+  const { patchWorkspaceSettings, getWorkspaceSettings, WORKSPACE_KEY } = loadWorkspaceStorage();
+
+  // 用户已经调好的状态：可改模式 + 外部文件夹 + 命令执行 + 本地 git + 工作区角色
+  await patchWorkspaceSettings({
+    mode: 'write',
+    location: { kind: 'saf', uri: 'content://tree/primary%3ADocs', name: 'Docs' },
+    allowCommandExecution: true,
+    allowLocalGit: true,
+    assistantCharacterId: 'assistant-1',
+  });
+  const before = store.get(WORKSPACE_KEY);
+
+  // 注入「读会抛错」的存储：getItem 抛错 → readJsonStatus 判 corrupt
+  failingKeys.add(WORKSPACE_KEY);
+  await assert.rejects(
+    () => patchWorkspaceSettings({ mode: 'read' }),
+    /workspace\.panel\.err\.read/,
+    '读失败必须抛错（用户看到保存失败，而不是设置被悄悄重置）'
+  );
+  failingKeys.delete(WORKSPACE_KEY);
+
+  // (b) 原键值一字未动
+  assert.equal(store.get(WORKSPACE_KEY), before, '读失败时绝不允许整键覆盖');
+  const kept = JSON.parse(store.get(WORKSPACE_KEY));
+  assert.equal(kept.mode, 'write');
+  assert.equal(kept.location.name, 'Docs');
+  assert.equal(kept.allowCommandExecution, true);
+  assert.equal(kept.allowLocalGit, true);
+  assert.equal(kept.assistantCharacterId, 'assistant-1');
+
+  // 读路径的用户体验不变：读失败时设置仍回落默认，不抛错（只改「写不写」的判定）
+  failingKeys.add(WORKSPACE_KEY);
+  const fallback = await getWorkspaceSettings();
+  failingKeys.delete(WORKSPACE_KEY);
+  assert.equal(fallback.mode, 'ask', '读失败仍回落默认（不弹报错）');
+  assert.equal(fallback.location.kind, 'app');
+
+  // 守卫只在 corrupt 时生效，不是永久封锁：读恢复后写入照常且仍是读-改-写
+  const after = await patchWorkspaceSettings({ mode: 'read' });
+  assert.equal(after.mode, 'read');
+  assert.equal(after.location.name, 'Docs', '恢复后不得把文件夹归一成默认');
+  assert.equal(after.assistantCharacterId, 'assistant-1');
 });

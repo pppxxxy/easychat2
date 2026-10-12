@@ -135,8 +135,14 @@ test('批量导入：批内逐文件写只记一条汇总；abort 不记；批�
 // ---------- 存储域：往返/上限/分区（AsyncStorage 桩） ----------
 
 const store = new Map();
+// 「读会抛错」的注入开关：把某个键的 getItem 变成抛错（模拟真机上的 CursorWindow 单值
+// 读取上限 / 底层读失败）。沿用本项目既有的注入方式（内存 Map + 模块加载替换）。
+const failingKeys = new Set();
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failingKeys.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
 };
@@ -157,7 +163,18 @@ const ioStub = {
     };
   },
   backupCorruptValue: async () => {},
-  readJsonStatus: async () => ({ status: 'missing' }),
+  // 与 src/storage/io.js:160 同口径的最小实现：getItem 抛错 / JSON 坏 → corrupt，
+  // 键不存在 → missing，正常 → ok。被测代码靠它区分「键不在」与「读失败」。
+  readJsonStatus: async key => {
+    let raw;
+    try {
+      raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
+    }
+  },
   readJsonStatusWithSecrets: async () => ({ status: 'missing' }),
   setJsonWithSecrets: async () => {},
 };
@@ -174,6 +191,10 @@ function loadSourceModule(relativePath) {
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
     if (request.endsWith('/io.js')) return ioStub;
+    // 抛错文案走 i18n（存储层不许硬编码中文）：按既有先例返回键名，避免加载整棵词条树。
+    if (request.endsWith('/i18n/index.js') || request.endsWith('/i18n/index')) {
+      return { tActive: key => String(key) };
+    }
     return originalLoad.call(this, request, parent, isMain);
   };
   const runtime = new Module(sourcePath);
@@ -244,4 +265,73 @@ test('仓库清单快照：按角色+仓库分区往返，非法值归一', asyn
   // 非法输入：空 id 直接忽略，不写脏数据。
   assert.equal(await workspace.setRepoSnapshot('', 'o/r/main', { paths: ['x'] }), null);
   assert.equal(await workspace.getRepoSnapshot('c1', ''), null);
+});
+
+// 改动历史是**单键整表**（所有角色分区挤在一个键里）：读失败时用空表写回，会把所有角色的
+// 历史一次抹掉。AsyncStorage 没有 append 原语，「只追加不整表覆盖」结构上做不到，故取
+// 变体①「拒绝写回」（参考 src/storage/worldMap.js:37）。
+test('改动历史：读失败时追加与清空都抛错，且不覆盖原键', async () => {
+  store.clear();
+  failingKeys.clear();
+  await workspace.appendWorkspaceChange('c1', { op: 'write', path: 'keep.txt', at: 100 });
+  await workspace.appendWorkspaceChange('c2', { op: 'write', path: 'other.txt', at: 90 });
+  const before = store.get(workspace.WORKSPACE_CHANGES_KEY);
+
+  failingKeys.add(workspace.WORKSPACE_CHANGES_KEY);
+  await assert.rejects(
+    () => workspace.appendWorkspaceChange('c1', { op: 'write', path: 'new.txt', at: 200 }),
+    /workspace\.panel\.err\.read/,
+    '读失败时追加必须抛错（不得用空表整表覆盖）'
+  );
+  await assert.rejects(
+    () => workspace.clearWorkspaceChanges('c1'),
+    /workspace\.panel\.err\.read/,
+    '读失败时清空必须抛错（否则会连带清掉其它角色的历史）'
+  );
+  failingKeys.delete(workspace.WORKSPACE_CHANGES_KEY);
+
+  // (b) 原键值一字未动：两个角色的历史都在
+  assert.equal(store.get(workspace.WORKSPACE_CHANGES_KEY), before, '读失败时绝不允许整表覆盖');
+  assert.deepEqual((await workspace.getWorkspaceChanges('c1')).map(item => item.path), ['keep.txt']);
+  assert.deepEqual((await workspace.getWorkspaceChanges('c2')).map(item => item.path), ['other.txt']);
+
+  // 读路径的用户体验不变：读失败时列表仍给空，不抛错
+  failingKeys.add(workspace.WORKSPACE_CHANGES_KEY);
+  assert.deepEqual(await workspace.getWorkspaceChanges('c1'), []);
+  failingKeys.delete(workspace.WORKSPACE_CHANGES_KEY);
+
+  // 守卫只在 corrupt 时生效：读恢复后照常追加
+  await workspace.appendWorkspaceChange('c1', { op: 'edit', path: 'keep.txt', at: 300 });
+  assert.deepEqual((await workspace.getWorkspaceChanges('c1')).map(item => item.path), ['keep.txt', 'keep.txt']);
+});
+
+// 快照表同样是单键整表：读失败时写回会把其它角色 / 其它仓库的基线一次抹掉——基线没了，
+// 下次推送会把「待同步」判成「全新文件」。变体①（同 worldMap.js:37）。
+test('仓库快照：读失败时写入抛错，且不覆盖原基线', async () => {
+  store.clear();
+  failingKeys.clear();
+  await workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['a.js', 'src/b.js'], at: 123 });
+  await workspace.setRepoSnapshot('c2', 'o/other/main', { paths: ['z.js'], at: 99 });
+  const before = store.get(workspace.WORKSPACE_REPO_SNAPSHOTS_KEY);
+
+  failingKeys.add(workspace.WORKSPACE_REPO_SNAPSHOTS_KEY);
+  await assert.rejects(
+    () => workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['only.js'], at: 456 }),
+    /workspace\.panel\.err\.read/,
+    '读失败时写快照必须抛错（不得用空表整表覆盖）'
+  );
+  failingKeys.delete(workspace.WORKSPACE_REPO_SNAPSHOTS_KEY);
+
+  assert.equal(store.get(workspace.WORKSPACE_REPO_SNAPSHOTS_KEY), before, '读失败时绝不允许整表覆盖');
+  assert.deepEqual((await workspace.getRepoSnapshot('c1', 'o/r/main')).paths, ['a.js', 'src/b.js']);
+  assert.deepEqual((await workspace.getRepoSnapshot('c2', 'o/other/main')).paths, ['z.js']);
+
+  // 读路径的用户体验不变：读失败时给 null，不抛错
+  failingKeys.add(workspace.WORKSPACE_REPO_SNAPSHOTS_KEY);
+  assert.equal(await workspace.getRepoSnapshot('c1', 'o/r/main'), null);
+  failingKeys.delete(workspace.WORKSPACE_REPO_SNAPSHOTS_KEY);
+
+  // 守卫只在 corrupt 时生效：读恢复后照常覆盖写
+  await workspace.setRepoSnapshot('c1', 'o/r/main', { paths: ['only.js'], at: 456 });
+  assert.deepEqual((await workspace.getRepoSnapshot('c1', 'o/r/main')).paths, ['only.js']);
 });
