@@ -204,14 +204,16 @@ test('D1 文件面板：导入文件到当前目录（技能生态通路，落�
 
 test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清（成功才清）', () => {
   const github = readSource('src/workspace/screen/GithubPanel.js');
+  // 拉取动作已外提到 github/useRepoPull.js：残留提示与写/清/批结算顺序读新文件。
+  const pull = readSource('src/workspace/screen/github/useRepoPull.js');
   assert.ok(github.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');
   assert.ok(github.includes("t('workspace.github.pull.foreground', { eta: pullEta })"), '写入阶段带剩余秒数估算');
-  assert.ok(github.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
+  assert.ok(pull.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
   // 顺序契约：先写清单、批结算之后才清——失败/取消路径（在清之前就跳出）保留清单，
   // 下次拉取才能检出「上次没跑完」。
-  const writeAt = github.indexOf('await writePullManifest(');
-  const clearAt = github.indexOf('await clearPullManifest(');
-  const endBatchAt = github.indexOf('store.endBatch?.()');
+  const writeAt = pull.indexOf('await writePullManifest(');
+  const clearAt = pull.indexOf('await clearPullManifest(');
+  const endBatchAt = pull.indexOf('store.endBatch?.()');
   assert.ok(writeAt > 0 && clearAt > 0 && endBatchAt > 0, '写/清/批结算都在');
   assert.ok(writeAt < clearAt, '先写清单后清理');
   assert.ok(endBatchAt < clearAt, '清单在真正成功后才清（批结算之后）');
@@ -240,13 +242,15 @@ test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清�
   assert.ok(github.includes('await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`)'), '推送前读基线');
   assert.ok(github.includes('baselinePaths,'), '基线传入 pushRepoSnapshot');
   // G2：拉取完成后写清单（成功路径）；面板挂载读取（跨会话保留）
-  assert.ok(github.includes('await writePullSkipped(store, characterId, skippedPayloadNext)'), '拉取成功后写跳过清单');
-  assert.ok(github.includes('await readPullSkipped(storeRef && storeRef.current, characterId)'), '挂载时读清单');
+  // 拉取域已外提到 github/useRepoPull.js：写/读清单与顺序契约读新文件。
+  const pull = readSource('src/workspace/screen/github/useRepoPull.js');
+  assert.ok(pull.includes('await writePullSkipped(store, characterId, skippedPayloadNext)'), '拉取成功后写跳过清单');
+  assert.ok(pull.includes('await readPullSkipped(storeRef && storeRef.current, characterId)'), '挂载时读清单');
   assert.ok(github.includes("t('workspace.github.skipped.view', { count: skippedPayload.total })"), '查看清单入口（带计数）');
   assert.ok(github.includes('formatSkippedList(skippedPayload)'), '清单文本用纯函数格式化');
   // 顺序契约：写清单在「清残留 manifest」之后（= 真正成功路径），失败/取消不写
-  const clearManifestAt = github.indexOf('await clearPullManifest(store, characterId)');
-  const writeSkippedAt = github.indexOf('await writePullSkipped(');
+  const clearManifestAt = pull.indexOf('await clearPullManifest(store, characterId)');
+  const writeSkippedAt = pull.indexOf('await writePullSkipped(');
   assert.ok(clearManifestAt > 0 && writeSkippedAt > clearManifestAt, '清单只在成功路径写');
   // G 系超限记账：完成提示带「过大未参与同步」（不静默）
   assert.ok(github.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');

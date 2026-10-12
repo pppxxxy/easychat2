@@ -218,8 +218,10 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
   assert.match(github, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
   assert.ok(!github.includes('AsyncStorage') && !github.includes('@easychat2_'), '面板不得自建凭据存储键');
   // 快照边界如实声明；拉取链路必须复用 repoImport 的限额与解压（含目录条目修复）。
+  // 拉取动作已外提到 github/useRepoPull.js，解压/限额断言读新文件。
+  const pull = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPull.js'), 'utf8');
   assert.ok(github.includes('workspace.github.pull.hint'), '快照边界文案必须在位');
-  assert.ok(github.includes('extractRepoFiles(') && github.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
+  assert.ok(pull.includes('extractRepoFiles(') && pull.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
 });
 
 test('F4 拉取残留清单：解析容错 + 写入/读取/清理往返（全不抛错）', async () => {
@@ -378,10 +380,12 @@ test('B1/B2/B3 拉取体验接线：分支 chip + 默认分支对齐 + 覆盖守
   assert.ok(github.includes('branchSeqRef'), '竞态防护：快速切仓库旧响应不覆盖新列表');
   // B2：初值与该仓库真实默认分支同源（normalizeRepo.defaultBranch），不再硬编码 main
   assert.ok(github.includes('current.branch || current.defaultBranch'), '初值对齐默认分支');
-  // B3：覆盖守卫——守卫调用必须在下载之前（取消 = 连 zip 都不下载）
-  assert.ok(github.includes('confirmPullOverwrite'), '覆盖确认存在');
-  const guardAt = github.indexOf('confirmPullOverwrite(guardDiff.pending)');
-  const downloadAt = github.indexOf('await downloadZip({ url, token })');
+  // B3：覆盖守卫——守卫调用必须在下载之前（取消 = 连 zip 都不下载）。
+  // 拉取动作已外提到 github/useRepoPull.js，B3 断言读新文件。
+  const pull = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPull.js'), 'utf8');
+  assert.ok(pull.includes('confirmPullOverwrite'), '覆盖确认存在');
+  const guardAt = pull.indexOf('confirmPullOverwrite(guardDiff.pending)');
+  const downloadAt = pull.indexOf('await downloadZip({ url, token })');
   assert.ok(guardAt > 0 && downloadAt > 0 && guardAt < downloadAt, '守卫在下载之前');
-  assert.ok(github.includes('guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
+  assert.ok(pull.includes('guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
 });
