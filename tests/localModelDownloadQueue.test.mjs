@@ -15,13 +15,33 @@ import {
   DOWNLOAD_TASK_STATUS,
 } from '../src/localModel/downloadQueue.js';
 
+// 真存储桩：队列在「桩」里就是一个**原始 JSON 字符串**（不是内存对象），读写口径与
+// src/storage/localModels.js 完全一致 —— writeDownloadQueue = JSON.stringify 落盘，
+// readDownloadQueueStatus = 三态（ok/missing/corrupt）。B1 的要点正是「读失败时不得
+// 写回空队列」，所以桩必须能表达「读不出来」这一态，并且能断言盘上原内容没被动过。
 function makeHarness(overrides = {}) {
-  let persisted = overrides.persisted ? overrides.persisted.map(t => ({ ...t })) : [];
+  let rawQueue = overrides.rawQueue !== undefined
+    ? overrides.rawQueue
+    : (overrides.persisted ? JSON.stringify(overrides.persisted) : undefined);
+  let readFails = Boolean(overrides.readFails);
+  let persistCalls = 0;
   const downloaded = [];
   const cancelled = [];
+  const readStatus = () => {
+    // 模拟 readJsonStatus：getItem 抛错 / JSON 解析失败 / 形状不是数组 ⇒ 一律 corrupt，
+    // ⚠️ 但**绝不把它压成 { status:'ok', value:[] }** —— 那正是 B1 的成因。
+    if (readFails) return { status: 'corrupt', value: [] };
+    if (rawQueue === undefined) return { status: 'missing', value: [] };
+    try {
+      const value = JSON.parse(rawQueue);
+      return Array.isArray(value) ? { status: 'ok', value } : { status: 'corrupt', value: [] };
+    } catch (error) {
+      return { status: 'corrupt', value: [] };
+    }
+  };
   const deps = {
-    load: async () => persisted.map(t => ({ ...t })),
-    persist: async tasks => { persisted = tasks.map(t => ({ ...t })); },
+    load: async () => readStatus(),
+    persist: async tasks => { persistCalls += 1; rawQueue = JSON.stringify(tasks); },
     // 下载器（modelManager.downloadToFile）的原始口径是 0–1 比值：这里如实注入 0.5，
     // 出口应是 50（见「进度单位」用例）——注入值不要改成 50，否则测不出收口换算。
     download: overrides.download || (async input => {
@@ -33,7 +53,15 @@ function makeHarness(overrides = {}) {
     getFreeDiskBytes: overrides.getFreeDiskBytes || (async () => 100 * 1024 * 1024 * 1024),
   };
   const queue = createDownloadQueue(deps);
-  return { queue, downloaded, cancelled, getPersisted: () => persisted };
+  return {
+    queue,
+    downloaded,
+    cancelled,
+    getPersisted: () => (rawQueue === undefined ? [] : JSON.parse(rawQueue)),
+    getRawQueue: () => rawQueue,
+    persistCalls: () => persistCalls,
+    failReads: value => { readFails = value; },
+  };
 }
 
 const TASK = {
@@ -223,4 +251,55 @@ test('队列：订阅者收到入队与完成广播', async () => {
   await new Promise(resolve => setTimeout(resolve, 20));
   off();
   assert.ok(seen.length >= 2, '应有入队与完成两次以上广播');
+});
+
+// ---- B1：水合读失败绝不当「空队列」写回 ----
+// 旧实现是 `const persisted = await load().catch(() => []); ... await persist(tasks)`：
+// 而 storage 那边把 corrupt 压成 []（不抛错）⇒ load 正常返回 [] ⇒ 下游 .catch 连触发都
+// 不触发 ⇒ persist([]) 覆盖掉真正存着待下载任务的队列 ⇒ 任务永久消失、零提示零诊断。
+// 「加了 .catch 兜底」在这里只是虚假安全感。
+const QUEUED = [
+  { id: 'a', modelId: 'a', modelUrl: 'https://huggingface.co/a/a.gguf', sourceId: 'huggingface', status: 'pending' },
+  { id: 'b', modelId: 'b', modelUrl: 'https://huggingface.co/b/b.gguf', sourceId: 'huggingface', status: 'running' },
+  { id: 'c', modelId: 'c', modelUrl: 'https://huggingface.co/c/c.gguf', sourceId: 'huggingface', status: 'pending' },
+];
+
+test('B1：水合读失败时不得写回空队列（盘上的 3 个任务原样保留）', async () => {
+  const harness = makeHarness({ persisted: QUEUED, readFails: true });
+  const before = harness.getRawQueue();
+  await harness.queue.hydrate();
+  // 这是本用例的核心断言：存储里的原始内容**一个字节都没变**。
+  assert.equal(harness.getRawQueue(), before, '读失败时绝不能把空队列写回存储');
+  assert.deepEqual(harness.getPersisted().map(task => task.id), ['a', 'b', 'c'], '持久化任务必须还在');
+  assert.equal(harness.persistCalls(), 0, '读失败时不应发生任何落盘');
+  assert.deepEqual(harness.queue.getSnapshot().tasks, [], '本次水合看不到任务（诚实降级），但绝不据此覆盖');
+  assert.deepEqual(harness.downloaded, [], '看不到任务就不会发起下载');
+});
+
+test('B1：读失败只是一次降级，盘上数据仍可被下一次水合原样读回', async () => {
+  const harness = makeHarness({ persisted: QUEUED, readFails: true });
+  await harness.queue.hydrate();
+  assert.equal(harness.persistCalls(), 0);
+  // 恢复可读：下一次水合（新实例）应把任务原样读回，证明盘上数据从未被清空。
+  const recovered = makeHarness({ rawQueue: harness.getRawQueue() });
+  await recovered.queue.hydrate();
+  assert.deepEqual(recovered.queue.getSnapshot().tasks.map(task => task.id).sort(), ['a', 'b', 'c']);
+});
+
+test('B1：正常路径（ok/missing）仍然持久化，读失败不写回不会误伤常规水合', async () => {
+  // ok：running 降级为 pending 后必须落盘（否则重启恢复永远不生效）
+  const ok = makeHarness({ persisted: [QUEUED[1]] });
+  await ok.queue.hydrate();
+  assert.equal(ok.persistCalls(), 1, 'ok 状态应写回恢复后的队列');
+  assert.equal(ok.getPersisted()[0].status, DOWNLOAD_TASK_STATUS.PENDING);
+  // missing：键不存在 = 首次运行，允许落一份空队列
+  const missing = makeHarness();
+  await missing.queue.hydrate();
+  assert.equal(missing.persistCalls(), 1, 'missing 状态允许落盘');
+  assert.equal(missing.getRawQueue(), '[]');
+  // corrupt：形状坏掉（不是读失败）同样不写回
+  const corrupt = makeHarness({ rawQueue: '{"not":"an array"}' });
+  await corrupt.queue.hydrate();
+  assert.equal(corrupt.persistCalls(), 0, '形状损坏同样不得写回');
+  assert.equal(corrupt.getRawQueue(), '{"not":"an array"}');
 });

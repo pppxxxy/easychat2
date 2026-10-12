@@ -22,6 +22,10 @@ export const localModel = {
   'localModel.alert.apiStartFailed.body': '请检查端口是否被占用。',
   'localModel.alert.apiStopFailed.title': '停止失败',
   'localModel.alert.apiStopFailed.body': '请重试。',
+  // B3：设置读不出来 ⇒ 密钥状态未知。此时生成新密钥会覆盖用户原有密钥（外部客户端全部
+  // 401 且旧密钥不可恢复），所以直接拒绝启动，并如实告知原因。
+  'localModel.alert.apiSettingsUnreadable.title': '无法读取服务设置',
+  'localModel.alert.apiSettingsUnreadable.body': '本地服务设置读取失败，无法确认现有 API 密钥。为避免覆盖你已配置的密钥，本次启动已取消，请稍后重试。',
   'localModel.alert.addressCopied.title': '已复制',
   'localModel.alert.addressCopied.body': '{address}\n\n在同机客户端的 base_url / 接口地址中填入此地址。请求需携带 Authorization: Bearer <上方输入框里的密钥>。',
   'localModel.alert.copyFailed.title': '复制失败',
@@ -62,6 +66,11 @@ export const localModel = {
   'localModel.alert.resourceBusy.body': '录音、语音合成或本地推理正在进行，请稍后再加载。',
   'localModel.error.itemMissing': '模型条目不存在',
   'localModel.error.fileMissing': '模型文件缺失，请重新下载或导入',
+  // B4：补偿（回滚）路径的两条诚实告知：
+  // - deleteUnreadable：读不回原值 ⇒ 拒绝执行不可逆删除；
+  // - rollbackUnreadable：回滚时读不回原值 ⇒ 只留痕、不删除（保留现状）。
+  'localModel.error.deleteUnreadable': '模型数据读取失败，已取消删除以避免不可恢复的数据丢失',
+  'localModel.error.rollbackUnreadable': '回滚时无法读到原值，已保留当前数据未做恢复',
   'localModel.alert.modelLoaded.title': '已加载',
   'localModel.alert.modelLoaded.body': '模型已加载到内存，聊天页选择「本地」来源即可使用。',
   'localModel.alert.loadFailed.title': '加载失败',
