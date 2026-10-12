@@ -14,8 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useApp } from './context/AppContext.js';
 import { deleteMomentsBySessionIds, getMomentsStatus } from './storage/moments.js';
-import { findOrphanSessions, getMessagesBySession, restoreSession } from './storage/sessions.js';
-import { getUserProfile } from './storage/personas.js';
+import { getMessagesBySession } from './storage/sessions.js';
 import { buildPreview } from './context/sessionLibrary.js';
 import { countMomentsBySessionIds } from './moments/moments.js';
 import {
@@ -34,6 +33,7 @@ import {
 import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
 import MemoryCheckupModal from './memory/MemoryCheckupModal.js';
 import useScreenWatchThreads from './memory/useScreenWatchThreads.js';
+import useOrphanRecovery from './memory/useOrphanRecovery.js';
 import MoreMenuModal from './chat/MoreMenuModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import SessionRecoveryModal from './SessionRecoveryModal.js';
@@ -83,10 +83,6 @@ export default function MemoryScreen({ navigation }) {
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
-  // 旧版本新建对话会误删会话记录：扫出"消息还在、会话没了"的对话，供用户恢复
-  const [orphans, setOrphans] = useState([]);
-  const [recoverOpen, setRecoverOpen] = useState(false);
-  const [userName, setUserName] = useState('');
   const switchLockRef = useRef(false);
 
   // 看屏幕对话（screenWatch）的管理已抽到 memory/useScreenWatchThreads.js：
@@ -101,27 +97,14 @@ export default function MemoryScreen({ navigation }) {
     handleClearAllThreads,
   } = useScreenWatchThreads({ t });
 
-  const scanOrphans = useCallback(async () => {
-    try {
-      const [list, profile] = await Promise.all([
-        findOrphanSessions(),
-        getUserProfile().catch(() => null),
-      ]);
-      setOrphans(list);
-      setUserName(String((profile && profile.userName) || '').trim());
-    } catch (error) {
-      setOrphans([]);
-      Alert.alert(
-        t('memory.scan.fail.title'),
-        (error && error.message) || t('memory.scan.fail.body')
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!loaded) return;
-    scanOrphans();
-  }, [loaded, scanOrphans]);
+  // 孤儿会话恢复（扫出「消息还在、会话没了」的对话）已抽到 memory/useOrphanRecovery.js。
+  const {
+    orphans,
+    recoverOpen,
+    setRecoverOpen,
+    userName,
+    onRecover,
+  } = useOrphanRecovery({ loaded, refreshSessions, t });
 
   // 聊天页保存消息时只写存储、不会同步 Context 的会话列表；回到记忆页若
   // 不重读，就会看到过期的 preview/updatedAt（空会话、排到底部都是这个原因）。
@@ -136,19 +119,6 @@ export default function MemoryScreen({ navigation }) {
     const unsubscribe = navigation.addListener('focus', refresh);
     return unsubscribe;
   }, [navigation, refreshSessions, reloadThreads]);
-
-  const onRecover = useCallback(async (orphan, characterId) => {
-    try {
-      await restoreSession(orphan.sessionId, characterId);
-      await refreshSessions();
-      setOrphans(current => current.filter(item => item.sessionId !== orphan.sessionId));
-      Alert.alert(t('memory.recover.success.title'), t('memory.recover.success.body'));
-      return true;
-    } catch (error) {
-      Alert.alert(t('memory.recover.fail.title'), (error && error.message) || t('common.error.retryLater'));
-      return false;
-    }
-  }, [refreshSessions, restoreSession]);
 
   const characterMap = useMemo(() => {
     const map = new Map();

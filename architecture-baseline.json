@@ -16,7 +16,8 @@
     "src/workspace/screen/FilesPanel.js 1213 → 1083（2026-10-12，审查待办第 3 项的第三刀）：下载中心的**状态与写入编排**（写入/套餐一键/自定义 URL 下载 + 弹层状态）外提到同目录 files/useCatalogDownloads.js（hook），面板只解构状态与动作；依赖 storeRef/characterId/mountedRef/files/refresh/t 由面板注入，行为逐字不变。净减 130 行。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/GithubPanel.js 1808 → 1698（2026-10-12，审查待办第 3 项的第四刀）：云构建（H1：Actions 触发 + 最近构建列表 + 日志）整段外提——状态与动作到 github/useGithubBuild.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入），展示层到 github/BuildSection.js；工具栏入口（setBuildLog/refreshBuildRuns）仍由面板调 hook 返回值。净减 110 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/GithubPanel.js 1698 → 1618（2026-10-12，审查待办第 3 项的第五刀）：E5 提交历史 / 单提交 diff / PR 创建的状态与动作外提到 github/useGithubHistory.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入）；JSX 仍留在面板（含分页「加载更多」按钮）。净减 80 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
-    "src/MemoryScreen.js 1035 → 956（2026-10-12，审查待办第 3 项的第六刀）：看屏幕对话（screenWatch）的管理（加载 / 拆分有内容 vs 空 / 删除 / 一键清理）外提到 memory/useScreenWatchThreads.js（hook）；存储与纯逻辑仍在 screenWatch/threads.js 与 memory/memoryBuckets.js。净减 79 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。"
+    "src/MemoryScreen.js 1035 → 956（2026-10-12，审查待办第 3 项的第六刀）：看屏幕对话（screenWatch）的管理（加载 / 拆分有内容 vs 空 / 删除 / 一键清理）外提到 memory/useScreenWatchThreads.js（hook）；存储与纯逻辑仍在 screenWatch/threads.js 与 memory/memoryBuckets.js。净减 79 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。",
+    "src/MemoryScreen.js 956 → 926（2026-10-12，审查待办第 3 项的第七刀）：孤儿会话恢复（扫出「消息还在、会话没了」的对话 + 挑角色恢复）外提到 memory/useOrphanRecovery.js（hook，依赖 loaded/refreshSessions/t 由面板注入）；存储读取仍在 storage/sessions.js 与 storage/personas.js。净减 30 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3162,
@@ -30,7 +31,7 @@
     "src/CardForgeEditor.js": 1338,
     "src/music/MusicScreen.js": 1182,
     "src/books/BookReaderView.js": 1114,
-    "src/MemoryScreen.js": 956,
+    "src/MemoryScreen.js": 926,
     "src/ImageGenScreen.js": 997,
     "src/character/CharacterLibraryScreen.js": 945,
     "src/workspace/WorkspaceSettingsSheet.js": 910,

@@ -15,6 +15,8 @@
     "src/LocalModelPanel.js",
     "src/MemoryScreen.js",
     "src/memory/SessionRow.js",
+    "src/memory/useScreenWatchThreads.js",
+    "src/memory/useOrphanRecovery.js",
     "src/SearchScreen.js",
     "src/SettingsScreen.js",
     "src/settings/useVectorSettings.js",
