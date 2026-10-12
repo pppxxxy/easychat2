@@ -16,7 +16,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { FieldHint, FieldLabel, TextField } from './ui/index.js';
 import { getTtsSettings, saveTtsSettings } from './storage/settings.js';
-import { TTS_PROVIDERS, getTtsProvider } from './tts/providers.js';
+import {
+  TTS_PROVIDERS,
+  getTtsProvider,
+  ttsFieldLabel,
+  ttsFieldPlaceholder,
+  ttsProviderLabel,
+  ttsUnsupportedNote,
+} from './tts/providers.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
 
@@ -70,7 +77,17 @@ export default function TtsPanel({ visible, onClose }) {
   const persist = useCallback(next => {
     const version = ++persistVersionRef.current;
     const task = persistQueueRef.current.then(async () => {
-      if (!loaded) return false;
+      if (!loaded) {
+        // 读失败时 loaded 永远为 false（见上面 effect 的 catch）：旧实现这里直接
+        // `return false`，于是「保存」点了没反应、弹窗不关、也没有任何提示，
+        // 用户只会以为界面卡住了。这里给**可见**原因，口径照 storage/worldMap.js:37
+        // 与 error.storage.characterIndexReadFailed：说清「已中止保存以免覆盖已有配置」，
+        // 而不是笼统的「保存失败」——后者会把用户引去查存储权限，而真实原因是读失败。
+        // 按钮侧另有禁用 + 常驻说明（见下方 saveButton 的 !loaded 分支），
+        // 这里兜住别的入口（自动播报开关、引擎切换）——它们同样会走到 persist。
+        Alert.alert(t('tts.alert.saveAborted.title'), t('tts.alert.saveAborted.body'));
+        return false;
+      }
       const previous = lastSavedSettingsRef.current;
       settingsRef.current = next;
       setSettings(next);
@@ -149,7 +166,10 @@ export default function TtsPanel({ visible, onClose }) {
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>{t('tts.title')}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('common.close')}>
+            {/* 关闭按钮的无障碍名走本面板自己的词条（同 TranscriptionPanel.js:159 的
+                transcription.closeA11y 形态）：与面板名 tts.title 分成两个语义，
+                此前 tts.title 被误写成「关闭」，面板标题因此显示成「关闭」。 */}
+            <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('tts.closeA11y')}>
               <Ionicons name="close" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -173,6 +193,9 @@ export default function TtsPanel({ visible, onClose }) {
               {TTS_PROVIDERS.map(item => {
                 const active = item.id === provider.id;
                 const unavailable = item.unsupported === true;
+                // 引擎名一律经共享取值函数取（key 优先 + 中文兜底，见 tts/providers.js）：
+                // 直接渲染声明表的 label 会让英文界面漏出中文引擎名。
+                const label = ttsProviderLabel(t, item);
                 return (
                   <TouchableOpacity
                     key={item.id}
@@ -183,13 +206,13 @@ export default function TtsPanel({ visible, onClose }) {
                     ]}
                      onPress={() => {
                       if (unavailable) {
-                        Alert.alert(t('tts.alert.unsupported.title'), t('tts.alert.unsupported.body', { name: item.label, note: item.unsupportedNote || t('tts.alert.unsupported.defaultNote') }));
+                        Alert.alert(t('tts.alert.unsupported.title'), t('tts.alert.unsupported.body', { name: label, note: ttsUnsupportedNote(t, item) || t('tts.alert.unsupported.defaultNote') }));
                         return;
                       }
                       persist({ ...settingsRef.current, activeProvider: item.id });
                     }}
                      activeOpacity={0.85}
-                    accessibilityLabel={unavailable ? t('tts.a11y.providerUnsupported', { name: item.label }) : item.label}
+                    accessibilityLabel={unavailable ? t('tts.a11y.providerUnsupported', { name: label }) : label}
                   >
                     <Text
                       style={[
@@ -198,7 +221,7 @@ export default function TtsPanel({ visible, onClose }) {
                         unavailable && styles.providerTextUnsupported,
                       ]}
                     >
-                      {unavailable ? t('tts.providerUnsupported', { name: item.label }) : item.label}
+                      {unavailable ? t('tts.providerUnsupported', { name: label }) : label}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -207,17 +230,17 @@ export default function TtsPanel({ visible, onClose }) {
 
             {provider.unsupported ? (
               <FieldHint style={styles.hint}>
-                {t('tts.unsupportedHint', { note: provider.unsupportedNote || t('tts.unsupportedHint.defaultNote') })}
+                {t('tts.unsupportedHint', { note: ttsUnsupportedNote(t, provider) || t('tts.unsupportedHint.defaultNote') })}
               </FieldHint>
             ) : null}
 
             {loaded ? provider.fields.map(field => (
               <View key={field.key}>
-                <FieldLabel style={styles.label}>{field.label}</FieldLabel>
+                <FieldLabel style={styles.label}>{ttsFieldLabel(t, field)}</FieldLabel>
                 <TextField
                   value={String(providerConfig[field.key] || '')}
                   onChangeText={value => setField(field.key, value)}
-                  placeholder={field.placeholder || ''}
+                  placeholder={ttsFieldPlaceholder(t, field)}
                   secureTextEntry={field.secret === true}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -265,7 +288,7 @@ export default function TtsPanel({ visible, onClose }) {
                 onPress={openKeyUrl}
                 activeOpacity={0.8}
                 accessibilityRole="link"
-                accessibilityLabel={t('tts.a11y.getApiKey', { name: provider.label })}
+                accessibilityLabel={t('tts.a11y.getApiKey', { name: ttsProviderLabel(t, provider) })}
               >
                 <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
                 <Text style={styles.keyLinkText}>{t('tts.getApiKey')}</Text>
@@ -279,7 +302,20 @@ export default function TtsPanel({ visible, onClose }) {
               </Text>
             ) : null}
 
-            <TouchableOpacity style={styles.saveButton} onPress={onSave} activeOpacity={0.8}>
+            {!loaded ? (
+              // 读失败（配置没读出来）→ 保存必须禁用，并把「为什么不能存」写在按钮上方：
+              // 只把按钮变灰而不说原因，用户仍会反复点。文案口径同上（已停用保存以免覆盖已有配置）。
+              <FieldHint style={styles.hint}>{t('tts.saveDisabled.readFailed')}</FieldHint>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.saveButton, !loaded && styles.saveButtonDisabled]}
+              onPress={onSave}
+              activeOpacity={0.8}
+              disabled={!loaded}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !loaded }}
+            >
               <Text style={styles.saveText}>{t('common.save')}</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -370,5 +406,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
   },
+  // 读失败时保存被禁用（同 providerChipUnsupported 的视觉口径）。
+  saveButtonDisabled: { opacity: tokens.opacity.disabled },
   saveText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
 });

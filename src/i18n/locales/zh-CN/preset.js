@@ -10,7 +10,10 @@ export const preset = {
   'preset.alert.infoIncomplete.body': '名称和提示词不能为空。',
   'preset.alert.delete.title': '删除预设',
   'preset.alert.delete.body': '确定删除「{name}」吗？',
-  'preset.unnamed': '}」吗？',
+  // 与 en 的 'Unnamed' 对齐。旧值 '}」吗？' 是删模板 {name} 段后留下的尾巴：
+  // 唯一使用点 PresetPanel.js:185 把它塞进 preset.alert.delete.body（'确定删除「{name}」吗？'），
+  // 渲染成「确定删除「}」吗？」吗？」。同形态见 tts.unsupportedHint.defaultNote（已修）。
+  'preset.unnamed': '未命名',
   'preset.alert.deleteFailed.title': '删除失败',
   'preset.alert.thresholdInvalid.title': '阈值无效',
   'preset.alert.thresholdInvalid.body': '请输入大于 0 的整数，已改为 {fallback}。',

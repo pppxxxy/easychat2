@@ -11,6 +11,7 @@ import {
   LOCAL_DREAM_TOKENIZE_PATH,
 } from './localDream.js';
 import { tActive } from '../i18n/index.js';
+import { isReservedPathKey as isReservedPathKeyShared } from '../utils/reservedPathKeys.js';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RETRIES = 0;
@@ -24,17 +25,18 @@ export function getByPath(source, path) {
   }, source);
 }
 
-// 保留键：它们在对象上**不是普通数据键**——`__proto__` 会改原型、`constructor` /
-// `prototype` 会撞上继承链。先例见 chat/toolNoticeVisibility.js:27（同一组键，
-// 那边有测试钉死：tests/toolNoticeVisibility.test.mjs）。
-// 为什么必须**逐层**拦：写进来的路径来自设置页「额外参数(JSON)」这类用户可编辑输入，
-// 危险键可以藏在任意一层（`a.__proto__.x` 的首层 `a` 完全合法），只在首层查会整类漏掉。
-const RESERVED_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
+// 保留键清单是**单一来源**：零依赖叶子模块 utils/reservedPathKeys.js
+//（此前 imageGen / tts / chat/toolNoticeVisibility 各手写一份，漏同步一处就留一条旁路）。
+// 这里刻意保留同名的薄包装而不是直接 import 使用：tests/imageGen.test.mjs 的
+// **阳性对照**用例靠正则把本函数体换成 `return false` 来还原「修复前」实现，证明
+// 上面的哨兵断言真的能发现泄漏（改名/改形会让那条对照立刻报错，而不是退化成空转）。
+// 换名重构时请同步那条对照的判据，不要让对照静默失效。
 function isReservedPathKey(key) {
-  return RESERVED_PATH_KEYS.has(String(key));
+  return isReservedPathKeyShared(key);
 }
 
+// 为什么必须**逐层**拦：写进来的路径来自设置页「额外参数(JSON)」这类用户可编辑输入，
+// 危险键可以藏在任意一层（`a.__proto__.x` 的首层 `a` 完全合法），只在首层查会整类漏掉。
 function setByPath(target, path, value) {
   if (!path) return;
   const keys = String(path).split('.');
