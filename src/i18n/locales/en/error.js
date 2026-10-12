@@ -110,6 +110,10 @@ export const error = {
   'error.api.aborted': 'Generation stopped.',
   'error.api.requestInterrupted': 'The request was interrupted.',
   'error.api.responseError': 'The API returned an error.',
+  // See the zh-CN entry for the same key: this is the stream **status** fallback
+  // (openai-responses response.failed / response.incomplete), deliberately NOT the same
+  // sentence as responseError (which is about an unparseable error payload).
+  'error.api.responseStatusFailed': 'The API reported a failed status.',
   'error.api.timeoutNonstream': 'Timed out waiting for the response (non-streaming requests wait for the server to finish the whole reply). Check your network or the API URL, or try again later.',
   'error.api.timeoutIdle': 'The request timed out. Check your network and try again.',
   'error.api.timeoutFirstByte': 'Timed out waiting for the first response. Check your network or the API URL (reasoning models can be slow, so you can try again later).',
@@ -243,6 +247,17 @@ export const error = {
   'error.backup.restoreReadFailed': 'Failed to read the data to restore: {key}',
   'error.backup.tooLarge': 'The backup file is too large; the current limit is {mb}MB.',
   'error.backup.exportUnreadable': 'Backup export: the following data keys could not be read and were not included: {keys}',
+  // The 6 import-validation messages: BackupPanel shows these through Alert, so they must be
+  // translatable (they used to be hardcoded Chinese in dataBackup.js return object literals,
+  // which the hardcoded-Chinese lint rule cannot see).
+  'error.backup.payloadInvalid': 'Invalid backup file format.',
+  'error.backup.versionMissing': 'The backup file has no version number, so its format cannot be confirmed.',
+  'error.backup.versionUnsupported': 'Unsupported backup version: {version}',
+  'error.backup.manifestMissing': 'The backup file is missing its data or media manifest.',
+  'error.backup.keyInvalid': 'Invalid backup data key format.',
+  'error.backup.entryIncomplete': 'A backup data entry has no content (neither a data value nor salvaged raw data).',
+  'error.backup.keyDuplicated': 'Duplicate backup data keys.',
+  'error.backup.mediaInvalid': 'Invalid backup media path or content.',
   'error.storage.characterLibraryRecovering': 'The character library is still being restored. Please try again later.',
   'error.storage.draftMissingCharacterId': 'The draft is missing a character ID.',
   'error.cardExport.invalidPng': 'The avatar is not a valid PNG file.',

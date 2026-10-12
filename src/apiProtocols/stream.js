@@ -99,13 +99,13 @@ function parseResponsesStream(payload) {
   }
   if (type === 'response.failed' || type === 'response.incomplete') {
     const response = payload.response || {};
-    // 残余（本批未做，**不是**已迁移）：这一句仍是硬编码中文，且语言包里**没有**对应词条
-    //（`error.api.responseFailed` 之类）。它与 api.js 的 `error.api.responseError` 不是
-    // 同一句话（「失败状态」说的是 status 而非 error 载荷），所以不能复用那条词条——
-    // 修它要先在 src/i18n/locales/{zh-CN,en}/error.js 各加一条，而那两个文件不在本批
-    // 所有权内。它只有一个来源（不存在「一处跟随语言一处不跟随」），故留待专门一批。
+    // 兜底词条 `error.api.responseStatusFailed`（2026-10-12 迁 i18n）：本条与 api.js 的
+    // `error.api.responseError` **不是同一句话**，所以不能复用——「失败状态」说的是
+    // response.status（failed / incomplete），而 responseError 说的是「回了 error 载荷但解析不出
+    // 原因」。两句主语不同（状态 vs 载荷），合并会让用户分不清「服务端明确报错」与
+    // 「服务端只是没成功收尾」。词条已在中英两个 error.js 里补齐（见那里的对照注释）。
     const errorMessage = parseProtocolError('openai-responses', { error: response.error })
-      || '接口返回失败状态。';
+      || tActive('error.api.responseStatusFailed');
     return { error: errorMessage };
   }
   if (type === 'error') {

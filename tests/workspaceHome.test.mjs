@@ -258,3 +258,32 @@ test('跨面板交接：GitHub 工作台 → 对话面板输入框', () => {
   assert.ok(CHAT.includes('consumedDraftRef'), '对话面板消费草稿（token 去重）');
   assert.ok(CHAT.includes('setInput(prev =>'), '草稿填进输入框');
 });
+
+test('对话历史 sheet 走 embedded：面板不再间接挂一层 Modal', () => {
+  // 与 FileHistorySheet 同型（2026-10-12 一并收口）：guard-structure 的「面板未自套 Modal」
+  // 判据是**文件级**的，看不见「面板 import 了一个自带 Modal 的组件」这条间接路径
+  //（脚本 :107 的「已知残余」写明了）。ChatPanel 通过 <WorkspaceHistorySheet> 挂过一层
+  // Modal ⇒ 工作区里就多一层 z 轴外壳，这里把 embedded 形态钉住，防止回退。
+  assert.ok(HISTORY.includes('embedded = false,'), 'sheet 有 embedded 档（默认 Modal 形态不变）');
+  assert.ok(
+    HISTORY.includes('if (embedded) {') && HISTORY.includes('if (!visible) return null;'),
+    'embedded 且不可见时不渲染浮层（absoluteFill 留着会吃掉宿主点击）'
+  );
+  assert.ok(
+    HISTORY.includes('<Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>'),
+    '默认形态仍是自套 Modal（其他宿主不受影响）'
+  );
+  assert.ok(HISTORY.includes('styles.overlay'), 'embedded 用 absoluteFill 浮层：只借位、不叠 z 轴');
+  // 宿主必须**真的**以 embedded 形态调用它——只给 sheet 加档而不接线 = 多一个死 prop
+  //（任务 7 要消灭的正是死 prop，别在隔壁再造一个）。
+  assert.ok(CHAT.includes('visible={historyOpen} embedded'), '对话面板以 embedded 形态调用（不套 Modal）');
+});
+
+test('FilesPanel 不再收死的 embedded prop', () => {
+  // FilesPanel 从没自套过 Modal（天生只有「面板」这一种形态），签名也没解构 embedded——
+  // WorkspaceScreen 传的 `embedded` 因此是死 prop（读它无事可做），2026-10-12 删除。
+  // 真正需要 embedded 的是 FileHistorySheet / WorkspaceHistorySheet 这类自带 Modal 的组件。
+  const filesRenderer = (/files: props => \(([\s\S]*?)\n  \),/.exec(SCREEN) || ['', ''])[1];
+  assert.ok(filesRenderer.includes('<FilesPanel'), '文件面板渲染器仍在（没截错块）');
+  assert.ok(!/^\s*embedded\s*$/m.test(filesRenderer), '不再给 FilesPanel 传死的 embedded（它没有第二种形态）');
+});

@@ -170,9 +170,14 @@ export const localModel = {
   'localModel.logs.alertCopied.body': '本地模型日志已复制，可直接粘贴反馈。',
   'localModel.logs.alertCopyFailed.title': '复制失败',
   'localModel.logs.alertCopyFailed.body': '请手动长按选择文本复制。',
-  'localModel.logs.title': '关闭',
-  'localModel.logs.hint': '复制全部',
-  'localModel.logs.refresh': '清空',
+  // 面板名与「关闭」是两个语义，不能共用一个键（形态照 transcription.title +
+  // transcription.closeA11y）。此前 title 被误写成关闭文案 ⇒ 面板标题显示成「关闭」。
+  'localModel.logs.title': '模型日志',
+  'localModel.logs.closeA11y': '关闭',
+  // 这两条曾与 logs.copyAll / logs.clear 串位（hint 里是「复制全部」、refresh 里是「清空」），
+  // 使用点 ModelLogsModal.js:58（说明行）与 :61-62（刷新按钮）⇒ 说明行显示成了按钮文案。
+  'localModel.logs.hint': '本地模型运行日志仅保存在本机，可复制后反馈。',
+  'localModel.logs.refresh': '刷新',
   'localModel.a11y.loadProgress': '加载进度 {progress}%',
   'localModel.api.hint': '固定监听 127.0.0.1，供同机客户端调用；推理复用当前加载的本地模型。请求强制携带 Bearer 密钥（留空会自动生成），同机其他应用无法匿名调用。',
   'localModel.api.port': '端口',

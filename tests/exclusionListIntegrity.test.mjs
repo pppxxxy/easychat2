@@ -38,7 +38,12 @@ function missingEntries(entries) {
 
 test('eslint.config.mjs 的 ignores 不得指向不存在的文件', () => {
   const entries = eslintIgnoreEntries();
-  assert.ok(entries.length > 50, `ignores 条目没解析出来（${entries.length} 条）——检查是否空转`);
+  // ⚠️ 50 → 40（2026-10-12）：这不是放宽检查，而是**空转哨兵**随清单实际规模重标。
+  // 哨兵的职责只有一个——上面那个正则哪天解析不出东西了，这里要报警，而不是让「死条目」
+  // 检查静默通过（deepEqual([], []) 恒真）。同一天一次性删掉 79 条**实测零命中**的过时行
+  //（见 eslint.config.mjs 两段清单的注释），解析出的条目数从 117 落到 45 ⇒ 旧的 50 会把
+  // 「清单变短」误报成「正则空转」。判据仍是「远大于 0 且低于当前实际值」，语义未变。
+  assert.ok(entries.length > 40, `ignores 条目没解析出来（${entries.length} 条）——检查是否空转`);
   const missing = missingEntries(entries);
   assert.deepEqual(
     missing,

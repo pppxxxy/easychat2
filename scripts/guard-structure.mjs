@@ -105,9 +105,14 @@ console.log('[guard:structure] ok：工作区单屏装配（SettingsScreen → W
 //（门禁空转：它本该拦的问题一直存在）。见 tests/guardStructure.test.mjs。
 //
 // 已知残余（本判据是**文件级**的，不做传递闭包）：面板通过 <FileHistorySheet> /
-// <WorkspaceHistorySheet> 这类组件间接挂载的 Modal 外壳不在覆盖内。要覆盖它得先给这两个
-// 组件加 embedded 模式（照 WorkspaceSettingsSheet / WorkspaceGeneralSettings 的样子），
-// 属独立一批；在改完之前不要以为这条规则已经把 z 轴堆叠根除。
+// <WorkspaceHistorySheet> 这类组件间接挂载的 Modal 外壳不在覆盖内。
+//
+// 2026-10-12 现状：这两个组件**都已经有 embedded 模式**，且两个宿主面板都已按 embedded 形态
+// 调用（FilesPanel → FileHistorySheet、ChatPanel → WorkspaceHistorySheet），所以工作区里
+// 「面板间接挂一层 Modal」这条具体路径**已经堵住**（唯一 Modal 回到 WorkspaceScreen）。
+// 但**守卫本身仍然只做文件级判据**：它看不见「面板 import 了一个自带 Modal 的组件」这件事。
+// 下一个人若再往面板里挂一个带 <Modal> 的新组件，本规则依旧不会报错——不要以为它已经能兜住
+// 这一类。真要覆盖，得把判据升级成「沿 import 图做传递闭包」（属独立一批）。
 const PANEL_MODAL_RE = /<Modal\b/;
 const screenDir = path.join(srcDir, 'workspace', 'screen');
 const panelFiles = readdirSync(screenDir).filter(name => name.endsWith('.js') && name !== 'WorkspaceScreen.js');

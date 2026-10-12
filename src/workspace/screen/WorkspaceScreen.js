@@ -57,8 +57,8 @@ const DOMAIN_KEYS = [
 const DOMAIN_PANELS = {
   files: props => (
     <FilesPanel
+      // 此处**不传** embedded：FilesPanel 从没自套过 Modal（天生只有「面板」这一种形态），这个 prop 是死的（签名根本没解构它）——删掉，免得下一个人以为它还有非 embedded 形态。
       visible={props.visible}
-      embedded
       initialSection={props.filesSection}
       onOpenHistory={props.openHistory}
     />
