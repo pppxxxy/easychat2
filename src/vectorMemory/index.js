@@ -4,14 +4,24 @@ import {
   getVectorProvider,
   mapEmbeddingError,
 } from './providers.js';
+// 数值边界与默认值只有一处定义（limits.js）：此前 16/30000 在 providers.js 与这里各一份，
+// 上限 20/2000/64 与默认 5/400/16 又在这里与 storage/vector.js 各一份。手抄两份的下场是
+// 「设置页夹取用的上限」与「发请求时用的上限」可以悄悄不是同一个数。
+// 做法照 src/memory/memoryConstants.js（无依赖常量模块，供多层共用）。
+import {
+  VECTOR_BATCH_SIZE_DEFAULT,
+  VECTOR_BATCH_SIZE_MAX,
+  VECTOR_MAX_CHARS_DEFAULT,
+  VECTOR_MAX_CHARS_MAX,
+  VECTOR_TIMEOUT_MS_DEFAULT,
+  VECTOR_TOP_K_DEFAULT,
+  VECTOR_TOP_K_MAX,
+} from './limits.js';
 import { registerSecretValues } from '../storage/secrets.js';
 import vendorXhr from '../network/vendorHttp.js';
 import { tActive } from '../i18n/index.js';
 
-const DEFAULT_MAX_CHARS = 400;
-const DEFAULT_BATCH_SIZE = 16;
-const DEFAULT_TIMEOUT_MS = 30000;
-const DEFAULT_TOP_K = 5;
+// 下面两条只在本文件使用（全仓单份引用），留在原地——为单份引用再抽一层间接没有收益。
 const DEFAULT_MAX_TOTAL_CHARS = 1200;
 // 相关性门槛：余弦相似度低于此值的片段不注入。0.2 以下基本是噪声，
 // 但保留 keywordRetrieve 兜底（关键词命中天然高置信），故只过滤向量路径。
@@ -41,13 +51,15 @@ export function normalizeVectorConfig(raw) {
     baseUrl: String(source.baseUrl || ''),
     apiKey: String(source.apiKey || ''),
     model: String(source.model || ''),
-    topK: Number.isFinite(topK) && topK > 0 ? Math.min(20, topK) : DEFAULT_TOP_K,
-    maxChars: Number.isFinite(maxChars) && maxChars > 0 ? Math.min(2000, maxChars) : DEFAULT_MAX_CHARS,
+    topK: Number.isFinite(topK) && topK > 0 ? Math.min(VECTOR_TOP_K_MAX, topK) : VECTOR_TOP_K_DEFAULT,
+    maxChars: Number.isFinite(maxChars) && maxChars > 0
+      ? Math.min(VECTOR_MAX_CHARS_MAX, maxChars)
+      : VECTOR_MAX_CHARS_DEFAULT,
     batchSize: Number.isFinite(batchSize) && batchSize > 0
-      ? Math.min(64, batchSize)
+      ? Math.min(VECTOR_BATCH_SIZE_MAX, batchSize)
       // provider 可能为 null（未知 id）：此时只回退到本文件的默认值，不臆造 provider 的值。
-      : ((provider && provider.batchSize) || DEFAULT_BATCH_SIZE),
-    timeoutMs: (provider && provider.timeoutMs) || DEFAULT_TIMEOUT_MS,
+      : ((provider && provider.batchSize) || VECTOR_BATCH_SIZE_DEFAULT),
+    timeoutMs: (provider && provider.timeoutMs) || VECTOR_TIMEOUT_MS_DEFAULT,
   };
 }
 
@@ -65,7 +77,7 @@ export function chunkMessages(messages, options = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const maxChars = Number.isFinite(options.maxChars) && options.maxChars > 0
     ? options.maxChars
-    : DEFAULT_MAX_CHARS;
+    : VECTOR_MAX_CHARS_DEFAULT;
   const segments = [];
   list.forEach((message, messageIndex) => {
     if (!message) return;
@@ -111,7 +123,7 @@ function xhrPostJson({ url, headers, body, timeoutMs, signal = null }) {
     body: JSON.stringify(body),
     signal,
     timeoutMs,
-    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    defaultTimeoutMs: VECTOR_TIMEOUT_MS_DEFAULT,
     onTimeoutError: () => new Error(tActive('error.vectorMemory.timeout')),
     onAbortError: () => createVectorAbortError(),
     onAbortEventError: () => new Error(tActive('error.vectorMemory.aborted')),
@@ -222,7 +234,7 @@ export function keywordRetrieve({ index, query, topK }) {
   const list = Array.isArray(index) ? index : [];
   const tokens = Array.from(new Set(tokenize(query)));
   if (tokens.length === 0 || list.length === 0) return [];
-  const limit = Number.isFinite(topK) && topK > 0 ? topK : DEFAULT_TOP_K;
+  const limit = Number.isFinite(topK) && topK > 0 ? topK : VECTOR_TOP_K_DEFAULT;
   const scored = [];
   list.forEach(item => {
     const text = String((item && item.text) || '');
@@ -241,7 +253,7 @@ export function keywordRetrieve({ index, query, topK }) {
 // 纯函数：按余弦相似度取命中，过滤低于门槛与指纹不匹配的片段。便于单测。
 export function selectVectorHits(list, queryVector, { signature = '', topK, minScore } = {}) {
   const threshold = Number.isFinite(minScore) && minScore >= 0 ? minScore : DEFAULT_MIN_SCORE;
-  const limit = Number.isFinite(topK) && topK > 0 ? topK : DEFAULT_TOP_K;
+  const limit = Number.isFinite(topK) && topK > 0 ? topK : VECTOR_TOP_K_DEFAULT;
   return (Array.isArray(list) ? list : [])
     .filter(item => (
       item

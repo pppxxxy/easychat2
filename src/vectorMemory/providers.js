@@ -1,4 +1,5 @@
 import { tActive } from '../i18n/index.js';
+import { VECTOR_BATCH_SIZE_DEFAULT, VECTOR_TIMEOUT_MS_DEFAULT } from './limits.js';
 
 export const VECTOR_PROVIDERS = [
   {
@@ -9,8 +10,10 @@ export const VECTOR_PROVIDERS = [
     endpoint: '/embeddings',
     model: 'text-embedding-3-small',
     auth: { type: 'header', keyName: 'Authorization', prefix: 'Bearer ' },
-    timeoutMs: 30000,
-    batchSize: 16,
+    // 数值取自 limits.js（唯一真源）：此前 30000/16 在这里、vectorMemory/index.js 的
+    // DEFAULT_TIMEOUT_MS/DEFAULT_BATCH_SIZE、storage/vector.js 的兜底字面量各写一份。
+    timeoutMs: VECTOR_TIMEOUT_MS_DEFAULT,
+    batchSize: VECTOR_BATCH_SIZE_DEFAULT,
   },
 ];
 

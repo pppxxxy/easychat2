@@ -241,7 +241,13 @@ async function deleteSessionInternal(sessionId) {
   await saveSessionsInternal(remaining);
   if (target && shouldIndexSession(target)) {
     try {
-      await removeVectorIndexForSession(target.characterId, sessionId);
+      // **真删除**语义：本函数随后会 deleteAllBranchesInternal(sessionId)（见下方），
+      // 归档分支一并清掉 ⇒ 这些消息再也 checkout 不回来 ⇒ 记忆里那份 mergedFrom
+      // 原文快照必须一起走（P1-6b：删了消息，快照不得留盘）。
+      // 对照：归档/重生成/修改重发/分支切换那几条路径**不传** options（默认保留快照），
+      // 因为它们的消息被 archiveBranch 存成分支、随时可召回。两种语义在调用点长得
+      // 一模一样，存储层分辨不了，故必须由调用方显式选择（见 storage/vector.js:292-309）。
+      await removeVectorIndexForSession(target.characterId, sessionId, { pruneSources: true });
     } catch (error) {
       if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] session cleanup failed', error);
     }
@@ -308,7 +314,9 @@ async function deleteSessionsInternal(sessionIds) {
   }
   for (const [ownerId, targetIds] of vectorTargets) {
     try {
-      await removeVectorIndexForSessions(ownerId, targetIds);
+      // 与 deleteSessionInternal 同一口径：批量删除同样是**真删除**（下面逐个
+      // deleteAllBranchesInternal，见本函数下方），归档分支不复存在 ⇒ 清快照。
+      await removeVectorIndexForSessions(ownerId, targetIds, { pruneSources: true });
     } catch (error) {
       if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] batch session cleanup failed', error);
     }
