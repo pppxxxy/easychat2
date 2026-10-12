@@ -53,16 +53,26 @@ function normalizeConflictList(raw) {
     .slice(list.length - MAX_CONFLICT_RECORDS);
 }
 
-export async function getMemoryConflicts(characterId) {
+// 三态读取（ok/missing/corrupt）：形状与 vector.js readVectorIndexStatus、
+// worldMap.js getWorldMapStatus 一致（先例：src/storage/worldMap.js:19-27）。
+// 为什么必须有：getMemoryConflicts 把「读不出来」压成 []，界面据此只会显示
+// 「没有冲突」——「确实没有」与「读失败」完全同形。溯源面板要如实告诉用户，
+// 就得保留状态而不是压成布尔（同 orphans.js:122 对 summaryStatus 的用法）。
+export async function getMemoryConflictsStatus(characterId) {
   const key = conflictStorageKey(characterId);
-  if (!key) return [];
+  if (!key) return { status: 'missing', records: [] };
   const stored = await readJsonStatus(key);
   if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
     await backupCorruptValue(key);
-    return [];
+    return { status: 'corrupt', records: [] };
   }
-  if (stored.status === 'missing') return [];
-  return normalizeConflictList(stored.value);
+  if (stored.status === 'missing') return { status: 'missing', records: [] };
+  return { status: 'ok', records: normalizeConflictList(stored.value) };
+}
+
+export async function getMemoryConflicts(characterId) {
+  const { records } = await getMemoryConflictsStatus(characterId);
+  return records;
 }
 
 async function writeConflictList(characterId, records) {

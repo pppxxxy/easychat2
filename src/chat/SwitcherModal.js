@@ -78,7 +78,7 @@ export default function SwitcherModal({
 
               name={name}
               preview={String(item.preview || '').trim()}
-              time={formatSessionTime(item.updatedAt)}
+              time={formatSessionTime(item.updatedAt, t)}
               active={item.id === activeSessionId}
               onPress={() => onSwitchGroup(item.id)}
             />

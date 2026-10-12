@@ -97,19 +97,26 @@ export default function MemoryScreen({ navigation }) {
   // 看屏幕对话（screenWatch/threads.js）：不进「全部」视图，只在「屏幕对话」chip
   // 下以行形式展示/删除 —— 用户要求「看屏幕对话的管理要和记忆界面互通」。
   const [threads, setThreads] = useState([]);
+  const [threadsFailed, setThreadsFailed] = useState(false); // 屏幕对话读取失败（三态里的第三态，见 reloadThreads）
 
   const reloadThreads = useCallback(async () => {
     try {
       setThreads(await getScreenWatchThreads());
+      setThreadsFailed(false);
     } catch (error) {
-      setThreads([]);
+      // 读不到 ≠ 没有：threads.js 本身是三态（:80-101，corrupt 先 backupCorruptValue 再抛）；
+      // 旧实现在这里 setThreads([])，界面于是显示「没有屏幕对话」——把异常说成正常。
+      setThreadsFailed(true);
     }
   }, []);
 
-  const { active: activeThreads, empty: emptyThreads } = useMemo(
-    () => splitScreenThreads(threads),
-    [threads]
-  );
+  // 删除/清空屏幕对话失败必须说出来（口径同本文件 scanOrphans:191-197、onRecover:226-229）——
+  // 旧实现三处都 .catch(() => {})，用户确认删除后什么都没发生、也没有任何提示。
+  const reportThreadFailure = useCallback(error => {
+    Alert.alert(t('common.error.deleteFailed'), (error && error.message) || t('common.error.storageOrPermission'));
+  }, [t]);
+
+  const { active: activeThreads, empty: emptyThreads } = useMemo(() => splitScreenThreads(threads), [threads]);
 
   const handleDeleteThread = useCallback(thread => {
     if (!thread) return;
@@ -125,12 +132,12 @@ export default function MemoryScreen({ navigation }) {
           onPress: () => {
             deleteScreenWatchThread(thread.id)
               .then(() => reloadThreads())
-              .catch(() => {});
+              .catch(reportThreadFailure);
           },
         },
       ]
     );
-  }, [reloadThreads, t]);
+  }, [reloadThreads, reportThreadFailure, t]);
 
   // 长按屏幕对话行：与主列表一致的「长按出操作单」交互（这里只有删除）。
   const onThreadActions = useCallback(thread => {
@@ -154,13 +161,15 @@ export default function MemoryScreen({ navigation }) {
           text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
-            Promise.all(emptyThreads.map(thread => deleteScreenWatchThread(thread.id).catch(() => {})))
-              .then(() => reloadThreads());
+            // 逐条 catch 会吞掉部分失败：Promise.all 整体拒绝，失败条数与原因才透得出来。
+            Promise.all(emptyThreads.map(thread => deleteScreenWatchThread(thread.id)))
+              .then(() => reloadThreads())
+              .catch(reportThreadFailure);
           },
         },
       ]
     );
-  }, [emptyThreads, reloadThreads, t]);
+  }, [emptyThreads, reloadThreads, reportThreadFailure, t]);
 
   const handleClearAllThreads = useCallback(() => {
     if (threads.length === 0) return;
@@ -173,12 +182,12 @@ export default function MemoryScreen({ navigation }) {
           text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
-            clearScreenWatchThreads().then(() => reloadThreads()).catch(() => {});
+            clearScreenWatchThreads().then(() => reloadThreads()).catch(reportThreadFailure);
           },
         },
       ]
     );
-  }, [reloadThreads, t, threads.length]);
+  }, [reloadThreads, reportThreadFailure, t, threads.length]);
 
   const scanOrphans = useCallback(async () => {
     try {
@@ -240,10 +249,7 @@ export default function MemoryScreen({ navigation }) {
   // 不再隐藏“空会话”：消息被清空过的会话 preview 会变成空串，若过滤掉就会
   // 既看不见也删不掉。这里只保留存储层给的排序（置顶优先、updatedAt 降序），
   // 不再按 preview 是否为空重排——否则最近用过但 preview 暂未同步的会话会被压到底部。
-  const visibleSessions = useMemo(
-    () => (Array.isArray(sessions) ? sessions : []),
-    [sessions]
-  );
+  const visibleSessions = useMemo(() => (Array.isArray(sessions) ? sessions : []), [sessions]);
 
   // 兜底：存储里的 preview 可能缺失（历史会话 / 某次写盘没同步），但消息体还在。
   // 对空 preview 的会话读一次消息体补出摘要，避免“明明聊过却显示空会话”。
@@ -277,15 +283,9 @@ export default function MemoryScreen({ navigation }) {
   // 先筛选再分组： chips（全部/置顶/群聊）只改喂给分组的数据，不动存储与排序。
   // 选中「屏幕对话」chip 时不看会话，改为把看屏幕 threads 借同一套时间分档展示。
   const isScreenWatch = isScreenWatchFilter(memoryFilter);
-  const filteredSessions = useMemo(
-    () => filterSessionsForMemory(visibleSessions, memoryFilter),
-    [visibleSessions, memoryFilter]
-  );
+  const filteredSessions = useMemo(() => filterSessionsForMemory(visibleSessions, memoryFilter), [visibleSessions, memoryFilter]);
   const sessionGroups = useMemo(() => groupSessionsByAge(filteredSessions), [filteredSessions]);
-  const threadGroups = useMemo(
-    () => groupSessionsByAge(mapScreenThreadsToGroupItems(activeThreads)),
-    [activeThreads]
-  );
+  const threadGroups = useMemo(() => groupSessionsByAge(mapScreenThreadsToGroupItems(activeThreads)), [activeThreads]);
   const groups = useMemo(
     () => (isScreenWatch ? threadGroups : sessionGroups),
     [isScreenWatch, sessionGroups, threadGroups]
@@ -309,10 +309,7 @@ export default function MemoryScreen({ navigation }) {
   const effectiveExpanded = useMemo(() => (
     editing ? new Set(groups.map(group => group.id)) : expandedGroups
   ), [editing, groups, expandedGroups]);
-  const listData = useMemo(
-    () => buildMemoryListData(groups, effectiveExpanded),
-    [groups, effectiveExpanded]
-  );
+  const listData = useMemo(() => buildMemoryListData(groups, effectiveExpanded), [groups, effectiveExpanded]);
   const allExpanded = groups.length > 0 && groups.every(group => expandedGroups.has(group.id));
 
   const toggleGroup = useCallback(groupId => {
@@ -562,16 +559,19 @@ export default function MemoryScreen({ navigation }) {
     );
   }, []);
 
-  const allSelected = visibleSessions.length > 0
-    && selectedIds.length === visibleSessions.length;
+  // 全选口径必须与列表渲染集一致：listData ← groups ← filteredSessions（:280-315、:722-724），
+  // 而编辑态只是**隐藏** chips（:658）、memoryFilter 仍生效 ⇒ 用 visibleSessions（全部会话）
+  // 全选会把筛选之外的会话一并选中并 deleteSessions 真删掉（不可逆、且用户看不见）。
+  const allSelected = filteredSessions.length > 0
+    && selectedIds.length === filteredSessions.length;
 
   const toggleSelectAll = useCallback(() => {
     setSelectedIds(current =>
-      current.length === visibleSessions.length
+      current.length === filteredSessions.length
         ? []
-        : visibleSessions.map(session => session.id)
+        : filteredSessions.map(session => session.id)
     );
-  }, [visibleSessions]);
+  }, [filteredSessions]);
 
   const onBatchDelete = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -714,8 +714,8 @@ export default function MemoryScreen({ navigation }) {
       {loaded && (isScreenWatch ? activeThreads.length === 0 : visibleSessions.length === 0) ? (
         <EmptyState
           icon={isScreenWatch ? 'desktop-outline' : 'albums-outline'}
-          title={isScreenWatch ? t('memory.screenWatch.empty.title') : t('memory.empty.title')}
-          description={isScreenWatch ? t('memory.screenWatch.empty.body') : t('memory.empty.body')}
+          title={isScreenWatch ? (threadsFailed ? t('memory.screenWatch.readFailed.title') : t('memory.screenWatch.empty.title')) : t('memory.empty.title')}
+          description={isScreenWatch ? (threadsFailed ? t('memory.screenWatch.readFailed.body') : t('memory.screenWatch.empty.body')) : t('memory.empty.body')}
         />
       ) : (
         <FlatList
@@ -776,7 +776,7 @@ export default function MemoryScreen({ navigation }) {
                   )}
                   name={threadName}
                   preview={screenThreadPreview(thread) || t('memory.screenWatch.emptyPreview')}
-                  time={formatSessionTime(thread.updatedAt)}
+                  time={formatSessionTime(thread.updatedAt, t)}
                   onLongPress={() => onThreadActions(thread)}
                 />
               );
@@ -808,7 +808,7 @@ export default function MemoryScreen({ navigation }) {
                   || String(previewFallback[session.id] || '').trim()
                   || t('memory.emptyPreview')
                 }
-                time={formatSessionTime(session.updatedAt)}
+                time={formatSessionTime(session.updatedAt, t)}
                 selectable={editing}
                 selected={selectedIds.includes(session.id)}
                 onPress={() => (editing ? toggleSelect(session.id) : onOpen(session))}

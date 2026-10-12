@@ -151,6 +151,25 @@ test('冲突存储：坏 JSON 与缺 key 的脏记录都不崩', async () => {
   assert.equal(list.length, 1, '缺 key 的记录被丢掉');
 });
 
+test('冲突存储：三态读取区分「没有记录」与「读不出来」', async () => {
+  store.clear();
+  const missing = await conflicts.getMemoryConflictsStatus('c1');
+  assert.equal(missing.status, 'missing', '键从未写过 = missing');
+  assert.deepEqual(missing.records, []);
+
+  await conflicts.upsertMemoryConflicts('c1', [record()]);
+  const ok = await conflicts.getMemoryConflictsStatus('c1');
+  assert.equal(ok.status, 'ok');
+  assert.equal(ok.records.length, 1);
+
+  await AsyncStorage.setItem(conflicts.MEMORY_CONFLICT_PREFIX + '::c1', '{ not json');
+  const corrupt = await conflicts.getMemoryConflictsStatus('c1');
+  // 溯源面板靠这个状态把「读失败」与「确实没有冲突」分开显示（P0-1）
+  assert.equal(corrupt.status, 'corrupt', '读失败必须能与「没有记录」区分');
+  assert.deepEqual(corrupt.records, []);
+  assert.equal((await conflicts.getMemoryConflictsStatus('')).status, 'missing', '空 id 不读不写');
+});
+
 test('冲突存储：清空后不留空键', async () => {
   store.clear();
   await conflicts.upsertMemoryConflicts('c1', [record()]);
