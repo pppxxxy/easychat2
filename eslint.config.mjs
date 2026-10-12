@@ -128,14 +128,15 @@ export default [
       // 新增工具文件也自动在内——这正是我们要的，工具描述不该翻成英文界面语言。
       'src/workspace/toolDefs/**',
       // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
-      'src/games/games.js',
+      // 2026-10-12：src/games/games.js 已迁出（name/description → nameKey/descriptionKey）。
       'src/imageGen/providers.js',
       // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
       // 2026-10-12：src/localModel/modelCatalog.js 已迁出（CATALOG_PROVIDERS 为死导出，已删）。
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
-      'src/plugins/providers.js',
+      // 2026-10-12：src/plugins/providers.js 已迁出（provider/keyLink 的 label → 仅 labelKey，
+      // 删掉冗余中文/英文兜底；PluginPanel 简化成 t(labelKey)）。
       // 2026-10-12：src/settings/presets.js 已迁出——导出常量只留 id + nameKey/descriptionKey，
       // 名称/描述进 preset.builtin.* 词条；提示词搬到**未导出**的 BUILTIN_PROMPTS
       //（模型输入，按铁律不进 i18n，规则本来也不查未导出常量）。

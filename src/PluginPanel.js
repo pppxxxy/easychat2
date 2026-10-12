@@ -215,7 +215,7 @@ export default function PluginPanel({ visible, onClose }) {
                               activeOpacity={0.8}
                             >
                               <Text style={[styles.providerText, active && styles.providerTextActive]}>
-                                {provider.labelKey ? t(provider.labelKey) : provider.label}
+                                {t(provider.labelKey)}
                               </Text>
                             </TouchableOpacity>
                           );
@@ -265,10 +265,10 @@ export default function PluginPanel({ visible, onClose }) {
                               onPress={() => openKeyUrl(link.url)}
                               activeOpacity={0.8}
                               accessibilityRole="link"
-                              accessibilityLabel={link.labelKey ? t(link.labelKey) : link.label}
+                              accessibilityLabel={t(link.labelKey)}
                             >
                               <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
-                              <Text style={styles.keyLinkText}>{link.labelKey ? t(link.labelKey) : link.label}</Text>
+                              <Text style={styles.keyLinkText}>{t(link.labelKey)}</Text>
                               <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
                             </TouchableOpacity>
                           ))}
