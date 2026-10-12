@@ -29,13 +29,14 @@ test('useBookReader：测量-分页-重定位机制齐全', () => {
 
 test('BookReaderView：可见页只渲染本页行，测量 Text 参与布局但不可见', () => {
   const source = readSource('src/books/BookReaderView.js');
+  const styles = readSource('src/books/bookReaderStyles.js');
   assert.ok(source.includes('pageBodyText(reader.lines, reader.page)'), '可见页必须由本页行拼成（pageBodyText 不截断）');
   assert.ok(!source.includes('pageText(reader.lines, reader.page)'), '可见页不得走 600 字截断的 pageText（评论摘录专用）');
   // 断行策略统一（2026-10-07 末行半裁修复）：两处必须同时声明，只改一处两上下文
   // 断行不一致，切页错位/末行裁切就会回来。
   const strategies = source.match(/textBreakStrategy="simple"/g) || [];
   assert.equal(strategies.length, 2, '可见页 Text 与测量 Text 必须同时声明 textBreakStrategy="simple"');
-  assert.ok(/opacity:\s*0/.test(source), '测量 Text 用 opacity 0（display:none 不产生布局，无法测量）');
+  assert.ok(/opacity:\s*0/.test(styles), '测量 Text 用 opacity 0（display:none 不产生布局，无法测量）');
   assert.ok(source.includes('onTextLayout={reader.handleTextLayout}'), '测量 Text 接线 onTextLayout');
   assert.ok(source.includes('TAP_ZONE_RATIO'), '左右点按翻页区');
   assert.ok(source.includes('reader.reanchor()'), '字号变化前必须先落锚');
@@ -148,14 +149,15 @@ test('分页可靠性：尺寸变化必须强制重测（key 换挂载），工�
     + 'onTextLayout，状态永久停在 BUSY（用户看到的就是「一直转圈，点字号才出正文」）');
 
   const view = readSource('src/books/BookReaderView.js');
+  const styles = readSource('src/books/bookReaderStyles.js');
   assert.ok(/key=\{`measure-\$\{reader\.measureNonce\}`\}/.test(view),
     '测量 Text 必须以 nonce 为 key，强制重挂载以触发再次测量');
   assert.ok(view.includes('pageInnerWrap'), '测量容器（pageInnerWrap）与内缩容器（pageArea）分离');
-  assert.ok(/pageArea:\s*\{[^}]*paddingTop:\s*READER_INSET_TOP/.test(view),
+  assert.ok(/pageArea:\s*\{[^}]*paddingTop:\s*READER_INSET_TOP/.test(styles),
     '阅读区上下内缩必须恒定（分页高度不随工具栏显隐变化）');
-  assert.ok(/topBar:\s*\{[\s\S]{0,400}?position:\s*'absolute'/.test(view),
+  assert.ok(/topBar:\s*\{[\s\S]{0,400}?position:\s*'absolute'/.test(styles),
     '顶栏必须是浮层：参与布局会在每次显隐时改变正文区高度并触发重测量（点中间转圈的根因）');
-  assert.ok(/bottomBar:\s*\{[\s\S]{0,400}?position:\s*'absolute'/.test(view),
+  assert.ok(/bottomBar:\s*\{[\s\S]{0,400}?position:\s*'absolute'/.test(styles),
     '底栏同样必须是浮层');
 });
 
@@ -208,13 +210,14 @@ test('切换翻页方式：先停表复位再换结构（原生动画节点被�
 
 test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系统区', () => {
   const view = readSource('src/books/BookReaderView.js');
-  assert.ok(/READER_INSET_BOTTOM = 56/.test(view), '正文底部内缩放宽（让开系统导航栏）');
-  assert.ok(/bottomBar:\s*\{[\s\S]{0,300}?paddingBottom:\s*24/.test(view),
+  const styles = readSource('src/books/bookReaderStyles.js');
+  assert.ok(/READER_INSET_BOTTOM = 56/.test(styles), '正文底部内缩放宽（让开系统导航栏）');
+  assert.ok(/bottomBar:\s*\{[\s\S]{0,300}?paddingBottom:\s*24/.test(styles),
     '底栏自身留出安全边距，最后一行进度字不再被遮一半');
   assert.ok(view.includes('styles.modalTopBar'), '目录与评论页用非浮层顶栏');
-  assert.ok(view.includes('modalTopBar: {'), '样式已定义');
+  assert.ok(styles.includes('modalTopBar: {'), '样式已定义');
   // 阅读页那套 topBar 是 absolute 贴屏幕顶，全屏 Modal 里复用会把标题顶进状态栏
-  assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(view), 'Modal 顶部内缩同步放宽');
+  assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(styles), 'Modal 顶部内缩同步放宽');
 });
 
 test('章节目录：搜索 + 当前章标记 + 按章进度三态', () => {

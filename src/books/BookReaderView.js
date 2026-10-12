@@ -13,7 +13,6 @@ import {
   Modal,
   PanResponder,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -43,17 +42,12 @@ import {
 import BookMarkdownList from './BookMarkdownList.js';
 import { createBookMarkdownStyles, isMarkdownBook, markdownExcerpt } from './markdownBook.js';
 import { useBookComments } from './useBookComments.js';
+import createStyles from './bookReaderStyles.js';
 import { buildPageTextProps, LINE_HEIGHT_RATIO, MEASURE_READY, useBookReader } from './useBookReader.js';
 
 const FONT_MIN = 13;
 const FONT_MAX = 26;
 const TAP_ZONE_RATIO = 0.3;
-// 阅读区上下内缩：顶栏/底栏是浮层（absolute），不参与布局——留出恒定内缩，
-// 保证工具栏显隐时正文区尺寸不变（否则每次呼出工具栏都会触发重测量→转圈）。
-const READER_INSET_TOP = 48;
-// 底部内缩放宽到 56：底栏进度文字本身要让开系统导航栏/手势条（原来只留 40，
-// 底栏又贴在屏幕最下沿，最后一行字会被遮掉一半），正文也要跟着让位。
-const READER_INSET_BOTTOM = 56;
 
 // 翻页方式：点击（原行为）/ 卡片滑动 / 旋转翻页（3D 翻转）/ 淡入淡出。
 // 顺序即工具栏按钮的轮换顺序（与 readerSettings.PAGE_TURN_MODES 一致）。
@@ -905,210 +899,3 @@ export default function BookReaderView({ item, content, onBack }) {
   );
 }
 
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  modalRoot: { paddingTop: 48 },
-  // 目录 / 评论这类全屏 Modal 的顶栏：**不浮层**、参与布局。
-  // 阅读页那套 topBar 是 absolute 贴屏幕顶，直接复用会把「返回阅读 / 目录」顶进系统状态栏。
-  modalTopBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: tokens.border.thin,
-    borderBottomColor: theme.colors.divider,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    // 浮层：不参与布局——工具栏显隐不再改变正文区高度，避免每次呼出都重测量。
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: theme.colors.background,
-  },
-  backButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingRight: 10 },
-  backText: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), marginLeft: 2 },
-  title: {
-    color: theme.colors.text,
-    fontSize: fonts.scaled(15),
-    fontWeight: '700',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 8,
-  },
-  topActions: { flexDirection: 'row', alignItems: 'center' },
-  iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 6,
-    backgroundColor: theme.colors.surface,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  iconButtonActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  modeButtonText: { color: theme.colors.text, fontSize: fonts.scaled(10), fontWeight: '700' },
-  modeButtonTextActive: { color: theme.colors.primaryContrast },
-  fontButtonText: { color: theme.colors.text, fontSize: fonts.scaled(11), fontWeight: '700' },
-  contentWrap: { flex: 1 },
-  mdContent: {
-    paddingHorizontal: 20,
-    paddingTop: READER_INSET_TOP,
-    paddingBottom: READER_INSET_BOTTOM,
-  },
-  // 恒定上下内缩，给浮层工具栏留位；pageInner 才是测量容器（尺寸不随工具栏变化）。
-  pageArea: { flex: 1, paddingTop: READER_INSET_TOP, paddingBottom: READER_INSET_BOTTOM },
-  pageInnerWrap: { flex: 1 },
-  modeHint: {
-    position: 'absolute',
-    alignSelf: 'center',
-    top: '45%',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: tokens.radius.pill || 999,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
-    zIndex: 20,
-  },
-  modeHintText: { color: '#FFFFFF', fontSize: fonts.scaled(13), fontWeight: '600' },
-  pageText: { flex: 1 },
-  measureText: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    opacity: 0,
-  },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  bottomBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    // 底部让开系统导航栏 / 手势条：贴到屏幕最下沿时最后一行进度字会被遮掉一半。
-    paddingBottom: 24,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: theme.colors.background,
-  },
-  progressText: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1 },
-  chapterBody: { flex: 1 },
-  chapterSearchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginTop: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: tokens.radius.md,
-    backgroundColor: theme.colors.surface,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-  },
-  chapterSearchInput: {
-    flex: 1,
-    color: theme.colors.text,
-    fontSize: fonts.scaled(13),
-    marginLeft: 6,
-    paddingVertical: 0,
-  },
-  chapterEmpty: {
-    color: theme.colors.textFaint,
-    fontSize: fonts.scaled(12),
-    marginTop: 20,
-    textAlign: 'center',
-  },
-  // 右侧留出 46px 给定位条，章节文字不会压到滑块下面。
-  chapterList: { paddingLeft: 20, paddingRight: 46, paddingBottom: 30 },
-  chapterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: tokens.radius.sm,
-    marginBottom: 4,
-  },
-  // 「正在阅读」的那一章：底色 + 主色标题 + 徽标（见 chapterCurrentBadge）。
-  chapterRowCurrent: { backgroundColor: theme.colors.surface },
-  chapterRowMain: { flex: 1, marginRight: 8 },
-  chapterText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
-  chapterTextCurrent: { color: theme.colors.primarySoft, fontWeight: '700' },
-  chapterCurrentBadge: {
-    color: theme.colors.primarySoft,
-    fontSize: fonts.scaled(10),
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  chapterPercent: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
-  commentsBody: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
-  sectionHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginBottom: 6 },
-  chipScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 10 },
-  characterChip: {
-    borderRadius: tokens.radius.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  characterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  characterChipText: { color: theme.colors.text, fontSize: fonts.scaled(12), maxWidth: 120 },
-  characterChipTextActive: { color: theme.colors.primaryContrast, fontWeight: '600' },
-  generateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
-    borderRadius: tokens.metrics.buttonRadius,
-    paddingVertical: 10,
-  },
-  generateRow: { marginBottom: 10 },
-  // 第二个入口用描边样式区分开：同为「让某角色聊」，但范围是整章。
-  generateButtonChapter: {
-    marginTop: 8,
-    backgroundColor: 'transparent',
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primary,
-  },
-  generateText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6 },
-  generateTextChapter: { color: theme.colors.primarySoft },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: tokens.radius.sm,
-    backgroundColor: theme.colors.surfaceBorder,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginTop: 10,
-  },
-  errorText: { color: theme.colors.danger || theme.colors.text, fontSize: fonts.scaled(12), flex: 1, marginRight: 8 },
-  emptyComments: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 12, lineHeight: fonts.scaled(17) },
-  commentCard: {
-    borderRadius: tokens.radius.sm,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.surfaceBorder,
-    padding: 10,
-    marginTop: 10,
-  },
-  commentHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  commentName: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1, marginRight: 8 },
-  quoteButton: {
-    borderRadius: tokens.metrics.buttonRadius,
-    borderWidth: tokens.border.thin,
-    borderColor: theme.colors.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-  },
-  quoteButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(11), fontWeight: '600' },
-  commentText: { color: theme.colors.text, fontSize: fonts.scaled(13), lineHeight: fonts.scaled(19) },
-});
