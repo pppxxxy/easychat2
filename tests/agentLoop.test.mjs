@@ -640,10 +640,11 @@ test('界面侧提示：noticeKey/noticeParams 随 tool 消息进 transcript；�
 // 内部字段出网检查（第 2 跳的硬要求）：**用循环真实产出的 tool 消息**过一遍 openai 协议，
 // 断言出网形态只剩协议字段。
 //
-// 为什么这么写：`toOpenAiMessages` 是「整体展开 + 黑名单剥离」（fail-open）——任何新加在
-// tool 消息上的内部字段都会**默认出网**，直到有人记得登记 OPENAI_INTERNAL_FIELDS。
-// 逐个 `in` 断言挡不住「下一个新字段」，而「出网后 key 集合恰好等于协议字段」是机械的：
-// 谁忘了登记，这里当场红（anthropic / openai-responses 是逐条显式构造，天然只有协议字段）。
+// 为什么这么写：`toOpenAiMessages` 现在是**白名单**（fail-closed，默认拒绝）——只有协议字段
+// 会被搬到出网对象上，内部消息上加的任何新字段（isError / noticeKey / noticeParams / 还没
+// 被发明的字段）都**默认不出网**，不需要谁记得登记。所以这条检查现在**不依赖**任何内部字段
+// 名单：逐个 `in` 断言挡不住「下一个新字段」，而「出网后 key 集合恰好等于协议字段」是机械的
+//（anthropic / openai-responses 是逐条显式构造，天然只有协议字段，三处口径现在一致）。
 test('内部字段不得出网：循环产出的 tool 消息经 openai 协议后只剩 role/tool_call_id/content', async () => {
   streamPlan = [
     { text: 'r1', toolCalls: [{ id: 'c1', name: 'git_status', arguments: '{}' }] },
@@ -666,4 +667,9 @@ test('内部字段不得出网：循环产出的 tool 消息经 openai 协议后
   const wire = toOpenAiMessages([toolMsg])[0];
   assert.deepEqual(Object.keys(wire).sort(), ['content', 'role', 'tool_call_id'], '内部字段一律不得出网');
   assert.equal(wire.content, toolMsg.content, '出网正文逐字不变');
+  // 加强：白名单的保证要能覆盖「以后才会出现」的字段——现造一个谁都没登记过的内部字段，
+  // 它也必须被默认拒绝（这条在旧的黑名单实现下会红）。
+  const wireWithNewField = toOpenAiMessages([{ ...toolMsg, __random_internal__: 1 }])[0];
+  assert.equal('__random_internal__' in wireWithNewField, false, '新增内部字段默认不出网，无需登记');
+  assert.deepEqual(Object.keys(wireWithNewField).sort(), ['content', 'role', 'tool_call_id']);
 });
