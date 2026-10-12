@@ -129,13 +129,23 @@ export default function MomentsView({ active = true }) {
   const mutateMoments = useCallback(updater => updateMoments(updater).then(next => {
     if (mountedRef.current) setMoments(next);
     return next;
-  }).catch(error => {
+  }).catch(() => {
     if (mountedRef.current) {
+      // 分类判定看 code，不看文案（范式见 src/network/api.js:51-53）。
+      // 原来比的是中文文案 includes('动态记录读取失败')，而这条 message 来自
+      // storage/moments.js 的 tActive('error.storage.momentsReadFailed')——它随语言变化，
+      // EN 下是英文，判定必然落空，EN 用户只会看到通用「请检查存储空间或权限」，
+      // 丢掉「已保留原数据、本次改动未保存」这条关键保护信息。
+      //
+      // 为什么退化成「任何写失败都提示保护性文案」：读失败（数据损坏、拒绝覆盖）与
+      // AsyncStorage 写入失败目前无法区分——storage/moments.js:219/227 抛的是裸 Error，
+      // 只带 i18n message，没有 code/status，这里没有可比的分类标记
+      //（所以连形参都省了：等 storage 层补 code 后，在这里按 code 分流）。
+      // 保护性文案对任何写失败都成立（改动确实没保存），
+      // 通用文案却在读失败时误导用户去查空间/权限，所以统一用保护性文案更准确。
       Alert.alert(
         t('moments.alert.saveFailed.title'),
-        String((error && error.message) || '').includes('动态记录读取失败')
-          ? t('moments.alert.saveFailed.bodyReadFailed')
-          : t('moments.alert.saveFailed.bodyStorage')
+        t('moments.alert.saveFailed.bodyReadFailed')
       );
     }
     return null;

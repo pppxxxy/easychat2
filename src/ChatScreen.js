@@ -16,6 +16,7 @@ import * as Sharing from 'expo-sharing';
 
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, isConfigChangedError, sendChatMessage } from './network/api.js';
 import {
+  ATTACH_ERROR,
    deleteLocalImage,
    deleteTemporaryImage,
     isImage,
@@ -2009,16 +2010,15 @@ export default function ChatScreen() {
       }
       if (picked && picked.uri) deleteTemporaryImage(picked.uri);
       if (error && error.code === 'ENCODING') {
-        Alert.alert(
-          t('chat.attach.encoding.title'),
-          t('chat.attach.encoding.body')
-        );
+        Alert.alert(t('chat.attach.encoding.title'), t('chat.attach.encoding.body'));
       } else {
+        // 分类判定看 code，不看文案（范式见 src/network/api.js:51-53）：message 由 attachments.js
+        // 的 attachError 走 tActive 生成、随语言变化，比中文文案在 EN 下必然漏判「过大」。
+        const tooLarge = [ATTACH_ERROR.FILE_TOO_LARGE, ATTACH_ERROR.IMAGE_TOO_LARGE,
+          ATTACH_ERROR.IMAGE_RESOLUTION_TOO_LARGE, ATTACH_ERROR.IMAGE_TOTAL_TOO_LARGE].includes(error && error.code);
         Alert.alert(
           t('chat.attach.readFail.title'),
-          ['文件过大', '图片过大', '图片分辨率过大', '图片总大小过大'].includes(error && error.message)
-            ? t('chat.attach.readFail.tooLarge')
-            : t('common.error.retry')
+          tooLarge ? t('chat.attach.readFail.tooLarge') : t('common.error.retry')
         );
       }
      } finally {
