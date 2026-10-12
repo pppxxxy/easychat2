@@ -29,7 +29,6 @@ import { FieldHint, FieldLabel, GhostButton, PrimaryButton } from '../../ui/inde
 import DiffView from '../DiffView.js';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
-import { getGithubMcpSettings } from '../../storage/githubMcp.js';
 import { getRepoSnapshot } from '../../storage/workspace.js';
 import { isTextLike, readTextAttachment } from '../../chat/attachments.js';
 import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
@@ -38,10 +37,7 @@ import { diffRepoSnapshot } from './repoDiff.js';
 import { materializeRepoFile } from '../repoMaterialize.js';
 import { listRollbackSnapshots } from '../rollbackBaseline.js';
 import { formatSkippedList } from '../repoImport.js';
-import {
-  canDeleteRepo,
-  listRepos,
-} from '../github/restApi.js';
+import { canDeleteRepo } from '../github/restApi.js';
 import createStyles from './githubPanelStyles.js';
 import BuildSection from './github/BuildSection.js';
 import useGithubBuild from './github/useGithubBuild.js';
@@ -50,6 +46,7 @@ import useRepoPull from './github/useRepoPull.js';
 import useRepoBranch from './github/useRepoBranch.js';
 import useRepoPush from './github/useRepoPush.js';
 import useRepoManage from './github/useRepoManage.js';
+import useRepoList from './github/useRepoList.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
 const ERROR_KEYS = {
@@ -69,12 +66,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
 
   const [token, setToken] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [repos, setRepos] = useState([]);
-  const [repoPage, setRepoPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [errorText, setErrorText] = useState('');
+  // 仓库列表（token/loading/repos/分页/错误）与刷新入口已外提到 github/useRepoList.js。
   // 当前仓库 + 本地副本树。
   const [current, setCurrent] = useState(null);
   const [allFiles, setAllFiles] = useState([]);
@@ -186,51 +178,32 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     }
   }, [characterId, storeRef]);
 
-  const loadRepos = useCallback(async (page = 1, resolvedToken = token) => {
-    if (!resolvedToken) return;
-    setBusy(true);
-    setErrorText('');
-    try {
-      const { repos: list, hasMore: more } = await listRepos({ token: resolvedToken, page });
-      if (!mountedRef.current) return;
-      setRepos(prev => (page === 1 ? list : [...prev, ...list]));
-      setRepoPage(page);
-      setHasMore(more);
-    } catch (caught) {
-      if (mountedRef.current) setErrorText(describeError(caught));
-    } finally {
-      if (mountedRef.current) setBusy(false);
-    }
-  }, [describeError, token]);
-
-  // 打开面板：读 token（与 MCP 同源，不建第二套凭据）→ 拉仓库列表 + 本地树。
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const settings = await getGithubMcpSettings();
-        const resolved = settings && settings.enabled
-          ? (settings.authMethod === 'oauth' ? settings.githubAccessToken : settings.githubToken)
-          : '';
-        if (!alive) return;
-        setToken(resolved || '');
-        await refreshLocal();
-        if (resolved) await loadRepos(1, resolved);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [loadRepos, refreshLocal]);
 
   const repoPrefix = useCallback(repo => (repo ? `repos/${repo.owner}/${repo.repo}/${repo.branch}/` : ''), []);
 
-  const localCount = useCallback(repo => {
-    const prefix = repoPrefix(repo);
-    if (!prefix) return 0;
-    return allFiles.filter(entry => String(entry).startsWith(prefix) && !String(entry).endsWith('/')).length;
-  }, [allFiles, repoPrefix]);
+  // 仓库列表域（token 读取 / 分页加载 / 刷新入口 / 本地计数）已外提到 github/useRepoList.js。
+  const {
+    loading,
+    repos,
+    repoPage,
+    hasMore,
+    busy,
+    errorText,
+    setErrorText,
+    setRepos,
+    loadRepos,
+    localCount,
+    refreshAll,
+  } = useRepoList({
+    mountedRef,
+    describeError,
+    refreshLocal,
+    repoPrefix,
+    allFiles,
+    setActionBusy,
+    token,
+    setToken,
+  });
 
   const selectRepo = useCallback(repo => {
     const next = { owner: repo.owner, repo: repo.repo, branch: repo.defaultBranch || 'main' };
@@ -240,17 +213,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     setSearch('');
     setLayer('');
     setErrorText('');
-  }, [repoPrefix]);
-
-  const refreshAll = useCallback(async () => {
-    setActionBusy('refresh');
-    try {
-      await refreshLocal();
-      if (token) await loadRepos(1);
-    } finally {
-      if (mountedRef.current) setActionBusy('');
-    }
-  }, [loadRepos, refreshLocal, token]);
+  }, [repoPrefix, setErrorText]);
 
   // 树：当前仓库前缀下的条目 = 本地副本 ∪ 清单（C1：快速检出后未物化的文件也
   // 在树上，带云朵角标；点开时按需下载）。本地存在的一律以本地为准。

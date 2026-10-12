@@ -109,8 +109,9 @@ test('新建对话与查找历史', () => {
 test('导入只有一套 UI：聊天侧不再有项目拉取', () => {
   assert.ok(!CHAT.includes('importProjectToWorkspace'), '聊天侧项目导入已移除');
   assert.ok(!CHAT.includes('WorkspaceProjectSheet'), '旧「新建项目」弹层已删除');
-  const github = read('src/workspace/screen/GithubPanel.js');
-  assert.ok(github.includes('listRepos('), '导入/仓库管理统一在 GitHub 工作台');
+  // 仓库列表加载已外提到 github/useRepoList.js。
+  const repoList = read('src/workspace/screen/github/useRepoList.js');
+  assert.ok(repoList.includes('listRepos('), '导入/仓库管理统一在 GitHub 工作台');
 });
 
 test('入口接线：设置页只挂一个工作区单屏，四领域面板由单屏内部分发', () => {

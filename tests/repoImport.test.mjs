@@ -214,8 +214,10 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
   assert.ok(!panel.includes('WorkspaceRepoSheet'), 'GitHub 导入不再是文件面板内的弹层');
 
   // 凭据单一来源：GitHub 工作台复用 MCP 设置里的 token，不得新建第二套凭据存储。
+  // token 读取已随仓库列表域外提到 github/useRepoList.js。
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.match(github, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
+  const repoList = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoList.js'), 'utf8');
+  assert.match(repoList, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
   assert.ok(!github.includes('AsyncStorage') && !github.includes('@easychat2_'), '面板不得自建凭据存储键');
   // 快照边界如实声明；拉取链路必须复用 repoImport 的限额与解压（含目录条目修复）。
   // 拉取动作已外提到 github/useRepoPull.js，解压/限额断言读新文件。
