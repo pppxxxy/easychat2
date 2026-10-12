@@ -92,9 +92,10 @@ test('MCP 客户端：超时（Aborted）必须转成可诊断的错误码', () 
     '20s 会把 GitHub MCP 冷启动误杀成超时，已放宽');
 });
 
-test('OAuth 回跳依赖 app.json 的 scheme（深链回调的载体）', () => {
+// OAuth 网页授权流程已删除（2026-10-12）：它依赖 RFC 7591 动态客户端注册，而 GitHub 的
+// 远程 MCP 不提供——流程必然在「注册应用」一步失败，fca2bb3f 已改成「打开令牌页」走 PAT。
+// scheme 本身作为应用深链标识保留在 app.json 里，这条只钉住它没被顺手删掉。
+test('app scheme 仍是 easychat2（应用深链标识，OAuth 回跳消费者已删）', () => {
   const appJson = JSON.parse(readSource('app.json'));
   assert.equal(appJson.expo.scheme, 'easychat2');
-  const bridge = readSource('src/mcp/oauthBridge.js');
-  assert.ok(bridge.includes("GITHUB_OAUTH_REDIRECT = 'easychat2://github-mcp-callback'"), '回跳 URI 与 scheme 对齐');
 });

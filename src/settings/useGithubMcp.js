@@ -25,14 +25,7 @@ const GITHUB_ERROR_KEYS = {
   MCP_AUTH_FAILED: 'settings.github.err.auth',
   MCP_HTTP_ERROR: 'settings.github.err.mcpHttp',
   MCP_INVALID_RESPONSE: 'settings.github.err.mcpResponse',
-  OAUTH_METADATA_NOT_FOUND: 'settings.github.err.metadata',
-  OAUTH_NO_REGISTRATION: 'settings.github.err.registration',
   MCP_TIMEOUT: 'settings.github.err.mcpTimeout',
-  OAUTH_STATE_MISMATCH: 'settings.github.err.state',
-  OAUTH_TIMEOUT: 'settings.github.err.timeout',
-  OAUTH_ACCESS_DENIED: 'settings.github.err.denied',
-  OAUTH_TOKEN_EXCHANGE: 'settings.github.err.exchange',
-  OAUTH_BROWSER_UNAVAILABLE: 'settings.github.err.browser',
 };
 
 const githubAlertText = (error, translate) => {
