@@ -6,7 +6,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { createEmptyStats, normalizeStats, recordRequest } from '../chat/sessionStats.js';
-import { createMutationQueue, readJson } from './io.js';
+import { tActive } from '../i18n/index.js';
+import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 
 export const SESSION_STATS_KEY = '@easychat2_session_stats';
 // 最多保留多少个会话的统计（按最后活动时间淘汰最旧的），避免无限增长。
@@ -25,10 +26,39 @@ function normalizeStore(raw) {
   return out;
 }
 
+// 读统计表并**保留读取状态**（读路径对外行为不变：损坏时仍给空统计，界面不崩）。
+// 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+async function readSessionStatsStatus() {
+  const stored = await readJsonStatus(SESSION_STATS_KEY);
+  if (stored.status === 'corrupt') {
+    await backupCorruptValue(SESSION_STATS_KEY);
+    return { status: 'corrupt', store: {} };
+  }
+  return {
+    status: stored.status === 'ok' ? 'ok' : 'missing',
+    store: normalizeStore(stored.status === 'ok' ? stored.value : null),
+  };
+}
+
+// 写路径守卫（变体①：拒绝写回 / 抛错）。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap）与 src/storage/cardForge.js:182-186。
+//
+// 为什么必须守卫：本键是**单键多会话**的分区表（`{ [sessionId]: stats }`），
+// 一次 setItem 覆盖的是**所有会话**的统计。读失败时表是空的，
+// 「记一次请求」或「清一个会话」都会把其余会话的统计一起清掉。
+// 调用点 useChatSend.js:640 在 try 里、:1019 带 .catch，记不上账不影响回复本身；
+// clearSessionStats 的调用点 sessionList/mutations.js:68 也带 .catch。
+function requireStatsForMutation(current) {
+  if (current.status === 'corrupt') {
+    throw new Error(tActive('error.storage.sessionStatsReadFailed'));
+  }
+  return current.store;
+}
+
 export async function getSessionStats(sessionId) {
   const key = String(sessionId || '').trim();
   if (!key) return createEmptyStats();
-  const store = normalizeStore(await readJson(SESSION_STATS_KEY, null));
+  const { store } = await readSessionStatsStatus();
   return store[key] || createEmptyStats();
 }
 
@@ -37,7 +67,7 @@ export function recordSessionRequest(sessionId, entry = {}) {
   const key = String(sessionId || '').trim();
   if (!key) return Promise.resolve(createEmptyStats());
   return sessionStatsMutation.enqueue(async () => {
-    const store = normalizeStore(await readJson(SESSION_STATS_KEY, null));
+    const store = requireStatsForMutation(await readSessionStatsStatus());
     const next = recordRequest(store[key] || createEmptyStats(), entry);
     store[key] = next;
     const keys = Object.keys(store);
@@ -56,7 +86,10 @@ export function clearSessionStats(sessionId) {
   const key = String(sessionId || '').trim();
   if (!key) return Promise.resolve(false);
   return sessionStatsMutation.enqueue(async () => {
-    const store = normalizeStore(await readJson(SESSION_STATS_KEY, null));
+    // 删除看似可推迟（变体⑤的方向，参考 src/storage/mediaProtection.js:47），
+    // 但这里删的不是「一条记录」而是「一张整表里的一行」：读失败时表是空的，
+    // 写回即清空所有会话的统计。所以仍然拒绝，由调用方下次再删。
+    const store = requireStatsForMutation(await readSessionStatsStatus());
     if (!store[key]) return false;
     delete store[key];
     await AsyncStorage.setItem(SESSION_STATS_KEY, JSON.stringify(store));

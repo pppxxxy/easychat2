@@ -8,7 +8,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { tActive } from '../../i18n/index.js';
 import { recordDiagnostic } from '../diagnostics.js';
 import { onCharacterDeleted } from '../characterLifecycle.js';
-import { readJsonStatus } from '../io.js';
+import { readJsonStatus, backupCorruptValue } from '../io.js';
 import {
   DEFAULT_CHARACTER,
   ensureDefaultCharacter,
@@ -291,6 +291,15 @@ export async function getCharacterLibrary() {
       writeBlocked = true;
     }
   } else if (index.corrupt) {
+    // 变体②：留副本 + 重建。
+    // 参考 src/storage/localModels.js:63-64（getLocalModelIndex）：
+    //   `await backupCorruptValue(LOCAL_MODEL_INDEX_KEY); return rebuildLocalModelIndex();`
+    //
+    // 这是本文件「三步缺①」里缺的那一步：索引坏了确实能识别（readJsonStatus）、
+    // 也确实会重建（rebuildCharacterItemsFromKeys），但**从来没有留过副本**——
+    // 「索引坏 → 重建 → persistLibrary 覆盖 CHARACTER_INDEX_KEY」这条链上原始字节
+    // 一个副本都没有，用户事后没有任何人工恢复的依据。补上这一步。
+    await backupCorruptValue(CHARACTER_INDEX_KEY);
     const rebuilt = await rebuildCharacterItemsFromKeys();
     items = legacy.status === 'ok'
       ? mergeCharacterItems(rebuilt.items, legacy.items)
@@ -360,13 +369,33 @@ export async function getCharacterLibrary() {
       const legacyNames = [CHARACTERS_KEY, CHARACTER_KEY]
         .filter(name => (allKeys || []).includes(name));
       if (legacyNames.length > 0) {
-        await AsyncStorage.multiRemove(legacyNames);
-        // 等诊断落盘：本函数已到末尾，await 无代价且让测试可确定性断言。
-        await recordDiagnostic(
-          'storage',
-          new Error(`已清理角色遗留存储键：${legacyNames.join(', ')}`),
-          'character-legacy-cleanup'
-        );
+        // 变体②的另一半：**删前先留副本**。
+        // 参考 src/storage/localModels.js:63-64 的「留副本 + 重建」顺序，方向选择同
+        // src/storage/mediaProtection.js:47（删除永远是可推迟的）。
+        //
+        // 为什么必须留副本：这两个键正是最可能「读不出」的那类数据——
+        // CHARACTERS_KEY 是旧版整库单体键，>2MB 时 getItem 直接抛错（当年正是它促发
+        // 按 id 拆键迁移）。此前是直接 multiRemove：原始字节零副本，而这是**唯一**一份
+        // 旧格式数据。现在先备份、备份成功的才删。
+        //
+        // 为什么备份失败的键**不删**：留副本 + 重建的前提是副本真的留下了。
+        // 「备份没成功却照样删」把不可恢复变成既成事实；留下的代价只是备份导出继续
+        // 报「有键没进备份」——那是事实，而且比丢掉唯一一份旧数据轻得多。
+        // 下次启动会重试（守卫条件不变）。探测仍只用 getAllKeys 成员判断，
+        // 不用 getItem 判断存在性（超限值会抛错，那正是本条要绕开的问题）。
+        const backedUp = [];
+        for (const name of legacyNames) {
+          if (await backupCorruptValue(name)) backedUp.push(name);
+        }
+        if (backedUp.length > 0) {
+          await AsyncStorage.multiRemove(backedUp);
+          // 等诊断落盘：本函数已到末尾，await 无代价且让测试可确定性断言。
+          await recordDiagnostic(
+            'storage',
+            new Error(`已清理角色遗留存储键：${backedUp.join(', ')}`),
+            'character-legacy-cleanup'
+          );
+        }
       }
     } catch (error) {}
   }

@@ -156,6 +156,20 @@ const ioStub = {
       return fallback;
     }
   },
+  // 这个 stub 必须镜像 src/storage/io.js 的**对外契约**：被加载的 chatOptions.js 每多
+  // import 一个名字，这里就得跟着补，否则报的是 "xxx is not a function" —— 一句与真实
+  // 缺陷无关的错，很容易被误判成"存储坏了"。下面两个是 readJsonStatus 三步防护所需的
+  // 最小面：状态区分（missing/corrupt/ok）+ 备份钩子。
+  readJsonStatus: async key => {
+    const raw = await AsyncStorage.getItem(key);
+    if (raw == null) return { status: 'missing', value: null };
+    try {
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt', value: null };
+    }
+  },
+  backupCorruptValue: async () => {}, // 本文件只关心"损坏不覆盖"，不关心备份内容
 };
 const SETTINGS_DIR = path.resolve('src/storage/settings');
 function loadSettingsModule(absPath) {

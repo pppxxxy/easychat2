@@ -43,6 +43,23 @@ function readGlobalProfileMeta(rawProfile) {
   };
 }
 
+// 写路径专用读：读失败（corrupt）时抛错中止，绝不用「合成出来的默认人设」整表覆盖。
+// 变体①，参考 src/storage/worldMap.js:34-40（updateWorldMap）与
+// src/storage/cardForge.js:182-186（saveCardForgeInternal）。
+//
+// 为什么必须守卫：getPersonas() 在损坏时返回的是一条**内存里合成**的默认人设
+// （刻意不落盘，见那里的注释）。而 create/delete/saveUserProfile 全都是
+// 「拿它当当前列表 → 改 → setItem(PERSONAS_KEY)」：读失败后任意一次保存
+// 都会把用户全部人设替换成那一条合成结果——「下次可重试」的承诺当场作废。
+async function getPersonasForMutation() {
+  const stored = await readJsonStatus(PERSONAS_KEY);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    await backupCorruptValue(PERSONAS_KEY);
+    throw new Error(tActive('error.storage.personasReadFailed'));
+  }
+  return getPersonas();
+}
+
 export async function getPersonas() {
   const stored = await readJsonStatus(PERSONAS_KEY);
   if (stored.status === 'ok' && Array.isArray(stored.value) && stored.value.length > 0) {
@@ -100,7 +117,7 @@ export function setActivePersonaId(id) {
 
 export function createPersona(partial = {}) {
   return personasMutation.enqueue(async () => {
-    const personas = await getPersonas();
+    const personas = await getPersonasForMutation();
     const now = Date.now();
     const created = normalizePersona({
       id: makePersonaId(now),
@@ -118,7 +135,7 @@ export function createPersona(partial = {}) {
 
 export function deletePersona(id) {
   return personasMutation.enqueue(async () => {
-    const personas = await getPersonas();
+    const personas = await getPersonasForMutation();
     if (personas.length <= 1) throw new Error(tActive('error.storage.personaKeepOne'));
     const remaining = personas.filter(item => item.id !== id);
     if (remaining.length === personas.length) throw new Error(tActive('error.storage.personaNotFound'));
@@ -173,7 +190,16 @@ export async function getUserProfileStatus() {
 
 export function saveUserProfile(profile) {
   return personasMutation.enqueue(async () => {
-    const personas = await getPersonas();
+    const personas = await getPersonasForMutation();
+    // 两个键都在**写之前**先判定：读不出任一原值就整体中止，不做「写了一半」。
+    // USER_PROFILE_KEY 这一处此前只备份就往下走，而下面构造的载荷是三个字段整表覆盖，
+    // avatarUri 取自「读失败后的默认值 ''」——保存一次用户名就把用户头像静默清掉。
+    // 变体①，参考 src/storage/worldMap.js:34-40。
+    const profileStatus = await readJsonStatus(USER_PROFILE_KEY);
+    if (profileStatus.status === 'corrupt') {
+      await backupCorruptValue(USER_PROFILE_KEY);
+      throw new Error(tActive('error.storage.personasReadFailed'));
+    }
     const activeId = await getActivePersonaId(personas);
     const now = Date.now();
     const next = personas.map(item => (
@@ -187,12 +213,9 @@ export function saveUserProfile(profile) {
         : item
     ));
     await AsyncStorage.setItem(PERSONAS_KEY, JSON.stringify(next));
-    const profileStatus = await readJsonStatus(USER_PROFILE_KEY);
-    if (profileStatus.status === 'corrupt') {
-      await backupCorruptValue(USER_PROFILE_KEY);
-    }
-    const global = await readJson(USER_PROFILE_KEY, DEFAULT_USER_PROFILE);
-    const meta = readGlobalProfileMeta(global);
+    const meta = readGlobalProfileMeta(
+      profileStatus.status === 'ok' ? profileStatus.value : DEFAULT_USER_PROFILE
+    );
     await AsyncStorage.setItem(
       USER_PROFILE_KEY,
       JSON.stringify({

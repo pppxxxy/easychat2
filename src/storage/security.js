@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onCharacterDeleted } from './characterLifecycle.js';
 import { backupCorruptValue, createMutationQueue, readJsonStatus } from './io.js';
 import { readSecureValue, removeSecureValue, writeSecureValue } from './secretStore.js';
+import { tActive } from '../i18n/index.js';
 
 export const SECURITY_KEY = '@easychat2_security';
 export const PIN_MIN_LENGTH = 4;
@@ -80,19 +81,45 @@ function normalizeCharacterLocks(raw) {
   return result;
 }
 
+// 读设置并**保留读取状态**。读路径的体验完全不变（损坏时仍返回默认值给 UI），
+// status 只交给写路径判定「这次能不能写回」。
+// 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）：把 status 从读函数里带出来，
+// 而不是在读函数里就把状态丢掉、让写路径只能拿到一个「看起来正常的默认值」。
 async function readSecurity() {
   const stored = await readJsonStatus(SECURITY_KEY);
   if (stored.status === 'corrupt') {
     await backupCorruptValue(SECURITY_KEY);
-    return { appLock: normalizeAppLock(null), characterLocks: {} };
+    return { status: 'corrupt', appLock: normalizeAppLock(null), characterLocks: {} };
   }
   const raw = stored.status === 'ok' && stored.value && typeof stored.value === 'object'
     ? stored.value
     : {};
   return {
+    status: stored.status === 'ok' ? 'ok' : 'missing',
     appLock: normalizeAppLock(raw.appLock),
     characterLocks: normalizeCharacterLocks(raw.characterLocks),
   };
+}
+
+// 写路径守卫（变体①：拒绝写回 / 抛错）。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap）：「读失败就抛错中止：绝不用空列表
+// 覆盖已有地图」；同型见 src/storage/cardForge.js:182-186（saveCardForgeInternal）。
+//
+// 为什么本域**必须** fail-closed（这是安全配置域）：密码/提示在 expo-secure-store，
+// 上锁名单只在 AsyncStorage。名单一旦被「默认值 + 本次补丁」整键覆盖，结果不是
+// 「少了一条记录」而是**锁静默失效**——密码还躺在安全存储里，但没有任何角色被登记为
+// 已上锁，SecurityGate 再也不会拦人。用户以为锁着，实际谁都能打开。
+// 宁可这次保存失败并明确报错，也绝不悄悄解锁。
+function requireSecurityForMutation(current) {
+  if (current.status === 'corrupt') {
+    throw new Error(tActive('error.storage.securityReadFailed'));
+  }
+  return current;
+}
+
+// 落盘载荷：只取数据字段，绝不把 status 写进存储（否则下次读出来会多一个无意义字段）。
+function securityPayload(current) {
+  return { appLock: current.appLock, characterLocks: current.characterLocks };
 }
 
 async function writeSecurity(next) {
@@ -102,7 +129,9 @@ async function writeSecurity(next) {
 }
 
 export async function getSecuritySettings() {
-  return readSecurity();
+  // 对外形状不变（status 是内部字段，不外泄）。
+  const { appLock, characterLocks } = await readSecurity();
+  return { appLock, characterLocks };
 }
 
 export async function getAppLockSettings() {
@@ -123,12 +152,12 @@ export async function isCharacterLocked(characterId) {
 // 避免只带单字段的写入把另一字段归回默认值）。
 export function saveAppLockSettings(patch) {
   return securityMutation.enqueue(async () => {
-    const current = await readSecurity();
+    const current = requireSecurityForMutation(await readSecurity());
     const appLock = normalizeAppLock({
       ...current.appLock,
       ...(patch && typeof patch === 'object' ? patch : {}),
     });
-    await writeSecurity({ ...current, appLock });
+    await writeSecurity({ ...securityPayload(current), appLock });
     return appLock;
   });
 }
@@ -141,10 +170,13 @@ export function setCharacterLock(characterId, passcode) {
   const pin = normalizePin(passcode);
   if (!isValidPin(pin)) return Promise.resolve(false);
   return securityMutation.enqueue(async () => {
-    const current = await readSecurity();
+    // 守卫必须在写安全存储**之前**：读不出名单时连密码都不该落盘，
+    // 否则会留下「密码在、名单里没有」的孤儿——与下面注释里「先密码后名单」的
+    // 顺序纪律同一个目的：任何中途状态都不能出现「有锁却查不到」或反过来。
+    const current = requireSecurityForMutation(await readSecurity());
     await writeSecureValue(LOCK_SECURE_PREFIX + id, pin);
     const characterLocks = { ...current.characterLocks, [id]: true };
-    await writeSecurity({ ...current, characterLocks });
+    await writeSecurity({ ...securityPayload(current), characterLocks });
     return true;
   });
 }
@@ -162,7 +194,8 @@ export function setCharacterLocks(characterIds, passcode, hint) {
   if (!isValidPin(pin)) return Promise.resolve(0);
   const nextHint = hint === undefined || hint === null ? undefined : normalizeLockHint(hint);
   return securityMutation.enqueue(async () => {
-    const current = await readSecurity();
+    // 同 setCharacterLock：守卫在最前，名单读不出就一个密码都不写。
+    const current = requireSecurityForMutation(await readSecurity());
     const characterLocks = { ...current.characterLocks };
     for (const id of ids) {
       // 先密码后提示、最后名单：中途崩溃也不会出现「名单里有锁但读不到密码」。
@@ -173,7 +206,7 @@ export function setCharacterLocks(characterIds, passcode, hint) {
       }
       characterLocks[id] = true;
     }
-    await writeSecurity({ ...current, characterLocks });
+    await writeSecurity({ ...securityPayload(current), characterLocks });
     return ids.length;
   });
 }
@@ -205,14 +238,17 @@ export function removeCharacterLock(characterId) {
   const id = String(characterId || '');
   if (!id) return Promise.resolve(false);
   return securityMutation.enqueue(async () => {
-    const current = await readSecurity();
+    // 解锁同样要守卫：写回的是 `{...current.characterLocks}`，读失败时它是空的，
+    // 一写就把**整份**名单清空（不只是这一个角色）。删除永远是可推迟的
+    // （参考 src/storage/mediaProtection.js:47 的方向选择），这次失败下次再删即可。
+    const current = requireSecurityForMutation(await readSecurity());
     const wasLocked = current.characterLocks[id] === true;
     const characterLocks = { ...current.characterLocks };
     delete characterLocks[id];
     await removeSecureValue(LOCK_SECURE_PREFIX + id);
     // 提示随锁一起走：留一条「提示」却没有锁，只会让用户误以为有锁。
     await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
-    if (wasLocked) await writeSecurity({ ...current, characterLocks });
+    if (wasLocked) await writeSecurity({ ...securityPayload(current), characterLocks });
     return wasLocked;
   });
 }
@@ -237,7 +273,11 @@ async function deleteCharacterLocksInternal(characterIds) {
     .map(id => String(id || ''))
     .filter(Boolean);
   if (ids.length === 0) return;
-  const current = await readSecurity();
+  // 角色删除钩子同样 fail-closed：读不出名单就没有「安全的部分写入」可言——
+  // 先删密码再发现名单写不回去，只会得到「名单说锁着、密码已没」的坏状态。
+  // 抛错由 characterLifecycle.runCharacterCleanup 记诊断后继续跑其余域，
+  // 这次没清掉的密码/提示会留到下次清理（留孤儿是可恢复的，抹掉整份名单不是）。
+  const current = requireSecurityForMutation(await readSecurity());
   const characterLocks = { ...current.characterLocks };
   let changed = false;
   for (const id of ids) {
@@ -248,7 +288,7 @@ async function deleteCharacterLocksInternal(characterIds) {
     await removeSecureValue(LOCK_SECURE_PREFIX + id);
     await removeSecureValue(LOCK_HINT_SECURE_PREFIX + id);
   }
-  if (changed) await writeSecurity({ ...current, characterLocks });
+  if (changed) await writeSecurity({ ...securityPayload(current), characterLocks });
 }
 
 // 角色删除时清理其锁与密码（谁的数据谁负责）。

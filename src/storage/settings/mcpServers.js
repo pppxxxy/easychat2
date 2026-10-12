@@ -20,7 +20,13 @@
 
 import { DEFAULT_GITHUB_MCP_ENDPOINT, GITHUB_SERVER_ID } from '../../mcp/constants.js';
 import { filterMcpToolsForRegistration } from '../../mcp/riskGate.js';
-import { createMutationQueue, readJsonWithSecrets, setJsonWithSecrets } from '../io.js';
+import { tActive } from '../../i18n/index.js';
+import {
+  backupCorruptValue,
+  createMutationQueue,
+  readJsonStatusWithSecrets,
+  setJsonWithSecrets,
+} from '../io.js';
 
 export const MCP_SERVERS_KEY = '@easychat2_mcp_servers';
 // 常量已抽到 mcp/constants.js（与 mcpTools / client 共用一份，不再靠注释同步）；
@@ -176,13 +182,46 @@ export function normalizeMcpServers(raw) {
   return out;
 }
 
+// 读列表并**保留读取状态**。读路径的对外体验不变（损坏时仍返回空列表给 UI），
+// status 只交给写路径判定「这次能不能写回」。
+// 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+async function readMcpServersStatus() {
+  const stored = await readJsonStatusWithSecrets(MCP_SERVERS_KEY);
+  if (stored.status === 'corrupt' || (stored.status === 'ok' && !Array.isArray(stored.value))) {
+    // 整表被覆盖是不可逆的（每条记录的 mcpToken 与 headers 值都在这个键的引用里），
+    // 所以读失败先留一份原始副本。
+    await backupCorruptValue(MCP_SERVERS_KEY);
+    return { status: 'corrupt', servers: [] };
+  }
+  if (stored.status === 'missing') return { status: 'missing', servers: [] };
+  return { status: 'ok', servers: normalizeMcpServers(stored.value) };
+}
+
+export async function getMcpServersStatus() {
+  return readMcpServersStatus();
+}
+
 export async function getMcpServers() {
-  const raw = await readJsonWithSecrets(MCP_SERVERS_KEY, null).catch(() => null);
-  return normalizeMcpServers(raw);
+  const { servers } = await readMcpServersStatus();
+  return servers;
 }
 
 export function saveMcpServers(list) {
   return mcpServersMutation.enqueue(async () => {
+    // 变体①：读失败就抛错中止，绝不用空/部分列表整表覆盖。
+    // 参考 src/storage/worldMap.js:34-40（updateWorldMap）：「读失败就抛错中止：
+    // 绝不用空列表覆盖已有地图」；同型见 src/storage/cardForge.js:182-186。
+    //
+    // 为什么这一处特别致命：唯一的常规写入路径是
+    // src/settings/useMcpServers.js:73-74 的
+    // `upsertMcpServer(await getMcpServers(), updated)` → `saveMcpServers(next)`。
+    // 读失败时 getMcpServers() 给出的是空列表，于是「连接/重测一个服务器」这个动作
+    // 会把**用户全部 MCP 服务器**（含 token、headers 引用、工具目录与分级覆写）
+    // 替换成刚连上的那一条。一次读失败 = 其余服务器全部消失。
+    const status = await readMcpServersStatus();
+    if (status.status === 'corrupt') {
+      throw new Error(tActive('error.storage.mcpServersReadFailed'));
+    }
     const normalized = normalizeMcpServers(list);
     await setJsonWithSecrets(MCP_SERVERS_KEY, normalized);
     return normalized;
@@ -250,7 +289,14 @@ export async function migrateGithubServer({ getGithubSettings } = {}) {
   if (list.some(item => item.id === GITHUB_SERVER_ID)) {
     return { migrated: false, reason: 'ALREADY_MIGRATED' };
   }
-  await saveMcpServers([...list, legacy]);
+  try {
+    await saveMcpServers([...list, legacy]);
+  } catch (error) {
+    // 新键读不出（corrupt）时 saveMcpServers 会拒绝写回：迁移必须跟着中止，
+    // 否则 `[...[], legacy]` 会把用户已有服务器全清掉。保持本函数「读失败 → 都不动新键」
+    // 的既有契约（返回结果而不是抛错），并复用同一个 reason。
+    return { migrated: false, reason: 'READ_FAILED' };
+  }
   return { migrated: true, server: legacy };
 }
 
