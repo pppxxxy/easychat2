@@ -20,7 +20,8 @@
     "src/MemoryScreen.js 956 → 926（2026-10-12，审查待办第 3 项的第七刀）：孤儿会话恢复（扫出「消息还在、会话没了」的对话 + 挑角色恢复）外提到 memory/useOrphanRecovery.js（hook，依赖 loaded/refreshSessions/t 由面板注入）；存储读取仍在 storage/sessions.js 与 storage/personas.js。净减 30 行，行为不变（该文件无测试引用，仅靠 lint 与全量回归兜底）。行数基线不留余量，故同步下调（无上调）。",
     "src/MemoryScreen.js 926 → 798（2026-10-12，审查待办第 3 项的第八刀）：列表视图模型（会话/看屏幕 threads 的筛选、时间分档、分组展开态、iOS 吸顶组头、筛选 chips、preview 兜底）外提到 memory/useMemoryListView.js（hook，依赖 sessions/characters/activeThreads/memoryFilter/editing 由面板注入）；纯逻辑仍在 memory/memoryBuckets.js。净减 128 行，行为不变（hook 内部调用顺序与依赖与原块逐一对应；该文件无测试引用，仅靠 lint 与全量回归兜底）。**降至 798 行（≤ 800），本次起移出行数基线**（棘轮启动以来第二个离开基线的文件）。",
     "src/CardForgeEditor.js 1338 → 1074（2026-10-12，审查待办第 3 项的第九刀）：底部的样式工厂 createStyles 外提到 cardForge/editorStyles.js（纯数据，只依赖 theme/fonts/tokens），与既有的 chatStyles.js / filesPanelStyles.js 同因同法；组件与 AssistButton 各自 useMemo 调用处不变，渲染树逐字不变。净减 264 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
-    "src/books/BookReaderView.js 1114 → 901（2026-10-12，审查待办第 3 项的第十刀）：底部的样式工厂 createStyles 与它引用的两个模块常量 READER_INSET_TOP/READER_INSET_BOTTOM 一起外提到 books/bookReaderStyles.js（纯数据，只依赖 theme/fonts/tokens）；组件 useMemo 调用处不变，渲染树逐字不变。净减 213 行，行为不变。行数基线不留余量，故同步下调（无上调）。"
+    "src/books/BookReaderView.js 1114 → 901（2026-10-12，审查待办第 3 项的第十刀）：底部的样式工厂 createStyles 与它引用的两个模块常量 READER_INSET_TOP/READER_INSET_BOTTOM 一起外提到 books/bookReaderStyles.js（纯数据，只依赖 theme/fonts/tokens）；组件 useMemo 调用处不变，渲染树逐字不变。净减 213 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
+    "src/ProactivePanel.js 886 → 744（2026-10-12，审查待办第 3 项的第十一刀）：底部的样式工厂 createStyles 外提到 proactive/proactivePanelStyles.js（纯数据，只依赖 theme/fonts）。净减 142 行，行为不变。**降至 744 行（≤ 800），本次起移出行数基线**（棘轮启动以来第三个离开基线的文件）。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3162,
@@ -37,8 +38,7 @@
     "src/ImageGenScreen.js": 997,
     "src/character/CharacterLibraryScreen.js": 945,
     "src/workspace/WorkspaceSettingsSheet.js": 910,
-    "src/CardForgeScreen.js": 902,
-    "src/ProactivePanel.js": 886
+    "src/CardForgeScreen.js": 902
   },
   "allowedCycles": []
 }

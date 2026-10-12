@@ -46,6 +46,7 @@
     "src/PluginPanel.js",
     "src/PresetPanel.js",
     "src/ProactivePanel.js",
+    "src/proactive/proactivePanelStyles.js",
     "src/TtsPanel.js",
     "src/TranscriptionPanel.js",
     "src/CardPreviewModal.js",
