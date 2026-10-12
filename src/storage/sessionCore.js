@@ -188,13 +188,36 @@ export function saveSessions(sessions) {
   });
 }
 
-export async function getActiveSessionId() {
-  try {
-    const raw = await AsyncStorage.getItem(ACTIVE_SESSION_KEY);
-    return raw ? String(JSON.parse(raw)) : '';
-  } catch (error) {
-    return '';
+// 活动会话指针的三态读取。**必须**走 readJsonStatus，不能用
+// `getItem + JSON.parse + catch 返回 ''`：那条路径把「键从未设过」和「键读不出/结构坏了」
+// 合并成同一个 ''，调用方据此解析出**另一段**会话再把新 id 落盘，用户「上次停在的对话」
+// 就被永久改掉了——这正是仓库已修的「读失败→默认→写回」形态，只是这两处（本函数与
+// characters/index.js 的 getActiveCharacterId）是裸 getItem，没被那 19 处 readJson 路径
+// 的修复覆盖。
+//
+// status 语义（与 io.js 的 readJsonStatus 一致）：
+//   ok      → 读到了合法值（value 为字符串 id，可能是 ''）；
+//   missing → 键从未存在过，算「没设过」；
+//   corrupt → getItem 抛错或 JSON.parse 失败：**保持原值不动**，把状态透给调用方决定。
+// 「能不能写回」的裁定统一在 context/sessionLibrary.shouldPersistResolvedId：ok/missing 且
+// 解析结果确实变了才写，corrupt 一律不写。
+// readJsonStatus 不会替调用方调 backupCorruptValue（io.js 历来由调用方决定是否备份）：
+// 这里**不**备份——指针键只有一个短字符串，备份对恢复没有帮助，而 readJsonStatus 的
+// corrupt 分支已把 raw 带出来，调用方需要时可自行处理。
+export async function getActiveSessionIdStatus() {
+  const stored = await readJsonStatus(ACTIVE_SESSION_KEY);
+  if (stored.status === 'ok') {
+    return {
+      status: 'ok',
+      value: stored.value === null || stored.value === undefined ? '' : String(stored.value),
+    };
   }
+  return { status: stored.status, value: '' };
+}
+
+export async function getActiveSessionId() {
+  const { value } = await getActiveSessionIdStatus();
+  return value;
 }
 
 export async function setActiveSessionIdInternal(id) {

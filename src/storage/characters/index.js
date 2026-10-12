@@ -30,7 +30,16 @@ import {
 
 // 聚合对外导出：shared/payload 的公开符号统一从本模块转发，barrel 只需指向这里。
 export { CHARACTER_ITEM_PREFIX } from './payload.js';
-export { DEFAULT_CHARACTER, DEFAULT_ASSISTANT_LEGACY_PROMPTS, isCharacterLibraryWriteBlocked, sortCharacters } from './shared.js';
+export {
+  DEFAULT_CHARACTER,
+  DEFAULT_ASSISTANT_LEGACY_PROMPTS,
+  isCharacterLibraryWriteBlocked,
+  // 写闸的置位入口需要出圈：启动加载失败时 AppContext 要**主动**合闸（见下方
+  // getCharacterLibrary 的 catch），不能只依赖存储层内部路径。状态本身仍只声明在
+  // shared.js（禁止跨模块复制），这里只是转发，不产生第二份状态。
+  setCharacterLibraryWriteBlocked,
+  sortCharacters,
+} from './shared.js';
 
 const CHARACTER_KEY = '@easychat2_character';
 // 旧格式：整库数组存一个键（超过约 2MB 会触发 Android SQLite 行读取上限）。
@@ -242,7 +251,9 @@ function ensureDefaultCharacterOrPersistHint(items, greetingSeeded) {
   return { list, mustPersist: !hadDefault || changed || seededChanged, seededChanged };
 }
 
-export async function getCharacterLibrary() {
+// 读取 + 迁移的实现体。**不是公开入口**：任何一次读取失败都必须先合上写闸再抛出去，
+// 那个「先合闸」的动作在下方 getCharacterLibrary 的包装里做，绕开包装直接调用会漏掉它。
+async function readCharacterLibrary() {
   const [index, legacy, marker, greetingSeeded] = await Promise.all([
     readCharacterIndex(),
     readLegacyCharacterItems(),
@@ -402,6 +413,43 @@ export async function getCharacterLibrary() {
   return list;
 }
 
+// 角色库读取的**唯一公开入口**。这里包一层 try/catch 的原因是一整条已核实的不可逆链：
+//
+//   索引损坏 → rebuildCharacterItemsFromKeys → `AsyncStorage.getAllKeys()` 抛错（未包）
+//   → 本函数 reject → 调用方（AppContext 启动加载）退回「1 个角色 + 0 会话」的内存快照
+//   → 用户点一次编辑/置顶/新增 → saveCharacterLibrary(list) → persistLibrary 用**盘上**索引
+//     算 stale（previousIds 仍是完整的 N 个 id）→ 只 stale.delete 掉这 1 个 → multiRemove
+//     删掉其余 N-1 个逐角色键 + 索引改写成 [default] + cleanupCharacterPayloadFiles 删掉
+//     大卡正文文件 ⇒ 不可逆。
+//
+// 所以「读失败」与「写闸」必须在**同一个函数里**绑定，而不是指望每个调用方记得自己合闸：
+// 调用方有十余处（moments/diary/taskRunner/orphanMedia/workspace…），漏一处就是一次数据
+// 丢失。fail-closed 的方向与仓库既有先例一致：
+//   - src/storage/worldMap.js:19-40（读失败抛错，绝不返回默认值）；
+//   - src/storage/characters/index.js 自身的 persistLibrary catch（写失败 → 置位写闸）。
+// 注意本函数的返回**只有**「合法列表」与「抛出」两种；「合法的空库」不是失败
+// （ensureDefaultCharacter 会补上初始卡），照常返回并清掉写闸——「真的没有角色」与
+// 「读不到」必须区分。
+export async function getCharacterLibrary() {
+  try {
+    return await readCharacterLibrary();
+  } catch (error) {
+    // 先合闸再抛：顺序不能反。抛出去之后调用方可能已经拿着残缺列表去做写操作，
+    // 闸必须在那一刻之前就是合上的。
+    setCharacterLibraryWriteBlocked(true);
+    // 诊断文本必须**自足**：recordDiagnostic 会先跑 maskSecrets（见 diagnostics.js
+    // 的 mask），它可能把「疑似密钥」的片段替换成占位符甚至清空（上面那个
+    // `getAllKeys 读取失败` 就被清成了空串，与同窗口内其它 storage 诊断同签名而被去重
+    // 丢掉）。所以把「发生了什么」写进 message 本身，而不是只放在 context 里。
+    recordDiagnostic(
+      'storage',
+      new Error('角色库读取失败，已合上写闸（中止保存以免角色库被覆盖）'),
+      `getCharacterLibrary：${String((error && error.message) || '')}`
+    );
+    throw error;
+  }
+}
+
 export async function saveCharacterLibrary(list) {
   if (isCharacterLibraryWriteBlocked()) {
     throw new Error(tActive('error.storage.characterLibraryRecovering'));
@@ -412,13 +460,25 @@ export async function saveCharacterLibrary(list) {
   return next;
 }
 
-export async function getActiveCharacterId() {
-  try {
-    const raw = await AsyncStorage.getItem(ACTIVE_CHARACTER_KEY);
-    return raw ? String(JSON.parse(raw)) : '';
-  } catch (error) {
-    return '';
+// 活动角色指针的三态读取，与 sessionCore.getActiveSessionIdStatus 同构、同理：
+// 裸 getItem + JSON.parse + catch 返回 '' 会把「从未设过」与「读不出/结构坏了」合并成
+// 同一个 ''，调用方据此改写指针就等于永久改掉用户「上次用的角色」。
+// 裁定同 sessionLibrary.shouldPersistResolvedId：ok/missing 且解析结果确实变了才写回，
+// corrupt 时保持盘上原值不动。
+export async function getActiveCharacterIdStatus() {
+  const stored = await readJsonStatus(ACTIVE_CHARACTER_KEY);
+  if (stored.status === 'ok') {
+    return {
+      status: 'ok',
+      value: stored.value === null || stored.value === undefined ? '' : String(stored.value),
+    };
   }
+  return { status: stored.status, value: '' };
+}
+
+export async function getActiveCharacterId() {
+  const { value } = await getActiveCharacterIdStatus();
+  return value;
 }
 
 export async function setActiveCharacterId(id) {

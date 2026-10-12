@@ -1,20 +1,30 @@
 // 设置搜索索引：纯数据 + 纯过滤，零依赖，可在 Node 直测。
 //
 // 每条命中项指向一个设置卡（sectionId）。界面据此展开对应卡、滚动并高亮。
-// sectionId 必须与 SettingsScreen 里的折叠卡 id 一致。
+// sectionId 必须与设置卡渲染顺序里的 id 一致——那份顺序的**唯一事实源**是
+// `settings/sectionOrder.js` 的 `SECTION_RENDER_ORDER`，本模块直接 import 它（同一个数组
+// 对象），所以「索引指向的卡」与「真正渲染的卡」结构上不可能漂移。
+// 曾经这里是手写清单、顺序定义留在 SettingsScreen.js 里；本模块**不能**从那里取
+//（SettingsScreen.js:77 反过来 import 本模块，会成环，被 scripts/guard-structure.mjs 的
+// 循环依赖检查判红，且会把 RN 组件依赖拖进纯数据模块）——顺序因此被抽到 sectionOrder.js。
+// 对账见 tests/settingsSearch.test.mjs（顺序一致 + 互为覆盖 + 全仓只有一份字面量定义）。
 //
 // **文案一律用 i18n key，不写字面量**（2026-10-12 收敛）：label 是显示给用户看的
 //（搜索结果行 + 分区名），此前硬编码中文，英文用户在设置搜索里看到的全是中文。
 // 现在 labelKey 直接复用卡片本身用的那些键（settings.api.current / settings.appearance.theme…），
 // 于是「搜索结果的措辞」与「卡里的措辞」不可能再各自漂移；确实没有对应键的少数项
-// （如「保存 / 删除配置」）才新增 settings.search.* 键。
+//（如「保存 / 删除配置」）才新增 settings.search.* 键。
 //
 // keywords 保持中文/英文混排：它们是**匹配用**关键词（用户会输入什么），不是文案，
 // 不该翻译——英文用户输入 "temperature" 靠 keywords 里的英文词命中。这也是本文件仍留在
 // eslint「(b) 永久豁免」清单里的唯一原因：豁免的是 keywords，label 已全部迁走。
 
+import { SECTION_RENDER_ORDER } from './sectionOrder.js';
+
 // 分区名 → i18n key。复用卡片标题键（settings.<x>.title），不再另写一份中文
 //（此前那份还是过期的：appearance 的分区名写「外观与语言」，卡上其实是「外观」）。
+// **键的顺序刻意与 SECTION_RENDER_ORDER 逐条一致**（对象按 key 取值，顺序对运行时无影响，
+// 纯粹是为了让测试能用 deepEqual 把两份顺序钉在一起，少一张卡就变红）。
 export const SETTINGS_SECTION_LABEL_KEYS = {
   api: 'settings.api.title',
   sampling: 'settings.sampling.title',
@@ -29,8 +39,8 @@ export const SETTINGS_SECTION_LABEL_KEYS = {
   localmodel: 'settings.localModel.title',
   security: 'settings.security.title',
   autoBackup: 'settings.autoBackup.title',
-  about: 'settings.about.title',
   language: 'settings.language.title',
+  about: 'settings.about.title',
 };
 
 export const SETTINGS_SEARCH_INDEX = [
@@ -116,7 +126,15 @@ export const SETTINGS_SEARCH_INDEX = [
   { sectionId: 'language', labelKey: 'settings.language.title', keywords: ['语言', 'language', '中文', 'english', 'locale', '切换语言'] },
 ];
 
-// 按关键词过滤索引：大小写不敏感，匹配**译名**或任一 keyword 的子串。
+// 索引覆盖到的分区，**按 SECTION_RENDER_ORDER 的顺序**——派生值，不是另抄的清单。
+// 用渲染顺序（而不是索引里的首次出现顺序）过滤，是为了让「有没有漏搜的卡」变成一次
+// 直接的数组比较：它必须**恰好等于** SECTION_RENDER_ORDER（少一个 = 有张卡搜不到，
+// 多一个 = 有条索引指向不存在的卡），对账见 tests/settingsSearch.test.mjs。
+export const SETTINGS_SEARCH_SECTION_IDS = Object.freeze(
+  SECTION_RENDER_ORDER.filter(id => SETTINGS_SEARCH_INDEX.some(item => item && item.sectionId === id))
+);
+
+// 按关键词过滤索引：大小写不敏感，匹配 label（由 labelKey 翻出的译名）或任一 keyword 的子串。
 // 空查询返回空数组（界面据此显示正常列表）。
 //
 // t 由调用方注入（界面传 useTranslation 的 t；测试传替身或真实 translate）。默认是恒等

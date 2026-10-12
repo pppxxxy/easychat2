@@ -21,10 +21,26 @@ const transformed = babel.transformSync(fs.readFileSync(sourcePath, 'utf8'), {
 // ../storage 是原生 ESM（Node 直接解析会绕开 Module._load 拦截，并在
 // expo-file-system 的扩展名解析上失败）。characterLibrary 只用到
 // DEFAULT_CHARACTER 与 sortCharacters，这里按真实语义提供最小替身。
+// 注意这些字段必须与 storage/characters/shared.js:9-34 的 DEFAULT_CHARACTER 对齐
+// （尤其是内置助手的教学 firstMes / systemPrompt）——withAddedCharacter 的
+// 「继承 vs 清空」测试就是拿它们当被测输入，替身缺字段会让断言永远通过。
 const DEFAULT_CHARACTER = {
   id: 'default',
   builtin: true,
   name: 'EasyChat2 助手',
+  systemPrompt: '你是 EasyChat2 的智能助手，回答简洁清晰。',
+  firstMes: '你好，我是 EasyChat2 助手。开始很简单：1. 打开底部「设置」…',
+  alternateGreetings: ['助手备用问候'],
+  description: '',
+  personality: '',
+  scenario: '',
+  avatarUri: '',
+  bgUri: '',
+  tags: [],
+  worldInfo: [],
+  regexScripts: [],
+  presets: [],
+  voiceDisplay: 'text',
   lastUsedAt: 0,
 };
 function sortCharacters(list) {
@@ -38,6 +54,20 @@ function sortCharacters(list) {
 }
 const storageMock = { __esModule: true, DEFAULT_CHARACTER, sortCharacters };
 
+// 诊断与 i18n 的记录型替身：resolveStartupFailure 的「留痕 + 可见文案」要可断言。
+const recordedDiagnostics = [];
+const diagnosticsMock = {
+  __esModule: true,
+  recordDiagnostic: (kind, error, context) => {
+    recordedDiagnostics.push({ kind, message: String((error && error.message) || error), context });
+  },
+};
+const i18nMock = {
+  __esModule: true,
+  // 直接回显 key：断言文案时钉的是「用了哪条词条」，不是词条内容（内容由 i18n 测试保证）。
+  tActive: key => `[${key}]`,
+};
+
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   // 快赢1 后 characterLibrary.js 直达 storage/characters.js（原经 storage.js 门面）。
@@ -46,6 +76,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
     || request.endsWith('/storage')
     || request.endsWith('/storage/characters.js')
   ) return storageMock;
+  if (request.endsWith('/storage/diagnostics.js') || request === './diagnostics.js') {
+    return diagnosticsMock;
+  }
+  if (request.endsWith('/i18n/index.js') || request === './i18n/index.js') return i18nMock;
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -70,6 +104,7 @@ const {
   runWithRollback,
   describeDefaultArtwork,
   describeDefaultAssistantRefresh,
+  resolveStartupFailure,
 } = runtimeModule.exports;
 
 const DEFAULT = { id: 'default', builtin: true, name: '助手', lastUsedAt: 0 };
@@ -121,6 +156,71 @@ test('withAddedCharacter：写入新卡并清掉继承的 builtin 标记', () =>
   assert.equal(character.builtin, false);
   assert.equal(character.lastUsedAt, 9);
   assert.equal(next.some(c => c.id === 'a-2'), true);
+});
+
+// 角色页「新建」只传 { name }（CharacterLibraryScreen.js:408）。修复前
+// `{ ...DEFAULT_CHARACTER, ...character }` 会把内置助手的教学开场白与人设提示静默继承
+// 给新角色——用户建了张白纸，开场白却是「你好，我是 EasyChat2 助手…」。
+test('withAddedCharacter：只传 name 的新卡不继承内置助手的开场白/系统提示/备用问候', () => {
+  const { character } = withAddedCharacter([make('a')], { name: '新角色' }, 1);
+  assert.equal(character.firstMes, '', 'firstMes 必须是空串（不是助手教学文案）');
+  assert.equal(character.systemPrompt, '', 'systemPrompt 必须是空串（不是助手人设）');
+  assert.deepEqual(character.alternateGreetings, [], '备用开场白与 firstMes 同族，一并清空');
+  // 缺省即空是 cardHelpers.js:112/:145 的既有口径（|| ''），不是 undefined
+  assert.equal(typeof character.firstMes, 'string');
+  assert.equal(typeof character.systemPrompt, 'string');
+  // 该继承的仍然继承：name 用调用方的，其余默认字段在位
+  assert.equal(character.name, '新角色');
+  assert.equal(character.builtin, false);
+  assert.equal(character.voiceDisplay, 'text');
+  assert.equal(character.id.startsWith('card-'), true);
+});
+
+test('withAddedCharacter：调用方显式给的值一律保留，容器不与内置卡共享引用', () => {
+  const { character } = withAddedCharacter([make('a')], {
+    id: 'mine',
+    name: '带卡',
+    firstMes: '我自己的开场白',
+    systemPrompt: '我自己的人设',
+    alternateGreetings: ['备选一'],
+    avatarUri: 'file:///my-avatar.png',
+    tags: ['标签'],
+  }, 2);
+  assert.equal(character.firstMes, '我自己的开场白');
+  assert.equal(character.systemPrompt, '我自己的人设');
+  assert.deepEqual(character.alternateGreetings, ['备选一']);
+  assert.equal(character.avatarUri, 'file:///my-avatar.png', '调用方显式给的头像必须保留');
+  assert.deepEqual(character.tags, ['标签']);
+  // 内置卡是模块级单例：新卡绝不能与它共享可变容器
+  assert.notEqual(character.tags, DEFAULT_CHARACTER.tags);
+  assert.notEqual(character.alternateGreetings, DEFAULT_CHARACTER.alternateGreetings);
+});
+
+// 启动加载失败的处置（F1 的 AppContext 侧）：必须合写闸 + 留痕 + 给可见文案。
+test('resolveStartupFailure：先合写闸、再留痕，并返回可见文案（用现成词条）', () => {
+  recordedDiagnostics.length = 0;
+  const gate = [];
+  const boom = new Error('getAllKeys 读取失败');
+  const failure = resolveStartupFailure(boom, value => gate.push(value));
+  assert.deepEqual(gate, [true], '写闸必须被合上，且在任何写操作之前');
+  assert.equal(recordedDiagnostics.length, 1, '必须留痕（此前启动加载失败在诊断里查无此事）');
+  assert.equal(recordedDiagnostics[0].kind, 'startup');
+  // 诊断 message 必须自足：maskSecrets 可能把 error.message 清空（去重会因此丢掉这条）
+  assert.ok(recordedDiagnostics[0].message.includes('启动加载失败'), '诊断文本要自足');
+  assert.ok(recordedDiagnostics[0].message.includes('写闸'));
+  assert.ok(recordedDiagnostics[0].context.includes('getAllKeys 读取失败'),
+    '真实错误信息进 context 便于定位');
+  assert.equal(failure.title, '[error.storage.characterIndexReadFailed]',
+    '复用早已写好、此前零消费的中英双语词条');
+  assert.equal(failure.body, 'getAllKeys 读取失败', 'body 带真实错误信息便于定位');
+});
+
+test('resolveStartupFailure：非 Error 输入不炸，body 退化为空串由调用方兜底', () => {
+  recordedDiagnostics.length = 0;
+  const failure = resolveStartupFailure(undefined, () => {});
+  assert.equal(failure.body, '');
+  assert.equal(failure.title, '[error.storage.characterIndexReadFailed]');
+  assert.equal(recordedDiagnostics.length, 1);
 });
 
 test('withDeletedCharacter：删除后若删的是当前卡则回落，removed 标记准确', () => {

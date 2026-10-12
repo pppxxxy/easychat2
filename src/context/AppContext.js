@@ -7,21 +7,22 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Alert } from 'react-native';
 
 import {
   DEFAULT_CHARACTER,
   DEFAULT_ASSISTANT_LEGACY_PROMPTS,
-  getActiveCharacterId,
+  getActiveCharacterIdStatus,
   getCharacterLibrary,
   isCharacterLibraryWriteBlocked,
   saveCharacterLibrary,
   setActiveCharacterId,
+  setCharacterLibraryWriteBlocked,
   sortCharacters,
 } from '../storage/characters.js';
 import { saveCharacterState } from '../storage/characterState.js';
 import {
   getSessions,
-  getActiveSessionId,
   whenSessionMutationsSettled,
   setActiveSessionId,
   setSessionPinned,
@@ -33,6 +34,9 @@ import {
   reconcileVectorIndexes,
   reconcileWorldMemories,
 } from '../storage/sessions.js';
+// 活动会话指针的三态读取：sessions.js barrel 已把它与 getActiveSessionId 一并转发，
+// 这里直取 sessionCore（指针的定义处，键与读写同源），避免多一层转发。
+import { getActiveSessionIdStatus } from '../storage/sessionCore.js';
 import { getProactiveSettings, bindProactiveSlotSession } from '../storage/moments.js';
 import { collectOrphanImageFiles } from '../storage/orphanMedia.js';
 
@@ -40,6 +44,7 @@ import {
   describeDefaultArtwork,
   describeDefaultAssistantRefresh,
   resolveActiveId,
+  resolveStartupFailure,
   runWithRollback,
   withAddedCharacter,
   withDeletedCharacter,
@@ -48,7 +53,8 @@ import {
   withSwitchedCharacter,
   withUpdatedCharacter,
 } from './characterLibrary.js';
-import { resolveActiveSessionId, sortSessions } from './sessionLibrary.js';
+import { resolveActiveSessionId, shouldPersistResolvedId, sortSessions } from './sessionLibrary.js';
+import { normalizePendingQuote, normalizePendingTarget } from './pendingPayloads.js';
 import { materializeDefaultArtwork } from '../character/defaultCharacterAssets.js';
 import { ingestProactiveMessagesInto } from './proactiveIngest.js';
 // 状态守卫文案走 tActive（同步取词）：这些 throw 的 message 会被调用方 catch 后
@@ -68,6 +74,10 @@ export function AppProvider({ children }) {
   // ref+state 惯例——目标会话激活后由聊天页消费一次，消费前多次设置以最后一次为准。
   const [pendingQuote, setPendingQuoteState] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  // 启动加载失败的可见错误态（{ title, body, reason } 或 null）。启动失败此前是**完全
+  // 静默**的：没有诊断、没有错误态、没有提示，用户只会看到角色库「变空」了。这里把
+  // 错误态放进 context，任何界面（错误条/设置页诊断入口）都能读到，也便于测试断言。
+  const [startupError, setStartupError] = useState(null);
   // 主动消息落库后自增，通知聊天页重新读取当前会话消息（同会话追加时 activeSessionId 不变）。
   const [messageRefreshTick, setMessageRefreshTick] = useState(0);
   const charactersRef = useRef([DEFAULT_CHARACTER]);
@@ -96,13 +106,18 @@ export function AppProvider({ children }) {
         await reconcileWorldMemories().catch(error => {
           if (__DEV__) console.warn('[memory] world memory reconciliation failed', error);
         });
-        const [list, storedActiveId, sessionList, storedActiveSessionId] = await Promise.all([
+        const [list, storedActive, sessionList, storedActiveSession] = await Promise.all([
           getCharacterLibrary(),
-          getActiveCharacterId(),
+          getActiveCharacterIdStatus(),
           getSessions(),
-          getActiveSessionId(),
+          getActiveSessionIdStatus(),
         ]);
         if (cancelled) return;
+        // 三态读取：指针只允许在 ok / missing（键从未存在过）时写回；corrupt
+        // （getItem 抛错 / JSON 损坏）必须保持盘上原值不动——否则读失败返回 '' 会让这里
+        // 解析出**另一段**会话 / 另一个角色再落盘，用户「上次停在的对话」被永久改掉。
+        const storedActiveId = storedActive.value;
+        const storedActiveSessionId = storedActiveSession.value;
         const libraryBlocked = isCharacterLibraryWriteBlocked();
         // 默认角色（EasyChat2 助手）首次运行时补上内置头像/背景：仅当用户尚未自定义。
         // 落盘为 avatars/ 下的普通文件，使所有既有渲染点无需改动即可生效。
@@ -157,14 +172,33 @@ export function AppProvider({ children }) {
         setActiveIdState(libraryBlocked ? (storedActiveId || resolved) : resolved);
         setSessionsState(sortedSessions);
         setActiveSessionIdState(resolvedSessionId);
-        if (!libraryBlocked && resolved !== storedActiveId) {
+        // 角色指针与下面的会话指针同一套三态裁定：活动角色键损坏时 storedActiveId 是 ''
+        // 而不是「用户上次用的角色」，此时把解析出的兜底角色写回去同样是拿推测值覆盖原值。
+        if (
+          !libraryBlocked
+          && shouldPersistResolvedId(storedActive.status, resolved, storedActiveId)
+        ) {
           setActiveCharacterId(resolved).catch(() => {});
         }
-        if (resolvedSessionId !== storedActiveSessionId && resolvedSessionId) {
+        if (
+          shouldPersistResolvedId(
+            storedActiveSession.status,
+            resolvedSessionId,
+            storedActiveSessionId
+          )
+        ) {
           setActiveSessionId(resolvedSessionId).catch(() => {});
         }
       } catch (error) {
         if (cancelled) return;
+        // 启动加载失败**不能**当作「空库 + 无会话」的正常态继续跑：此前这个 catch 连
+        // error 都没引用过，用户点一次编辑/置顶/新增就会用残缺列表把盘上其余角色键与
+        // 大卡正文文件不可逆地删掉（详见 characterLibrary.resolveStartupFailure 的注释）。
+        //
+        // 处置顺序：先合写闸（fail-closed，且必须在任何写操作之前）→ 留痕 → 可见提示。
+        // 合闸挡住的**只有**写：UI 仍要渲染出来（否则用户面对的是一块白屏，连诊断入口
+        // 都点不到），所以下面照旧回落成一份最小内存快照。
+        const failure = resolveStartupFailure(error, setCharacterLibraryWriteBlocked);
         charactersRef.current = [DEFAULT_CHARACTER];
         activeIdRef.current = DEFAULT_CHARACTER.id;
         sessionsRef.current = [];
@@ -173,8 +207,28 @@ export function AppProvider({ children }) {
         setActiveIdState(DEFAULT_CHARACTER.id);
         setSessionsState([]);
         setActiveSessionIdState('');
+        setStartupError(failure);
+        Alert.alert(failure.title, failure.body || failure.title);
       } finally {
         if (!cancelled) {
+          // loaded 仍然置 true，判断依据：
+          //   1. loaded 在本文件里的全部作用是「放行」——loadedRef 守卫（updateCharacter /
+          //      addCharacter / deleteCharacter / pinCharacter / deleteCharacters /
+          //      ensureCharacterSession / switchSession / …）与 UI 渲染。若失败后保持
+          //      false，界面停在空态且所有操作抛 error.context.*NotLoaded，用户连
+          //      「角色库读不出来」这条提示都看不到。
+          //   2. 会被 loaded 放行的写操作**全都**经过角色库写闸：
+          //      updateCharacter/addCharacter/deleteCharacter/pinCharacter/deleteCharacters
+          //      → saveCharacterState → saveCharacterLibrary（写闸命中即抛
+          //      error.storage.characterLibraryRecovering）；会话侧的
+          //      ensureCharacterSession/switchSession/… 只写会话域，不碰角色库；
+          //      activeId 修正 effect（`if (!loaded || isCharacterLibraryWriteBlocked())`）
+          //      本身就带写闸守卫。
+          //   3. 存储层的写闸现在是「读失败即合闸」（见 getCharacterLibrary 的包装），
+          //      不再依赖 AppContext 记得去合闸，所以 loaded=true 不会漏出写路径。
+          // 结论：loaded 与写闸职责分离——loaded 管「能不能渲染/进入操作态」，写闸管
+          // 「能不能落盘」。失败后 loaded=true + 写闸合上，是唯一同时满足「可见错误态」
+          // 与「不可逆删除被挡住」的组合。
           loadedRef.current = true;
           setLoaded(true);
           reconcileVectorIndexes().catch(error => {
@@ -382,9 +436,7 @@ export function AppProvider({ children }) {
   }, []);
 
   const setPendingTarget = useCallback(target => {
-    const value = target && target.sessionId && target.messageId
-      ? { sessionId: String(target.sessionId), messageId: String(target.messageId) }
-      : null;
+    const value = normalizePendingTarget(target);
     pendingTargetRef.current = value;
     setPendingTargetState(value);
   }, []);
@@ -396,20 +448,8 @@ export function AppProvider({ children }) {
     return value;
   }, []);
 
-  // payload 形状与 buildQuotePayload 一致（{ id, name, role, text }）；id 允许为空
-  // ——评论不是会话内消息，点引用块不定位（onPressQuoteBlock 对空 id 直接返回）。
   const setPendingQuote = useCallback(quote => {
-    const value = quote && quote.sessionId && quote.payload
-      ? {
-        sessionId: String(quote.sessionId),
-        payload: {
-          id: String((quote.payload && quote.payload.id) || ''),
-          name: String((quote.payload && quote.payload.name) || '').trim(),
-          role: String((quote.payload && quote.payload.role) || 'assistant'),
-          text: String((quote.payload && quote.payload.text) || '').trim(),
-        },
-      }
-      : null;
+    const value = normalizePendingQuote(quote);
     if (value && !value.payload.text) return;
     pendingQuoteRef.current = value;
     setPendingQuoteState(value);
@@ -426,12 +466,12 @@ export function AppProvider({ children }) {
     // 先等存储层会话写入（含旧消息迁移）排空：迁移在 storage 的队列里，
     // 与这里的 mutation 队列不是同一个；不等待会在迁移写盘中途读到中间态。
     await whenSessionMutationsSettled();
-    const [sessionList, storedActiveSessionId] = await Promise.all([
+    const [sessionList, storedActiveSession] = await Promise.all([
       getSessions(),
-      getActiveSessionId(),
+      getActiveSessionIdStatus(),
     ]);
     const sorted = applySessions(sessionList);
-    const resolved = resolveActiveSessionId(sorted, storedActiveSessionId);
+    const resolved = resolveActiveSessionId(sorted, storedActiveSession.value);
     applyActiveSessionId(resolved);
     return sorted;
   }, [applySessions, applyActiveSessionId]);
@@ -444,16 +484,16 @@ export function AppProvider({ children }) {
 
   const refreshAppData = useCallback(async () => {
     await enqueueMutation(async () => {
-      const [list, storedActiveId, sessionList, storedActiveSessionId] = await Promise.all([
+      const [list, storedActive, sessionList, storedActiveSession] = await Promise.all([
         getCharacterLibrary(),
-        getActiveCharacterId(),
+        getActiveCharacterIdStatus(),
         getSessions(),
-        getActiveSessionId(),
+        getActiveSessionIdStatus(),
       ]);
       const resolvedList = Array.isArray(list) && list.length > 0 ? list : [DEFAULT_CHARACTER];
-      const resolved = resolveActiveId(resolvedList, storedActiveId);
+      const resolved = resolveActiveId(resolvedList, storedActive.value);
       const sortedSessions = sortSessions(sessionList);
-      const resolvedSessionId = resolveActiveSessionId(sortedSessions, storedActiveSessionId);
+      const resolvedSessionId = resolveActiveSessionId(sortedSessions, storedActiveSession.value);
       charactersRef.current = resolvedList;
       activeIdRef.current = resolved;
       sessionsRef.current = sortedSessions;
@@ -665,12 +705,16 @@ export function AppProvider({ children }) {
     setActiveCharacterId(resolvedActiveId).catch(() => {});
   }, [loaded, resolvedActiveId]);
 
+  const dismissStartupError = useCallback(() => setStartupError(null), []);
+
   const value = useMemo(
     () => ({
       character,
       characters,
       activeId: resolvedActiveId,
       loaded,
+      startupError,
+      dismissStartupError,
       updateCharacter,
       switchCharacter,
       addCharacter,
@@ -702,6 +746,8 @@ export function AppProvider({ children }) {
       characters,
       resolvedActiveId,
       loaded,
+      startupError,
+      dismissStartupError,
       updateCharacter,
       switchCharacter,
       addCharacter,

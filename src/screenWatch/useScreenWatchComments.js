@@ -89,11 +89,20 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
       .then(list => {
         if (!cancelled) setComments(list);
       })
-      .catch(() => {});
+      // 读路径拒绝必须**露给面板**：此前这里 .catch(() => {}) 把
+      // 'screen-watch-comments-read-failed' 吞掉，评论列表停在初始的 []，
+      // 面板照样显示「还没有一起看屏幕」——用户以为没评论，其实数据在损坏备份里。
+      // 数据层的读拒绝（comments.js:57）到这里才闭环。
+      .catch(() => {
+        if (cancelled) return;
+        const message = t('error.screenWatch.commentsReadFailed');
+        lastErrorRef.current = message;
+        setError(message);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const generate = useCallback(async ({ imageUri, imageUris, userText } = {}) => {
     // 兼容单帧（imageUri）与视频帧序列（imageUris）；两者都为空则纯文字。

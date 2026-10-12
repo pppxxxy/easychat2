@@ -53,6 +53,10 @@ export const music = {
   'music.comments.quoteFailed.body': '没能打开该角色的会话，请稍后重试。',
   'music.error.noCharacter': '请先选择一位一起听歌的角色',
   'music.comments.failed': '评论生成失败，请检查 API 配置后重试。',
+  // 读路径失败（useMusicComments 装载历史评论时抛错）：与「生成失败」分开写，
+  // 因为**评论并没有丢**——只是这次没读出来，重试即可；套用上面的「请检查 API 配置」
+  // 会把用户引到完全无关的地方去排查。
+  'music.comments.readFailed': '评论读取失败——评论还在，只是这次没读出来（可能是权限或存储临时故障）。请重试。',
   'music.settings.title': '陪伴设置',
   'music.settings.noCharacter': '未选择角色',
   'music.settings.noCharacters': '还没有角色',

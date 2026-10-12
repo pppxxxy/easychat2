@@ -14,6 +14,8 @@ import {
   toAnthropicRequest,
   toResponsesRequest,
 } from '../src/apiProtocols.js';
+import { toOpenAiMessages } from '../src/apiProtocols/messages.js';
+import { getActiveLocale, setActiveLocale, translate } from '../src/i18n/index.js';
 
 test('normalizeProtocol 归一三协议', () => {
   assert.equal(normalizeProtocol('anthropic'), 'anthropic');
@@ -222,6 +224,35 @@ test('parseStreamPayload：三种协议的文本/思考/工具/结束原因', ()
   assert.deepEqual(parseStreamPayload('anthropic', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 't1', name: 'read' } }).toolCalls[0], { index: 0, id: 't1', name: 'read', arguments: '' });
 });
 
+// 流式 error 事件的兜底文案必须**跟随语言**：它与 network/api.js 的 extractErrorMessage
+// 是同一句话（词条 `error.api.responseError`）——此前 stream.js 硬编码中文、api.js 已迁
+// i18n，于是同一句话两个来源，英文界面里流式错误冒中文。这里用真语言包钉住两件事：
+// ① 兜底文案随活动语言取值；② 上游给了更具体的原因时它不抢戏。
+test('流式 error 事件兜底文案跟随语言（与 api.js 同源同词条）', () => {
+  const previous = getActiveLocale();
+  try {
+    const zh = translate('zh-CN', 'error.api.responseError');
+    const en = translate('en', 'error.api.responseError');
+    assert.notEqual(zh, en, '前置条件：该词条确实有中英两版');
+
+    setActiveLocale('zh-CN');
+    assert.equal(parseStreamPayload('openai-responses', { type: 'error' }).error, zh);
+    assert.equal(parseStreamPayload('anthropic', { type: 'error' }).error, zh);
+
+    setActiveLocale('en');
+    assert.equal(parseStreamPayload('openai-responses', { type: 'error' }).error, en, '英文界面不得冒中文');
+    assert.equal(parseStreamPayload('anthropic', { type: 'error' }).error, en);
+
+    // 具体原因优先：兜底只在解析不出内容时出场。
+    assert.equal(
+      parseStreamPayload('anthropic', { type: 'error', error: { message: 'overloaded' } }).error,
+      'overloaded',
+    );
+  } finally {
+    setActiveLocale(previous);
+  }
+});
+
 test('parseFinalPayload：三种协议非流式结果', () => {
   const oa = parseFinalPayload('openai', { choices: [{ message: { content: '嗨', reasoning_content: '想', tool_calls: [{ id: 't', function: { name: 'read', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] });
   assert.equal(oa.text, '嗨');
@@ -308,4 +339,73 @@ test('视频部分：OpenAI 兼容透传，Anthropic/Responses 丢弃但保留�
   const responses = JSON.stringify(toResponsesRequest(messages));
   assert.equal(responses.includes('video_url'), false, 'Responses 没有视频输入类型：丢弃');
   assert.ok(responses.includes('看看这个视频'), '文本部分必须保留');
+});
+
+// ---- toOpenAiMessages：白名单（默认拒绝）----
+//
+// 背景：本函数此前是「整体展开 + 黑名单剥离」（fail-open）——内部消息上加任何新字段都
+// **默认出网**，直到有人记得把它登记进内部字段名单（tool 消息的 noticeKey/noticeParams
+// 就这样漏出去过一次）。现在改成白名单：默认拒绝。下面第一条断言就是这次改动的**核心价值**
+// ——它证明「以后新增字段忘了登记也不会漏」，而这条在旧的黑名单实现下必然失败。
+test('toOpenAiMessages 默认拒绝：未登记字段一律不出网（白名单的核心价值）', () => {
+  const source = {
+    role: 'tool',
+    tool_call_id: 'x',
+    content: 'c',
+    // 随便造一个「谁都没登记过」的内部字段：白名单天然挡住它，不需要任何人维护名单。
+    __random_internal__: 1,
+  };
+  const wire = toOpenAiMessages([source])[0];
+  assert.equal('__random_internal__' in wire, false, '没登记过的字段默认被挡住（旧黑名单实现会把它发出去）');
+  assert.deepEqual(Object.keys(wire).sort(), ['content', 'role', 'tool_call_id'], '出网形态只剩协议字段');
+  assert.notStrictEqual(wire, source, '返回新对象，不把内部消息本身交给发送层');
+  assert.equal(wire.content, 'c', '协议字段照常带出');
+});
+
+test('toOpenAiMessages 合法字段不被误删：content 两种形状原样、tool_calls 不断链', () => {
+  const parts = [
+    { type: 'text', text: '看图' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } },
+    { type: 'video_url', video_url: { url: 'data:video/mp4;base64,QUJD' } },
+    { type: 'input_audio', input_audio: { data: 'QUJD', format: 'mp3' } },
+  ];
+  const toolCalls = [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"p":"a"}' } }];
+  const out = toOpenAiMessages([
+    { role: 'system', content: 'S', name: 'sys', systemCache: { prefixText: 'P', restText: 'R' } },
+    { role: 'user', content: parts, name: 'u' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: toolCalls,
+      refusal: null,
+      function_call: { name: 'f', arguments: '{}' },
+      audio: { id: 'a1' },
+    },
+    { role: 'tool', tool_call_id: 'c1', content: '结果', isError: false, noticeKey: 'k', noticeParams: { a: 1 } },
+  ]);
+  // content 是字符串：逐字保留；name 也属协议字段
+  assert.equal(out[0].content, 'S');
+  assert.equal(out[0].name, 'sys');
+  assert.equal('systemCache' in out[0], false, '内部缓存计划仍不得出网');
+  // content 是 parts 数组：**同一个引用**原样带出（不规范化、不拆不并、不挑 part 类型）
+  assert.equal(out[1].content, parts, 'content 为 parts 数组时形状必须原样保留');
+  assert.deepEqual(Object.keys(out[1]).sort(), ['content', 'name', 'role']);
+  // assistant 的工具调用链：tool_calls 漏了会直接打断（tool 结果配不上对）
+  assert.equal(out[2].tool_calls, toolCalls, 'tool_calls 必须在白名单里');
+  assert.equal(out[2].content, null, 'content 为 null 时保留 null，不顺手变成空串');
+  assert.equal(out[2].refusal, null);
+  assert.equal(out[2].function_call.name, 'f');
+  assert.equal(out[2].audio.id, 'a1');
+  // tool 消息：协议字段保留，内部字段（isError / noticeKey / noticeParams）一律不出网
+  assert.deepEqual(Object.keys(out[3]).sort(), ['content', 'role', 'tool_call_id']);
+  assert.equal(out[3].content, '结果');
+  assert.equal(out[3].tool_call_id, 'c1');
+});
+
+test('toOpenAiMessages：空输入与非对象条目保持原行为（不抛错、不改写）', () => {
+  assert.deepEqual(toOpenAiMessages(null), []);
+  assert.deepEqual(toOpenAiMessages(undefined), []);
+  const out = toOpenAiMessages(['x', null]);
+  assert.equal(out[0], 'x', '非对象条目原样透传（旧行为，发送层不会因白名单多出一个 null 而崩）');
+  assert.equal(out[1], null);
 });

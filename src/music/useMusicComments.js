@@ -38,6 +38,15 @@ async function readSongBase64(currentSong) {
   return base64 || null;
 }
 
+// 裁剪设置里的正数（毫秒 / 赫兹）：未配置、非数字、非正数一律归 0，调用方用 `|| 默认值` 兜底。
+// 为什么不能写成 `Math.max(1, x) || 默认值`：Math.max(1, x) 恒 ≥ 1，右侧默认值**永远不可达**；
+// 而真正没配置时（settings 为空）会被压成 1ms / 1Hz，而不是默认的 30 秒 / 16kHz。
+// 把「无效」显式归 0，默认分支才真正生效。
+function positiveOrZero(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
 // 准备随评论发送的音频：优先用 WebView 裁剪出从 startMs 起的一段 WAV（体积小、
 // 规避端点时长上限）；无法裁剪时退回整首原文件（仅当不超 25MB）。都不可用返回 null，
 // 调用方退回纯文字评论（不阻断功能）。
@@ -71,6 +80,10 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
   const [comments, setComments] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
+  // 读路径（装载历史评论）的失败态，与生成失败**分开**记：两者的重试动作完全不同
+  // （读失败 → 重新读盘；生成失败 → 重发请求），合成一个状态就分不清该重试什么。
+  // 存布尔而不是文案：文案在返回时按当前语言现翻，切语言后错误条也跟着变。
+  const [commentsReadFailed, setCommentsReadFailed] = useState(false);
   const [characterId, setCharacterId] = useState(String(defaultCharacterId || ''));
   // null = 能力未知（尚未读出配置）；false = 当前来源不具备听音频能力。
   const [audioSupported, setAudioSupported] = useState(null);
@@ -78,6 +91,10 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
 
   const songRef = useRef(song);
   songRef.current = song;
+  // 换歌/装载的竞态判据：await 回来后用它确认「还是同一首歌」，避免旧请求覆盖新歌。
+  const songId = song ? song.id : '';
+  const songIdRef = useRef(songId);
+  songIdRef.current = songId;
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
   const characterIdRef = useRef(characterId);
@@ -98,24 +115,38 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
     };
   }, []);
 
+  // 装载当前歌的历史评论。读失败**不再吞掉**：以前 `.catch(() => {})` 把失败演成
+  // 「空列表」，面板于是显示「还没有评论」，用户以为评论丢了（数据其实还在存储里）。
+  // 现在把失败如实标出来（commentsReadFailed），并且**不清空已装载的评论**——读不到
+  // 不等于没有；换歌时才由下面的 effect 清空（那是「换了一首歌」，不是「读失败」）。
+  const loadComments = useCallback(async () => {
+    const targetId = songIdRef.current;
+    if (!targetId) return false;
+    try {
+      const list = await getMusicComments(targetId);
+      // 装载期间换了歌（或已卸载）：本次结果作废，effect 会为新歌重新装载。
+      if (!mountedRef.current || songIdRef.current !== targetId) return false;
+      setComments(list);
+      setCommentsReadFailed(false);
+      return true;
+    } catch (caught) {
+      if (!mountedRef.current || songIdRef.current !== targetId) return false;
+      setCommentsReadFailed(true);
+      return false;
+    }
+  }, []);
+
   // 换歌：中断在途生成、重置错误与重试位，并装载新歌的历史评论。
-  const songId = song ? song.id : '';
   useEffect(() => {
     if (abortRef.current) abortRef.current.abort();
     setError('');
+    setCommentsReadFailed(false);
     lastFailedRef.current = null;
     setComments([]);
     if (!songId) return undefined;
-    let cancelled = false;
-    getMusicComments(songId)
-      .then(list => {
-        if (!cancelled) setComments(list);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [songId]);
+    loadComments();
+    return undefined;
+  }, [songId, loadComments]);
 
   // 音频能力探测：面板打开/切歌时读一次在线配置与本地模型能力，供「听不到音频」提示。
   useEffect(() => {
@@ -166,8 +197,10 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
       const songAudio = canHear
         ? await prepareSongAudioForModel(currentSong, clipAudioRef.current, {
           startMs,
-          durationMs: Math.max(1, Math.floor(Number(settings.clipSeconds) || 0) * 1000) || CLIP_DURATION_MS,
-          sampleRate: Math.max(1, Math.floor(Number(settings.sampleRate) || 0)) || CLIP_SAMPLE_RATE,
+          // 默认值必须**可达**：clipSeconds/sampleRate 无效（未配置）时归 0 再走 || 兜底，
+          // 不能像原来那样先 Math.max(1, ...) 把无效值变成 1ms / 1Hz。
+          durationMs: Math.floor(positiveOrZero(settings.clipSeconds) * 1000) || CLIP_DURATION_MS,
+          sampleRate: Math.floor(positiveOrZero(settings.sampleRate)) || CLIP_SAMPLE_RATE,
         })
         : null;
       if (controller.signal.aborted) return false;
@@ -245,6 +278,9 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
       const next = await appendMusicComment(currentSong.id, comment);
       if (mountedRef.current && songRef.current && songRef.current.id === currentSong.id) {
         setComments(next);
+        // appendMusicComment 是「读→写→回读」：它成功就说明读路径已经恢复，
+        // 顺手清掉读失败标记，免得旧错误条赖着不走。
+        setCommentsReadFailed(false);
       }
       lastFailedRef.current = null;
       return true;
@@ -262,18 +298,25 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
 
   const retry = useCallback(() => {
     const failed = lastFailedRef.current;
-    if (!failed) return Promise.resolve(false);
-    return generate(failed);
-  }, [generate]);
+    if (failed) return generate(failed);
+    // 没有待重试的生成请求 → 这次错误条来自「读评论失败」，重试 = 重新读盘。
+    if (commentsReadFailed) return loadComments();
+    return Promise.resolve(false);
+  }, [generate, loadComments, commentsReadFailed]);
 
+  // 读失败要**并进 error** 才能被用户看见：消费面板（MusicScreen）的错误条只读 error，
+  // 不合并的话读失败在界面上永远不显示；commentsError 另外单独透出，让调用方/测试能
+  // 区分「读不到」与「生成失败」，也让重试走对的分支。
+  const commentsError = commentsReadFailed ? t('music.comments.readFailed') : '';
   return useMemo(() => ({
     comments,
     generating,
-    error,
+    error: error || commentsError,
+    commentsError,
     characterId,
     setCharacterId,
     generate,
     retry,
     audioSupported,
-  }), [comments, generating, error, characterId, generate, retry, audioSupported]);
+  }), [comments, generating, error, commentsError, characterId, generate, retry, audioSupported]);
 }

@@ -139,6 +139,33 @@ async function applyResultHook(ctx, name, args, result) {
   try {
     const patched = await ctx.onToolResult({ name, args }, result);
     if (patched && typeof patched.content === 'string') {
+      // 这里**只挑 content/isError**（不搬运 noticeKey/noticeParams），三条理由：
+      //
+      // ⚠️ 先看这里（省一趟白跑）：**真正的钩子实现在宿主侧，不在 workspace/hooks.js**。
+      //    hooks.js 只把 hooks.json 解析成结构、按工具名产出 message 列表
+      //    （collectToolResultNotices），它**不碰工具结果**；真正改写 content 的是
+      //    workspace/screen/ChatPanel.js:1321-1333 —— `content: `${result.content}\n\n
+      //    [工作区钩子] ${notices.join('；')}``。排查「结果被谁改了」要往那里去。
+      //
+      // 1. 钩子是「追加」语义，不是「替换」。宿主实现见 workspace/screen/ChatPanel.js:1321：
+      //    `content: `${result.content}\n\n[工作区钩子] ${notices.join('；')}``——它把提醒**接在
+      //    正文尾部**，返回的 content 是「原正文 + 提醒」的并集，不是另一句话。
+      // 2. 因此 noticeKey 若继续传下去，展示层会**把钩子追加的正文藏起来**：conversation.js 的
+      //    toolNoticeText 取到词条后，ToolCallRow.js:151-153 是 `notice || resultText` 的**整段
+      //    替换**（预览与完整输出都换）。用户自己配的 on_tool_result 提醒就此消失——那比「正文
+      //    读回中文」更糟：词条只是同一句话的语言问题，钩子提醒是用户明确要求他看到的内容。
+      // 3. 而且**光在这里透传也传不出去**：宿主钩子（ChatPanel.js:1326）自己就只回
+      //    `{ content, isError }`，noticeKey/noticeParams 在钩子那一跳已经丢了。要真的两头都显示，
+      //    必须同时改 ChatPanel（钩子转发 notice）+ ToolCallRow（词条与正文各显示一段），
+      //    两处都不在本批所有权内 ⇒ 本批**只报告、不改**，避免为修一个不可达分支引入新风险。
+      //
+      // ⚠️ 今天这个分支**不可达**（不是 bug，别当 bug 修）：带 noticeKey 的结果只有三条
+      //    ——gitTools.js 的 gitNoRepo、subagentTool.js 的 subagentWriteBlocked、
+      //    workflowTool.js 的 workflowWriteBlocked——它们**全是 `isError: true`**，
+      //    而本函数第 137 行对错误结果直接原样返回（错误结果不该被「增强」成看起来成功）。
+      //    将来若出现「成功结果 + noticeKey」且用户配了 on_tool_result，就会走到这里并丢掉
+      //    notice：展示层回落中文正文，**钩子追加的提醒仍然可见**——即上面第 2 条的取舍兑现，
+      //    属已知取舍。tests/toolRegistry.test.mjs 把这个取舍钉成了锚点。
       return { content: patched.content, isError: patched.isError === true };
     }
   } catch (error) {}

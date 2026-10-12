@@ -2021,3 +2021,133 @@ test('J3 会话级 agentMode：normalize 收敛 + setSessionAgentMode 往返与�
   assert.equal(await storage.setSessionAgentMode('nope', 'write'), false, '缺会话 false');
   assert.equal(await storage.setSessionAgentMode('', 'write'), false, '缺参数 false');
 });
+
+// ---- F1：启动加载失败必须合上写闸，且残缺列表绝不能被写回 ----
+//
+// 危害链（已逐行核实）：索引损坏 → rebuildCharacterItemsFromKeys → `getAllKeys()` 抛错
+// （此前未包）→ getCharacterLibrary reject → AppContext 启动 catch 回落成「1 个角色 +
+// 0 会话」→ 用户点一次编辑/置顶/新增 → saveCharacterLibrary(list) → persistLibrary 用
+// **盘上**索引算 stale（previousIds 仍是完整 id 列表）→ 只 stale.delete 掉那 1 个 →
+// multiRemove 删掉其余 N-1 个逐角色键 + 索引改写成 [default] + 删掉大卡正文文件 ⇒ 不可逆。
+//
+// 这条测试证明的就是「残缺列表不会被写回」：把 getAllKeys 打成抛错，走完上面整条链，
+// 断言写闸已合、saveCharacterLibrary 拒绝写、盘上逐角色键与索引一个字节都没动。
+test('启动加载失败（getAllKeys 抛错）→ 合上写闸，残缺列表写不回盘', async () => {
+  const storage = loadStorage();
+  const indexBefore = '{broken-index-json';
+  const itemBefore = JSON.stringify({ id: 'n-2', name: '幸存角色二' });
+  store.set(CHARACTER_INDEX_KEY, indexBefore);
+  store.set(`${CHARACTER_ITEM_PREFIX}::n-2`, itemBefore);
+  const getAllKeysBefore = AsyncStorage.getAllKeys;
+  AsyncStorage.getAllKeys = async () => { throw new Error('getAllKeys 读取失败'); };
+  let rejection = null;
+  try {
+    await storage.getCharacterLibrary();
+  } catch (error) {
+    rejection = error;
+  } finally {
+    AsyncStorage.getAllKeys = getAllKeysBefore;
+  }
+  // (a) 读失败必须抛出，且写闸被置位——存储层自己合闸，不依赖调用方记得合
+  assert.ok(rejection, '索引重建失败必须 reject（不能回落成空库当正常态）');
+  assert.equal(rejection.message, 'getAllKeys 读取失败');
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), true, '写闸必须在读失败时就合上');
+
+  // (c) 诊断留痕：此前启动加载失败在诊断里查无此事。
+  // 断言 message 而非 error.message：recordDiagnostic 会先跑 maskSecrets，它可能把
+  // 「疑似密钥」的片段清空（实测 `getAllKeys 读取失败` 就被清成空串），所以诊断文本必须自足。
+  // recordDiagnostic 的落盘是异步的（内部有读-改-写队列），调用方拿不到它的 promise，
+  // 这里轮询等待，避免把「写还没落盘」误判成「没留痕」。
+  let diagnosticEntry = null;
+  for (let attempt = 0; attempt < 50 && !diagnosticEntry; attempt += 1) {
+    diagnosticEntry = readDiagnostics().find(entry => (
+      String(entry.message || '').includes('角色库读取失败')
+      && String(entry.context || '').includes('getCharacterLibrary')
+    )) || null;
+    if (!diagnosticEntry) await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.ok(
+    diagnosticEntry,
+    '读失败必须留一条诊断（否则用户/开发者无从判断数据是没了还是没读出来）'
+  );
+
+  // (b) 关键断言：残缺列表（只剩 1 个角色）写不回盘
+  await assert.rejects(
+    () => storage.saveCharacterLibrary([{ id: 'default', builtin: true, name: 'EasyChat2 助手' }]),
+    /恢复中/
+  );
+  assert.equal(store.get(CHARACTER_INDEX_KEY), indexBefore, '索引必须原样保留');
+  assert.equal(store.get(`${CHARACTER_ITEM_PREFIX}::n-2`), itemBefore,
+    '其余角色的逐角色键必须原样保留（此前会被 multiRemove 删掉）');
+});
+
+test('合法的空库不是失败：照常返回初始卡且不触发写闸', async () => {
+  const storage = loadStorage();
+  const list = await storage.getCharacterLibrary();
+  assert.equal(storage.isCharacterLibraryWriteBlocked(), false, '「真的没有角色」不得合闸');
+  assert.deepEqual(list.map(item => item.id), ['default']);
+  assert.equal(store.get(CHARACTER_INDEX_KEY), JSON.stringify(['default']), '空库照常持久化初始卡');
+});
+
+// ---- F5：裸 getItem 读失败返回 '' ⇒ 把推测值写回盘 ----
+//
+// 这两处（活动会话指针 / 活动角色指针）不是 readJson 路径，所以没被那 19 处
+// 「读失败→默认→写回」的修复覆盖：读失败返回 '' 之后，调用方会解析出**另一段**会话 /
+// 另一个角色再把新 id 落盘，用户「上次停在的对话」被永久改掉。
+// 两侧的 `*Status` 版本都从各自的定义模块取（会话侧经 sessions.js barrel 转发，
+// 角色侧经 characters.js barrel 转发），这里断言的正是公开读路径本身。
+test('活动指针损坏时返回 corrupt 而不是空串，且不得把推测值写回盘', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_active_session', '{broken-json');
+  store.set('@easychat2_active_character', '{broken-json');
+
+  const sessionStatus = await storage.getActiveSessionIdStatus();
+  const characterStatus = await storage.getActiveCharacterIdStatus();
+  assert.equal(sessionStatus.status, 'corrupt', '损坏必须与「从未设过」区分开');
+  assert.equal(sessionStatus.value, '');
+  assert.equal(characterStatus.status, 'corrupt');
+  assert.equal(characterStatus.value, '');
+  // 旧接口保持字符串契约（值退化为空串，但状态已能被调用方看见）
+  assert.equal(await storage.getActiveSessionId(), '');
+  assert.equal(await storage.getActiveCharacterId(), '');
+
+  // 唯一允许写回的条件是 ok/missing：corrupt 时 AppContext 不得改写指针
+  assert.equal(sessionLibrary.shouldPersistResolvedId(sessionStatus.status, 'session-other', ''), false);
+  assert.equal(sessionLibrary.shouldPersistResolvedId(characterStatus.status, 'other-character', ''), false);
+  // 键从未存在过才是「没设过」，此时写回
+  store.delete('@easychat2_active_session');
+  const missing = await storage.getActiveSessionIdStatus();
+  assert.equal(missing.status, 'missing');
+  assert.equal(sessionLibrary.shouldPersistResolvedId(missing.status, 'session-new', ''), true);
+});
+
+test('活动指针合法时 status=ok 并给出原值', async () => {
+  const storage = loadStorage();
+  store.set('@easychat2_active_session', JSON.stringify('session-1'));
+  store.set('@easychat2_active_character', JSON.stringify('character-1'));
+  assert.deepEqual(await storage.getActiveSessionIdStatus(), { status: 'ok', value: 'session-1' });
+  assert.deepEqual(await storage.getActiveCharacterIdStatus(), { status: 'ok', value: 'character-1' });
+});
+
+// AppContext 的启动 catch 是 Node 里跑不起来的 RN 组件：这里钉「装配仍然接在这条链上」。
+// 注入验证：把 resolveStartupFailure 调用改回旧写法（catch 里不引用 error、不合闸）即变红。
+test('启动加载失败源码锚：catch 必须先合闸再回落，finally 仍置 loaded', () => {
+  const source = fs.readFileSync(path.resolve('src/context/AppContext.js'), 'utf8');
+  const catchAt = source.indexOf('} catch (error) {');
+  assert.ok(catchAt > 0, '启动 effect 必须保留 catch 分支');
+  const finallyAt = source.indexOf('} finally {', catchAt);
+  assert.ok(finallyAt > catchAt, 'catch 后必须紧跟 finally');
+  const catchBlock = source.slice(catchAt, finallyAt);
+  // error 必须被引用（旧实现里它一次都没出现过）
+  assert.ok(catchBlock.includes('error'), 'catch 必须引用 error（不能静默吞掉）');
+  assert.ok(catchBlock.includes('resolveStartupFailure('), '必须走统一的失败处置');
+  assert.ok(catchBlock.includes('setCharacterLibraryWriteBlocked'),
+    '必须把写闸的置位入口交给失败处置（合闸先于任何写）');
+  const blockAt = catchBlock.indexOf('setCharacterLibraryWriteBlocked');
+  const fallbackAt = catchBlock.indexOf('charactersRef.current = [DEFAULT_CHARACTER]');
+  assert.ok(blockAt > 0 && fallbackAt > blockAt, '合闸必须发生在回落内存快照之前');
+  assert.ok(catchBlock.includes('Alert.alert'), '必须有用户可见提示');
+  const finallyBlock = source.slice(finallyAt);
+  assert.ok(finallyBlock.includes('loadedRef.current = true'),
+    'loaded 仍置 true（UI 要能渲染错误态），写由写闸挡住');
+});

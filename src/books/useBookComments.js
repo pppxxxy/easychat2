@@ -22,11 +22,20 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
   const [comments, setComments] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
+  // 读路径（装载历史评论）的失败态，与生成失败**分开**记：两者的重试动作完全不同
+  // （读失败 → 重新读盘；生成失败 → 重发请求），合成一个状态就分不清该重试什么。
+  // 存布尔而不是文案：文案在返回时按当前语言现翻，切语言后错误条也跟着变
+  //（存字符串会把切换那一刻的语言冻住）。
+  const [commentsReadFailed, setCommentsReadFailed] = useState(false);
   const [characterId, setCharacterId] = useState(String(defaultCharacterId || ''));
   const { t } = useTranslation();
 
   const bookRef = useRef(book);
   bookRef.current = book;
+  // 换书/装载的竞态判据：await 回来后用它确认「还是同一本书」，避免旧请求覆盖新书。
+  const bookId = book ? book.id : '';
+  const bookIdRef = useRef(bookId);
+  bookIdRef.current = bookId;
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
   const characterIdRef = useRef(characterId);
@@ -43,24 +52,38 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
     };
   }, []);
 
+  // 装载当前书的历史评论。读失败**不再吞掉**：以前 `.catch(() => {})` 把失败演成
+  // 「空列表」，面板于是显示「还没有评论」，用户以为评论丢了（数据其实还在存储里）。
+  // 现在把失败如实标出来（commentsReadFailed），并且**不清空已装载的评论**——读不到
+  // 不等于没有；换书时才由下面的 effect 清空（那是「换了一本书」，不是「读失败」）。
+  const loadComments = useCallback(async () => {
+    const targetId = bookIdRef.current;
+    if (!targetId) return false;
+    try {
+      const list = await getBookComments(targetId);
+      // 装载期间换了书（或已卸载）：本次结果作废，effect 会为新书重新装载。
+      if (!mountedRef.current || bookIdRef.current !== targetId) return false;
+      setComments(list);
+      setCommentsReadFailed(false);
+      return true;
+    } catch (caught) {
+      if (!mountedRef.current || bookIdRef.current !== targetId) return false;
+      setCommentsReadFailed(true);
+      return false;
+    }
+  }, []);
+
   // 换书：中断在途生成、重置错误与重试位，装载新书的评论。
-  const bookId = book ? book.id : '';
   useEffect(() => {
     if (abortRef.current) abortRef.current.abort();
     setError('');
+    setCommentsReadFailed(false);
     lastFailedRef.current = null;
     setComments([]);
     if (!bookId) return undefined;
-    let cancelled = false;
-    getBookComments(bookId)
-      .then(list => {
-        if (!cancelled) setComments(list);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [bookId]);
+    loadComments();
+    return undefined;
+  }, [bookId, loadComments]);
 
   // request = { excerpt, chapterTitle, blockIndex, anchorText }，由界面从当前页取。
   const generate = useCallback(async request => {
@@ -131,6 +154,9 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
       const next = await appendBookComment(currentBook.id, comment);
       if (mountedRef.current && bookRef.current && bookRef.current.id === currentBook.id) {
         setComments(next);
+        // appendBookComment 是「读→写→回读」：它成功就说明读路径已经恢复，
+        // 顺手清掉读失败标记，免得旧错误条赖着不走。
+        setCommentsReadFailed(false);
       }
       lastFailedRef.current = null;
       return true;
@@ -148,17 +174,24 @@ export function useBookComments({ book, characters, defaultCharacterId = '' }) {
 
   const retry = useCallback(() => {
     const failed = lastFailedRef.current;
-    if (!failed) return Promise.resolve(false);
-    return generate(failed);
-  }, [generate]);
+    if (failed) return generate(failed);
+    // 没有待重试的生成请求 → 这次错误条来自「读评论失败」，重试 = 重新读盘。
+    if (commentsReadFailed) return loadComments();
+    return Promise.resolve(false);
+  }, [generate, loadComments, commentsReadFailed]);
 
+  // 读失败要**并进 error** 才能被用户看见：消费面板（BookReaderView）的错误条只读 error，
+  // 不合并的话读失败在界面上永远不显示；commentsError 另外单独透出，让调用方/测试能
+  // 区分「读不到」与「生成失败」，也让重试走对的分支。
+  const commentsError = commentsReadFailed ? t('books.comments.readFailed') : '';
   return useMemo(() => ({
     comments,
     generating,
-    error,
+    error: error || commentsError,
+    commentsError,
     characterId,
     setCharacterId,
     generate,
     retry,
-  }), [comments, generating, error, characterId, generate, retry]);
+  }), [comments, generating, error, commentsError, characterId, generate, retry]);
 }

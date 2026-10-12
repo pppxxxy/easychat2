@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { translate } from '../src/i18n/index.js';
 
 import {
+  CHECKPOINT_FALLBACK_ID,
   CHECKPOINT_FALLBACK_KEY,
   buildCheckpointMessage,
   checkpointFallbackMessage,
@@ -47,15 +48,21 @@ test('buildCheckpointMessage：折叠空白 + 截断 + 空请求回落', () => {
   assert.equal(long, `${'x'.repeat(10)}…`, '超长截断带省略号');
 });
 
-test('兜底提交说明随语言定稿：英文界面写英文，词条漏登记不把 key 写进历史', () => {
+test('兜底提交说明随语言定稿：英文界面写英文，词条漏登记不写 key 也不写任何一种语言', () => {
   // 提交信息一旦写入 git 历史就固定了，所以取值必须发生在**提交那一刻**（这里是
   // buildCheckpointMessage 的调用瞬间），而不是展示时再翻。
   assert.equal(buildCheckpointMessage('', { t: en }), 'Turn checkpoint');
   assert.equal(buildCheckpointMessage('   ', { t: en }), en(CHECKPOINT_FALLBACK_KEY));
   assert.equal(checkpointFallbackMessage(en), 'Turn checkpoint');
   assert.equal(checkpointFallbackMessage(zh), '回合检查点');
-  // t 返回 key 本身（漏登记 / 打桩）→ 回落基准语言，绝不把 key 写进用户的历史
-  assert.equal(checkpointFallbackMessage(key => key), '回合检查点');
+  // t 返回 key 本身（漏登记 / 打桩）→ 回落**语言无关的稳定标识**，绝不把 key 写进用户的
+  // 历史。历史不可变：回落中文会让英文用户的历史里躺着中文，回落英文反之，都是错一半；
+  // `checkpoint` 不冒充文案，中英用户都能认出是系统兜底（见 gitCheckpoint.js 的取舍说明）。
+  assert.equal(checkpointFallbackMessage(key => key), CHECKPOINT_FALLBACK_ID);
+  assert.equal(checkpointFallbackMessage(key => key), 'checkpoint');
+  assert.equal(checkpointFallbackMessage(null), CHECKPOINT_FALLBACK_ID, 't 不是函数也走同一兜底');
+  // 兜底非空：commitAll 把空串原样交给 isomorphic-git 会生成无标题提交（更难追溯）。
+  assert.notEqual(CHECKPOINT_FALLBACK_ID.trim(), '');
   // 用户那一轮的请求永远优先于兜底（非空请求不受语言影响）
   assert.equal(buildCheckpointMessage('改个 bug', { t: en }), '改个 bug');
 });

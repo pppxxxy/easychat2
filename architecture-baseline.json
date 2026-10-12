@@ -17,11 +17,13 @@
     "src/workspace/screen/FilesPanel.js 1309 → 1210（2026-10-12，审查待办第 3 项的第二刀，来自 m1012m16）：「环境与配置下载」弹层的整段 JSX 外提到同目录 files/CatalogSheet.js（纯展示组件，接收 styles/t 与既有 state/handler；渲染树逐字不变，状态与写入编排仍留在面板）。与本次的样式表外提叠加后净减 99 行；再按合并后实测值校正 1213 → 1210。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/FilesPanel.js 1213 → 1083（2026-10-12，审查待办第 3 项的第三刀）：下载中心的**状态与写入编排**（写入/套餐一键/自定义 URL 下载 + 弹层状态）外提到同目录 files/useCatalogDownloads.js（hook），面板只解构状态与动作；依赖 storeRef/characterId/mountedRef/files/refresh/t 由面板注入，行为逐字不变。净减 130 行。行数基线不留余量，故同步下调（无上调）。",
     "src/workspace/screen/FilesPanel.js 1210 → 1080（2026-10-12，审查待办第 3 项的第三刀，来自 m1012m17）：下载中心的状态与写入编排外提到 files/useCatalogDownloads.js（hook），面板只解构状态与动作、行为逐字不变；与本次合并叠加后按实测值校正（对方记 1083，实测 1080）。行数基线不留余量，故同步下调（无上调）。",
-    "src/workspace/screen/GithubPanel.js 1808 → 1698（2026-10-12，审查待办第 3 项的第四刀，来自 m1012m18）：云构建（H1：Actions 触发 + 最近构建列表 + 日志）整段外提——状态与动作到 github/useGithubBuild.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入），展示层到 github/BuildSection.js；工具栏入口（setBuildLog/refreshBuildRuns）仍由面板调 hook 返回值。净减 110 行，行为不变。行数基线不留余量，故同步下调（无上调）。"
+    "src/workspace/screen/GithubPanel.js 1808 → 1698（2026-10-12，审查待办第 3 项的第四刀，来自 m1012m18）：云构建（H1：Actions 触发 + 最近构建列表 + 日志）整段外提——状态与动作到 github/useGithubBuild.js（hook，依赖 current/token/pullBranch/describeError/mountedRef/t 由面板注入），展示层到 github/BuildSection.js；工具栏入口（setBuildLog/refreshBuildRuns）仍由面板调 hook 返回值。净减 110 行，行为不变。行数基线不留余量，故同步下调（无上调）。",
+    "src/SettingsScreen.js 2352 → 2350（2026-10-12，合并 d1012d1）：SECTION_RENDER_ORDER 的定义搬到 settings/sectionOrder.js（纯数据、零依赖，供 searchIndex.js 与设置页共用同一个数组对象——留在设置页里会与 searchIndex.js 成环，guard-structure 判红），设置页里「8 行注释 + 数组字面量」换成 3 行 re-export，净减 2 行；autoBackup 一项已在 sectionOrder.js 同步补齐（键序与 JSX 的 15 张卡逐条一致）。行数基线不留余量，故同步下调（无上调）。",
+    "src/ChatScreen.js 3162 → 3163（2026-10-12，合并 d1012d1，**上调**）：录音到 60 秒上限是 hook 自动停的（用户没按停），本次在 recorder.stop() 之后加了一条如实提示（audio.stoppedByLimit → Alert，含 2 行说明注释），+6 行真实逻辑；同一提交里对方把 4 处过时注释重排，-5 行，净 +1。这是棘轮协议【2】的正常出口（与代码改动同一次提交 + 写清理由 + 结构仍可长期维护），不是挪代码/压注释凑数。"
   ],
   "fileLineBaseline": {
-    "src/ChatScreen.js": 3162,
-    "src/SettingsScreen.js": 2352,
+    "src/ChatScreen.js": 3163,
+    "src/SettingsScreen.js": 2350,
     "src/workspace/screen/GithubPanel.js": 1698,
     "src/chat/useChatSend.js": 1974,
     "src/workspace/screen/ChatPanel.js": 1765,

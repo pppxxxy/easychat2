@@ -137,6 +137,24 @@ export function resolveActiveSessionId(sessions, activeId) {
   return list.length ? list[0].id : '';
 }
 
+// 解析出的活动指针（会话 / 角色）是否允许落盘。
+//
+// 只有两种状态可以写回：'ok'（读到了合法值）与 'missing'（键从未存在过，算「没设过」）。
+// 'corrupt'（getItem 抛错 / JSON 损坏）**一律不写**：此时 stored 是空的，任何「解析结果
+// 与盘上不同」的判断都建立在「盘上真的没设过」这个**未被证明**的前提上，写回就等于用
+// 推测值覆盖用户「上次停在的对话」。
+//
+// 为什么需要这个判断：sessionCore.getActiveSessionId 与 characters.getActiveCharacterId
+// 此前是裸 `getItem + JSON.parse + catch 返回 ''`，**不是** readJson 路径，所以没被那 19 处
+// 「读失败→默认→写回」的修复覆盖。读失败返回 '' 之后，调用方会解析出**另一段**会话 /
+// 另一个角色，再把新 id 落盘——用户「上次停在的对话」被永久改掉。现在这两处改走
+// readJsonStatus（三态），状态透给调用方，由本函数统一裁定「能不能写回」。
+// 放在本模块是因为它是零依赖的纯判断，且会话侧先例（resolveActiveSessionId）就在这里。
+export function shouldPersistResolvedId(readStatus, resolved, stored) {
+  if (readStatus !== 'ok' && readStatus !== 'missing') return false;
+  return !!resolved && resolved !== stored;
+}
+
 export function createEmptySession(characterId, sessions, now = Date.now()) {
   const list = Array.isArray(sessions) ? sessions : [];
   return {

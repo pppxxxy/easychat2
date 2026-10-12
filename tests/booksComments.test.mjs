@@ -8,9 +8,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { localeSource } from './helpers/localeSource.mjs';
 
 function readSource(relativePath) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
+}
+
+// 剥掉注释再断言：源码注释里会**引用旧写法**（如 `.catch(() => {})`）说明「为什么改」，
+// 不剥就会把解释文字当成代码命中。
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
 test('useBookComments：评论链路与守卫齐全', () => {
@@ -25,6 +32,38 @@ test('useBookComments：评论链路与守卫齐全', () => {
   assert.ok(source.includes('EMPTY_REPLY_TEXT'), '空响应占位文本必须按失败处理');
   assert.ok(/if \(!currentBook \|\| generatingRef\.current\) return false/.test(source),
     '生成必须串行（在途时跳过）');
+});
+
+test('useBookComments：读失败必须暴露给面板，不得吞成「还没有评论」', () => {
+  const source = readSource('src/books/useBookComments.js');
+  const code = stripComments(source);
+  // 以前是 `.catch(() => {})`：读失败被演成「空列表」，面板显示「还没有评论」，
+  // 用户以为评论丢了（数据其实还在存储里）。
+  assert.equal(/\.catch\(\(\) => \{\}\)/.test(code), false, '读失败不得再被空 catch 吞掉');
+  assert.ok(source.includes('commentsReadFailed'), '读路径失败要有独立错误态');
+  assert.ok(source.includes('commentsError'), 'hook 要把读失败透出给面板');
+  assert.ok(source.includes("t('books.comments.readFailed')"), '读失败文案与「生成失败」分开（不是 API 配置问题）');
+  assert.ok(source.includes('error: error || commentsError'), '读失败要并进面板唯一读取的 error 通道才看得见');
+  assert.ok(source.includes('if (commentsReadFailed) return loadComments()'),
+    '重试要按失败类型走对分支（读失败 → 重新读盘）');
+
+  // 语义必须是「数据还在，只是读不到」：读失败只标记错误，**不清空**已装载的评论。
+  const loader = /const loadComments = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[\]\);/.exec(source);
+  assert.ok(loader, '读路径必须收口在 loadComments 一处');
+  assert.ok(loader[1].includes('catch'), '必须显式接住读失败');
+  assert.ok(loader[1].includes('setCommentsReadFailed(true)'), '读失败要如实标记');
+  assert.equal(loader[1].includes('setComments([])'), false, '读失败不得清空列表（读不到 ≠ 没有）');
+
+  // 错误条与「还没有评论」**不得同时出现**：错误条写着「评论还在，只是这次没读出来」，
+  // 紧接一行「还没有评论」会把那句话当场取消掉（两句互相矛盾，闭环等于被抹平）。
+  const panel = stripComments(readSource('src/books/BookReaderView.js'));
+  assert.ok(/comments\.length === 0 && !generating && !commentError/.test(panel),
+    '读失败时不得再渲染「还没有评论」');
+
+  const zh = localeSource('src/i18n/locales/zh-CN');
+  const en = localeSource('src/i18n/locales/en');
+  assert.ok(zh.includes("'books.comments.readFailed'") && en.includes("'books.comments.readFailed'"),
+    '读失败文案中英齐备');
 });
 
 test('BookReaderView：页面摘录与接话接线', () => {

@@ -822,7 +822,7 @@ export default function MusicScreen() {
           ) : null}
           {!selectedCharacter ? (
             <Text style={styles.emptyComments}>{t('music.comments.empty.noCharacter')}</Text>
-          ) : comments.length === 0 && !generating ? (
+          ) : comments.length === 0 && !generating && !commentError ? ( // 读失败时不得再显示「还没有评论」：错误条写着「评论还在，只是这次没读出来」，紧接一行「还没有评论」会把那句话当场取消掉（两句互相矛盾）。
             <Text style={styles.emptyComments}>
               {t('music.comments.empty', {
                 character: String(selectedCharacter.name || '').trim() || t('common.characterFallback'),

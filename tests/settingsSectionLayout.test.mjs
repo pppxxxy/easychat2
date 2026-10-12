@@ -43,8 +43,12 @@ test('生成参数行挤压顺序：字段名省略 → 输入框收窄 → Swit
 
 test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索索引对齐', () => {
   const screen = read('src/SettingsScreen.js');
-  const match = /const SECTION_RENDER_ORDER = \[([^\]]*)\]/.exec(screen);
-  assert.ok(match, 'SECTION_RENDER_ORDER 必须是模块级数组字面量（五处同步的单一事实源）');
+  // 顺序定义的唯一事实源已搬到 settings/sectionOrder.js（纯数据）——searchIndex.js 也要用它，
+  // 而 SettingsScreen.js 反过来 import searchIndex.js，留在原处就成环了。
+  // 这里从**新家**取那份数组字面量；SettingsScreen.js 只做 re-export。
+  const orderSource = read('src/settings/sectionOrder.js');
+  const match = /const SECTION_RENDER_ORDER = Object\.freeze\(\[([\s\S]*?)\]\)/.exec(orderSource);
+  assert.ok(match, 'SECTION_RENDER_ORDER 必须是 sectionOrder.js 里的模块级数组字面量（唯一事实源）');
   const order = match[1].split(',').map(part => part.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
   assert.equal(order[order.length - 1], 'about', '关于必须是最后一张卡（用户硬诉求）');
   assert.equal(order[order.length - 2], 'language', '语言在关于之前');
@@ -72,8 +76,15 @@ test('分区顺序：关于殿底、语言倒数第二，渲染顺序与搜索�
     '禁止再手写 sectionOffsetsRef.current.<id> = ...（偏移登记只走 registerSection）');
   // 吸顶索引由渲染顺序数组推导（自动跟随，禁止另写一份）
   assert.ok(/stickyHeaderIndices = SECTION_RENDER_ORDER/.test(screen), '吸顶索引必须由 SECTION_RENDER_ORDER 推导');
-  // 单一事实源必须导出：其余处（含将来的纯数据模块 / 搜索索引）才能 import 它而不是再抄一份
-  assert.ok(/export const SECTION_RENDER_ORDER = \[/.test(screen), 'SECTION_RENDER_ORDER 必须导出');
+  // 单一事实源必须导出，且 SettingsScreen.js 只 re-export（别又抄一份到本文件里）
+  assert.ok(/export const SECTION_RENDER_ORDER = Object\.freeze\(\[/.test(orderSource),
+    'SECTION_RENDER_ORDER 必须在 sectionOrder.js 里导出');
+  assert.ok(/export\s*\{\s*SECTION_RENDER_ORDER\s*\}/.test(screen),
+    'SettingsScreen.js 必须 re-export SECTION_RENDER_ORDER（保持既有 import 方兼容）');
+  assert.ok(
+    /import\s*\{[^}]*SECTION_RENDER_ORDER[^}]*\}\s*from\s*'\.\/settings\/sectionOrder\.js'/.test(screen),
+    'SettingsScreen.js 必须从 settings/sectionOrder.js import（不许自带一份字面量）',
+  );
 
   // 旧挂载点清理：关于卡不再含本地模型入口；新卡直连面板
   const about = read('src/settings/sections/AboutSection.js');

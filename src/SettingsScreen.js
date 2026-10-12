@@ -75,6 +75,7 @@ import useMcpServers from './settings/useMcpServers.js';
 import useWorkspaceSettings from './settings/useWorkspaceSettings.js';
 import SamplingCard from './settings/SamplingCard.js';
 import { searchSettings, settingsSectionLabel } from './settings/searchIndex.js';
+import { SECTION_RENDER_ORDER } from './settings/sectionOrder.js';
 import { createSettingsStyles } from './settings/settingsStyles.js';
 import ApiSection from './settings/sections/ApiSection.js';
 import PersonaSection from './settings/sections/PersonaSection.js';
@@ -119,13 +120,10 @@ const CHAT_PROTOCOL_OPTIONS = [
 // app.json 的 expo.version）。
 const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || '') : '';
 
-// 设置卡渲染顺序——**导出给测试用的单一事实源**。调序只改这一行：stickyHeaderIndices 按它算，
-// 每张卡的 onLayout 统一走 registerSection（同一个 id），搜索索引（searchIndex.js）的
-// sectionId 必须落在它里面（以上由 tests/settingsSectionLayout.test.mjs 钉住）。JSX 里 15 张
-// 卡的书写顺序无法在不重写整段的前提下由数组生成，故同样由该测试逐条比对。
-// 2026-10-07 调序：本地模型从「关于」卡里的一行升级为独立卡（GitHub 之后），「关于」按用户
-// 预期殿底；语言移到关于之前（可发现性由搜索 + 默认展开保障）。
-export const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'autoBackup', 'language', 'about'];
+// 设置卡渲染顺序：定义已搬到 settings/sectionOrder.js（纯数据、零依赖），这里只**转出**。
+// 搬家的理由见那个文件头：searchIndex.js 也要用它，而它反过来被本文件 import——顺序留在本
+// 文件里就成环了（guard-structure 会判红）。re-export 保持既有 import 方与测试的取用方式不变。
+export { SECTION_RENDER_ORDER };
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
 // 每项标注适用模型；只有选「自定义」才露出字段名输入框。

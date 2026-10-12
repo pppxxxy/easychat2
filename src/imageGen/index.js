@@ -24,12 +24,26 @@ export function getByPath(source, path) {
   }, source);
 }
 
+// 保留键：它们在对象上**不是普通数据键**——`__proto__` 会改原型、`constructor` /
+// `prototype` 会撞上继承链。先例见 chat/toolNoticeVisibility.js:27（同一组键，
+// 那边有测试钉死：tests/toolNoticeVisibility.test.mjs）。
+// 为什么必须**逐层**拦：写进来的路径来自设置页「额外参数(JSON)」这类用户可编辑输入，
+// 危险键可以藏在任意一层（`a.__proto__.x` 的首层 `a` 完全合法），只在首层查会整类漏掉。
+const RESERVED_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isReservedPathKey(key) {
+  return RESERVED_PATH_KEYS.has(String(key));
+}
+
 function setByPath(target, path, value) {
   if (!path) return;
   const keys = String(path).split('.');
   let node = target;
   for (let index = 0; index < keys.length - 1; index += 1) {
     const key = keys[index];
+    // 命中即整键丢弃（return），**不要**改用 Object.defineProperty 去「保住」它：
+    // 那只是把危险键塞成 own 属性，后续展开/序列化时又会写进新对象。
+    if (isReservedPathKey(key)) return;
     if (Array.isArray(node)) {
       const arrayKey = Number(key);
       if (node[arrayKey] === undefined || node[arrayKey] === null) node[arrayKey] = {};
@@ -42,6 +56,7 @@ function setByPath(target, path, value) {
     }
   }
   const last = keys[keys.length - 1];
+  if (isReservedPathKey(last)) return;
   if (Array.isArray(node)) {
     node[Number(last)] = value;
   } else {

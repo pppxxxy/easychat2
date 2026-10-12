@@ -41,6 +41,11 @@ export function timeoutMsFor(phase) {
 //（规则只查 Alert.alert / throw new Error / JSX 正文 / 导出常量），英文用户拿到的是中文。
 // 现在 key 交给调用方（api.js，本就 import 了 tActive）翻译，词条落在 locales/*/error.js 的
 // error.api.timeout*，于是文案也进了「zh/en key 集合必须一致」的守卫范围。
+//
+// 与 origin/d1012d1 的取舍：对方把三档文案改成由 api.js 在挂表那一刻直接 tActive(...) 取用，
+// 并删掉本模块的文案函数。本模块保留 timeoutMessageKey（而非内联进 api.js），是因为
+// 「哪个 phase 对应哪个 key」与「哪个 phase 对应哪个阈值」是同一张表的两列，拆到两个文件
+// 会各自漂移；api.js 只做 `tActive(timeoutMessageKey(phase))` 这一句翻译。
 export function timeoutMessageKey(phase) {
   if (phase === 'nonstream') return 'error.api.timeoutNonstream';
   if (phase === 'idle') return 'error.api.timeoutIdle';

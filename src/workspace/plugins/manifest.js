@@ -9,6 +9,9 @@
 // 安全边界（重要，别淡化）：本文件只描述与校验；**执行**在 sandbox.js，能力面由
 // `permissions` 白名单收窄（默认最小权限）。插件代码不是可信代码——见 sandbox.js 的说明。
 
+// 槽位接线表（纯数据）：本模块据此把「注册得下但界面上没有落点」的 kind 标为暂不支持。
+import { UNWIRED_SLOT_KINDS } from './slotKinds.js';
+
 export const PLUGIN_MANIFEST_VERSION = 1;
 
 // 可注册的 UI 槽位种类（渲染层按 kind 分派；新增 kind 要同时改 PluginSlot.js）。
@@ -20,6 +23,30 @@ export const SLOT_KINDS = Object.freeze([
   'message.action', // 消息气泡上的动作按钮
   'composer.button',// 输入框旁的按钮
 ]);
+
+// ⚠️ **注册成功 ≠ 会显示**。上表只说明「哪些 kind 收得下」；某个 kind 会不会真的出现在
+// 界面上，取决于**接线表** SLOT_RENDER_POINTS（哪个文件里写了 `<PluginSlot kind="..." />`），
+// 未接线的那些在 workspace/plugins/slotKinds.js 里显式标 null 并派生成 UNWIRED_SLOT_KINDS。
+//
+// 那张表抽到 slotKinds.js（纯数据、零 JSX）而不是留在渲染端 screen/PluginSlot.js 里，正是为了
+// 让本模块能直接 import 它：PluginSlot.js 是 RN 组件文件，Node 解析它的 JSX 会抛 SyntaxError，
+// 而本模块的定位是「纯数据 + 纯校验，零 IO、零 RN，可 Node 直测」（tests/plugins.test.mjs
+// 直接 import 本模块）。两边 import 的是**同一份表** ⇒ 结构上不可能漂移。
+export const SLOT_KIND_UNWIRED_REASON = 'slot-kind-not-wired';
+
+// 把「收得下的 kind」与「界面上真有落点的 kind」对账 → 每种 kind 的可用性。
+// unwiredKinds 缺省即接线表的派生结果（调用方一般不必传；留参数是为了可测/可注入）。
+export function slotKindSupport(unwiredKinds = UNWIRED_SLOT_KINDS) {
+  const unwired = new Set(
+    (Array.isArray(unwiredKinds) ? unwiredKinds : []).map(kind => String(kind || ''))
+  );
+  // 顺序与成员都从 SLOT_KINDS 派生，这里不出现任何字面量 kind。
+  return Object.freeze(SLOT_KINDS.map(kind => Object.freeze({
+    kind,
+    supported: !unwired.has(kind),
+    reason: unwired.has(kind) ? SLOT_KIND_UNWIRED_REASON : '',
+  })));
+}
 
 // 能力白名单：插件在 manifest 里声明它需要什么，沙盒据此注入对应原语。
 export const PLUGIN_PERMISSIONS = Object.freeze(['fs.read', 'fs.write', 'search', 'notify']);

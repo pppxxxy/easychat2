@@ -2,6 +2,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   activeWorkspaceTools,
@@ -198,6 +200,16 @@ test('能力说明的每个键都在两种语言里有词条', async () => {
     capabilityViewModel({}, {}).limitsTitleKey,
     'workspace.capability.toolsNow',
     'workspace.capability.toolsNone',
+    // 三个「按开关注册」能力的渲染键（2026-10-12）：标志必须被画出来，文案也必须两语齐备。
+    'workspace.capability.switchesTitle',
+    'workspace.capability.switch.git',
+    'workspace.capability.switch.on',
+    'workspace.capability.switch.off',
+    'workspace.capability.switch.row',
+    'workspace.capability.switch.offNote',
+    // shell / python 的名字复用工具卡词条（同一能力不该有两套叫法）。
+    'workspace.toolCard.name.shell',
+    'workspace.toolCard.name.python',
     ...CAPABILITY_STEPS.map(step => step.labelKey),
     ...CAPABILITY_LIMITS.map(limit => limit.labelKey),
   ];
@@ -212,6 +224,11 @@ test('能力说明的每个键都在两种语言里有词条', async () => {
   const eng = (en['workspace.capability.toolsNow'].match(/\{(\w+)\}/g) || []).join(',');
   assert.equal(zh, eng);
   assert.equal(zh, '{tools}');
+  // 新增的 switch.row 三个占位符中英一致（整行做成模板，语序随语言走）
+  const zhSwitch = (zhCN['workspace.capability.switch.row'].match(/\{(\w+)\}/g) || []).join(',');
+  const enSwitch = (en['workspace.capability.switch.row'].match(/\{(\w+)\}/g) || []).join(',');
+  assert.equal(zhSwitch, enSwitch);
+  assert.equal(zhSwitch, '{name},{state},{tools}');
 });
 
 test('W7：开了本地版本控制且应用内根时，卡片如实列出三个 git 只读工具', () => {
@@ -291,4 +308,63 @@ test('2026-10-11：MCP 工具（含 GitHub）如实进能力卡清单（去重�
   // 与基础工具不冲突：传进来的名字若已在清单里不重复加
   const overlap = activeWorkspaceTools({ mode: 'read' }, { mcpToolNames: ['read_workspace_file'] });
   assert.equal(overlap.filter(name => name === 'read_workspace_file').length, 1);
+});
+
+// 三个 enabled 标志此前**只被测试消费**：capabilityViewModel 有 shellEnabled/pythonEnabled/
+// gitEnabled，但卡片只画 model.tools ⇒「说明如实」只落在数据层，用户看不出哪个能力开着、
+// 某个工具为什么不在清单里。这条断言把卡片里的开关表与 capabilityViewModel 钉在一起：
+//   · 卡片声明的 enabledKey 必须是 capabilityViewModel 真有的字段（不是随手写的名字）；
+//   · 开关开着时，卡片写在用户眼前的工具名必须真的出现在 model.tools 里（否则卡片在说谎）；
+//   · 卡片必须**真的用**这些字段渲染（定义而不用 = 假修复）。
+test('卡片渲染三个开关标志，且与 capabilityViewModel 的工具清单恒等', () => {
+  const card = fs.readFileSync(path.resolve('src/WorkspaceCapabilitiesCard.js'), 'utf8');
+  // 卡片里的开关表（模块级常量，逐条解析）
+  const entries = [...card.matchAll(
+    /\{\s*id:\s*'(\w+)',\s*labelKey:\s*'([^']+)',\s*enabledKey:\s*'(\w+)',\s*tools:\s*\[([^\]]*)\]\s*\}/g,
+  )].map(match => ({
+    id: match[1],
+    labelKey: match[2],
+    enabledKey: match[3],
+    tools: match[4].split(',').map(part => part.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean),
+  }));
+  assert.deepEqual(entries.map(entry => entry.id), ['shell', 'python', 'git'],
+    '卡片必须渲染 shell / python / git 三个开关');
+  assert.equal(new Set(entries.map(entry => entry.enabledKey)).size, 3, 'enabledKey 不得重复');
+
+  // 每个开关「开」的那组条件（与 capabilities.js 的 switchedCapabilities 口径一致）
+  const onCases = {
+    shell: [{ mode: 'write', location: APP_ROOT, allowCommandExecution: true }, { shellAvailable: true }],
+    python: [{ mode: 'write', location: APP_ROOT, allowPythonExecution: true }, { pythonAvailable: true }],
+    git: [{ mode: 'read', location: APP_ROOT, allowLocalGit: true }, {}],
+  };
+  const modelKeys = Object.keys(capabilityViewModel({}, {}));
+  for (const entry of entries) {
+    assert.ok(modelKeys.includes(entry.enabledKey),
+      `卡片声明的 ${entry.enabledKey} 必须是 capabilityViewModel 真有的字段`);
+    const [settings, availability] = onCases[entry.id];
+    const on = capabilityViewModel(settings, availability);
+    assert.equal(on[entry.enabledKey], true, `${entry.id} 在该条件下应判为开启`);
+    for (const tool of entry.tools) {
+      assert.ok(on.tools.includes(tool),
+        `卡片说 ${entry.id} 开着时管着 ${tool}，但工具清单里没有它（卡片在说谎）`);
+    }
+    // 关掉时：标志为假，且这些工具确实不在清单里——「未生效 ⇒ 清单里没有」这句才成立
+    const off = capabilityViewModel({ ...settings, allowCommandExecution: false, allowPythonExecution: false, allowLocalGit: false }, availability);
+    assert.equal(off[entry.enabledKey], false, `${entry.id} 开关关着时标志必须为假`);
+    for (const tool of entry.tools) {
+      assert.equal(off.tools.includes(tool), false, `${entry.id} 未生效时 ${tool} 不该在清单里`);
+    }
+    assert.ok(entry.labelKey.startsWith('workspace.'), `${entry.id} 的标签必须走 i18n 键`);
+  }
+
+  // 卡片必须真的用这些字段与键渲染（定义而不用 = 假修复）
+  assert.ok(card.includes('model[item.enabledKey]'),
+    '卡片必须直接读 capabilityViewModel 的标志来渲染开关状态');
+  assert.ok(card.includes("t('workspace.capability.switchesTitle')"), '开关区必须有标题');
+  assert.ok(card.includes("t(on ? 'workspace.capability.switch.on' : 'workspace.capability.switch.off')"),
+    '开关状态必须走 i18n 词条（中英都要有）');
+  assert.ok(card.includes("t('workspace.capability.switch.row'"),
+    '每个开关必须用整行模板列出它管着的工具（语序/标点随语言走，不焊死在 JSX 里）');
+  assert.ok(card.includes("tools: item.tools.join"), '整行模板必须填入该开关真正管着的工具名');
+  assert.ok(card.includes("t('workspace.capability.switch.offNote')"), '必须说明「未生效 ⇒ 清单里没有」');
 });

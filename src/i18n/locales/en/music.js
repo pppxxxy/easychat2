@@ -53,6 +53,9 @@ export const music = {
   'music.comments.quoteFailed.body': 'Could not open this character\'s session. Please retry later.',
   'music.error.noCharacter': 'Please pick a character to listen with',
   'music.comments.failed': 'Could not generate the comment. Check your API settings and retry.',
+  // Read-path failure (loading stored comments): kept apart from "generation failed" because
+  // nothing was lost — this read just failed, so retrying is enough.
+  'music.comments.readFailed': 'Could not read the comments — they are still saved, this read just failed (a permission or storage hiccup). Please retry.',
   'music.settings.title': 'Companion settings',
   'music.settings.noCharacter': 'No character selected',
   'music.settings.noCharacters': 'No characters yet',

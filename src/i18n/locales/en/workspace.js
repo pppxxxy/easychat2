@@ -27,6 +27,16 @@ export const workspace = {
   'workspace.capability.limit.localModel': 'Local models currently do not take part in the tool loop: on-device inference falls back to plain chat and never reads or edits files.',
   'workspace.capability.toolsNow': 'Tools available now: {tools}',
   'workspace.capability.toolsNone': 'None (Ask mode exposes no tools)',
+  // Status rows for the three switch-gated capabilities (shell / python / git). These flags
+  // used to be consumed by tests only, so users could not tell which capability was on or
+  // why a tool was missing from the list.
+  'workspace.capability.switchesTitle': 'Switch-gated capabilities',
+  'workspace.capability.switch.git': 'Local version control',
+  'workspace.capability.switch.on': 'Active',
+  'workspace.capability.switch.off': 'Not active',
+  // One template for the whole row so word order and punctuation follow the language.
+  'workspace.capability.switch.row': '{name}: {state} · tools: {tools}',
+  'workspace.capability.switch.offNote': 'A capability that is "Not active" will not appear under "Tools available now" below; see the limits above for which condition is missing.',
   'workspace.home.title': 'Workspace',
   'workspace.home.exit': 'Exit workspace',
   'workspace.home.filesLink': 'View created files and change history',
@@ -481,6 +491,18 @@ export const workspace = {
   'workspace.plugins.category.chat': 'Chat plugins',
   'workspace.plugins.category.feature': 'Feature plugins',
   'workspace.plugins.category.other': 'Other plugins',
+  // The two "cannot read the plugin list" states (loader.js status): corrupt vs read failure.
+  // Separate wording because the way out differs: corrupt needs an explicit reset, a read
+  // failure only needs a retry.
+  'workspace.plugins.corrupt': 'The plugin list file is corrupt: the file exists, but its contents cannot be parsed into installed plugins. Your plugins are not shown right now — this is not "nothing installed", and nothing was lost. You can reset the list and reinstall; the reset only rewrites .easychat/plugins.json and leaves every other workspace file untouched.',
+  'workspace.plugins.corrupt.reset': 'Reset plugin list',
+  'workspace.plugins.corrupt.resetConfirmTitle': 'Reset the plugin list?',
+  'workspace.plugins.corrupt.resetConfirmBody': 'This rebuilds .easychat/plugins.json as an empty list: your installed plugins will be cleared and must be installed again. Files the plugins wrote, and every other workspace file, are untouched. The corrupt content cannot be recovered.',
+  'workspace.plugins.corrupt.resetConfirmAction': 'Reset',
+  'workspace.plugins.corrupt.resetFailTitle': 'Reset failed',
+  'workspace.plugins.corrupt.rebuiltTitle': 'The old list was corrupt and has been rebuilt',
+  'workspace.plugins.corrupt.rebuiltBody': 'Installing found a corrupt plugin list (it could not be parsed), so this install rebuilt the list with only this one plugin. Plugins you had installed before must be installed again.',
+  'workspace.plugins.readFailed': 'The plugin list could not be read (this is not "no plugins installed"): a permission or temporary storage problem, most likely. Installing and uninstalling are paused so an empty list cannot overwrite your plugins — please retry later.',
   'workspace.settings.board.clearTitle': 'Clear team memory',
   'workspace.settings.board.clearBody': 'This deletes everything on the cross-session board; the next team run starts from scratch. This cannot be undone.',
   'workspace.settings.permissions': 'Remembered approvals',

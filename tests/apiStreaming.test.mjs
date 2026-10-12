@@ -13,6 +13,7 @@ import {
   timeoutMsFor,
   timeoutPhase,
 } from '../src/network/requestTimeout.js';
+import { translate } from '../src/i18n/index.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -423,6 +424,18 @@ test('P1 回归：超时档位纯函数（首字节 / 空闲 / 非流式），�
   assert.match(zhError, /'error\.api\.timeoutNonstream': '[^']*非流式/);
   assert.match(zhError, /'error\.api\.timeoutFirstByte': '[^']*首个响应/);
   assert.match(zhError, /'error\.api\.timeoutIdle': '[^']*请求超时/);
+  // 三档文案还必须**各不相同**（否则「在等什么」就说不清了）：非流式整包 / 首字节 /
+  // 吐字中卡住是三件事。这条契约来自 origin/d1012d1，与上面的 key 映射断言并存。
+  const timeoutText = key => translate('zh-CN', key);
+  assert.equal(
+    new Set([
+      timeoutText('error.api.timeoutNonstream'),
+      timeoutText('error.api.timeoutFirstByte'),
+      timeoutText('error.api.timeoutIdle'),
+    ]).size,
+    3,
+    '三档文案必须各不相同（否则「在等什么」就说不清了）',
+  );
 });
 
 // 行为测试：假 XHR 不回包，把时钟拨到阈值，看超时错误挂在哪个档位。

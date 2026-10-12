@@ -139,14 +139,15 @@ test('带缓存计划时 Anthropic system 用 block 数组，前缀块带 epheme
   assert.deepEqual(system[1], { type: 'text', text: 'R' });
 });
 
-test('toOpenAiMessages 剥掉内部字段（systemCache / isError 都不泄漏给端点）', () => {
+test('toOpenAiMessages 白名单：内部字段（systemCache / isError / noticeKey…）都不泄漏给端点', () => {
   const out = toOpenAiMessages([
     { role: 'system', content: 'S', systemCache: { prefixText: 'P', restText: 'R' } },
     { role: 'user', content: 'hi' },
     // agent 工具结果的权威错误标记：只服务展示层判状态，协议里没有这个字段。
     { role: 'tool', tool_call_id: 'c1', content: '文件不存在：x', isError: true },
     // 界面侧提示词条引用（toolDefs/toolNotices.js）：同样只服务展示层，协议里也没有。
-    // 它们走的是同一份 OPENAI_INTERNAL_FIELDS——这份名单是**默认放行**的，漏登记就出网。
+    // 它们**不需要**登记进任何「内部字段名单」——toOpenAiMessages 现在是白名单（默认拒绝），
+    // 没列进协议字段的一律不出网（当初这两个字段正是从黑名单里漏出去的）。
     {
       role: 'tool',
       tool_call_id: 'c2',
@@ -154,6 +155,8 @@ test('toOpenAiMessages 剥掉内部字段（systemCache / isError 都不泄漏�
       isError: true,
       noticeKey: 'workspace.chat.tool.notice.gitNoRepo',
       noticeParams: { steps: 'a' },
+      // 连「还没人见过」的字段也一样被挡：白名单不靠登记，靠默认拒绝。
+      __random_internal__: 1,
     },
   ]);
   assert.equal('systemCache' in out[0], false);
@@ -164,9 +167,10 @@ test('toOpenAiMessages 剥掉内部字段（systemCache / isError 都不泄漏�
   assert.equal(out[2].tool_call_id, 'c1');
   assert.equal('noticeKey' in out[3], false, 'noticeKey 是内部字段，不得进请求体');
   assert.equal('noticeParams' in out[3], false, 'noticeParams 是内部字段，不得进请求体');
+  assert.equal('__random_internal__' in out[3], false, '未登记字段默认被挡（白名单 = 默认拒绝）');
   assert.equal(out[3].content, '本地版本控制还没就绪：……', '正文原样保留');
-  // 白名单口径的机械检查：openai 出网的消息**只允许**有协议字段——新增任何内部字段
-  // 只要忘了登记进 OPENAI_INTERNAL_FIELDS，这里就会红（比逐个 `in` 断言更耐新增）。
+  // 白名单口径的机械检查：openai 出网的消息**只允许**有协议字段。新增内部字段不需要登记
+  // 也不会出网；反过来，若谁把内部字段误加进白名单，这里立刻红。
   assert.deepEqual(Object.keys(out[3]).sort(), ['content', 'role', 'tool_call_id']);
 });
 

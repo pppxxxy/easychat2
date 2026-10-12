@@ -204,9 +204,8 @@ import {
   isUnsupportedTranscriptionError,
   transcribeAudio,
 } from './transcription.js';
-// 「compact」/「/compact」= 压缩指令：把当前会话按手动路径总结入记忆
-//（原始消息仍保留在会话里，后续对话带着摘要继续），不把这条文本当消息发出去。
-// 压缩指令：`/compact` 或 `compact`（记忆总结，见 runCompactCommand）；
+// 压缩指令：`/compact` 或 `compact`（记忆总结，见 runCompactCommand）——把当前会话按手动路径
+// 总结入记忆（原始消息仍保留在会话里，后续对话带着摘要继续），不把这条文本当消息发出去；
 // 可带关注点：`/compact 重点保留 API 变更与未决问题` → 总结时特别保留这些内容。
 const COMPACT_COMMAND_PATTERN = /^\/?compact(?:\s+([\s\S]*))?$/i;
 
@@ -215,8 +214,7 @@ export default function ChatScreen() {
   const { t } = useTranslation();
   const styles = useMemo(() => createChatStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const scrollRef = useRef(null);
-  // 消息列表的定位句柄（虚拟化后 index 只能在 MessageList 内部算：它持有窗口化后的数据）。
-  // scrollRef 仍指向同一个 FlatList，负责 scrollToEnd/scrollToOffset 这类容器级操作。
+  // 消息列表的定位句柄（虚拟化后 index 只能在 MessageList 内部算：它持有窗口化后的数据）；scrollRef 仍指向同一个 FlatList，负责 scrollToEnd/scrollToOffset 这类容器级操作。
   const messageListRef = useRef(null);
   const errorRawRef = useRef({});
   const {
@@ -680,10 +678,8 @@ export default function ChatScreen() {
 
   useEffect(() => {
     autoSummaryAttemptRef.current = { sessionId: '', signature: '' };
-    // 切会话把窗口重置回默认：新会话是另一批消息，旧窗口大小没有意义。
-    //（旧实现还要在这里清 messageOffsetsRef——虚拟化后不再缓存逐条偏移，定位由
-    // MessageList 按当前窗口现算 index，那种「读到过期数字 offset 滚到越界 y」的
-    // 失效模式随之消失。）
+    // 切会话把窗口重置回默认：新会话是另一批消息，旧窗口大小没有意义。（旧实现还要在这里清
+    // messageOffsetsRef——虚拟化后不再缓存逐条偏移，定位由 MessageList 按当前窗口现算 index。）
     setMessageWindowSize(MESSAGE_WINDOW_INITIAL);
   }, [activeSessionId]);
 
@@ -712,10 +708,10 @@ export default function ChatScreen() {
     ensureCharacterSession(characterId).catch(() => {});
   }, [activeSession, activeSessionId, characterId, characters, ensureCharacterSession, isGroup, loaded]);
 
-  // L0c（spec 2026-10-10-runtime-split）：**不再**在卸载时中断进行中的发送。
-  // 目标 ①「退出聊天页不中断生成」：离开页面/会话后运行继续跑完，结果由 useChatSend
-  // 的后台落库分支写回它自己的会话。真正的中止只有两条：用户点停止、运行中面板取消。
-  // （保存重试计时器的清理仍随 useSessionMessages 外提。）
+  // L0c（spec 2026-10-10-runtime-split）：**不再**在卸载时中断进行中的发送。目标 ①「退出聊天页
+  // 不中断生成」：离开页面/会话后运行继续跑完，结果由 useChatSend 的后台落库分支写回它自己的
+  // 会话。真正的中止只有两条：用户点停止、运行中面板取消。（保存重试计时器的清理仍随
+  // useSessionMessages 外提。）
 
   const onStop = useCallback(() => {
     if (abortRef.current) {
@@ -1526,12 +1522,11 @@ export default function ChatScreen() {
     }
   }, []);
 
-  // D3：压缩当前会话——一次模型调用压成三段摘要 + 保留最近 K 条原文；失败保持原会话不动
-  //（压缩是锦上添花，绝不能成为会话损坏的来源）；fork 点失效由 branchTree 按 `stale` 降级。
-  // E2：支持 { silent: true } 静默模式（85% 自动触发用）——不弹任何 Alert，
-  // 返回 { ok, before?, after? } 供调用方决策；手动路径行为与旧版逐字一致。
-  // N2 整合：走 M 的四档管线（L0 修剪/L1 K1 清除/L2 摘要/L3 归档 + 权威分离），与工作区
-  // ChatPanel 同一套；「该不该压」仍由本页判（useAutoCompact / 手动），故管线 autoRatio=0。
+  // D3：压缩当前会话——一次模型调用压成三段摘要 + 保留最近 K 条原文；失败保持原会话不动（压缩是
+  // 锦上添花，绝不能成为会话损坏的来源）；fork 点失效由 branchTree 按 `stale` 降级。E2：支持
+  // { silent: true } 静默模式（85% 自动触发用）——不弹任何 Alert，返回 { ok, before?, after? }
+  // 供调用方决策；手动路径行为与旧版逐字一致。N2 整合：走 M 的四档管线（L0 修剪/L1 K1 清除/L2
+  // 摘要/L3 归档 + 权威分离），与工作区 ChatPanel 同一套；「该不该压」仍由本页判（useAutoCompact / 手动），故管线 autoRatio=0。
   const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
   const handleCompactSession = useCallback(async (options = {}) => {
     const silent = options && options.silent === true;
@@ -2406,11 +2401,17 @@ export default function ChatScreen() {
     let audio = null;
     try {
       audio = await recorder.stop();
+      // 到 60 秒上限是 hook 自动停的（用户没按停）：必须在这里如实告知，否则用户只看到「突然停了」。
+      // 放在 try 内、stop 之后：即便后续转写/发送失败，用户也已经知道原因。
+      if (audio && audio.stoppedByLimit) {
+        Alert.alert(t('chat.voice.autoStop.title'), t('chat.voice.autoStop.body'));
+      }
     } catch (error) {
       Alert.alert(t('chat.voice.recordFail.title'), maskSecrets((error && error.message) || t('common.error.retry')));
       setVoiceBusy(false);
       return;
     }
+    // 没拿到落盘文件（例如过短已丢弃）就结束；提示已在上面的分支给过，不重复打扰。
     if (!audio || !audio.uri) {
       setVoiceBusy(false);
       return;
