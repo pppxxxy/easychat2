@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   FEATURED_MODELS,
   FEATURED_USABLE_RATIO,
+  featuredCardEntry,
   isFeaturedSourceAvailable,
   selectFeaturedModels,
 } from '../src/localModel/featured.js';
@@ -45,4 +46,30 @@ test('selectFeaturedModels：透传 sourceId，内存充足时也不误标 tooBi
   const list = selectFeaturedModels({ totalMemoryBytes: 16 * 1024 * 1024 * 1024, sourceId: 'hf-mirror' });
   assert.equal(list.every(item => item.sourceId === 'hf-mirror'), true);
   assert.equal(list.every(item => item.fits), true);
+});
+
+// ---- D：多模态精选卡不再硬编码 hasVision:false ----
+test('featuredCardEntry：hasVision/hasAudio 从目录条目带出（多模态不错显「识图 ✗」）', () => {
+  const gemma = FEATURED_MODELS.find(item => item.id === 'gemma3-4b');
+  assert.ok(gemma, '精选目录应有 gemma3-4b');
+  assert.equal(gemma.hasVision, true, 'gemma3-4b 标注 multimodal，目录必须带 hasVision:true');
+
+  const gemmaCard = featuredCardEntry(gemma);
+  assert.equal(gemmaCard.hasVision, true, '卡片能力必须来自目录，不得硬编码 false');
+  assert.equal(gemmaCard.hasAudio, false);
+  // 字段口径与已装条目一致：id/repoPath 用仓库坐标，未安装故 modelBytes=0
+  assert.equal(gemmaCard.id, gemma.repoId);
+  assert.equal(gemmaCard.repoPath, gemma.repoId);
+  assert.equal(gemmaCard.modelBytes, 0);
+  assert.equal(gemmaCard.imported, false);
+  assert.equal(gemmaCard.paramSize, gemma.paramSize);
+
+  // 非多模态条目保持 false（不虚报）
+  const textOnly = featuredCardEntry(FEATURED_MODELS.find(item => item.id === 'qwen3-1.7b'));
+  assert.equal(textOnly.hasVision, false);
+  assert.equal(textOnly.hasAudio, false);
+
+  // 入参缺省/非法时不抛错（面板过滤后可能拿到空条目）
+  assert.equal(featuredCardEntry(null).hasVision, false);
+  assert.equal(featuredCardEntry(undefined).id, '');
 });

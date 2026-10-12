@@ -184,6 +184,9 @@ export const localModel = {
   'localModel.chip.size': 'Size {label}',
   'localModel.chip.vision': 'Vision',
   'localModel.currentModel': 'Current model: {name}',
+  // Empty-state placeholder for the model-library status row (used to reuse
+  // localModel.viewLogs = "View logs" by mistake).
+  'localModel.noActiveModel': 'No local model selected',
   'localModel.download.mmprojLabel': 'Companion mmproj (optional, multimodal)',
   'localModel.download.mmprojSkip': 'Skip',
   'localModel.download.modelId': 'Model ID',

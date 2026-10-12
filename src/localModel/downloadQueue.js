@@ -48,6 +48,19 @@ export const DOWNLOAD_TASK_STATUS = {
   ERROR: 'error',
 };
 
+// ---- 进度单位收口（全仓唯一定义处）----
+// 快照里的 progress 一律是 **0–100 的百分数**，与 runtime.js / engineStatus.js 同口径。
+// 下载器（modelManager.downloadToFile）产出的原始值是 **0–1 比值**（written/total），
+// 所以在「写入 currentTask 的那一刻」换算一次：出口只有这一种单位，消费方
+// （DownloadTasks / AcquireSection / useAcquireModel）直接当百分数用，谁都不再 ×100。
+// 历史缺陷（本函数即为修它而生）：DownloadTasks 把 0–1 当百分数用 ⇒ 整条下载恒显示
+// 0–1%，而 AcquireSection 又 ×100 ⇒ 同一时刻两处显示互相矛盾。
+export function toProgressPercent(ratio) {
+  const value = Number(ratio);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value * 100)));
+}
+
 // 预检安全余量：预估大小之外再留 5%，覆盖临时文件/元数据/文件系统块对齐。
 export const DISK_HEADROOM_RATIO = 1.05;
 
@@ -139,6 +152,8 @@ export function createDownloadQueue(deps = {}) {
     }
   };
 
+  // 快照出口：progress 已是 0–100 百分数（写入时经 toProgressPercent 换算），
+  // 消费方按百分数直接使用，不得再 ×100。
   function getSnapshot() {
     return {
       tasks: tasks ? tasks.map(task => ({ ...task })) : [],
@@ -227,7 +242,9 @@ export function createDownloadQueue(deps = {}) {
       onProgress: (progress, info) => {
         currentTask = {
           ...currentTask,
-          progress,
+          // 单位收口：下载器给的是 0–1 比值，这里换算成 0–100 百分数后才进快照
+          // （见 toProgressPercent 注释；消费方一律不再自行换算）。
+          progress: toProgressPercent(progress),
           writtenBytes: (info && info.writtenBytes) || 0,
           totalBytes: (info && info.totalBytes) || currentTask.totalBytes,
         };

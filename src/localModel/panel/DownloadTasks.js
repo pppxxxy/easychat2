@@ -47,6 +47,9 @@ export default function DownloadTasks({ styles, t }) {
       {tasks.map((task, index) => {
         const running = task.status === 'running';
         const failed = task.status === 'error';
+        // 队列快照的 progress 已是 0–100 百分数（downloadQueue 出口统一单位，与
+        // runtime/engineStatus 同口径）：这里只做防御性夹取，**不再换算**——
+        // 历史上这里把 0–1 当百分数用，整条下载恒显示 0–1%。
         const progress = running ? Math.max(0, Math.min(100, Number(task.progress) || 0)) : 0;
         const written = Number(task.writtenBytes) || 0;
         const total = Number(task.totalBytes) || Number(task.modelExpectedBytes) || 0;

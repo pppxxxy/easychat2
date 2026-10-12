@@ -18,7 +18,7 @@ import { stopLocalApiServer } from '../localApiServer.js';
 import { tryAcquireResource } from '../../utils/resourceMutex.js';
 import { applyActiveLocalModel } from '../modelState.js';
 import { getDeviceMemoryInfo } from '../deviceMemory.js';
-import { selectFeaturedModels } from '../featured.js';
+import { selectFeaturedModels, featuredCardEntry } from '../featured.js';
 
 export function usePanelModels({ visible }) {
   const [entries, setEntries] = useState([]);
@@ -58,9 +58,12 @@ export function usePanelModels({ visible }) {
   // 设置更新唯一入口（C3）：重读最新值再合并落盘，消除四处 {...settings, xxx}
   // 手动合并的闭包过期风险（代码注释曾自证痛点「避免与旧闭包状态合并后丢失开关」）。
   // patch 传对象或 (latest) => partial 函数。
+  // fail-closed（口径同 storage/worldMap.js 的「写前必读」）：读失败直接抛出、**不写回**。
+  // 旧实现 .catch(() => null) 是 fail-open —— base 退化成 {}，对象 patch（服务域传整个
+  // apiServer）会把 enabled/activeModelId/enableMediaInput 一起抹掉。
   const updateSettings = useCallback(async patch => {
-    const latest = await getLocalModelSettings().catch(() => null);
-    const base = latest || {};
+    const base = await getLocalModelSettings();
+    if (!base) throw new Error('local model settings unavailable');
     const next = await saveLocalModelSettings({
       ...base,
       ...(typeof patch === 'function' ? patch(base) : patch),
@@ -179,21 +182,13 @@ export function usePanelModels({ visible }) {
   }, [cleanupBusy]);
 
   // 未安装精选卡（v5 Stage C/E）：目录里尚未安装的仓库坐标，灰态展示。
+  // 能力标记（hasVision/hasAudio）从目录条目带出（featuredCardEntry）——曾在这里
+  // 硬编码 hasVision:false，导致多模态精选（gemma3-4b）错显「识图 ✗」。
   const featuredEntries = useMemo(() => {
     const installedRepos = new Set(entries.map(item => String(item.repoPath || '')).filter(Boolean));
     return selectFeaturedModels({ totalMemoryBytes: deviceMemoryBytes })
       .filter(item => !installedRepos.has(item.repoId))
-      .map(item => ({
-        id: item.repoId,
-        name: item.name,
-        paramSize: item.paramSize,
-        hasVision: false,
-        hasAudio: false,
-        modelBytes: 0,
-        imported: false,
-        sourceId: item.sourceId || '',
-        repoPath: item.repoId,
-      }));
+      .map(featuredCardEntry);
   }, [entries, deviceMemoryBytes]);
 
   return {

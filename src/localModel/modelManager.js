@@ -118,6 +118,8 @@ async function downloadToFile(fs, url, destination, onProgress, expectedBytes = 
       if (typeof onProgress !== 'function') return;
       const written = Number(progress.totalBytesWritten);
       // 第二参携带字节详情：进度条旁的「45% · 1.2GB/2.7GB」需要原始字节数。
+      // 第一参是 **0–1 比值**（不是百分数）：单位收口在 downloadQueue.toProgressPercent
+      // （队列写入快照时 ×100 取整）。这里保持下载器的原始口径，不在此处重复换算。
       onProgress(total > 0 ? Math.min(1, written / total) : 0, {
         writtenBytes: Number.isFinite(written) ? written : 0,
         totalBytes: Number.isFinite(total) && total > 0 ? total : 0,
