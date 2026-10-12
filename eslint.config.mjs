@@ -81,7 +81,6 @@ export default [
       'src/chat/useSessionMessages.js',
       'src/chat/useSessionSwitch.js',
       'src/ChatScreen.js',
-      'src/context/AppContext.js',
       'src/DiagnosticsModal.js',
       'src/GroupEditForm.js',
       'src/imageGen/index.js',
@@ -91,13 +90,11 @@ export default [
       'src/localModel/ModelLogsModal.js',
       'src/localModel/modelManager.js',
       'src/MapPanel.js',
-      'src/memory/memorySummary.js',
       'src/MemoryScreen.js',
       'src/MomentsView.js',
       'src/music/comments.js',
       'src/music/library.js',
       'src/music/useMusicComments.js',
-      'src/network/api.js',
       'src/PluginPanel.js',
       'src/plugins/webSearch.js',
       'src/PresetPanel.js',
@@ -131,7 +128,6 @@ export default [
       'src/TranscriptionPanel.js',
       'src/tts/index.js',
       'src/TtsPanel.js',
-      'src/vectorMemory/index.js',
       'src/workspace/docx.js',
       'src/workspace/edit.js',
       'src/workspace/paths.js',
@@ -153,6 +149,29 @@ export default [
     // 读走、永不随语言切换）与 <Text>你好</Text> 这类 JSX 正文全在规则之外。
     // 判定见 eslint-rules/no-hardcoded-chinese.mjs 的 noHardcodedChineseText。
     //
+    // 第三批扩宽（2026-10-12）：同一条规则再加三种形态——
+    //   · 数组 join() 的中文分隔符：`list.join('、')`（英文界面下预览/导出混入中文标点）；
+    //   · 函数返回的对象字面量：`return { label: '内存未知' }`（调用方把 label 拼进英文句子）；
+    //   · 模块级**非导出**常量：`const FIELD_LABELS = { name: '角色名' }`——不导出也一样
+    //     能被同仓模块 import 走、照样渲染到界面上（SettingsScreen 的模型能力说明、
+    //     moments 的预设文案等 9 文件 / 40 处就是这一类）。
+    //     ⚠️ **函数体内的普通字符串常量仍然不覆盖**（imageDescriptionPrompt.js 记录过
+    //     这条口径：函数体里的中文绝大多数是模型提示词）。
+    // 并把**中文标点**纳入匹配：`join('、')` 里一个汉字都没有，只查汉字会整类漏掉。
+    //
+    // ⚠️ 本次清单**新增 68 行、删除 1 行（净 +67）**，全部来自规则扩宽，不是新债：
+    // 扩宽前这些中文对规则不可见（既不报错、也不在旧清单里），扩宽后变成「看得见的存量」，
+    // 不登记门禁立刻红。这不违反本清单「只减不增」的纪律——新增的全是**既有文件**，
+    // 没有一个是新文件；纪律本身没变：删行才是迁移，加行只允许出现在「规则扩宽把不可见
+    // 变可见」这一种场景，且必须像本节这样注明原因（否则下一个人会以为是违规加行）。
+    // 例外只有两行，见下面 (b) 段末尾的 `logging/logger.js` / `storage/diagnostics.js`。
+    //
+    // 只剩一类形态**实测后放弃**，不写进规则：**模板串里的中文**（384 处 / 94 文件，
+    // 约六成是模型提示词 / agent 内部工具文案，散在 9 棵树 ≈50 个文件；窄化成「单行且
+    // ≤40 字」仍有 257 处 / 84 文件）。它与提示词在 AST 上同形，没有简单判据可分离。
+    // 已知盲区与两处仍然看不见的用户可见中文（advanced.js:139/166、modelParams.js:90）
+    // 详见 eslint-rules/no-hardcoded-chinese.mjs 头注释的「已知盲区」一节。
+    //
     // 下面是与首批**互相独立**的存量冻结清单（只减不增）：由扩展后的规则实测生成。
     // 迁移方式 = 换成 t('<key>') / 改导出 i18n key 并补 src/i18n/locales 双语言词条，
     // 然后从这里删掉该行。新文件一律不得加入。
@@ -169,18 +188,21 @@ export default [
       // ---- (b) 永久豁免：内容**不该进 i18n**（模型提示词 / 匹配关键词 / 内部标识符）----
       // 这些文件里的中文是发给模型的提示词、参与匹配的关键词，或用户自己输入的固定
       // 命令字（如 @全体、路由名）。迁移方向是「把中文从常量里挪到表驱动」，不是塞进 locale。
+      // ⚠️ 2026-10-12 复核：曾有一版把 logging/logger.js 与 storage/diagnostics.js 以
+      // 「结构性豁免」为理由放进本段，理由不成立——那两处是 '[脱敏不可用，已省略]' 这类
+      // **用户会读到的占位文案**（诊断页可在应用内查看与复制，见 DiagnosticsModal.js），
+      // 属 (a) 待迁移。零依赖纯模块的**结构**问题该靠「词条 key 常量」解决
+      // （导出 key、由使用处 t(key) 取值），不该靠豁免文案。已移回 (a) 段。
+      'src/aigc/attribution.js',
       'src/agent/loop.js',
       'src/agent/planNudge.js',
       'src/agent/subagent.js',
       'src/cardForge/forge/assist.js',
-      'src/cardForge/forge/shared.js',
-      'src/cardForge/forge/state.js',
       'src/character/cardParser/regexScripts.js',
       'src/character/cardParser/worldInfo.js',
       'src/chat/compaction.js',
       'src/chat/groupMentions.js',
       'src/memory/memoryConstants.js',
-      'src/memory/memorySummary.js',
       'src/navigation/routeNames.js',
       'src/plugins/registry.js',
       'src/prompt/chatPipeline.js',
@@ -196,8 +218,69 @@ export default [
       // 工具描述整族都是模型提示词（tools 的 description 字段）：整目录豁免，
       // 新增工具文件也自动在内——这正是我们要的，工具描述不该翻成英文界面语言。
       'src/workspace/toolDefs/**',
+      // 第三批扩宽新增（(b) 段）：join() 分隔符 / 返回对象字面量的命中，中文的去向
+      // 都是「发给模型的提示词或工具协议回传文案」，按 (b) 的定义永久豁免。
+      'src/agent/blackboard.js',
+      'src/agent/rpc.js',
+      'src/agent/task/taskModel.js',
+      'src/agent/task/taskPrompt.js',
+      'src/agent/tools/registry.js',
+      'src/agent/workflow.js',
+      'src/chat/chatTools.js',
+      'src/chat/compactionPipeline.js',
+      'src/chat/groupChat/context.js',
+      'src/chat/groupChat/ensemble.js',
+      'src/chat/groupChat/opening.js',
+      'src/chat/groupChat/scheduler.js',
+      // schedule.js 里写明了「供提示词使用的作息摘要（中文，不进 i18n）」。
+      'src/chat/schedule.js',
+      'src/chat/sessionCompaction.js',
+      'src/cardForge/forge/prompts.js',
+      'src/moments/runHousemateReactions.js',
+      'src/moments/runUserMomentComments.js',
+      // mcpTools.js 是 MCP 工具的 description 与协议回传文案（同 toolDefs/** 一族）。
+      'src/workspace/mcpTools.js',
+      'src/workspace/readLog.js',
+      // ChatPanel.js 命中的是追加进工具结果正文的「[工作区钩子] …」（模型读的那份）。
+      'src/workspace/screen/ChatPanel.js',
+      'src/workspace/shell.js',
+      'src/workspace/store.js',
+      // 第三批扩宽（第二轮）新增 (b)：模块级**非导出**常量的命中，中文的去向仍是
+      // 「提示词 / 匹配关键词 / 正则」。
+      'src/agent/task/taskRunner.js',            // 定时任务提示词（「（定时任务，请现在执行）」）
+      'src/books/blocks.js',                     // 章节标记正则/关键词（[章节回卷部篇幕集]、数字汉字类）
+      'src/books/fullTextDecoder.js',            // 解析用关键词（'你'）
+      'src/memory/conflict.js',                  // 记忆冲突判定提示词
+      'src/moments/affinity.js',                 // 好感度**情感词表**（喜欢/讨厌/…，匹配用）
+      'src/network/requestErrors.js',            // 接口错误**匹配关键词**（不支持/未知参数/…）
+      'src/proactive/proactiveRequest.js',       // 格式指令**匹配词表**（必须输出/强制输出/…）
+      'src/storage/settings/imageRecognition.js',// 图片识别提示词
+      // ⚠️ 下面两条是**并发批次新增的代码**（`[脱敏不可用，已省略]`），不是既有存量：
+      // 那两个文件的注释当时明写「不导出是刻意的……eslint 只查模块级**导出**常量，
+      // 非导出常量不在其内」——即**主动利用了本次要补的盲区**。本次扩宽把它暴露出来。
+      // 归 (b) 的理由是**结构性**的（零依赖纯模块 + 只出现在诊断日志），不是提示词/关键词。
+      // ⚠️ 待办：那两处注释现在**已过时**（非导出常量已纳入规则），应由该批 owner 更正；
+      // ↓ 2026-10-12 复核：判定该文案**属用户可见**（诊断页可在应用内查看/复制，见
+      //   DiagnosticsModal.js），故**改判 (a)**、走 i18n。零依赖的**结构**问题该靠
+      //   「导出词条 key、由使用处 t(key) 取值」解决（同 chat/toolTrace.js 的
+      //   TRACE_TRUNCATE_MARK_KEY 做法），不该靠豁免文案。
       // ---- (a) 待迁移：用户可见文案（换 t('<key>') 后从这里删行）----
-      'src/aigc/attribution.js',
+      // ⚠️ 下面两条**不能删**：2026-10-12 有人以 `--no-ignore` 通过为由建议删掉它们，
+      //   但那一次验证跑在**第三批规则（模块级非导出常量）扩宽之前**，所以漏判了——
+      //   这两个文件里除已迁移的 Error 文案外，**模块级常量**仍硬编码中文
+      //   （memorySummary.js 的提示词表、api.js 的错误文案表）。删掉即刻 19 处报错。
+      //   教训：**删冻结清单行必须在规则集冻结之后复跑**，否则"验证通过"是假象。
+      'src/logging/logger.js',
+      'src/storage/diagnostics.js',
+      'src/memory/memorySummary.js',
+      'src/network/api.js',
+      // ↓ 下面两条原先误归在 (b)：state.js 的 FORGE_QUESTIONS 是问答提示、
+      //   shared.js 的 FIELD_LABELS 是表单字段标签，都是**用户可见文案**，与 (b) 的
+      //   定义（模型提示词 / 匹配关键词 / 用户输入的固定命令字）不符。
+      //   本次只把它们从 (b) 挪到 (a)（不动源码），迁移方向随之变为「换 t('<key>') +
+      //   补 src/i18n/locales 双语言词条」，而不是「把中文挪出常量」。
+      'src/cardForge/forge/shared.js',
+      'src/cardForge/forge/state.js',
       'src/character/cardHelpers.js',
       'src/chat/reactiveCompact.js',
       'src/chat/voiceMessages.js',
@@ -206,7 +289,6 @@ export default [
       'src/localModel/modelCatalog.js',
       'src/localModel/modelState.js',
       'src/memory/memoryBuckets.js',
-      'src/network/api.js',
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
       'src/onboarding/onboardingContent.js',
@@ -215,8 +297,52 @@ export default [
       'src/storage/characters/shared.js',
       'src/tts/providers.js',
       'src/vectorMemory/providers.js',
-      'src/workspace/gitCheckpoint.js',
       'src/workspace/plugins/market.js',
+      // 第三批扩宽（第一轮）新增 (a)：join() 分隔符 / 返回对象字面量的命中，中文都会
+      // 出现在用户看得见的地方（界面文案、导出文件、错误提示），按 (a) 的定义待迁移。
+      'src/apiProtocols/stream.js',
+      'src/BackupPanel.js',
+      'src/CardForgeEditor.js',
+      'src/CardForgeScreen.js',
+      'src/CardPreviewModal.js',
+      'src/cardForge/forge/advanced.js',
+      'src/cardForge/forge/draft.js',
+      'src/character/CharacterDetailScreen.js',
+      'src/character/CharacterLibraryScreen.js',
+      'src/character/editors.js',
+      'src/chat/ConversationCardModal.js',
+      'src/chat/conversationExport.js',
+      'src/chat/useChatSend.js',
+      'src/ChatScreen.js',
+      'src/extension/schedule/preview.js',
+      'src/imageGen/localDream.js',
+      'src/localModel/modelCompatibility.js',
+      'src/MapPanel.js',
+      'src/MemoryScreen.js',
+      'src/ProactivePanel.js',
+      'src/storage/dataBackup.js',
+      'src/storage/secrets.js',
+      'src/TranscriptionPanel.js',
+      'src/workspace/packs.js',
+      'src/workspace/plugins/loader.js',
+      'src/workspace/plugins/manifest.js',
+      'src/workspace/plugins/registry.js',
+      'src/WorkspaceCapabilitiesCard.js',
+      // 第三批扩宽（第二轮）新增 (a)：模块级**非导出**常量的命中，中文都会出现在
+      // 用户看得见的地方（设置页说明、预设文案、日期/地图标签、导出文件、错误提示）。
+      'src/chat/currentTime.js',                 // 星期几标签（日/一/二/…）
+      'src/chat/toolTrace.js',                   // 工具轨迹截断提示「…（轨迹截断）…」
+      'src/moments/moments.js',                  // 预设动态文案（用户可直接选用/展示）
+      'src/SettingsScreen.js',                   // 模型能力说明（reasoning_effort 档位等）
+      'src/storage/settings/plugins.js',         // 插件说明与默认描述
+      'src/worldMap/map.js',                     // 地图默认房间名「无主房」
+      'src/worldMap/realMapHtml.js',             // 内嵌地图 HTML 的可见标签（放大/缩小/回到我的位置）
+      'src/worldMap/RealMapView.js',             // 「位置设置读取失败」提示
+      // ⚠️ 本段原先的 'src/workspace/gitCheckpoint.js' 已**删除**（正当的「只减」）：
+      // 另一个批次把该文件的中文导出常量改成了 CHECKPOINT_FALLBACK_KEY（导出 key
+      // 而不是中文），实测该文件对本规则已无命中。
+      // 注：该文件函数体内仍有一处 `'回合检查点'` 回落文案——属「函数体内的普通字符串
+      // 常量」这一**有意不覆盖**的盲区（见规则文件头注释），故不在此登记。
     ],
     // 插件命名空间用 local-i18n：ESLint flat config 不允许在两个配置对象里重复定义
     // 同一个插件名（"Cannot redefine plugin"），而本批必须与首批用**不同的 ignores**。
