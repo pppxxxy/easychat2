@@ -348,11 +348,13 @@ test('GithubPanel：四键工具条 + 仓库列表 + 当前仓库树 + 搜索（
 });
 
 test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
+  // ⑤⑥ 的状态与动作已外提到 github/useRepoManage.js；工具栏键与红线 UI 仍在面板。
+  const MANAGE_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoManage.js'), 'utf8');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.createRepo'), '⑤ 新建仓库键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.manage'), '⑥ 仓库管理键');
-  assert.ok(PANEL_SRC.includes('createRepo('), '建仓库走 REST');
-  assert.ok(PANEL_SRC.includes('renameRepo('), '重命名走 REST');
-  assert.ok(PANEL_SRC.includes('deleteRepo('), '删除走 REST');
+  assert.ok(MANAGE_SRC.includes('createRepo('), '建仓库走 REST');
+  assert.ok(MANAGE_SRC.includes('renameRepo('), '重命名走 REST');
+  assert.ok(MANAGE_SRC.includes('deleteRepo('), '删除走 REST');
   // 红线三层，缺一不可：
   // ① UI：必须手动输入完整仓库名（按钮的禁用条件就是它）
   assert.ok(
@@ -364,10 +366,10 @@ test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
   assert.ok(PANEL_SRC.includes('workspace.github.manage.deleteNoScope'), '② 无 scope 时的明确引导');
   // ③ 后端：restApi.deleteRepo 的 confirm 逐字守卫（单测已证「不匹配不发请求」）
   assert.ok(
-    /deleteRepo\(\{ token, owner: current\.owner, repo: current\.repo, confirm: fullName \}\)/.test(PANEL_SRC),
+    /deleteRepo\(\{ token, owner: current\.owner, repo: current\.repo, confirm: fullName \}\)/.test(MANAGE_SRC),
     '③ 后端 confirm 守卫'
   );
-  assert.ok(PANEL_SRC.includes('repoWebUrl('), '复制仓库链接');
+  assert.ok(MANAGE_SRC.includes('repoWebUrl('), '复制仓库链接');
   // 面板不删本地文件（远端删除不会连带删本地副本）。
   assert.ok(!PANEL_SRC.includes('deleteFile('), '不自动删本地副本');
 });
