@@ -299,7 +299,10 @@ test('设置页接线：卡片 / sectionProps / 搜索索引 / i18n 中英齐', 
   const screen = fs.readFileSync(path.resolve('src/SettingsScreen.js'), 'utf8');
   assert.ok(screen.includes('McpServersSection'), '卡片组件已引入');
   assert.ok(screen.includes("flashSection === 'mcpservers'"), '卡片 id 与搜索/深链一致');
-  assert.ok(screen.includes("'github', 'mcpservers'"), 'SECTION_RENDER_ORDER 已含 mcpservers');
+  // 分区顺序的唯一事实源已搬到 settings/sectionOrder.js（纯数据），SettingsScreen.js 只 re-export
+  // ——searchIndex.js 也要用它，留在 SettingsScreen.js 里会成环。这里改从新家取。
+  const sectionOrder = fs.readFileSync(path.resolve('src/settings/sectionOrder.js'), 'utf8');
+  assert.ok(/'github',\s*'mcpservers'/.test(sectionOrder), 'SECTION_RENDER_ORDER 已含 mcpservers');
   for (const field of ['mcpServers', 'onAddMcpServer', 'onTestMcpServer', 'onToggleMcpServer', 'onRemoveMcpServer']) {
     assert.ok(screen.includes(field), `sectionProps 缺 ${field}`);
   }

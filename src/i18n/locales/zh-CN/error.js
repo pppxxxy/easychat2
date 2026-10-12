@@ -200,6 +200,9 @@ export const error = {
   'error.music.songNotFound': '歌曲不存在或已被删除',
   'error.music.unsupportedFormat': '请选择音频文件（mp3/m4a/wav/flac 等）',
   'error.screenWatch.captureReadFailed': '截图读取失败',
+  // 看屏幕评论存储损坏（读取被拒）时的用户可见说明：明说「读不到」而不是
+  // 让面板显示「还没有一起看屏幕」——数据其实还在损坏备份里。
+  'error.screenWatch.commentsReadFailed': '陪伴评论读取失败（原数据已备份，未被覆盖），请稍后重试或到「设置 → 关于 → 备份与恢复」里恢复。',
   'error.proactive.unsupported': '当前环境不支持定时主动消息（仅 Android 原生构建可用）',
   'error.cardParser.invalidObject': '角色卡内容不是有效的对象。',
   'error.cardParser.jsonSyntax': 'JSON 语法错误：{message}',

@@ -5,9 +5,12 @@
 // 按 kind 画出来。于是「对话头部多一个徽标 / 设置面板多一行」不再取决于改哪个大文件，
 // 而取决于谁注册了。纯展示组件，不含业务逻辑。
 //
-// 「能画」不等于「有地方画」：真正决定某个 kind 会不会出现在界面上的，是下面那张
-// SLOT_RENDER_POINTS 接线表（谁在哪里挂了 `<PluginSlot kind=... />`）。缺了落点的 kind
+// 「能画」不等于「有地方画」：真正决定某个 kind 会不会出现在界面上的，是**接线表**
+// SLOT_RENDER_POINTS（谁在哪里挂了 `<PluginSlot kind=... />`）。缺了落点的 kind
 // 注册得再成功也永远不显示，所以未接线的一律显式标 null 并由插件面板如实列出。
+// 那张表已抽到 workspace/plugins/slotKinds.js（纯数据、零 JSX）——manifest.js / registry.js
+// 也要用它来标「暂不支持」，而它们必须能 Node 直测，不能 import 本 JSX 文件。
+// 这里只 import 并 re-export，保持既有 import 方兼容。
 //
 // 说明：RN UI 文件，已登记进 .c8rc.json 排除。
 
@@ -16,6 +19,9 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
+import { SLOT_RENDER_POINTS, UNWIRED_SLOT_KINDS } from '../plugins/slotKinds.js';
+
+export { SLOT_RENDER_POINTS, UNWIRED_SLOT_KINDS };
 
 const KIND_ICON = Object.freeze({
   'chat.header': 'pricetag-outline',
@@ -26,30 +32,14 @@ const KIND_ICON = Object.freeze({
   'composer.button': 'add-circle-outline',
 });
 
-// 槽位接线表：kind → **真实渲染点**（哪个文件里写了 `<PluginSlot kind="..." />`）。
-// null = 已可注册、校验通过，但界面上**没有落点**——「注册成功却永不显示」是插件系统里
-// 最难发现的假接线：manifest 收下了、注册表也 render 出来了，用户却永远看不到，而且不报错。
-// 此前 6 种 kind 里只有 settings.row 真接了线（其余 5 种只在测试里 render 过），本表把这件事
-// 如实写下来，tests/plugins.test.mjs 断言「manifest 声明的每种 kind 都在表里有归属」——
-// 新增 kind 时必须选一边（接线，或在这里显式标 null 并由插件面板如实列出），不会再默默漏掉。
-export const SLOT_RENDER_POINTS = Object.freeze({
-  'chat.header': null,   // 对话面板顶部徽标行：暂无挂载点
-  'chat.footer': null,   // 输入区上方：暂无挂载点
-  'settings.row': 'src/extension/WorkspacePluginsPanel.js', // 唯一已接线：插件面板的槽位演示区
-  'files.toolbar': null, // 文件面板工具条：暂无挂载点
-  'message.action': null, // 消息气泡动作按钮：暂无挂载点
-  'composer.button': null, // 输入框旁按钮：暂无挂载点
-});
-
-// 未接线的 kind（**派生**，别再手写第二份）：插件面板据此把它们如实列出来。
-export const UNWIRED_SLOT_KINDS = Object.freeze(
-  Object.keys(SLOT_RENDER_POINTS).filter(kind => !SLOT_RENDER_POINTS[kind]),
-);
-
 export default function PluginSlot({ kind, contributions = [], onAction = null }) {
   const { theme, fonts } = useTheme();
   const styles = React.useMemo(() => createStyles(theme, fonts), [theme, fonts]);
-  const list = Array.isArray(contributions) ? contributions : [];
+  // registry.render() 对未接线的 kind 会在列表最前面插一条「未接线」标记（wired === false）
+  // ——那是给调用方的**状态信号**，不是要画出来的插件贡献：真画出来会多一行 `__unwired__`。
+  // 未接线的如实说明由插件面板的分组标题（kind 本身）负责，这里滤掉标记。
+  const list = (Array.isArray(contributions) ? contributions : [])
+    .filter(item => !(item && item.wired === false));
   if (list.length === 0) return null;
   return (
     <View style={styles.wrap}>

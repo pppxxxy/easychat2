@@ -195,6 +195,9 @@ export const error = {
   'error.music.songNotFound': 'The song does not exist or has been deleted.',
   'error.music.unsupportedFormat': 'Please choose an audio file (mp3/m4a/wav/flac, etc.).',
   'error.screenWatch.captureReadFailed': 'Failed to read the screenshot.',
+  // Screen-peek comment storage is corrupt (read refused): say "could not read"
+  // instead of letting the panel show "no comments yet" — the data is still in the backup.
+  'error.screenWatch.commentsReadFailed': 'Failed to read companion comments (the original data was backed up, not overwritten). Please retry later or restore from "Settings → About → Backup & restore".',
   'error.proactive.unsupported': 'Scheduled proactive messages are not supported in this environment (Android native builds only).',
   'error.cardParser.invalidObject': 'The character card content is not a valid object.',
   'error.cardParser.jsonSyntax': 'JSON syntax error: {message}',
