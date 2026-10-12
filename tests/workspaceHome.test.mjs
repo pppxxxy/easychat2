@@ -20,6 +20,8 @@ const CHAT = read('src/workspace/screen/ChatPanel.js');
 const PANEL = read('src/workspace/screen/FilesPanel.js');
 const SCREEN = read('src/workspace/screen/WorkspaceScreen.js');
 const SHEET = read('src/workspace/WorkspaceSettingsSheet.js');
+// 设置行元数据已外提，行 id / 动作行断言读新文件。
+const SETTINGS_ROWS = read('src/workspace/settingsRows.js');
 const HISTORY = read('src/workspace/WorkspaceHistorySheet.js');
 const GENERAL = read('src/workspace/WorkspaceGeneralSettings.js');
 const SETTINGS = read('src/SettingsScreen.js');
@@ -59,20 +61,20 @@ test('底部一栏：加号 / 语音 / 输入框 / 设置 / 发送', () => {
 });
 
 test('设置层：八项都在，且各自有落点', () => {
-  assert.ok(SHEET.includes("id: 'model'"), '模型');
-  assert.ok(SHEET.includes("id: 'thinking'"), '思考强度');
-  assert.ok(SHEET.includes("id: 'mode'"), '当前工作模式');
-  assert.ok(SHEET.includes("id: 'character'"), '当前角色');
-  assert.ok(SHEET.includes("id: 'usage'"), '上下文占用');
-  assert.ok(SHEET.includes("id: 'import'"), '导入文件');
-  assert.ok(SHEET.includes("id: 'export'"), '导出文件');
-  assert.ok(SHEET.includes("id: 'history'"), '查找历史');
-  assert.ok(SHEET.includes("id: 'env'"), '环境配置');
+  assert.ok(SETTINGS_ROWS.includes("id: 'model'"), '模型');
+  assert.ok(SETTINGS_ROWS.includes("id: 'thinking'"), '思考强度');
+  assert.ok(SETTINGS_ROWS.includes("id: 'mode'"), '当前工作模式');
+  assert.ok(SETTINGS_ROWS.includes("id: 'character'"), '当前角色');
+  assert.ok(SETTINGS_ROWS.includes("id: 'usage'"), '上下文占用');
+  assert.ok(SETTINGS_ROWS.includes("id: 'import'"), '导入文件');
+  assert.ok(SETTINGS_ROWS.includes("id: 'export'"), '导出文件');
+  assert.ok(SETTINGS_ROWS.includes("id: 'history'"), '查找历史');
+  assert.ok(SETTINGS_ROWS.includes("id: 'env'"), '环境配置');
 
   assert.ok(SHEET.includes('styles.usageTrack') && SHEET.includes('styles.usageFill'), '占用进度条');
   assert.ok(SHEET.includes("t('workspace.panel.context.hint')"), '压缩说明文案');
-  assert.ok(SHEET.includes("t('workspace.settings.import.hint')"), '导入有说明');
-  assert.ok(SHEET.includes("t('workspace.settings.export.hint')") && SHEET.includes("onOpenPanel('docx')"),
+  assert.ok(SETTINGS_ROWS.includes("t('workspace.settings.import.hint')"), '导入有说明');
+  assert.ok(SETTINGS_ROWS.includes("t('workspace.settings.export.hint')") && SETTINGS_ROWS.includes("onOpenPanel('docx')"),
     '导出明确落到文件面板');
 });
 
@@ -107,8 +109,9 @@ test('新建对话与查找历史', () => {
 test('导入只有一套 UI：聊天侧不再有项目拉取', () => {
   assert.ok(!CHAT.includes('importProjectToWorkspace'), '聊天侧项目导入已移除');
   assert.ok(!CHAT.includes('WorkspaceProjectSheet'), '旧「新建项目」弹层已删除');
-  const github = read('src/workspace/screen/GithubPanel.js');
-  assert.ok(github.includes('listRepos('), '导入/仓库管理统一在 GitHub 工作台');
+  // 仓库列表加载已外提到 github/useRepoList.js。
+  const repoList = read('src/workspace/screen/github/useRepoList.js');
+  assert.ok(repoList.includes('listRepos('), '导入/仓库管理统一在 GitHub 工作台');
 });
 
 test('入口接线：设置页只挂一个工作区单屏，四领域面板由单屏内部分发', () => {
@@ -184,7 +187,7 @@ test('工作区会话持久化：发送即落盘，可切换 / 删除 / 清空�
 
   assert.ok(CHAT.includes('setHistoryOpen(true)'), '动作行打开对话历史');
   assert.ok(CHAT.includes('<WorkspaceHistorySheet'), '历史面板已接线');
-  assert.ok(SHEET.includes("onOpenPanel('viewer')"), '文件与改动深链到文件面板');
+  assert.ok(SETTINGS_ROWS.includes("onOpenPanel('viewer')"), '文件与改动深链到文件面板');
 
   assert.ok(HISTORY.includes('onSelectChat'), '点击切换');
   assert.ok(HISTORY.includes('confirmDelete'), '删除有二次确认');

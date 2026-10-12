@@ -99,10 +99,11 @@ test('C2 接线契约：read 工具透明物化 + 面板点开即拉 + 宿主注
   assert.ok(readTools.includes('options.materializer'), 'read 工具读失败时试物化');
   assert.ok(readTools.includes("typeof options.materializer !== 'function'"), '没注入 = 旧行为逐字节一致');
 
-  const panel = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.ok(panel.includes('virtualPaths.has(path)'), '只对未物化（云朵）文件按需拉');
-  assert.ok(panel.includes('materializeRepoFile({ store, characterId, path, token })'), '点开即拉');
-  assert.ok(panel.includes("t('workspace.github.materialize.fail')"), '失败如实报（不静默）');
+  // 点开即拉已外提到 github/useRepoFiles.js。
+  const files = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoFiles.js'), 'utf8');
+  assert.ok(files.includes('virtualPaths.has(path)'), '只对未物化（云朵）文件按需拉');
+  assert.ok(files.includes('materializeRepoFile({ store, characterId, path, token })'), '点开即拉');
+  assert.ok(files.includes("t('workspace.github.materialize.fail')"), '失败如实报（不静默）');
 
   const chat = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
   assert.ok(chat.includes('materializer: materializeForAgent'), '工作区宿主注入物化器');
@@ -278,11 +279,13 @@ test('groupPendingByDir：首层目录归组、数量降序、可截断（纯函
 
 test('C3 批量推送接线：面板按钮 + 一次确认 + truncated 安全失败 + 绝不 force', () => {
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.ok(github.includes('pushRepoSnapshot({'), '面板直连 Trees API 单提交链路');
+  // 推送动作已外提到 github/useRepoPush.js；按钮文案仍在面板。
+  const pushHook = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPush.js'), 'utf8');
+  assert.ok(pushHook.includes('pushRepoSnapshot({'), '面板直连 Trees API 单提交链路');
   assert.ok(github.includes("t('workspace.github.push.batch')"), '批量推送按钮');
-  assert.ok(github.includes('confirmPushDiff'), '一次确认框（问不到用户 = 不推送）');
-  assert.ok(github.includes("t('workspace.github.push.doneBody'"), '成功报告 commit sha');
-  assert.ok(github.includes("t('workspace.github.push.truncated')"), 'truncated 拒绝 + 引导 handoff');
+  assert.ok(pushHook.includes('confirmPushDiff'), '一次确认框（问不到用户 = 不推送）');
+  assert.ok(pushHook.includes("t('workspace.github.push.doneBody'"), '成功报告 commit sha');
+  assert.ok(pushHook.includes("t('workspace.github.push.truncated')"), 'truncated 拒绝 + 引导 handoff');
 
   const push = fs.readFileSync(path.resolve('src/workspace/repoPush.js'), 'utf8');
   assert.ok(push.includes("reason: 'truncated'"), '清单不完整时拒绝推送（完整树会误删看不见的文件）');

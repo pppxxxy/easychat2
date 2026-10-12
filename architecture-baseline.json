@@ -34,25 +34,20 @@
     "src/SettingsScreen.js 2364 → 2365（2026-10-12，合并 d1012d2，**上调**）：对方在设置页补的「模型列表两个 URL 都失败时透出真实原因」新增一个 ref（modelFetchErrorRef），并给思考显示开关补了写失败回滚；整批净 +1 行真实逻辑。与代码改动同一次提交 + 理由写清，属棘轮协议【2】的正常出口；阈值仍等于实际值（不留余量）。",
     "src/character/CharacterLibraryScreen.js 945 → 939（2026-10-12，合并 d1012d2）：删除路径改用 characterLibraryDelete.js 的共享编排（runCharacterDelete / selectableCharacterIds / shouldDeleteEverything / normalizeDeleteTargetIds），面板里各写一遍的判定与清理调用被取代，净减 6 行（36 增 / 42 删）。行为不变，行数基线不留余量，故同步下调（无上调）。",
     "src/MemoryScreen.js 798 → 803（2026-10-12，合并 d1012d2，**重新纳入基线**）：d1012d2 的「全选」口径修复——全选/全不选必须按 filteredSessions（当前筛选集）而不是 visibleSessions（全部会话），旧口径会把筛选之外的会话一并选中并被 deleteSessions **真删掉**（不可逆、且用户看不见）；连同 3 行说明注释与 1 行 threadsFailed 接线，净 +5（另 1 行是把 filteredSessions 从列表视图 hook 解构出来——全选口径修复需要它出圈）。该文件 2026-10-12 曾以 798 行移出基线（≤800），这 4 行是真实修复而非凑数，故按棘轮协议【2】重新纳入并记为实际值 802；若要让 800 硬上限继续留给新文件，可另开一提交把「批量选择」整块外提到 memory/useSelection*.js。",
-    "src/chat/useChatSend.js 1974 → 1972（2026-10-12，合并 d1012d3/d1012d4/d1012d5，**下调**）：两线各自独立把 permissionRules 改成「钩子规则 + 用户存储规则合并」，合并后统一取 D 线形态（chat/toolApprovalFlow.js 的 readToolPermissionRules —— 它把两组规则的读取与容错收在一处，且 hooks.js 保持存储无关）。接线本身压成单行，`getEffectivePermissionRules` 的导入随之成为未使用并被移除，净减 2 行真实代码。这是收紧方向的调整（棘轮只许收紧的常规出口），阈值仍等于实际值、不留余量。"
+    "src/chat/useChatSend.js 1974 → 1972（2026-10-12，合并 d1012d3/d1012d4/d1012d5，**下调**）：两线各自独立把 permissionRules 改成「钩子规则 + 用户存储规则合并」，合并后统一取 D 线形态（chat/toolApprovalFlow.js 的 readToolPermissionRules —— 它把两组规则的读取与容错收在一处，且 hooks.js 保持存储无关）。接线本身压成单行，`getEffectivePermissionRules` 的导入随之成为未使用并被移除，净减 2 行真实代码。这是收紧方向的调整（棘轮只许收紧的常规出口），阈值仍等于实际值、不留余量。",
+    "2026-10-12 合并 m1012m30（大文件拆分第 15-20 刀）后按**实测值**重建 fileLineBaseline：本批把 7 个文件拆到 ≤800，按棘轮协议它们**移出基线**（棘轮的正常出口——门槛是「别再长回去」，不是「永远留在名单里」，与 d1012d1 那次把 App.js/MemoryScreen 移出基线同理）：music/MusicScreen.js 762、books/BookReaderView.js 741、ImageGenScreen.js 772、character/CharacterLibraryScreen.js 771、workspace/WorkspaceSettingsSheet.js 768、CardForgeScreen.js 747、ProactivePanel.js 785。workspace/screen/GithubPanel.js 1618 → 911（仍在阈值之上故留在基线，阈值改为实测值）；CardForgeEditor.js 保持 1073（与 main 一致）。该批拆出的组件/hook（books/Book*Modal、imageGen/ProviderSettingsModal、character/GroupCreateModal 与 useGroupCreation、workspace/screen/github/useRepo*.js、cardForge/useForgeRequests、music/useMusic*、workspace/settingsRows）都是逐字搬运、行为不变。合并且按实测重算，阈值一律等于实际值、不留空转余量。"
   ],
   "fileLineBaseline": {
+    "src/CardForgeEditor.js": 1073,
     "src/ChatScreen.js": 3163,
+    "src/MemoryScreen.js": 803,
     "src/SettingsScreen.js": 2365,
-    "src/workspace/screen/GithubPanel.js": 1618,
+    "src/character/CharacterDetailScreen.js": 1714,
+    "src/chat/chatStyles.js": 1375,
     "src/chat/useChatSend.js": 1972,
     "src/workspace/screen/ChatPanel.js": 1765,
-    "src/character/CharacterDetailScreen.js": 1714,
     "src/workspace/screen/FilesPanel.js": 1080,
-    "src/chat/chatStyles.js": 1375,
-    "src/CardForgeEditor.js": 1073,
-    "src/music/MusicScreen.js": 990,
-    "src/books/BookReaderView.js": 901,
-    "src/ImageGenScreen.js": 837,
-    "src/character/CharacterLibraryScreen.js": 939,
-    "src/workspace/WorkspaceSettingsSheet.js": 910,
-    "src/CardForgeScreen.js": 839,
-    "src/MemoryScreen.js": 803
+    "src/workspace/screen/GithubPanel.js": 911
   },
   "allowedCycles": []
 }

@@ -214,12 +214,16 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
   assert.ok(!panel.includes('WorkspaceRepoSheet'), 'GitHub 导入不再是文件面板内的弹层');
 
   // 凭据单一来源：GitHub 工作台复用 MCP 设置里的 token，不得新建第二套凭据存储。
+  // token 读取已随仓库列表域外提到 github/useRepoList.js。
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.match(github, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
+  const repoList = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoList.js'), 'utf8');
+  assert.match(repoList, /await getGithubMcpSettings\(\)/, '凭据必须实际取自 MCP 设置');
   assert.ok(!github.includes('AsyncStorage') && !github.includes('@easychat2_'), '面板不得自建凭据存储键');
   // 快照边界如实声明；拉取链路必须复用 repoImport 的限额与解压（含目录条目修复）。
+  // 拉取动作已外提到 github/useRepoPull.js，解压/限额断言读新文件。
+  const pull = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPull.js'), 'utf8');
   assert.ok(github.includes('workspace.github.pull.hint'), '快照边界文案必须在位');
-  assert.ok(github.includes('extractRepoFiles(') && github.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
+  assert.ok(pull.includes('extractRepoFiles(') && pull.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
 });
 
 test('F4 拉取残留清单：解析容错 + 写入/读取/清理往返（全不抛错）', async () => {
@@ -355,33 +359,39 @@ test('C1 仓库清单：路径编码（branch 含斜杠不造假目录）+ 解�
 
 test('C1 快速检出接线：Trees API + 清单落盘/载入 + 树合并（云朵角标）+ 截断如实提示', () => {
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.ok(github.includes('listTree({'), 'Trees API 接线（1 次请求出全树）');
-  assert.ok(github.includes('writeRepoManifest('), '检出结果落盘缓存');
-  assert.ok(github.includes('readRepoManifest('), '打开仓库时载入清单');
+  // 快速检出的动作与清单载入已外提到 github/useRepoBranch.js；树合并仍在面板。
+  const branch = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoBranch.js'), 'utf8');
+  assert.ok(branch.includes('listTree({'), 'Trees API 接线（1 次请求出全树）');
+  assert.ok(branch.includes('writeRepoManifest('), '检出结果落盘缓存');
+  assert.ok(branch.includes('readRepoManifest('), '打开仓库时载入清单');
   assert.ok(github.includes('mergeManifestEntries('), '树 = 本地 ∪ 清单');
   assert.ok(github.includes('virtualPaths.has(child.path)'), '未物化条目带云朵角标');
   assert.ok(github.includes("t('workspace.github.checkout.truncatedHint')"), '截断如实提示（不假装拿全）');
   assert.ok(
-    github.includes('const paths = entries.filter(item => item.type'),
+    branch.includes('const paths = entries.filter(item => item.type'),
     '清单设为「已同步」基线（与完整拉取同语义）'
   );
 });
 
 test('B1/B2/B3 拉取体验接线：分支 chip + 默认分支对齐 + 覆盖守卫（下载之前）', () => {
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
+  // B1 分支列表拉取与 B2 默认分支对齐已外提到 github/useRepoBranch.js。
+  const branch = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoBranch.js'), 'utf8');
   // B1：数据层 listBranches 早已存在，UI 必须真的调用它（之前是裸输入框、手打分支名）
-  assert.ok(github.includes('listBranches({ token, owner, repo })'), '分支列表接线（第一页）');
-  assert.ok(github.includes('listBranches({ token, owner, repo, page: 2 })'), '超过一页时翻第 2 页');
+  assert.ok(branch.includes('listBranches({ token, owner, repo })'), '分支列表接线（第一页）');
+  assert.ok(branch.includes('listBranches({ token, owner, repo, page: 2 })'), '超过一页时翻第 2 页');
   assert.ok(github.includes("t('workspace.github.branch.defaultTag')"), '默认分支徽标');
   assert.ok(github.includes("t('workspace.github.branch.loadError')"), '失败态：一行提示、不阻塞手动输入');
   assert.ok(github.includes("t('workspace.github.branch.overLimit')"), '超量提示（其余手动输入）');
-  assert.ok(github.includes('branchSeqRef'), '竞态防护：快速切仓库旧响应不覆盖新列表');
+  assert.ok(branch.includes('branchSeqRef'), '竞态防护：快速切仓库旧响应不覆盖新列表');
   // B2：初值与该仓库真实默认分支同源（normalizeRepo.defaultBranch），不再硬编码 main
-  assert.ok(github.includes('current.branch || current.defaultBranch'), '初值对齐默认分支');
-  // B3：覆盖守卫——守卫调用必须在下载之前（取消 = 连 zip 都不下载）
-  assert.ok(github.includes('confirmPullOverwrite'), '覆盖确认存在');
-  const guardAt = github.indexOf('confirmPullOverwrite(guardDiff.pending)');
-  const downloadAt = github.indexOf('await downloadZip({ url, token })');
+  assert.ok(branch.includes('current.branch || current.defaultBranch'), '初值对齐默认分支');
+  // B3：覆盖守卫——守卫调用必须在下载之前（取消 = 连 zip 都不下载）。
+  // 拉取动作已外提到 github/useRepoPull.js，B3 断言读新文件。
+  const pull = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPull.js'), 'utf8');
+  assert.ok(pull.includes('confirmPullOverwrite'), '覆盖确认存在');
+  const guardAt = pull.indexOf('confirmPullOverwrite(guardDiff.pending)');
+  const downloadAt = pull.indexOf('await downloadZip({ url, token })');
   assert.ok(guardAt > 0 && downloadAt > 0 && guardAt < downloadAt, '守卫在下载之前');
-  assert.ok(github.includes('guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
+  assert.ok(pull.includes('guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
 });

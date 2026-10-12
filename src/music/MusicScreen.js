@@ -33,45 +33,30 @@ import {
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 import {
-  DEFAULT_MUSIC_CLIP,
   MUSIC_CLIP_SAMPLE_RATES,
   MUSIC_CLIP_SECONDS,
-  getMusicClipSettings,
-  saveMusicClipSettings,
 } from '../storage/settings.js';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { useTranslation } from '../i18n/I18nContext.js';
 
 import { deleteMusicCommentsForSongs } from './comments.js';
-import { deleteMusicItems, getMusicItems, saveMusicDuration, saveMusicTriggers } from './library.js';
+import { deleteMusicItems, getMusicItems, saveMusicDuration } from './library.js';
 import {
   PLAYLIST_NAME_MAX,
-  createMusicPlaylist,
-  deleteMusicPlaylist,
-  getMusicPlaylists,
   purgeSongsFromPlaylists,
-  renameMusicPlaylist,
-  setSongInPlaylist,
 } from './playlists.js';
 import { importMusicFromPicker } from './importMusic.js';
 import { canAttachSongAudio, formatPlaybackPosition, MUSIC_DECODE_MAX_BYTES } from './commentPrompts.js';
-import {
-  collectTriggersToCross,
-  isSeekJump,
-  makeTriggerId,
-  resolveFiredIdsAtPosition,
-} from './triggers.js';
 import { useMusicComments } from './useMusicComments.js';
+import useMusicPlaylists from './useMusicPlaylists.js';
+import useMusicPlayerSettings from './useMusicPlayerSettings.js';
+import useMusicTriggers from './useMusicTriggers.js';
 import { useMusicPlayer } from './useMusicPlayer.js';
 import {
   formatMusicRate,
-  getMusicPlayerSettings,
-  nextMusicPlayMode,
-  nextMusicRate,
   nextSequentialIndex,
   pickShuffleIndex,
-  saveMusicPlayerSettings,
 } from './playerSettings.js';
 
 // 播放方式的图标与文案键（静态表：动态拼接的 key 无法被文案扫描静态提取）。
@@ -144,52 +129,8 @@ export default function MusicScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [importing, setImporting] = useState(false);
   const [currentId, setCurrentId] = useState('');
-  const [clipSettings, setClipSettings] = useState(DEFAULT_MUSIC_CLIP);
-  // 歌单：列表 + 当前筛选（'' = 全部）+ 命名弹窗 + 「加入/移出歌单」选择器。
-  const [playlists, setPlaylists] = useState([]);
-  const [playlistFilter, setPlaylistFilter] = useState('');
-  const [playlistPrompt, setPlaylistPrompt] = useState({
-    visible: false,
-    mode: 'create',
-    playlistId: '',
-    draft: '',
-  });
-  const [playlistSaving, setPlaylistSaving] = useState(false);
-  const [playlistPickerSongId, setPlaylistPickerSongId] = useState('');
   const { status, load, toggle, seekToSeconds, setRate, stop } = useMusicPlayer();
-  // 播放方式与倍速：全局持久化，打开时读一次、改动即写（失败不阻断播放）。
-  const [playMode, setPlayMode] = useState('stop');
-  const [rate, setRateState] = useState(1);
-
-  useEffect(() => {
-    let cancelled = false;
-    getMusicPlayerSettings()
-      .then(settings => {
-        if (cancelled) return;
-        setPlayMode(settings.playMode);
-        setRateState(settings.rate);
-        setRate(settings.rate);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [setRate]);
-
-  const cyclePlayMode = useCallback(() => {
-    setPlayMode(current => {
-      const next = nextMusicPlayMode(current);
-      saveMusicPlayerSettings({ playMode: next }).catch(() => {});
-      return next;
-    });
-  }, []);
-
-  const cycleRate = useCallback(() => {
-    setRateState(current => {
-      const next = nextMusicRate(current);
-      setRate(next);
-      saveMusicPlayerSettings({ rate: next }).catch(() => {});
-      return next;
-    });
-  }, [setRate]);
+  const { playMode, rate, clipSettings, cyclePlayMode, cycleRate, updateClipSettings } = useMusicPlayerSettings({ setRate });
 
   // 隐藏 WebView 裁剪器：把歌曲裁成短片段再送模型。
   const clipRef = useRef(null);
@@ -199,143 +140,26 @@ export default function MusicScreen() {
       : Promise.reject(new Error('clip-unavailable'))
   ), []);
 
-  // 读取「音频片段」设置（时长/采样率）；改动即时保存。
-  useEffect(() => {
-    let cancelled = false;
-    getMusicClipSettings()
-      .then(settings => {
-        if (!cancelled) setClipSettings(settings);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const updateClipSettings = useCallback(patch => {
-    setClipSettings(previous => {
-      const next = { ...previous, ...patch };
-      saveMusicClipSettings(next).catch(() => {});
-      return next;
-    });
-  }, []);
-
   // ---- 歌单 ----
-
-  const reloadPlaylists = useCallback(async () => {
-    try {
-      setPlaylists(await getMusicPlaylists());
-    } catch (error) {
-      // 歌单读取失败不阻断听歌：保持当前列表，避免把界面清空成「没有歌单」误导用户。
-    }
-  }, []);
-
-  useEffect(() => {
-    reloadPlaylists();
-  }, [reloadPlaylists]);
-
-  const activePlaylist = useMemo(
-    () => playlists.find(item => item.id === playlistFilter) || null,
-    [playlists, playlistFilter]
-  );
-  const visibleItems = useMemo(
-    () => (activePlaylist
-      ? items.filter(item => activePlaylist.songIds.includes(item.id))
-      : items),
-    [items, activePlaylist]
-  );
-  const playlistPickerSong = useMemo(
-    () => items.find(item => item.id === playlistPickerSongId) || null,
-    [items, playlistPickerSongId]
-  );
-
-  const openCreatePlaylist = useCallback(() => {
-    setPlaylistPrompt({ visible: true, mode: 'create', playlistId: '', draft: '' });
-  }, []);
-
-  const openRenamePlaylist = useCallback(playlist => {
-    if (!playlist) return;
-    setPlaylistPrompt({
-      visible: true,
-      mode: 'rename',
-      playlistId: playlist.id,
-      draft: playlist.name,
-    });
-  }, []);
-
-  const closePlaylistPrompt = useCallback(() => {
-    if (playlistSaving) return;
-    setPlaylistPrompt({ visible: false, mode: 'create', playlistId: '', draft: '' });
-  }, [playlistSaving]);
-
-  const confirmPlaylistName = useCallback(async () => {
-    if (playlistSaving) return;
-    const name = String(playlistPrompt.draft || '').trim();
-    if (!name) {
-      Alert.alert(t('music.playlists.title'), t('music.playlists.nameEmpty'));
-      return;
-    }
-    const duplicated = playlists.some(item => (
-      item.name === name
-      && (playlistPrompt.mode === 'create' || item.id !== playlistPrompt.playlistId)
-    ));
-    if (duplicated) {
-      Alert.alert(t('music.playlists.title'), t('music.playlists.duplicate'));
-      return;
-    }
-    setPlaylistSaving(true);
-    try {
-      if (playlistPrompt.mode === 'rename') {
-        await renameMusicPlaylist(playlistPrompt.playlistId, name);
-      } else {
-        await createMusicPlaylist(name);
-      }
-      await reloadPlaylists();
-      setPlaylistPrompt({ visible: false, mode: 'create', playlistId: '', draft: '' });
-    } catch (error) {
-      Alert.alert(t('music.playlists.title'), t('music.playlists.saveFailed'));
-    } finally {
-      setPlaylistSaving(false);
-    }
-  }, [playlistPrompt, playlistSaving, playlists, reloadPlaylists, t]);
-
-  const confirmDeletePlaylist = useCallback(playlist => {
-    if (!playlist) return;
-    Alert.alert(
-      t('music.playlists.delete.title'),
-      t('music.playlists.delete.body', { name: playlist.name }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            deleteMusicPlaylist(playlist.id)
-              .then(() => {
-                setPlaylistFilter(current => (current === playlist.id ? '' : current));
-                return reloadPlaylists();
-              })
-              .catch(() => {
-                Alert.alert(t('music.playlists.title'), t('music.playlists.saveFailed'));
-              });
-          },
-        },
-      ]
-    );
-  }, [reloadPlaylists, t]);
-
-  // 在「加入/移出歌单」弹窗里勾选：只更新目标歌单，其余保持不动。
-  const toggleSongInPlaylist = useCallback((playlist, included) => {
-    const songId = playlistPickerSongId;
-    if (!songId || !playlist) return;
-    setSongInPlaylist(playlist.id, songId, included)
-      .then(updated => {
-        setPlaylists(list => list.map(item => (item.id === updated.id ? updated : item)));
-      })
-      .catch(() => {
-        Alert.alert(t('music.playlists.title'), t('music.playlists.saveFailed'));
-      });
-  }, [playlistPickerSongId, t]);
+  const {
+    playlists,
+    setPlaylistFilter,
+    playlistPrompt,
+    setPlaylistPrompt,
+    playlistSaving,
+    playlistPickerSongId,
+    setPlaylistPickerSongId,
+    activePlaylist,
+    visibleItems,
+    playlistPickerSong,
+    reloadPlaylists,
+    openCreatePlaylist,
+    openRenamePlaylist,
+    closePlaylistPrompt,
+    confirmPlaylistName,
+    confirmDeletePlaylist,
+    toggleSongInPlaylist,
+  } = useMusicPlaylists({ items, t });
 
   const current = useMemo(
     () => items.find(item => item.id === currentId) || null,
@@ -453,37 +277,13 @@ export default function MusicScreen() {
     stop();
   }, [current, currentIndex, items.length, load, playAt, playMode, seekToSeconds, status.finished, stop]);
 
-  // 时间轴触发：正常推进时越过打点即请求评论；seek（>2.5s 跳变）落定后按新位置
-  // 重算已触发集合——回跳重播自动重新武装，已放过的历史不回放补触发。
-  const firedRef = useRef(new Set());
-  const firedSongRef = useRef('');
-  const lastPositionRef = useRef(0);
-  useEffect(() => {
-    if (!current) {
-      firedSongRef.current = '';
-      lastPositionRef.current = 0;
-      return;
-    }
-    if (firedSongRef.current !== current.id) {
-      firedSongRef.current = current.id;
-      firedRef.current = new Set();
-      lastPositionRef.current = status.positionMs;
-      return;
-    }
-    const previousMs = lastPositionRef.current;
-    const positionMs = status.positionMs;
-    if (positionMs === previousMs) return;
-    lastPositionRef.current = positionMs;
-    if (isSeekJump(previousMs, positionMs)) {
-      firedRef.current = resolveFiredIdsAtPosition(current.triggers, positionMs);
-      return;
-    }
-    collectTriggersToCross(current.triggers, previousMs, positionMs).forEach(trigger => {
-      if (firedRef.current.has(trigger.id)) return;
-      firedRef.current.add(trigger.id);
-      generate({ kind: 'trigger', atMs: trigger.atMs, note: trigger.note });
-    });
-  }, [current, status.positionMs, generate]);
+  const { addTriggerHere, removeTrigger } = useMusicTriggers({
+    current,
+    positionMs: status.positionMs,
+    generate,
+    setItems,
+    t,
+  });
 
   const handleImport = useCallback(async () => {
     if (importing) return;
@@ -517,34 +317,6 @@ export default function MusicScreen() {
     const bounded = Math.min(1, Math.max(0, Number(fraction) || 0));
     seekToSeconds((status.durationMs * bounded) / 1000);
   }, [current, seekToSeconds, status.durationMs]);
-
-  const persistTriggers = useCallback(async (songId, triggers) => {
-    try {
-      const updated = await saveMusicTriggers(songId, triggers);
-      setItems(list => list.map(item => (item.id === updated.id ? updated : item)));
-      // 打点列表变了：按当前进度重算已触发集合，避免沿用旧的 fired 集合漏触发。
-      firedRef.current = resolveFiredIdsAtPosition(updated.triggers, status.positionMs);
-      return updated;
-    } catch (error) {
-      Alert.alert(t('music.save.failed.title'), t('music.save.failed.body'));
-      return null;
-    }
-  }, [status.positionMs]);
-
-  const addTriggerHere = useCallback(() => {
-    if (!current) return;
-    const atMs = status.positionMs;
-    const next = [
-      ...current.triggers.filter(item => item.atMs !== atMs),
-      { id: makeTriggerId(), atMs, note: '' },
-    ];
-    persistTriggers(current.id, next);
-  }, [current, persistTriggers, status.positionMs]);
-
-  const removeTrigger = useCallback(triggerId => {
-    if (!current) return;
-    persistTriggers(current.id, current.triggers.filter(item => item.id !== triggerId));
-  }, [current, persistTriggers]);
 
   const handleDelete = useCallback(item => {
     if (!item) return;

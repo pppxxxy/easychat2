@@ -209,12 +209,15 @@ test('切换翻页方式：先停表复位再换结构（原生动画节点被�
 });
 
 test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系统区', () => {
-  const view = readSource('src/books/BookReaderView.js');
+  // 目录/评论两个全屏弹层已外提为组件，modalTopBar 的接线断言读新文件。
+  const chaptersModal = readSource('src/books/BookChaptersModal.js');
+  const commentsModal = readSource('src/books/BookCommentsModal.js');
   const styles = readSource('src/books/bookReaderStyles.js');
   assert.ok(/READER_INSET_BOTTOM = 56/.test(styles), '正文底部内缩放宽（让开系统导航栏）');
   assert.ok(/bottomBar:\s*\{[\s\S]{0,300}?paddingBottom:\s*24/.test(styles),
     '底栏自身留出安全边距，最后一行进度字不再被遮一半');
-  assert.ok(view.includes('styles.modalTopBar'), '目录与评论页用非浮层顶栏');
+  assert.ok(chaptersModal.includes('styles.modalTopBar') && commentsModal.includes('styles.modalTopBar'),
+    '目录与评论页用非浮层顶栏');
   assert.ok(styles.includes('modalTopBar: {'), '样式已定义');
   // 阅读页那套 topBar 是 absolute 贴屏幕顶，全屏 Modal 里复用会把标题顶进状态栏
   assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(styles), 'Modal 顶部内缩同步放宽');
@@ -222,11 +225,13 @@ test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系�
 
 test('章节目录：搜索 + 当前章标记 + 按章进度三态', () => {
   const view = readSource('src/books/BookReaderView.js');
+  // 目录弹层的展示（搜索框、三态进度、当前章标记）已外提，文案断言读新文件。
+  const chaptersModal = readSource('src/books/BookChaptersModal.js');
   // 搜索
   assert.ok(view.includes('chapterQuery'), '有搜索关键词状态');
   assert.ok(view.includes('filteredChapters'), '按关键词过滤');
-  assert.ok(view.includes("t('books.reader.chapter.search')"), '搜索框文案');
-  assert.ok(view.includes("t('books.reader.chapter.noMatch')"), '无匹配文案');
+  assert.ok(chaptersModal.includes("t('books.reader.chapter.search')"), '搜索框文案');
+  assert.ok(chaptersModal.includes("t('books.reader.chapter.noMatch')"), '无匹配文案');
   // 过滤后仍按原下标高亮与跳转（否则搜索一次就会跳错章）
   assert.ok(/chapterEntries[\s\S]{0,200}?index,/.test(view) || view.includes('({ ...chapter, index })'),
     '章节条目携带原下标');
@@ -235,16 +240,17 @@ test('章节目录：搜索 + 当前章标记 + 按章进度三态', () => {
   assert.ok(!view.includes('chapterReadPercent'), '不得保留位置反推的 chapterReadPercent（虚报根源）');
   assert.ok(view.includes('computeChapterPercent'), '当前章用页粒度纯函数计算');
   assert.ok(view.includes('chapterProgressMap'), '目录读显式记录的按章进度映射');
-  assert.ok(view.includes("t('books.reader.chapter.current')"), '「正在阅读」标记');
-  assert.ok(view.includes("t('books.reader.chapter.unread')"), '未记录的章显示「未读」');
-  assert.ok(/t\('books\.reader\.chapter\.progress',\s*\{\s*percent/.test(view), '百分比文案带参数');
-  assert.ok(view.includes("t('books.reader.chapter.done')"), '读满显示已读完');
+  assert.ok(chaptersModal.includes("t('books.reader.chapter.current')"), '「正在阅读」标记');
+  assert.ok(chaptersModal.includes("t('books.reader.chapter.unread')"), '未记录的章显示「未读」');
+  assert.ok(/t\('books\.reader\.chapter\.progress',\s*\{\s*percent/.test(chaptersModal), '百分比文案带参数');
+  assert.ok(chaptersModal.includes("t('books.reader.chapter.done')"), '读满显示已读完');
 });
 
 test('章节目录：打开定位/跳章跟随当前章，虚拟化窗口外有兜底', () => {
   const view = readSource('src/books/BookReaderView.js');
-  // ref 接到章节 FlatList 本体（而非其它列表）
-  const listBlock = view.slice(view.indexOf('<FlatList'), view.indexOf('<ChapterScrubber'));
+  const chaptersModal = readSource('src/books/BookChaptersModal.js');
+  // ref 接到章节 FlatList 本体（而非其它列表）——列表已随目录弹层外提
+  const listBlock = chaptersModal.slice(chaptersModal.indexOf('<FlatList'), chaptersModal.indexOf('<ChapterScrubber'));
   assert.ok(listBlock.length > 0, '必须能截出章节 FlatList');
   assert.ok(listBlock.includes('ref={chapterListRef}'), '章节 FlatList 必须有 ref');
   assert.ok(listBlock.includes('onScrollToIndexFailed={onChapterScrollToIndexFailed}'), '必须接 scrollToIndex 失败兜底');
@@ -289,10 +295,11 @@ test('DEV 行数守卫：可见页实测行数超过分页分配即告警', () =
 });
 
 test('章节定位条：打开停在当前章，拖动时显示第几章', () => {
-  const view = readSource('src/books/BookReaderView.js');
+  // 定位条已随目录弹层外提，接线断言读新文件。
+  const chaptersModal = readSource('src/books/BookChaptersModal.js');
   const scrubber = readSource('src/books/ChapterScrubber.js');
-  assert.ok(view.includes('ChapterScrubber'), '目录页接入定位条');
-  assert.ok(/currentIndex=\{currentChapterIndex\}/.test(view), '把当前章交给定位条');
+  assert.ok(chaptersModal.includes('ChapterScrubber'), '目录页接入定位条');
+  assert.ok(/currentIndex=\{currentChapterIndex\}/.test(chaptersModal), '把当前章交给定位条');
   assert.ok(/yFromIndex\(next\)/.test(scrubber), '打开时滑块摆到当前章位置');
   assert.ok(/t\('books\.reader\.chapter\.position',\s*\{\s*index:/.test(scrubber),
     '拖动时显示「第 N / M 章」');
@@ -305,8 +312,10 @@ test('章节定位条：打开停在当前章，拖动时显示第几章', () =>
 
 test('陪读评论：本页 + 整章两个入口，按钮写明角色名', () => {
   const view = readSource('src/books/BookReaderView.js');
-  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(view), '本页入口带角色名');
-  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(view), '整章入口带角色名');
+  // 两个生成入口的按钮已外提到评论弹层，文案断言读新文件。
+  const commentsModal = readSource('src/books/BookCommentsModal.js');
+  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(commentsModal), '本页入口带角色名');
+  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(commentsModal), '整章入口带角色名');
   assert.ok(view.includes('activeCharacterName'), '角色名取自当前选中的角色卡');
   assert.ok(view.includes('activeCharacter'), '按 characterId 找角色卡');
   assert.ok(view.includes('handleCommentChapter'), '整章评论处理');

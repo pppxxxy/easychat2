@@ -108,7 +108,9 @@ test('非法输入安全降级：未知模板 / 无 store / 无写入能力 → 
 
 test('接线契约：设置面板有模板行与创建按钮；ChatPanel 转发安装；i18n 中英齐', () => {
   const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
-  assert.ok(sheet.includes("id: 'templates'"), '设置面板有模板行');
+  // 设置行元数据已外提，行 id 断言读新文件。
+  const rows = fs.readFileSync(path.resolve('src/workspace/settingsRows.js'), 'utf8');
+  assert.ok(rows.includes("id: 'templates'"), '设置面板有模板行');
   assert.ok(sheet.includes('WORKSPACE_TEMPLATES.map'), '展开区列出三套模板');
   assert.ok(sheet.includes('onInstallTemplate(template.id)'), '创建按钮转发模板 id');
 

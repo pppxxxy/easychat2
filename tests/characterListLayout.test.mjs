@@ -22,6 +22,8 @@ import { en } from '../src/i18n/locales/en.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = readFileSync(path.join(HERE, '..', 'src', 'character', 'CharacterLibraryScreen.js'), 'utf8');
+// 群聊创建弹层已外提到该模块，成员计数文案断言需读新文件。
+const GROUP_MODAL = readFileSync(path.join(HERE, '..', 'src', 'character', 'GroupCreateModal.js'), 'utf8');
 const STYLES = readFileSync(path.join(HERE, '..', 'src', 'character', 'characterStyles.js'), 'utf8');
 // 库列表 <FlatList ...> 的完整元素文本
 const flatListStart = SCREEN.indexOf('<FlatList');
@@ -138,7 +140,7 @@ test('角色库头部动作组可换行：英文长标签不再把按钮挤出�
   assert.ok(SCREEN.includes("t('character.library.select')"));
   assert.ok(SCREEN.includes("t('character.library.expandAll', { count: characterDisplayItems.length })"));
   assert.ok(SCREEN.includes("t('character.library.currentLabel', {"));
-  assert.ok(SCREEN.includes("t('character.library.group.selectMembers', { count: groupSelected.length })"));
+  assert.ok(GROUP_MODAL.includes("t('character.library.group.selectMembers', { count: groupSelected.length })"));
   // 词条两语言都在，英文确实较短（这是「挤不下」的根因）
   assert.equal(zhCN['character.library.select'], '多选');
   assert.equal(en['character.library.select'], 'Select');

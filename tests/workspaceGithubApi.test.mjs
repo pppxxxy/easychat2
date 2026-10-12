@@ -333,26 +333,31 @@ test('fetchTokenScopes / canDeleteRepo：读 x-oauth-scopes', async () => {
 const PANEL_SRC = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
 
 test('GithubPanel：四键工具条 + 仓库列表 + 当前仓库树 + 搜索（Stage 3a）', () => {
+  // 仓库列表加载已外提到 github/useRepoList.js；文件树浏览（导入/新建）已外提到 github/useRepoFiles.js。
+  const LIST_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoList.js'), 'utf8');
+  const FILES_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoFiles.js'), 'utf8');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.repos'), '① 仓库列表键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.importLocal'), '② 导入本地文件键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.newEntry'), '③ 新建键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.refresh'), '④ 刷新键');
-  assert.ok(PANEL_SRC.includes('listRepos('), '仓库列表走 REST');
+  assert.ok(LIST_SRC.includes('listRepos('), '仓库列表走 REST');
   assert.ok(PANEL_SRC.includes('directoryChildren(') && PANEL_SRC.includes('breadcrumbsOf('), '当前仓库树逐层下钻');
   assert.ok(PANEL_SRC.includes('workspace.github.search.placeholder'), '搜索框');
-  assert.ok(PANEL_SRC.includes('DocumentPicker'), '导入本地文件用系统选择器');
-  assert.ok(PANEL_SRC.includes('createWorkspaceDirectory(') && PANEL_SRC.includes('writeWorkspaceFile('), '新建文件/文件夹落盘');
-  assert.ok(PANEL_SRC.includes('refreshLocal') && PANEL_SRC.includes('loadRepos(1)'), '④ 刷新：重扫本地树 + 重拉列表');
+  assert.ok(FILES_SRC.includes('DocumentPicker'), '导入本地文件用系统选择器');
+  assert.ok(FILES_SRC.includes('createWorkspaceDirectory(') && FILES_SRC.includes('writeWorkspaceFile('), '新建文件/文件夹落盘');
+  assert.ok(PANEL_SRC.includes('refreshLocal') && LIST_SRC.includes('loadRepos(1)'), '④ 刷新：重扫本地树 + 重拉列表');
   assert.ok(!/<Modal/.test(PANEL_SRC), '面板内不再有 Modal（二级层都是面板内的层）');
   assert.ok(PANEL_SRC.includes('workspace.github.push.summary'), '底部推送条显示待同步增删');
 });
 
 test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
+  // ⑤⑥ 的状态与动作已外提到 github/useRepoManage.js；工具栏键与红线 UI 仍在面板。
+  const MANAGE_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoManage.js'), 'utf8');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.createRepo'), '⑤ 新建仓库键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.manage'), '⑥ 仓库管理键');
-  assert.ok(PANEL_SRC.includes('createRepo('), '建仓库走 REST');
-  assert.ok(PANEL_SRC.includes('renameRepo('), '重命名走 REST');
-  assert.ok(PANEL_SRC.includes('deleteRepo('), '删除走 REST');
+  assert.ok(MANAGE_SRC.includes('createRepo('), '建仓库走 REST');
+  assert.ok(MANAGE_SRC.includes('renameRepo('), '重命名走 REST');
+  assert.ok(MANAGE_SRC.includes('deleteRepo('), '删除走 REST');
   // 红线三层，缺一不可：
   // ① UI：必须手动输入完整仓库名（按钮的禁用条件就是它）
   assert.ok(
@@ -364,23 +369,25 @@ test('GithubPanel：⑤⑥ + 删除三层守卫（Stage 3b）', () => {
   assert.ok(PANEL_SRC.includes('workspace.github.manage.deleteNoScope'), '② 无 scope 时的明确引导');
   // ③ 后端：restApi.deleteRepo 的 confirm 逐字守卫（单测已证「不匹配不发请求」）
   assert.ok(
-    /deleteRepo\(\{ token, owner: current\.owner, repo: current\.repo, confirm: fullName \}\)/.test(PANEL_SRC),
+    /deleteRepo\(\{ token, owner: current\.owner, repo: current\.repo, confirm: fullName \}\)/.test(MANAGE_SRC),
     '③ 后端 confirm 守卫'
   );
-  assert.ok(PANEL_SRC.includes('repoWebUrl('), '复制仓库链接');
+  assert.ok(MANAGE_SRC.includes('repoWebUrl('), '复制仓库链接');
   // 面板不删本地文件（远端删除不会连带删本地副本）。
   assert.ok(!PANEL_SRC.includes('deleteFile('), '不自动删本地副本');
 });
 
 test('GithubPanel：快照 diff + 一键交接给助手推送', () => {
+  // 推送/回滚/交接动作已外提到 github/useRepoPush.js。
+  const PUSH_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPush.js'), 'utf8');
   assert.ok(PANEL_SRC.includes('diffRepoSnapshot('), '待同步由快照 diff 算出（不是假数字）');
-  assert.ok(PANEL_SRC.includes('getRepoSnapshot(') && PANEL_SRC.includes('setRepoSnapshot('), '基线读写存储域');
-  assert.ok(PANEL_SRC.includes('localRepoPaths('), '拉取成功后用实际清单刷新基线');
+  assert.ok(PANEL_SRC.includes('getRepoSnapshot(') && PUSH_SRC.includes('setRepoSnapshot('), '基线读写存储域');
+  assert.ok(PUSH_SRC.includes('localRepoPaths('), '拉取成功后用实际清单刷新基线');
   assert.ok(PANEL_SRC.includes('workspace.github.push.none'), '无待同步时如实显示');
   assert.ok(PANEL_SRC.includes('workspace.github.push.contentNote'), '如实标注「内容改动判定不了」');
-  assert.ok(PANEL_SRC.includes('workspace.github.push.handoff') && PANEL_SRC.includes('onHandoff('),
+  assert.ok(PANEL_SRC.includes('workspace.github.push.handoff') && PUSH_SRC.includes('onHandoff('),
     '一键交接把指令交给对话面板');
-  assert.ok(PANEL_SRC.includes('workspace.github.push.instructionHead'), '交接指令含仓库与分支');
+  assert.ok(PUSH_SRC.includes('workspace.github.push.instructionHead'), '交接指令含仓库与分支');
   assert.ok(PANEL_SRC.includes('workspace.github.push.markSynced'), '推送成功后手动确认新基线');
   // 本面板不直连推送：写远端一律经助手 + 逐条确认（面板里不得出现 MCP 推送调用）。
   assert.ok(!PANEL_SRC.includes('push_files'), '面板不直接调 GitHub 推送');

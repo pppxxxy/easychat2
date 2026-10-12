@@ -56,7 +56,10 @@ test('useBookComments：读失败必须暴露给面板，不得吞成「还没�
 
   // 错误条与「还没有评论」**不得同时出现**：错误条写着「评论还在，只是这次没读出来」，
   // 紧接一行「还没有评论」会把那句话当场取消掉（两句互相矛盾，闭环等于被抹平）。
-  const panel = stripComments(readSource('src/books/BookReaderView.js'));
+  // ⚠️ 两线合并（2026-10-12）：该断言原本读 BookReaderView.js，而 m1012m30 已把评论弹层
+  // 整块抽到 books/BookCommentsModal.js ⇒ 断言改读新落点。⚠️ 抽取时**丢了 main 侧的
+  // `!commentError` 守卫**（只搬了旧版），合并时已补回 —— 这条断言正是它的护栏。
+  const panel = stripComments(readSource('src/books/BookCommentsModal.js'));
   assert.ok(/comments\.length === 0 && !generating && !commentError/.test(panel),
     '读失败时不得再渲染「还没有评论」');
 
@@ -68,15 +71,17 @@ test('useBookComments：读失败必须暴露给面板，不得吞成「还没�
 
 test('BookReaderView：页面摘录与接话接线', () => {
   const source = readSource('src/books/BookReaderView.js');
+  // 两个生成入口的按钮已外提到评论弹层组件，文案断言读新文件。
+  const commentsModal = readSource('src/books/BookCommentsModal.js');
   assert.ok(source.includes('pageText(reader.lines, reader.page'), '评论摘录必须取当前页行文本');
   assert.ok(source.includes('blockIndex: reader.blockIndex') && source.includes('anchorText'),
     '请求必须带位置（块号+锚文本）');
   assert.ok(source.includes('ensureCharacterSession'), '接话前必须确保该角色会话存在');
   assert.ok(source.includes('navigation.navigate(ROUTE_NAMES.chat)'), '接话切到聊天页（路由名走常量）');
   // 两个生成入口都要在，且文案里带的是具体角色名（原来是一句「让TA聊聊这一页」）
-  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(source),
+  assert.ok(/t\('books\.comments\.generate',\s*\{\s*character:/.test(commentsModal),
     '本页入口存在且带角色名');
-  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(source),
+  assert.ok(/t\('books\.comments\.generateChapter',\s*\{\s*character:/.test(commentsModal),
     '整章入口存在且带角色名');
   assert.ok(source.includes('handleCommentChapter'), '整章评论按当前章取摘录');
   assert.ok(source.includes('setShowComments(false)'), '接话离开前关闭评论面板');

@@ -154,11 +154,13 @@ test('能力说明卡片：接入 i18n、零硬编码中文、按当前设置渲
 test('P4-2：思考强度与上下文占用收敛到单一来源（对话面板 ⚙），文件面板不再重复', () => {
   const files = readSource('src/workspace/screen/FilesPanel.js');
   const sheet = readSource('src/workspace/WorkspaceSettingsSheet.js');
+  // 设置行元数据已外提，行 id 断言读新文件。
+  const rows = readSource('src/workspace/settingsRows.js');
   // 单一来源：对话面板的设置面板里两行都在，且都是可交互的
-  assert.ok(sheet.includes("id: 'thinking'"), '思考强度行在设置面板');
+  assert.ok(rows.includes("id: 'thinking'"), '思考强度行在设置面板');
   assert.ok(sheet.includes('onSelectThinking'), '思考强度可改（不是只读回显）');
   assert.ok(sheet.includes('t(`workspace.panel.thinking.${choice}`)'), '档位文案走词条');
-  assert.ok(sheet.includes("id: 'usage'"), '上下文占用行在设置面板');
+  assert.ok(rows.includes("id: 'usage'"), '上下文占用行在设置面板');
   assert.ok(sheet.includes("t('workspace.panel.context.usage', {"), '占用文案走词条（token 数与百分比）');
   assert.ok(sheet.includes("t('workspace.panel.context.empty')"), '无会话有空态文案');
   // 文件面板不得再出现第二处：那里是「文件」领域，调 agent 参数属于范畴错误，
@@ -231,14 +233,16 @@ test('D1 文件面板：导入文件到当前目录（技能生态通路，落�
 
 test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清（成功才清）', () => {
   const github = readSource('src/workspace/screen/GithubPanel.js');
+  // 拉取动作已外提到 github/useRepoPull.js：残留提示与写/清/批结算顺序读新文件。
+  const pull = readSource('src/workspace/screen/github/useRepoPull.js');
   assert.ok(github.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');
   assert.ok(github.includes("t('workspace.github.pull.foreground', { eta: pullEta })"), '写入阶段带剩余秒数估算');
-  assert.ok(github.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
+  assert.ok(pull.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
   // 顺序契约：先写清单、批结算之后才清——失败/取消路径（在清之前就跳出）保留清单，
   // 下次拉取才能检出「上次没跑完」。
-  const writeAt = github.indexOf('await writePullManifest(');
-  const clearAt = github.indexOf('await clearPullManifest(');
-  const endBatchAt = github.indexOf('store.endBatch?.()');
+  const writeAt = pull.indexOf('await writePullManifest(');
+  const clearAt = pull.indexOf('await clearPullManifest(');
+  const endBatchAt = pull.indexOf('store.endBatch?.()');
   assert.ok(writeAt > 0 && clearAt > 0 && endBatchAt > 0, '写/清/批结算都在');
   assert.ok(writeAt < clearAt, '先写清单后清理');
   assert.ok(endBatchAt < clearAt, '清单在真正成功后才清（批结算之后）');
@@ -263,20 +267,24 @@ test('E5 历史浏览与 PR 接线：面板走 restApi、大 diff 截断、PR �
 
 test('G1/G2 推送删除安全 + 跳过可见 接线契约：基线注入 / 清单落盘 / 查看入口', () => {
   const github = readSource('src/workspace/screen/GithubPanel.js');
+  // 推送动作已外提到 github/useRepoPush.js：基线注入与超限提示读新文件。
+  const pushHook = readSource('src/workspace/screen/github/useRepoPush.js');
   // G1：推送前读基线并注入（「曾经物化过」的证据）——缺失时传空数组（removed 恒空）
-  assert.ok(github.includes('await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`)'), '推送前读基线');
-  assert.ok(github.includes('baselinePaths,'), '基线传入 pushRepoSnapshot');
+  assert.ok(pushHook.includes('await getRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`)'), '推送前读基线');
+  assert.ok(pushHook.includes('baselinePaths,'), '基线传入 pushRepoSnapshot');
   // G2：拉取完成后写清单（成功路径）；面板挂载读取（跨会话保留）
-  assert.ok(github.includes('await writePullSkipped(store, characterId, skippedPayloadNext)'), '拉取成功后写跳过清单');
-  assert.ok(github.includes('await readPullSkipped(storeRef && storeRef.current, characterId)'), '挂载时读清单');
+  // 拉取域已外提到 github/useRepoPull.js：写/读清单与顺序契约读新文件。
+  const pull = readSource('src/workspace/screen/github/useRepoPull.js');
+  assert.ok(pull.includes('await writePullSkipped(store, characterId, skippedPayloadNext)'), '拉取成功后写跳过清单');
+  assert.ok(pull.includes('await readPullSkipped(storeRef && storeRef.current, characterId)'), '挂载时读清单');
   assert.ok(github.includes("t('workspace.github.skipped.view', { count: skippedPayload.total })"), '查看清单入口（带计数）');
   assert.ok(github.includes('formatSkippedList(skippedPayload)'), '清单文本用纯函数格式化');
   // 顺序契约：写清单在「清残留 manifest」之后（= 真正成功路径），失败/取消不写
-  const clearManifestAt = github.indexOf('await clearPullManifest(store, characterId)');
-  const writeSkippedAt = github.indexOf('await writePullSkipped(');
+  const clearManifestAt = pull.indexOf('await clearPullManifest(store, characterId)');
+  const writeSkippedAt = pull.indexOf('await writePullSkipped(');
   assert.ok(clearManifestAt > 0 && writeSkippedAt > clearManifestAt, '清单只在成功路径写');
   // G 系超限记账：完成提示带「过大未参与同步」（不静默）
-  assert.ok(github.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');
+  assert.ok(pushHook.includes("t('workspace.github.push.skippedTooLarge'"), '超大文件跳过如实提示');
 });
 
 test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照顺序', () => {
@@ -292,11 +300,12 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
   // H2：diff 用 DiffView（unified 文本输入——E5 commit 详情升级）
   assert.ok(github.includes('<DiffView'), 'diff 走 DiffView 组件');
   assert.ok(github.includes('unified={historyDiff.text}'), 'unified 文本作为输入');
-  // H3：推送成功写基线 + 回滚入口 + 应用恢复
-  assert.ok(github.includes('writeRollbackSnapshot(store, characterId, payload)'), '推送成功写回滚基线');
-  assert.ok(github.includes('applyRollbackSnapshot('), '回滚应用到本地');
+  // H3：推送成功写基线 + 回滚入口 + 应用恢复（写/读/应用已外提到 github/useRepoPush.js）
+  const pushHook = readSource('src/workspace/screen/github/useRepoPush.js');
+  assert.ok(pushHook.includes('writeRollbackSnapshot(store, characterId, payload)'), '推送成功写回滚基线');
+  assert.ok(pushHook.includes('applyRollbackSnapshot('), '回滚应用到本地');
   assert.ok(github.includes("t('workspace.github.rollback.action')"), '回滚入口（快照存在才显示）');
-  assert.ok(github.includes('readLatestRollbackSnapshot(store, characterId)'), '回滚读最新快照');
+  assert.ok(pushHook.includes('readLatestRollbackSnapshot(store, characterId)'), '回滚读最新快照');
   // 顺序契约（repoPush）：基线拉取在确认之后——用户取消就不拉（不白费网络）
   const push = readSource('src/workspace/repoPush.js');
   const confirmAt = push.indexOf('const proceed = await confirm({ diff, baselineMissing })');
@@ -317,7 +326,8 @@ test('H1/H2/H3 接线契约：云构建入口 / DiffView 渲染 / 回滚快照�
 // 这里是**结构守卫**：安全网的三个要素（永久删除警示 / 无基线说明 / 异常量二次确认）
 // 被静默删掉时立刻红，而不是等真机上误删才发现。
 test('G1 确认弹窗安全网：警示 + 无基线说明 + 异常删除量二次确认，三者缺一不可', () => {
-  const panel = readSource('src/workspace/screen/GithubPanel.js');
+  // 确认门已外提到 github/useRepoPush.js。
+  const panel = readSource('src/workspace/screen/github/useRepoPush.js');
   const push = readSource('src/workspace/repoPush.js');
   // ① 弹窗按「永久删除」警示与「保留原样」数量组织文案
   assert.ok(panel.includes('workspace.github.push.confirmDeleteWarn'), '必须警示删除不可逆');

@@ -244,7 +244,9 @@ test('接线契约：ChatPanel 每轮直读技能并传入；设置面板可安�
   assert.ok(/skills,\n\s*\}\);/.test(panel) || panel.includes('skills,'), 'skills 传进提示组装');
 
   const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
-  assert.ok(sheet.includes("id: 'skills'"), '设置面板有技能行');
+  // 设置行元数据已外提，行 id 断言读新文件。
+  const rows = fs.readFileSync(path.resolve('src/workspace/settingsRows.js'), 'utf8');
+  assert.ok(rows.includes("id: 'skills'"), '设置面板有技能行');
   assert.ok(sheet.includes('onInstallSampleSkills'), '安装示例按钮接线');
 
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/workspace.js'), 'utf8');

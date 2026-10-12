@@ -29,6 +29,7 @@ import { AGENTS_DIR, AGENT_LIST_MAX } from './agents.js';
 import { summarizeSessionEvents } from './sessionEventView.js';
 import { TEAMS_DIR } from './teams.js';
 import { WORKSPACE_TEMPLATES } from './templates.js';
+import { buildActionRows, buildSettingsRows } from './settingsRows.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
@@ -192,129 +193,25 @@ export default function WorkspaceSettingsSheet({
     { key: 'sessionEventsMaxKb', label: t('workspace.settings.retention.sessionEventsMaxKb'), bounds: RETENTION_BOUNDS.sessionEventsMaxKb },
   ];
 
-  const rows = [
-    {
-      id: 'model',
-      icon: 'cube-outline',
-      label: t('workspace.settings.model'),
-      value: activeModel || t('workspace.settings.model.empty'),
-    },
-    {
-      id: 'thinking',
-      icon: 'bulb-outline',
-      label: t('workspace.settings.thinking'),
-      value: t(`workspace.panel.thinking.${thinkingKey}`),
-    },
-    {
-      id: 'mode',
-      icon: 'options-outline',
-      label: t('workspace.settings.mode'),
-      value: t(`settings.workspace.mode.${MODE_CHOICES.includes(mode) ? mode : 'ask'}`),
-    },
-    {
-      id: 'character',
-      icon: 'person-circle-outline',
-      label: t('workspace.settings.character'),
-      value: (activeCharacter && activeCharacter.name) || t('workspace.settings.character.none'),
-    },
-    {
-      id: 'usage',
-      icon: 'analytics-outline',
-      label: t('workspace.settings.usage'),
-      value: usage ? `${Math.round((usage.ratio || 0) * 100)}%` : t('workspace.settings.usage.empty'),
-    },
-    {
-      // P1-11：旁路数据的保留口径（三个上限）。摘要用生效值，改完立即反映。
-      id: 'retention',
-      icon: 'archive-outline',
-      label: t('workspace.settings.retention'),
-      value: t('workspace.settings.retention.value', {
-        history: retentionEffective.historyKeep,
-        rollback: retentionEffective.rollbackKeep,
-        kb: retentionEffective.sessionEventsMaxKb,
-      }),
-    },
-    {
-      id: 'skills',
-      icon: 'sparkles-outline',
-      label: t('workspace.settings.skills'),
-      value: skills.length > 0
-        ? t('workspace.settings.skills.count', { count: skills.length })
-        : t('workspace.settings.skills.emptyShort'),
-    },
-    {
-      id: 'agents',
-      icon: 'people-outline',
-      label: t('workspace.settings.agents'),
-      value: agents.length > 0
-        ? t('workspace.settings.agents.count', { count: agents.length })
-        : t('workspace.settings.agents.emptyShort'),
-    },
-    {
-      id: 'sessionLog',
-      icon: 'pulse-outline',
-      label: t('workspace.settings.events'),
-      value: sessionEventView.total > 0
-        ? t('workspace.settings.events.count', { count: sessionEventView.total })
-        : t('workspace.settings.events.emptyShort'),
-    },
-    {
-      id: 'mcp',
-      icon: 'apps-outline',
-      label: t('workspace.settings.mcp'),
-      value: mcpView.enabled > 0
-        ? t('workspace.settings.mcp.count', { enabled: mcpView.enabled, total: mcpView.total })
-        : (mcpView.total > 0 ? t('workspace.settings.mcp.allOff') : t('workspace.settings.mcp.emptyShort')),
-    },
-    {
-      id: 'teams',
-      icon: 'people-outline',
-      label: t('workspace.settings.teams'),
-      value: teams.length > 0
-        ? t('workspace.settings.teams.count', { count: teams.length })
-        : t('workspace.settings.teams.emptyShort'),
-    },
-    {
-      id: 'board',
-      icon: 'albums-outline',
-      label: t('workspace.settings.board'),
-      value: boardTopics.length > 0
-        ? t('workspace.settings.board.count', { count: boardTopics.length })
-        : t('workspace.settings.board.emptyShort'),
-    },
-    {
-      id: 'commands',
-      icon: 'terminal-outline',
-      label: t('workspace.settings.commands'),
-      value: commands.length > 0
-        ? t('workspace.settings.commands.count', { count: commands.length })
-        : t('workspace.settings.commands.emptyShort'),
-    },
-    {
-      id: 'permissions',
-      icon: 'shield-checkmark-outline',
-      label: t('workspace.settings.permissions'),
-      value: permissionRules.length > 0
-        ? t('workspace.settings.permissions.count', { count: permissionRules.length })
-        : t('workspace.settings.permissions.emptyShort'),
-    },
-    {
-      id: 'hooks',
-      icon: 'git-branch-outline',
-      label: t('workspace.settings.hooks'),
-      value: (() => {
-        const parsed = parseWorkspaceHooks(hooksText);
-        const count = HOOK_EVENTS.reduce((sum, event) => sum + (Array.isArray(parsed[event]) ? parsed[event].length : 0), 0);
-        return count > 0 ? t('workspace.settings.hooks.count', { count }) : 'hooks.json';
-      })(),
-    },
-    {
-      id: 'templates',
-      icon: 'layers-outline',
-      label: t('workspace.settings.templates'),
-      value: t('workspace.settings.templates.count', { count: WORKSPACE_TEMPLATES.length }),
-    },
-  ];
+  const rows = buildSettingsRows({
+    t,
+    activeModel,
+    thinkingKey,
+    mode,
+    activeCharacter,
+    usage,
+    retentionEffective,
+    skillsCount: skills.length,
+    agentsCount: agents.length,
+    sessionEventTotal: sessionEventView.total,
+    mcpEnabled: mcpView.enabled,
+    mcpTotal: mcpView.total,
+    teamsCount: teams.length,
+    boardTopicsCount: boardTopics.length,
+    commandsCount: commands.length,
+    permissionRulesCount: permissionRules.length,
+    hooksText,
+  });
 
   const renderBody = id => {
     if (id === 'model') {
@@ -796,46 +693,7 @@ export default function WorkspaceSettingsSheet({
     return null;
   };
 
-  const actionRows = [
-    {
-      id: 'import',
-      icon: 'download-outline',
-      label: t('workspace.settings.import'),
-      hint: t('workspace.settings.import.hint'),
-      busy: importBusy,
-      onPress: () => onImportFile && onImportFile(),
-    },
-    {
-      id: 'export',
-      icon: 'document-text-outline',
-      label: t('workspace.settings.export'),
-      hint: t('workspace.settings.export.hint'),
-      onPress: () => {
-        if (onClose) onClose();
-        if (onOpenPanel) onOpenPanel('docx');
-      },
-    },
-    {
-      id: 'history',
-      icon: 'folder-open-outline',
-      label: t('workspace.settings.files'),
-      hint: t('workspace.settings.history.hint'),
-      onPress: () => {
-        if (onClose) onClose();
-        if (onOpenPanel) onOpenPanel('viewer');
-      },
-    },
-    {
-      id: 'env',
-      icon: 'construct-outline',
-      label: t('workspace.settings.env'),
-      hint: t('workspace.settings.env.hint'),
-      onPress: () => {
-        if (onClose) onClose();
-        if (onOpenPanel) onOpenPanel('catalog');
-      },
-    },
-  ];
+  const actionRows = buildActionRows({ t, importBusy, onImportFile, onClose, onOpenPanel });
 
   // 面板内容抽出：embedded（对话面板内嵌）与 Modal 两种外壳共用，避免两处漂移。
   const sheetContent = (

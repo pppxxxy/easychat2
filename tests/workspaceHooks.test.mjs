@@ -281,8 +281,9 @@ test('接线契约：两页把钩子规则接进 runTool；工具层追加通知
   assert.ok(tools.includes("'after_edit'"), '编辑工具接 after_edit');
   assert.ok(tools.includes('[工作区钩子]'), '通知追加进工具结果（模型可见）');
 
-  const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
-  assert.ok(sheet.includes("id: 'hooks'"), '设置面板有钩子说明行');
+  // 设置行元数据已外提，行 id 断言读新文件。
+  const rows = fs.readFileSync(path.resolve('src/workspace/settingsRows.js'), 'utf8');
+  assert.ok(rows.includes("id: 'hooks'"), '设置面板有钩子说明行');
 
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/workspace.js'), 'utf8');
   const en = fs.readFileSync(path.resolve('src/i18n/locales/en/workspace.js'), 'utf8');

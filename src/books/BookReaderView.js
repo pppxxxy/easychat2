@@ -9,12 +9,8 @@ import {
   Alert,
   Animated,
   Easing,
-  FlatList,
-  Modal,
   PanResponder,
-  ScrollView,
   Text,
-  TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
@@ -22,7 +18,6 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { EmptyState, GhostButton } from '../ui/index.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useApp } from '../context/AppContext.js';
 
@@ -30,7 +25,8 @@ import { useTranslation } from '../i18n/I18nContext.js';
 
 import { splitBookIntoBlocks } from './blocks.js';
 import { computeChapterPercent, normalizeChapterProgress } from './chapterProgress.js';
-import ChapterScrubber from './ChapterScrubber.js';
+import BookChaptersModal from './BookChaptersModal.js';
+import BookCommentsModal from './BookCommentsModal.js';
 import { saveBookProgress } from './library.js';
 import { formatReadingPercent } from './commentPrompts.js';
 import { pageBodyText, pageText } from './pagination.js';
@@ -695,200 +691,44 @@ export default function BookReaderView({ item, content, onBack }) {
         </View>
       ) : null}
 
-      <Modal
+      <BookChaptersModal
         visible={showChapters}
-        animationType="slide"
-        onRequestClose={() => { setShowChapters(false); setChapterQuery(''); }}
-      >
-        <View style={[styles.container, styles.modalRoot]}>
-          <View style={styles.modalTopBar}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => { setShowChapters(false); setChapterQuery(''); }}
-            >
-              <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
-              <Text style={styles.backText}>{t('books.reader.returnToReading')}</Text>
-            </TouchableOpacity>
-            <Text style={styles.title}>{t('books.reader.chapterTitle')}</Text>
-            <View style={styles.topActions} />
-          </View>
-          {item.chapters.length === 0 ? (
-            <EmptyState
-              icon="list-outline"
-              title={t('books.reader.noChapters.title')}
-              description={t('books.reader.noChapters.body')}
-            />
-          ) : (
-            <View style={styles.chapterBody}>
-              <View style={styles.chapterSearchRow}>
-                <Ionicons name="search-outline" size={15} color={theme.colors.textFaint} />
-                <TextInput
-                  style={styles.chapterSearchInput}
-                  value={chapterQuery}
-                  onChangeText={setChapterQuery}
-                  placeholder={t('books.reader.chapter.search')}
-                  placeholderTextColor={theme.colors.textFaint}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
-                {chapterQuery ? (
-                  <TouchableOpacity onPress={() => setChapterQuery('')} hitSlop={8}>
-                    <Ionicons name="close-circle" size={15} color={theme.colors.textFaint} />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-              {filteredChapters.length === 0 ? (
-                <Text style={styles.chapterEmpty}>{t('books.reader.chapter.noMatch')}</Text>
-              ) : (
-                <FlatList
-                  data={filteredChapters}
-                  ref={chapterListRef}
-                  onScrollToIndexFailed={onChapterScrollToIndexFailed}
-                  keyExtractor={entry => `${entry.blockIndex}-${entry.index}`}
-                  contentContainerStyle={styles.chapterList}
-                  renderItem={({ item: entry }) => {
-                    const current = entry.index === currentChapterIndex;
-                    // 三态：未记录 → 未读；≥100 → 已读完；其余按记录的百分比。
-                    const percent = chapterProgressMap[entry.index];
-                    return (
-                      <TouchableOpacity
-                        style={[styles.chapterRow, current && styles.chapterRowCurrent]}
-                        onPress={() => {
-                          jumpToBlock(entry.blockIndex);
-                          setShowChapters(false);
-                          setChapterQuery('');
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.chapterRowMain}>
-                          <Text
-                            style={[styles.chapterText, current && styles.chapterTextCurrent]}
-                            numberOfLines={1}
-                          >
-                            {entry.title}
-                          </Text>
-                          {current ? (
-                            <Text style={styles.chapterCurrentBadge}>{t('books.reader.chapter.current')}</Text>
-                          ) : null}
-                        </View>
-                        <Text style={styles.chapterPercent}>
-                          {percent == null
-                            ? t('books.reader.chapter.unread')
-                            : percent >= 100
-                              ? t('books.reader.chapter.done')
-                              : t('books.reader.chapter.progress', { percent })}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              )}
-              <ChapterScrubber
-                chapters={chapterEntries}
-                currentIndex={currentChapterIndex}
-                onSeek={index => {
-                  const entry = chapterEntries[index];
-                  if (entry) jumpToBlock(entry.blockIndex);
-                }}
-              />
-            </View>
-          )}
-        </View>
-      </Modal>
+        onClose={() => { setShowChapters(false); setChapterQuery(''); }}
+        styles={styles}
+        theme={theme}
+        t={t}
+        item={item}
+        chapterQuery={chapterQuery}
+        setChapterQuery={setChapterQuery}
+        filteredChapters={filteredChapters}
+        chapterListRef={chapterListRef}
+        onChapterScrollToIndexFailed={onChapterScrollToIndexFailed}
+        currentChapterIndex={currentChapterIndex}
+        chapterProgressMap={chapterProgressMap}
+        jumpToBlock={jumpToBlock}
+        chapterEntries={chapterEntries}
+      />
 
-      <Modal visible={showComments} animationType="slide" onRequestClose={() => setShowComments(false)}>
-        <View style={[styles.container, styles.modalRoot]}>
-          <View style={styles.modalTopBar}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setShowComments(false)}>
-              <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
-              <Text style={styles.backText}>{t('books.reader.returnToReading')}</Text>
-            </TouchableOpacity>
-            <Text style={styles.title}>{t('books.comments.title')}</Text>
-            <View style={styles.topActions} />
-          </View>
-          <View style={styles.commentsBody}>
-            <Text style={styles.sectionHint}>{t('books.comments.characterLabel')}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-              {characters.map(entry => {
-                const selected = entry.id === characterId;
-                return (
-                  <TouchableOpacity
-                    key={entry.id}
-                    style={[styles.characterChip, selected && styles.characterChipActive]}
-                    onPress={() => setCharacterId(entry.id)}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[styles.characterChipText, selected && styles.characterChipTextActive]}
-                      numberOfLines={1}
-                    >
-                      {String(entry.name || '').trim() || t('common.characterFallback')}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <View style={styles.generateRow}>
-              <TouchableOpacity
-                style={styles.generateButton}
-                onPress={handleCommentOnPage}
-                disabled={generating || (paged ? reader.status !== MEASURE_READY : blocks.length === 0)}
-                activeOpacity={0.85}
-              >
-                {generating
-                  ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
-                  : <Ionicons name="chatbubbles" size={15} color={theme.colors.primaryContrast} />}
-                <Text style={styles.generateText}>
-                  {t('books.comments.generate', { character: activeCharacterName })}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.generateButton, styles.generateButtonChapter]}
-                onPress={handleCommentChapter}
-                disabled={generating || blocks.length === 0}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="book-outline" size={15} color={theme.colors.primarySoft} />
-                <Text style={[styles.generateText, styles.generateTextChapter]}>
-                  {t('books.comments.generateChapter', { character: activeCharacterName })}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {commentError ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{commentError}</Text>
-                <GhostButton title={t('common.retry')} small onPress={retry} />
-              </View>
-            ) : null}
-            {comments.length === 0 && !generating && !commentError ? ( // 读失败时不得再显示「还没有评论」：错误条写着「评论还在，只是这次没读出来」，紧接一行「还没有评论」会把那句话当场取消掉（两句互相矛盾）。
-              <Text style={styles.emptyComments}>
-                {characters.length > 0
-                  ? t('books.comments.empty', { character: t('common.characterFallback') })
-                  : t('books.comments.empty.noCharacter')}
-              </Text>
-            ) : null}
-            {comments.map(comment => (
-              <View key={comment.id} style={styles.commentCard}>
-                <View style={styles.commentHead}>
-                  <Text style={styles.commentName} numberOfLines={1}>
-                    {comment.characterName || t('common.characterFallback')}
-                    {comment.chapterTitle ? ` · ${comment.chapterTitle}` : ''}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.quoteButton}
-                    onPress={() => handleQuoteComment(comment)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.quoteButtonText}>{t('books.comments.quote')}</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.commentText}>{comment.text}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </Modal>
+      <BookCommentsModal
+        visible={showComments}
+        onClose={() => setShowComments(false)}
+        styles={styles}
+        theme={theme}
+        t={t}
+        characters={characters}
+        characterId={characterId}
+        setCharacterId={setCharacterId}
+        generating={generating}
+        commentError={commentError}
+        retry={retry}
+        comments={comments}
+        onCommentOnPage={handleCommentOnPage}
+        onCommentChapter={handleCommentChapter}
+        onQuoteComment={handleQuoteComment}
+        activeCharacterName={activeCharacterName}
+        pageGenerateDisabled={generating || (paged ? reader.status !== MEASURE_READY : blocks.length === 0)}
+        chapterGenerateDisabled={generating || blocks.length === 0}
+      />
 
       {pageTurnHint ? (
         <View style={styles.modeHint} pointerEvents="none">
