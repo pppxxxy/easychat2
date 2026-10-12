@@ -81,3 +81,38 @@ test('工作区主界面的角色名同步：JS 侧保证非空，Kotlin 侧可�
     '赋值不得再套 String(...)'
   );
 });
+
+// 已知案例二（打包失败，2026-10-12）：
+//   ScreenOverlayModule 查询无障碍开关时写了
+//     TextUtils.SimpleStringSplitter(':').apply { setString(raw) }
+//       .asSequence().map { it.trim() }…
+//   TextUtils.SimpleStringSplitter **同时**实现 Iterable<String> 与 Iterator<String>，而 Kotlin
+//   对这两种接收者都提供 asSequence() 重载 → CI 报：
+//     Overload resolution ambiguity between candidates:
+//       fun <T> Iterable<T>.asSequence(): Sequence<T>
+//       fun <T> Iterator<T>.asSequence(): Sequence<T>
+//   接收者类型因此未定，后面 map/any 的 lambda 参数 `it` 也一并变成 Unresolved reference。
+//   toList() / any() 只定义在 Iterable 上，没有二义。
+//
+// 这类错误 JS 侧 lint 与全部单测都看不见，只有 prebuild + gradle 才爆（反馈链最长），
+// 所以在这里静态兜住。
+test('Kotlin 源码：不得在 SimpleStringSplitter 上调用 asSequence()（Iterable/Iterator 二义）', () => {
+  const files = listKotlinFiles();
+  const offenders = [];
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8').replace(/\/\/[^\n]*/g, '');
+    // 同一个表达式里（SimpleStringSplitter 之后 200 字符内）出现 .asSequence() 即视为二义
+    const pattern = /SimpleStringSplitter[\s\S]{0,200}?\.asSequence\s*\(/g;
+    let match;
+    while ((match = pattern.exec(source))) {
+      const line = source.slice(0, match.index).split('\n').length;
+      offenders.push(`${path.relative('.', file)}:${line}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'SimpleStringSplitter 同时是 Iterable 与 Iterator，asSequence() 会二义、compileReleaseKotlin 失败；'
+      + '请改用 .toList()（或直接 .any { … }）：\n' + offenders.join('\n')
+  );
+});
