@@ -183,13 +183,13 @@ export default function TtsPanel({ visible, onClose }) {
                     ]}
                      onPress={() => {
                       if (unavailable) {
-                        Alert.alert(t('tts.alert.unsupported.title'), t('tts.alert.unsupported.body', { name: item.label, note: item.unsupportedNote || t('tts.alert.unsupported.defaultNote') }));
+                        Alert.alert(t('tts.alert.unsupported.title'), t('tts.alert.unsupported.body', { name: t(item.labelKey), note: item.unsupportedNoteKey ? t(item.unsupportedNoteKey) : t('tts.alert.unsupported.defaultNote') }));
                         return;
                       }
                       persist({ ...settingsRef.current, activeProvider: item.id });
                     }}
                      activeOpacity={0.85}
-                    accessibilityLabel={unavailable ? t('tts.a11y.providerUnsupported', { name: item.label }) : item.label}
+                    accessibilityLabel={unavailable ? t('tts.a11y.providerUnsupported', { name: t(item.labelKey) }) : t(item.labelKey)}
                   >
                     <Text
                       style={[
@@ -198,7 +198,7 @@ export default function TtsPanel({ visible, onClose }) {
                         unavailable && styles.providerTextUnsupported,
                       ]}
                     >
-                      {unavailable ? t('tts.providerUnsupported', { name: item.label }) : item.label}
+                      {unavailable ? t('tts.providerUnsupported', { name: t(item.labelKey) }) : t(item.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -207,17 +207,17 @@ export default function TtsPanel({ visible, onClose }) {
 
             {provider.unsupported ? (
               <FieldHint style={styles.hint}>
-                {t('tts.unsupportedHint', { note: provider.unsupportedNote || t('tts.unsupportedHint.defaultNote') })}
+                {t('tts.unsupportedHint', { note: provider.unsupportedNoteKey ? t(provider.unsupportedNoteKey) : t('tts.unsupportedHint.defaultNote') })}
               </FieldHint>
             ) : null}
 
             {loaded ? provider.fields.map(field => (
               <View key={field.key}>
-                <FieldLabel style={styles.label}>{field.label}</FieldLabel>
+                <FieldLabel style={styles.label}>{t(field.labelKey)}</FieldLabel>
                 <TextField
                   value={String(providerConfig[field.key] || '')}
                   onChangeText={value => setField(field.key, value)}
-                  placeholder={field.placeholder || ''}
+                  placeholder={field.placeholderKey ? t(field.placeholderKey) : (field.placeholder || '')}
                   secureTextEntry={field.secret === true}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -265,7 +265,7 @@ export default function TtsPanel({ visible, onClose }) {
                 onPress={openKeyUrl}
                 activeOpacity={0.8}
                 accessibilityRole="link"
-                accessibilityLabel={t('tts.a11y.getApiKey', { name: provider.label })}
+                accessibilityLabel={t('tts.a11y.getApiKey', { name: t(provider.labelKey) })}
               >
                 <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
                 <Text style={styles.keyLinkText}>{t('tts.getApiKey')}</Text>

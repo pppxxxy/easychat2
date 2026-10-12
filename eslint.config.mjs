@@ -135,12 +135,13 @@ export default [
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
+      // 2026-10-12：src/tts/providers.js 已迁出（label→labelKey 复用 tts.providerName.*；
+      // field.label/placeholder→*Key；unsupportedNote→unsupportedNoteKey）。
       // 2026-10-12：src/plugins/providers.js 已迁出（provider/keyLink 的 label → 仅 labelKey，
       // 删掉冗余中文/英文兜底；PluginPanel 简化成 t(labelKey)）。
       // 2026-10-12：src/settings/presets.js 已迁出——导出常量只留 id + nameKey/descriptionKey，
       // 名称/描述进 preset.builtin.* 词条；提示词搬到**未导出**的 BUILTIN_PROMPTS
       //（模型输入，按铁律不进 i18n，规则本来也不查未导出常量）。
-      'src/tts/providers.js',
       'src/workspace/plugins/market.js',
     ],
     // 插件命名空间用 local-i18n：ESLint flat config 不允许在两个配置对象里重复定义

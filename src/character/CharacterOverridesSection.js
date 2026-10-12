@@ -40,31 +40,10 @@ function nameOf(item) {
   return String((item && (item.name || item.id)) || '');
 }
 
-// provider id → i18n 词条 key。**不能**直接拼 `tts.providerName.${id}`：provider id 里
-// 有连字符（xiaomi-mimo / iflytek-spark / tencent-cloud），而词条 key 只允许字母数字段
-//（tests/i18n.test.mjs 的格式不变量）。新增 provider 时在这里补一行 + 两个语言的词条。
-const TTS_PROVIDER_NAME_KEYS = {
-  system: 'tts.providerName.system',
-  'xiaomi-mimo': 'tts.providerName.xiaomiMimo',
-  siliconflow: 'tts.providerName.siliconflow',
-  'iflytek-spark': 'tts.providerName.iflytekSpark',
-  stepfun: 'tts.providerName.stepfun',
-  'tencent-cloud': 'tts.providerName.tencentCloud',
-  aliyun: 'tts.providerName.aliyun',
-  baidu: 'tts.providerName.baidu',
-  volcano: 'tts.providerName.volcano',
-  minimax: 'tts.providerName.minimax',
-};
-
-// provider 显示名：tts/providers.js 的 label 是中文常量（英文界面下不能直接用），
-// 按 id 查 i18n 词条；查不到（新增 provider 忘了补词条）才回落到常量 label，不显示空白或键名。
+// provider 显示名：provider 自带 labelKey（tts.providerName.*），直接 t()。查不到 key 才回落到 id。
 function providerLabel(t, provider) {
-  const id = String((provider && provider.id) || '');
-  if (!id) return '';
-  const key = TTS_PROVIDER_NAME_KEYS[id];
-  if (!key) return String(provider.label || id);
-  const translated = t(key);
-  return translated === key ? String(provider.label || id) : translated;
+  if (!provider || !provider.labelKey) return String((provider && provider.id) || '');
+  return t(provider.labelKey);
 }
 
 function findById(list, id) {
