@@ -8,9 +8,39 @@
 // 轨迹元素形状 = agent 消息：
 //   { role:'assistant', content, tool_calls } | { role:'tool', tool_call_id, content }
 
+// 同步取词入口（非 React 树）：截断标记在纯函数里生成，拿不到 hook。
+// 只 import tActive —— 多处测试把 i18n/index.js 打桩成 `{ tActive }`，多引一个符号就会炸。
+import { tActive } from '../i18n/index.js';
+
 export const TOOL_TRACE_MAX_BYTES = 256 * 1024;
 export const TOOL_TRACE_TOOL_CONTENT_MAX = 16 * 1024;
-const TRACE_TRUNCATE_MARK = '…（轨迹截断）…';
+
+// 截断标记：**双受众**文案（与 workspace/toolDefs/toolNotices.js 同类，见那里的文件头）。
+//   · 用户：clipToolContent 把标记插进 role === 'tool' 的 content，而
+//     workspace/conversation.js 的 toolRowsFromTrace 直接读 result.content 做
+//     「结果预览 / 完整输出」，所以这段字会出现在工作区工具行里——英文界面下读中文，
+//     这正是本次要修的一面；
+//   · 模型：轨迹会被 expandHistoryWithTraces 回放回下一轮请求，标记让模型知道
+//     「这里被截断过」（内容缺失但不当成完整事实）。
+// 因此取值走 i18n（当前语言在写入时定稿，与 gitCheckpoint 的提交说明同理）。
+//
+// 导出的常量是 **i18n key** 而不是中文：一来规则看得见这条文案的存在
+//（no-hardcoded-chinese-text 只查**导出**常量，此前它是非导出的，所以整条链一直在
+// 规则盲区里）；二来本文件不硬编码中文，取值交给语言包。
+export const TRACE_TRUNCATE_MARK_KEY = 'chat.toolTrace.truncated';
+
+// 模型侧兜底：i18n 不可用（测试打桩只给 tActive: key => key、或词条漏登记时 t 返回 key
+// 本身）时回落这段中文。**绝不允许回落成空串**——空串会让「被截断」这件事在回放给模型的
+// 历史里彻底消失，静默截断比中文标记危险得多。
+// 非导出 ⇒ 不触发 no-hardcoded-chinese-text（规则只查导出常量），这是有意的：
+// 它只是兜底，正常路径由语言包给值。
+const MODEL_TRUNCATE_MARK = '…（轨迹截断）…';
+
+// 截断标记取值：t 可注入（测试/显式传参），默认走当前活动语言。
+export function traceTruncateMark(t = tActive) {
+  const text = typeof t === 'function' ? String(t(TRACE_TRUNCATE_MARK_KEY) || '') : '';
+  return text && text !== TRACE_TRUNCATE_MARK_KEY ? text : MODEL_TRUNCATE_MARK;
+}
 
 function traceBytes(trace) {
   try {
@@ -20,17 +50,17 @@ function traceBytes(trace) {
   }
 }
 
-function clipToolContent(content) {
+function clipToolContent(content, t) {
   const text = String(content == null ? '' : content);
   if (text.length <= TOOL_TRACE_TOOL_CONTENT_MAX) return text;
   const half = Math.floor(TOOL_TRACE_TOOL_CONTENT_MAX / 2);
-  return `${text.slice(0, half)}\n${TRACE_TRUNCATE_MARK}\n${text.slice(text.length - half)}`;
+  return `${text.slice(0, half)}\n${traceTruncateMark(t)}\n${text.slice(text.length - half)}`;
 }
 
 // 逐条截断 tool 内容；仍超总预算 → null（宁缺毋滥，绝不把会话撑爆）。
-export function sanitizeTrace(trace, { maxBytes = TOOL_TRACE_MAX_BYTES } = {}) {
+export function sanitizeTrace(trace, { maxBytes = TOOL_TRACE_MAX_BYTES, t } = {}) {
   const list = (Array.isArray(trace) ? trace : []).map(item => (
-    item && item.role === 'tool' ? { ...item, content: clipToolContent(item.content) } : item
+    item && item.role === 'tool' ? { ...item, content: clipToolContent(item.content, t) } : item
   ));
   if (!list.length) return null;
   return traceBytes(list) > maxBytes ? null : list;
@@ -38,6 +68,8 @@ export function sanitizeTrace(trace, { maxBytes = TOOL_TRACE_MAX_BYTES } = {}) {
 
 // 从循环追加的消息里提取轨迹：保留 assistant(tool_calls) 与其后的 tool 结果，
 // 丢掉纯文本的助手终稿（它已是展示消息本身）。
+// options 原样转给 sanitizeTrace，因此可传 { t } 显式指定截断标记的语言
+//（不传则走当前活动语言，见 traceTruncateMark）。
 export function extractToolTrace(appendedMessages, options = {}) {
   const list = Array.isArray(appendedMessages) ? appendedMessages : [];
   const trace = [];
@@ -51,6 +83,14 @@ export function extractToolTrace(appendedMessages, options = {}) {
         // P0 加固：消息带 `isError` 就原样保留（展示层据此判状态，比正文正则权威）。
         // 老轨迹没有这个字段——保留为「无该字段」，展示层会回落到正则，不假装知道。
         ...(item.isError === undefined ? {} : { isError: item.isError === true }),
+        // 界面侧提示 key（toolDefs/toolNotices.js）：工具结果里 content 是给模型的中文，
+        // noticeKey/noticeParams 是给界面的词条引用。这条链是
+        //   工具定义 → registry → loop 的 tool 消息 → 本函数 → conversation.js → ToolCallRow
+        // 中间每一跳都可能只挑 content 而把它丢掉，所以本函数**显式**搬运这两个字段
+        //（与 isError 同款做法：显式列出，不靠整体展开）。老轨迹/未携带时保持「无该字段」，
+        // 展示层回落中文正文，不假装知道。
+        ...(item.noticeKey === undefined ? {} : { noticeKey: String(item.noticeKey) }),
+        ...(item.noticeParams === undefined ? {} : { noticeParams: item.noticeParams }),
       });
     } else if (item.role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
       trace.push({

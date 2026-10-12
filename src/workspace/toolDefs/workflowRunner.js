@@ -38,6 +38,11 @@ export async function runWorkflowSteps({
       // 那正是「没写的写成了」的另一种伪装。run_workflow 工具层已在入口整体拒绝
       // 这种情况；这里是纵深防御（run_team 等其它入口直接调本函数）。
       if (step.mode === 'write' && !allowWrite) {
+        // 文案**有意不统一**到 toolNotices.js 的 MODE_SWITCH_HINT：这里形状不同
+        //（只陈述「模式不对 + 没执行」，不含给用户的操作指示），而且它是**步骤级**
+        // 错误——上抛后由 run_workflow 工具层自己的整条拒绝文案负责把「请切模式」
+        // 讲清楚。硬凑成一句会让步骤级错误变成半截用户指示，且会改动模型读到的字
+        //（本字符串会经 formatWorkflowResult 进工具结果）。见 toolNotices.js 文件头。
         return { text: '', isError: true, error: '当前不是「可改」模式，write 步骤未执行' };
       }
       let tools = buildTools(writeMode ? 'write' : 'read');

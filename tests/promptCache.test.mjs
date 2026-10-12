@@ -145,6 +145,16 @@ test('toOpenAiMessages 剥掉内部字段（systemCache / isError 都不泄漏�
     { role: 'user', content: 'hi' },
     // agent 工具结果的权威错误标记：只服务展示层判状态，协议里没有这个字段。
     { role: 'tool', tool_call_id: 'c1', content: '文件不存在：x', isError: true },
+    // 界面侧提示词条引用（toolDefs/toolNotices.js）：同样只服务展示层，协议里也没有。
+    // 它们走的是同一份 OPENAI_INTERNAL_FIELDS——这份名单是**默认放行**的，漏登记就出网。
+    {
+      role: 'tool',
+      tool_call_id: 'c2',
+      content: '本地版本控制还没就绪：……',
+      isError: true,
+      noticeKey: 'workspace.chat.tool.notice.gitNoRepo',
+      noticeParams: { steps: 'a' },
+    },
   ]);
   assert.equal('systemCache' in out[0], false);
   assert.equal(out[0].content, 'S');
@@ -152,6 +162,12 @@ test('toOpenAiMessages 剥掉内部字段（systemCache / isError 都不泄漏�
   assert.equal('isError' in out[2], false, 'isError 是内部字段，不得进请求体');
   assert.equal(out[2].content, '文件不存在：x', '正文原样保留');
   assert.equal(out[2].tool_call_id, 'c1');
+  assert.equal('noticeKey' in out[3], false, 'noticeKey 是内部字段，不得进请求体');
+  assert.equal('noticeParams' in out[3], false, 'noticeParams 是内部字段，不得进请求体');
+  assert.equal(out[3].content, '本地版本控制还没就绪：……', '正文原样保留');
+  // 白名单口径的机械检查：openai 出网的消息**只允许**有协议字段——新增任何内部字段
+  // 只要忘了登记进 OPENAI_INTERNAL_FIELDS，这里就会红（比逐个 `in` 断言更耐新增）。
+  assert.deepEqual(Object.keys(out[3]).sort(), ['content', 'role', 'tool_call_id']);
 });
 
 test('buildRequestBody：anthropic 出 block 数组，openai 无内部字段', () => {

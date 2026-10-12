@@ -107,12 +107,18 @@ test('buildGreetingMessage：替换 {{user}} 占位，空文本返回 null', () 
   assert.equal(buildGreetingMessage('s2', '你好，{{user}}', '').text, '你好，{{user}}');
 });
 
-test('formatScrubberTime：合法时间格式化，非法输入空串', () => {
+test('formatScrubberTime：合法时间格式化，非法输入空串；标签随语言走', () => {
   const value = new Date(2026, 0, 2, 9, 5).getTime();
+  // 默认走当前活动语言（基准语言 zh-CN）——旧调用点不传 t 也不会退回硬编码。
   assert.equal(formatScrubberTime(value), '1月2日 09:05');
   assert.equal(formatScrubberTime(0), '');
   assert.equal(formatScrubberTime(-1), '');
   assert.equal(formatScrubberTime('abc'), '');
+  // 英文界面：日期语序不同，所以整句走词条而不是只翻「月/日」两个字
+  assert.equal(formatScrubberTime(value, en), '1/2 09:05');
+  assert.equal(formatScrubberTime(value, t), '1月2日 09:05');
+  // 词条漏登记（t 返回 key 本身）→ 回落基准语言格式，绝不把 key 显示给用户
+  assert.equal(formatScrubberTime(value, key => key), '1月2日 09:05');
 });
 
 test('settlePendingMessage：有正文保留、纯占位移除、有思考保留并补正文', () => {

@@ -351,6 +351,12 @@ export const chat = {
   'chat.richHtml.loadFailed': 'Failed to load HTML content',
   'chat.richHtml.reloadA11y': 'Reload card',
   'chat.richHtml.loading': 'Loading card…',
+  // 卡片内链接的反馈（2026-10-12）：此前非 http 链接点了毫无反应，现在明确告知。
+  'chat.richHtml.linkUnsupported.title': 'This Link Type Isn\'t Supported Yet',
+  'chat.richHtml.linkUnsupported.body': 'Links inside a card can only open external addresses such as http / https / mailto / tel. Can\'t open: {scheme}.',
+  'chat.richHtml.linkUnsupported.relative': 'a relative address or in-page anchor',
+  'chat.richHtml.linkFailed.title': 'Unable to Open Link',
+  'chat.richHtml.linkFailed.body': 'No app on this device can handle that address.',
   'chat.list.chooseGreeting': 'Choose a greeting',
   'chat.list.emptyTitle': 'Start chatting',
   'chat.list.currentRole': 'Current character: {name}',
@@ -541,4 +547,8 @@ export const chat = {
   'chat.branch.rewindWorkspace.body': '{count} workspace file(s) were changed after this branch point. Rewind the files to that moment as well?',
   'chat.branch.rewindWorkspace.skip': 'Conversation only',
   'chat.branch.rewindWorkspace.confirm': 'Rewind files too',
+  // ---- Tool-trace truncation mark (chat/toolTrace.js) ----
+  'chat.toolTrace.truncated': '… (trace truncated) …',
+  // ---- Scroll-scrubber time label (chat/chatHelpers.js formatScrubberTime) ----
+  'chat.scrubber.time': '{month}/{day} {time}',
 };

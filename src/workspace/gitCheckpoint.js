@@ -12,15 +12,34 @@
 // 2. **不产生空提交**：本轮没改动就没有提交（`commitAll` 返回 null）。
 // 3. **不替用户开仓库**：仓库由设置里的开关建（`ensureRepo`）；这里只提交，未就绪就跳过。
 
+// 提交说明兜底走 i18n：它会经 git.commit **写进本地提交历史**，之后由 git_log 工具
+// 与「历史」面板直接显示——硬编码中文会让英文用户在自己的提交历史里读到中文。
+// 用 tActive（非 React 树的同步取词，与 markdownGuard.js / imageGen 同款）：
+// buildCheckpointMessage 是纯函数，调用点在 fire-and-forget 的回调里，拿不到 hook。
+// 只 import tActive —— 多处测试把 i18n/index.js 打桩成 `{ tActive }`。
+//
+// 关键：提交信息**一旦写入 git 历史就固定了**，所以词条要在**提交时**取当前语言的值
+//（就是这里的默认参数在调用瞬间求值），而不是存 key 等到展示时再翻——那样历史里的
+// 旧提交会随界面语言变化而「变脸」，与 git 的不可变语义冲突。
+import { tActive } from '../i18n/index.js';
+
 export const CHECKPOINT_MESSAGE_MAX = 60;
-export const CHECKPOINT_FALLBACK_MESSAGE = '回合检查点';
+export const CHECKPOINT_FALLBACK_KEY = 'workspace.git.checkpointFallback';
+
+// 兜底提交说明：t 可注入（测试），默认当前活动语言。
+export function checkpointFallbackMessage(t = tActive) {
+  const text = typeof t === 'function' ? String(t(CHECKPOINT_FALLBACK_KEY) || '') : '';
+  // 词条漏登记时 t 返回 key 本身——那会把 `workspace.git.checkpointFallback` 写进
+  // 用户的 git 历史（比中文更糟），所以这里回落基准语言（中文）。
+  return text && text !== CHECKPOINT_FALLBACK_KEY ? text : '回合检查点';
+}
 
 // 提交说明 = 用户那一轮的请求（折叠空白 + 截断），这样 `git_log` 一眼能看懂每轮在做什么。
-export function buildCheckpointMessage(request, { max = CHECKPOINT_MESSAGE_MAX } = {}) {
+export function buildCheckpointMessage(request, { max = CHECKPOINT_MESSAGE_MAX, t = tActive } = {}) {
   const text = String(request === undefined || request === null ? '' : request)
     .replace(/\s+/g, ' ')
     .trim();
-  if (!text) return CHECKPOINT_FALLBACK_MESSAGE;
+  if (!text) return checkpointFallbackMessage(t);
   const limit = Number.isFinite(Number(max)) && Number(max) > 0 ? Math.floor(Number(max)) : CHECKPOINT_MESSAGE_MAX;
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }

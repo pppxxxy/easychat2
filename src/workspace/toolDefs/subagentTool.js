@@ -15,6 +15,8 @@ import { readWorkspaceAgents } from '../agents.js';
 // 与 run_workflow 共用同一个函数，杜绝「修了一处忘了另一处」（P1-3）。
 import { buildSubagentTools } from './subagentTools.js';
 import { BOARD_TOOL_DEFINITIONS } from './boardTools.js';
+// 双受众提示文案（模型侧中文 + 界面侧词条 key）集中在 toolNotices.js，见那里的文件头。
+import { SUBAGENT_WRITE_BLOCKED_TEXT, TOOL_NOTICE_KEYS, noticeFields } from './toolNotices.js';
 
 // 并行任务数上限：手机端同时两条模型流是上限（网络与速率限制考虑）。
 export const SUBAGENT_BATCH_LIMIT = 3;
@@ -66,8 +68,13 @@ export const SUBAGENT_TOOL_DEFINITION = {
     const workspaceMode = String((ctx && ctx.workspaceMode) || '');
     if (writeMode && workspaceMode !== 'write') {
       return {
-        content: '写子代理不可用：当前是只读模式，写操作需要用户切到「可改」模式（未执行）。',
+        // 模型侧：中文正文，**不翻译**（模型靠它判断下一步；tests/readModeEscalation
+        // 把「只读模式」钉在这里）。「写操作需要用户切到…」那半句与 run_workflow
+        // 逐字共用同一个常量，见 toolNotices.js。
+        content: SUBAGENT_WRITE_BLOCKED_TEXT,
         isError: true,
+        // 界面侧：展示层按此 key 用 t() 渲染当前语言，不再依赖上面的中文。
+        ...noticeFields(TOOL_NOTICE_KEYS.subagentWriteBlocked),
       };
     }
     // 工具表由**唯一装配点**给出（readTools + searchTool，write 模式再叠加 writeTools）——

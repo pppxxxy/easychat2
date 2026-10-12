@@ -45,6 +45,10 @@ export const workspace = {
   'workspace.git.noFiles': 'This commit has no file changes.',
   'workspace.git.noMessage': '(no commit message)',
   'workspace.git.diffTitle': 'Changes in {path}',
+  // Fallback commit message for the turn checkpoint (workspace/gitCheckpoint.js).
+  // It is written into the **local commit history** (shown by the git_log tool and the
+  // History panel), so it must follow the language; the value is frozen at commit time.
+  'workspace.git.checkpointFallback': 'Turn checkpoint',
   'workspace.python.title': 'Python environment',
   'workspace.python.available': 'Python runtime available (bundled in the APK).',
   'workspace.python.checking': 'Checking the Python runtime…',
@@ -191,6 +195,15 @@ export const workspace = {
   'workspace.github.rollback.lostNote': 'Another {count} file(s) have no stored old content (too large or fetch failed) and cannot be restored automatically — they stay as they are.',
   'workspace.github.rollback.confirmAction': 'Restore',
   'workspace.github.rollback.done': 'Restored {restored} file(s); {failed} could not be restored (no stored content). You can now push to sync the old versions to the remote.',
+  // 不可恢复项的前置清单（2026-10-12）：以前只给一个数量，用户看不到是哪几个、为什么。
+  'workspace.github.rollback.lostTitle': 'No old content was stored for these files — they stay as they are after the rollback:',
+  // 词条名不带连字符（i18n key 只允许点分字母数字），故原因码 'too-large' → 'tooLarge'。
+  'workspace.github.rollback.lostReason.tooLarge': 'file too large',
+  'workspace.github.rollback.lostReason.totalLimit': 'over the total size limit',
+  'workspace.github.rollback.lostReason.fetchFailed': 'failed to fetch old content',
+  'workspace.github.rollback.lostReason.noSha': 'no remote record of this file',
+  'workspace.github.rollback.lostReason.unknown': 'unknown reason',
+  'workspace.github.rollback.lostMore': '{count} more file(s) were also not stored (not listed).',
   'workspace.diff.webviewMissing': 'Inline diff view is unavailable here (WebView component missing).',
   'workspace.fileHistory.title': 'File history',
   'workspace.fileHistory.titleFile': 'File history · {path}',
@@ -554,6 +567,8 @@ export const workspace = {
   'workspace.toolCard.name.remoteBuild': 'Trigger cloud build',
   'workspace.toolCard.name.docx': 'Export Word',
   'workspace.chat.summary.title': 'Changed this turn ({count} files)',
+  // git 开着时面板显示的是**最近一次提交**改了什么，未必是本轮（见 TurnSummaryPanel 的说明）。
+  'workspace.chat.summary.titleCommit': 'Changed in the last commit ({count} files)',
   'workspace.chat.summary.op.write': 'Write',
   'workspace.chat.summary.op.edit': 'Edit',
   'workspace.chat.summary.op.mkdir': 'New dir',
@@ -576,6 +591,13 @@ export const workspace = {
   'workspace.chat.tool.noOutput': '(no output)',
   'workspace.chat.tool.plan': 'Plan',
   'workspace.chat.tool.subtask': 'Subtask',
+  // ---- UI-side notices for tool results (TOOL_NOTICE_KEYS in toolDefs/toolNotices.js) ----
+  // These mirror the Chinese text inside the tool result (model-facing, never translated).
+  // The tool result also carries noticeKey; the display layer renders these entries.
+  // **Wiring lives in workspace/conversation.js and screen/ToolCallRow.js.**
+  'workspace.chat.tool.notice.gitNoRepo': 'Local version control is not ready yet: this workspace has no git repository. Turn on “Local version control” under Workspace → Settings (it creates the repository), then try again.',
+  'workspace.chat.tool.notice.subagentWriteBlocked': 'Write subagent unavailable: the workspace is in read-only mode. Writing requires you to switch to “Editable” mode (nothing was executed).',
+  'workspace.chat.tool.notice.workflowWriteBlocked': 'Workflow cannot run: step(s) {steps} require write mode, but the workspace is in read-only mode. Writing requires you to switch to “Editable” mode (nothing was executed).',
   'workspace.chat.plan.title': 'Plan ({done}/{total})',
   'workspace.chat.trace.title': 'Tool calls ({count})',
   'workspace.chat.steering.title': 'Steering',

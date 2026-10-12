@@ -319,7 +319,26 @@ export async function runAgentTurn(messages, options = {}) {
         });
         // P0 加固：把权威错误标记随 tool 消息带下去（供 toolTrace 保留 → 展示层判状态）。
         // API 侧的工具消息是**显式构造**的（apiProtocols/messages.js），此字段不会进请求体。
-        history.push({ role: 'tool', tool_call_id: call.id, content: serialized, isError: !ok });
+        //
+        // 界面侧提示（toolDefs/toolNotices.js）：content 是给模型读的中文正文（一个字都不改），
+        // noticeKey/noticeParams 是**同一句话的界面侧词条引用**，给工作区工具行按当前语言渲染。
+        // 与 isError 同款随 tool 消息带下去，extractToolTrace 才能把它搬到展示层。
+        //
+        // 这两个字段同样是**内部字段，绝不能进请求体**——注意两条发送路径的机制不同
+        //（2026-10-12 核实）：anthropic / openai-responses 由 toAnthropicRequest /
+        // toResponsesRequest 逐条显式构造（只取 content / tool_call_id），天然不进；
+        // openai（chat completions）的 toOpenAiMessages 是「整体展开 + 黑名单剥离」，
+        // 必须登记进同文件的 OPENAI_INTERNAL_FIELDS 才不出网（已登记，见那里的 fail-open 说明）。
+        history.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: serialized,
+          isError: !ok,
+          // 缺失时不造 undefined 键：老形态/无提示的工具保持「无该字段」，展示层回落中文正文。
+          // 判据是正向的（`outcome && … !== undefined`）——反向写会在 outcome 为空时读它抛错。
+          ...(outcome && outcome.noticeKey !== undefined ? { noticeKey: outcome.noticeKey } : {}),
+          ...(outcome && outcome.noticeParams !== undefined ? { noticeParams: outcome.noticeParams } : {}),
+        });
         machine.completeTool(call.id, { success: ok, content: serialized });
       }
 

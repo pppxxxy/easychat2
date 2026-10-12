@@ -5,11 +5,16 @@ import assert from 'node:assert/strict';
 import {
   TOOL_TRACE_MAX_BYTES,
   TOOL_TRACE_TOOL_CONTENT_MAX,
+  TRACE_TRUNCATE_MARK_KEY,
   attachToolTrace,
   expandHistoryWithTraces,
   extractToolTrace,
   sanitizeTrace,
+  traceTruncateMark,
 } from '../src/chat/toolTrace.js';
+import { translate } from '../src/i18n/index.js';
+
+const en = (key, params) => translate('en', key, params);
 
 test('extractToolTrace：保留 assistant(tool_calls)+tool，丢掉纯文本终稿', () => {
   const appended = [
@@ -40,6 +45,25 @@ test('extractToolTrace：随消息带下来的 isError 原样保留；老轨迹�
   assert.equal('isError' in trace[3], false, '无该字段的老轨迹不带——展示层回落正文正则，不假装知道');
 });
 
+test('extractToolTrace：界面侧提示字段（noticeKey/noticeParams）一并搬运', () => {
+  // 工具结果里的 content 是给模型的中文，noticeKey 是给界面的词条引用；
+  // 这条链上每一跳都可能只挑 content，所以搬运必须显式（与 isError 同款）。
+  const trace = extractToolTrace([
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'git_status', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: '中文正文', isError: true, noticeKey: 'workspace.chat.tool.notice.gitNoRepo' },
+    { role: 'tool', tool_call_id: 'c2', content: '带参数', isError: true, noticeKey: 'k', noticeParams: { steps: 'a' } },
+    { role: 'tool', tool_call_id: 'c3', content: '没有提示字段' },
+  ]);
+  assert.equal(trace[1].noticeKey, 'workspace.chat.tool.notice.gitNoRepo');
+  assert.equal('noticeParams' in trace[1], false, '没有参数时不塞空对象');
+  assert.deepEqual(trace[2].noticeParams, { steps: 'a' });
+  assert.equal('noticeKey' in trace[3], false, '老轨迹/无提示时保持无该字段（展示层回落中文正文）');
+  // 截断路径（sanitizeTrace）不得把这两个字段弄丢
+  const big = 'X'.repeat(50000);
+  const clipped = sanitizeTrace([{ role: 'tool', tool_call_id: 'c1', content: big, noticeKey: 'k' }]);
+  assert.equal(clipped[0].noticeKey, 'k');
+});
+
 test('sanitizeTrace：逐条截断超大 tool 内容；总预算超限则整体丢弃', () => {
   const big = 'X'.repeat(50000);
   const out = sanitizeTrace([{ role: 'tool', tool_call_id: 'c1', content: big }]);
@@ -51,6 +75,29 @@ test('sanitizeTrace：逐条截断超大 tool 内容；总预算超限则整体�
   assert.equal(sanitizeTrace(huge), null);
   assert.equal(sanitizeTrace([]), null);
   assert.ok(TOOL_TRACE_MAX_BYTES < 30 * 16000);
+});
+
+test('截断标记随语言：标记同时面向模型与用户（工作区工具行的结果预览直接读 content）', () => {
+  // 词条在两种语言里都有真实值（漏登记会让英文用户看到中文，或把 key 显示出来）
+  for (const locale of ['zh-CN', 'en']) {
+    const value = translate(locale, TRACE_TRUNCATE_MARK_KEY);
+    assert.notEqual(value, TRACE_TRUNCATE_MARK_KEY, `${locale} 缺少词条`);
+  }
+  assert.equal(en(TRACE_TRUNCATE_MARK_KEY), '… (trace truncated) …');
+  assert.equal(traceTruncateMark(en), '… (trace truncated) …');
+  assert.equal(traceTruncateMark(key => key), '…（轨迹截断）…', '取不到词条时回落基准语言，绝不留空');
+  assert.equal(traceTruncateMark(null), '…（轨迹截断）…', 't 不是函数同样回落（空标记＝静默截断）');
+  // 端到端：显式传 t 时，写进轨迹的就是当前语言的标记
+  const big = 'X'.repeat(50000);
+  const enOut = sanitizeTrace([{ role: 'tool', tool_call_id: 'c1', content: big }], { t: en });
+  assert.match(enOut[0].content, /trace truncated/);
+  assert.equal(enOut[0].content.includes('轨迹截断'), false, '英文界面不该再写中文标记');
+  // extractToolTrace 的 options 原样转给 sanitizeTrace（{ t } 能一路传到底）
+  const trace = extractToolTrace([
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: big },
+  ], { t: en });
+  assert.match(trace[1].content, /trace truncated/);
 });
 
 test('expandHistoryWithTraces：把 toolTrace 就地展开到消息之前', () => {
