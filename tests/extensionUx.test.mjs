@@ -16,6 +16,8 @@ const EXTENSION = read('src/extension/ExtensionStack.js');
 const EXTENSION_HOME = read('src/extension/ExtensionHome.js');
 const CARD_FORGE = read('src/CardForgeScreen.js');
 const IMAGE_GEN = read('src/ImageGenScreen.js');
+// 服务商配置弹层已外提到该模块，弹层数量断言需跨两个文件统计。
+const IMAGE_GEN_SHEETS = read('src/imageGen/ProviderSettingsModal.js');
 const ATTACHMENTS = read('src/chat/attachments.js');
 
 test('扩展页：嵌套 native-stack 替换 opacity 叠罗汉，物理返回天然工作', () => {
@@ -52,8 +54,9 @@ test('制卡：新内容只在接近底部时自动跟滚，用户发送强制�
 });
 
 test('生图：底部弹层用 slide 动画；尺寸助手与聊天附件共用一份', () => {
-  assert.equal((IMAGE_GEN.match(/animationType="slide"/g) || []).length, 3, '三个底部弹层都应为 slide');
-  assert.equal(IMAGE_GEN.includes('animationType="fade"'), false);
+  const slideCount = (IMAGE_GEN + IMAGE_GEN_SHEETS).match(/animationType="slide"/g) || [];
+  assert.equal(slideCount.length, 3, '三个底部弹层都应为 slide');
+  assert.equal((IMAGE_GEN + IMAGE_GEN_SHEETS).includes('animationType="fade"'), false);
   // getImageDimensions 去重：不再本地实现，改用 chat/attachments.js 的导出
   assert.equal(IMAGE_GEN.includes('function getImageDimensions('), false);
   assert.match(IMAGE_GEN, /import \{[^}]*getImageDimensions[^}]*\} from '\.\/chat\/attachments\.js';/);

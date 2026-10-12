@@ -12,9 +12,7 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
-  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -23,13 +21,12 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import ChapterModal from '../books/ChapterModal.js';
-import { Card, FieldHint, FieldLabel, TextField } from '../ui/index.js';
+import { Card, FieldHint } from '../ui/index.js';
 import { useApp } from '../context/AppContext.js';
 import { selectSessionsForCharacters } from '../context/sessionLibrary.js';
 import { useNavigation } from '@react-navigation/native';
 import ScrollScrubber from '../chat/ScrollScrubber.js';
 import { clearCharacterEditDraft } from '../storage/characters.js';
-import { createGroupSession } from '../storage/sessions.js';
 import { deleteMomentsForCharacterDeletion, getMomentsStatus } from '../storage/moments.js';
 import { countMomentsForCharacterDeletion } from '../moments/moments.js';
 import { isValidAigcMeta } from '../aigc/attribution.js';
@@ -38,6 +35,8 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import { createCharacterStyles } from './characterStyles.js';
 import { CHARACTER_LIST_COLLAPSE_LIMIT, gridRowIndex } from './cardHelpers.js';
 import { confirmDeleteAll } from './libraryDeleteConfirm.js';
+import GroupCreateModal from './GroupCreateModal.js';
+import useGroupCreation from './useGroupCreation.js';
 
 // 角色库网格列数。FlatList 在 numColumns>1 时，scrollToIndex 的 index 按「行」计数，
 // 定位滑块给的是「项」序号，需经 gridRowIndex 折算，否则下半部分会越界闪退。
@@ -66,12 +65,20 @@ export default function CharacterLibraryScreen() {
   const styles = useMemo(() => createCharacterStyles(theme, fonts, tokens), [theme, fonts, tokens]);
   const [characterListExpanded, setCharacterListExpanded] = useState(false);
   const [characterScrubberOpen, setCharacterScrubberOpen] = useState(false);
-  const [groupPanelOpen, setGroupPanelOpen] = useState(false);
-  const [groupSelected, setGroupSelected] = useState([]);
-  const [groupName, setGroupName] = useState('');
-  const [groupAvatarUri, setGroupAvatarUri] = useState('');
-  const [groupBgUri, setGroupBgUri] = useState('');
-  const [creatingGroup, setCreatingGroup] = useState(false);
+  const {
+    groupPanelOpen,
+    setGroupPanelOpen,
+    groupSelected,
+    groupName,
+    setGroupName,
+    groupAvatarUri,
+    setGroupAvatarUri,
+    groupBgUri,
+    setGroupBgUri,
+    creatingGroup,
+    toggleGroupMember,
+    onCreateGroup,
+  } = useGroupCreation({ characters, refreshSessions, navigation, t });
   const [query, setQuery] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -405,54 +412,6 @@ export default function CharacterLibraryScreen() {
     }
   };
 
-  const toggleGroupMember = id => {
-    if (!groupSelected.includes(id) && groupSelected.length >= 8) {
-      Alert.alert(t('character.library.group.limit.title'), t('character.library.group.limit.body'));
-      return;
-    }
-    setGroupSelected(current => (
-      current.includes(id)
-        ? current.filter(item => item !== id)
-        : [...current, id]
-    ));
-  };
-
-  const onCreateGroup = async () => {
-    if (groupSelected.length < 2 || groupSelected.length > 8) {
-      Alert.alert(t('character.library.group.count.title'), t('character.library.group.count.body'));
-      return;
-    }
-    if (creatingGroup) return;
-    setCreatingGroup(true);
-    try {
-      const members = groupSelected.slice();
-      const fallbackName = characters
-        .filter(item => members.includes(item.id))
-        .map(item => item.name || t('common.unnamedCharacter'))
-        .join(t('character.library.group.nameJoin'));
-       await createGroupSession(members, groupName.trim() || fallbackName, {
-         avatarUri: groupAvatarUri,
-         bgUri: groupBgUri,
-       });
-       try {
-         await refreshSessions();
-       } catch (error) {
-         Alert.alert(t('character.library.group.created.title'), t('character.library.group.created.body'));
-         return;
-       }
-       setGroupPanelOpen(false);
-       setGroupSelected([]);
-       setGroupName('');
-       setGroupAvatarUri('');
-       setGroupBgUri('');
-       navigation.navigate(ROUTE_NAMES.chat);
-    } catch (error) {
-      Alert.alert(t('character.library.group.createFail.title'), t('common.error.storageOrPermission'));
-    } finally {
-      setCreatingGroup(false);
-    }
-  };
-
   // 切换当前角色：守卫、锁、失败回滚与文案全部沿用原 onSwitch。
   // 唯一的差异是切换成功后由调用方进入详情页（见 openCharacterDetail）。
   const onSwitch = async id => {
@@ -775,154 +734,24 @@ export default function CharacterLibraryScreen() {
         )}
       />
 
-      <Modal
+      <GroupCreateModal
         visible={groupPanelOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setGroupPanelOpen(false)}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          // Android 用 undefined：app.json 的 softwareKeyboardLayoutMode 已是 resize，
-          // 再叠一层 behavior="height" 会在输入法收起时反复重算高度，表现为界面疯狂上下闪动。
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>{t('character.library.group.createTitle')}</Text>
-            <FieldLabel style={styles.label}>{t('character.library.group.nameLabel')}</FieldLabel>
-            <TextField
-              value={groupName}
-              onChangeText={setGroupName}
-              placeholder={t('group.namePlaceholder')}
-              editable={!creatingGroup}
-            />
-            <FieldLabel style={styles.label}>{t('character.library.group.selectMembers', { count: groupSelected.length })}</FieldLabel>
-            <ScrollView style={styles.groupList} keyboardShouldPersistTaps="handled">
-              {characters.map(item => {
-                const selected = groupSelected.includes(item.id);
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={styles.groupRow}
-                    onPress={() => toggleGroupMember(item.id)}
-                    activeOpacity={0.75}
-                  >
-                    <Ionicons
-                      name={selected ? 'checkbox' : 'square-outline'}
-                      size={20}
-                      color={selected ? theme.colors.primaryMuted : theme.colors.textFaint}
-                    />
-                    {item.avatarUri ? (
-                      <Image source={{ uri: item.avatarUri }} style={styles.groupAvatar} />
-                    ) : (
-                      <View style={[styles.groupAvatar, styles.groupAvatarFallback]}>
-                        <Text style={styles.avatarPlaceholderText}>
-                          {String(item.name || '?').charAt(0)}
-                        </Text>
-                      </View>
-                    )}
-                    <Text style={styles.groupName} numberOfLines={1}>
-                      {item.name || t('common.unnamedCharacter')}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            {groupSelected.length > 0 ? (
-              <>
-                <FieldLabel style={styles.label}>{t('character.library.group.avatarLabel')}</FieldLabel>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
-                  <TouchableOpacity
-                    style={[styles.groupPickChip, !groupAvatarUri && styles.groupPickChipActive]}
-                    onPress={() => setGroupAvatarUri('')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.groupPickText, !groupAvatarUri && styles.groupPickTextActive]}>{t('group.noImage')}</Text>
-                  </TouchableOpacity>
-                  {characters.filter(item => groupSelected.includes(item.id)).map(item => {
-                    const uri = String(item.avatarUri || '');
-                    const active = uri && groupAvatarUri === uri;
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[styles.groupPickChip, active && styles.groupPickChipActive]}
-                        onPress={() => setGroupAvatarUri(uri)}
-                        activeOpacity={0.8}
-                      >
-                        {uri ? (
-                          <Image source={{ uri }} style={styles.groupPickAvatar} />
-                        ) : (
-                          <View style={[styles.groupPickAvatar, styles.groupPickAvatarFallback]}>
-                            <Text style={styles.avatarPlaceholderText}>{String(item.name || '?').charAt(0)}</Text>
-                          </View>
-                        )}
-                        <Text style={[styles.groupPickText, active && styles.groupPickTextActive]} numberOfLines={1}>
-                          {item.name || t('common.unnamedCharacter')}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-                <FieldLabel style={styles.label}>{t('character.library.group.bgLabel')}</FieldLabel>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupPickRow}>
-                  <TouchableOpacity
-                    style={[styles.groupPickChip, !groupBgUri && styles.groupPickChipActive]}
-                    onPress={() => setGroupBgUri('')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.groupPickText, !groupBgUri && styles.groupPickTextActive]}>{t('group.noImage')}</Text>
-                  </TouchableOpacity>
-                  {characters.filter(item => groupSelected.includes(item.id)).map(item => {
-                    const uri = String(item.bgUri || '');
-                    const active = uri && groupBgUri === uri;
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[styles.groupPickChip, active && styles.groupPickChipActive]}
-                        onPress={() => {
-                          if (!uri) {
-                            Alert.alert(
-                              t('group.alert.cannotPick.title'),
-                              t('character.library.group.noBg.body', { name: item.name || t('character.library.group.theCharacter') })
-                            );
-                            return;
-                          }
-                          setGroupBgUri(uri);
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.groupPickText, active && styles.groupPickTextActive]} numberOfLines={1}>
-                          {item.name || t('common.unnamedCharacter')}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </>
-            ) : null}
-            <View style={styles.presetModalActions}>
-              <TouchableOpacity
-                style={[styles.selectButton, styles.selectButtonGhost]}
-                onPress={() => setGroupPanelOpen(false)}
-                disabled={creatingGroup}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.selectButtonText, styles.selectButtonTextGhost]}>{t('common.cancel')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.selectButton, creatingGroup && styles.buttonDisabled]}
-                onPress={onCreateGroup}
-                disabled={creatingGroup}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.selectButtonText}>
-                  {creatingGroup ? t('character.library.group.creating') : t('character.library.group.create')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setGroupPanelOpen(false)}
+        styles={styles}
+        theme={theme}
+        t={t}
+        characters={characters}
+        groupName={groupName}
+        setGroupName={setGroupName}
+        groupSelected={groupSelected}
+        toggleGroupMember={toggleGroupMember}
+        groupAvatarUri={groupAvatarUri}
+        setGroupAvatarUri={setGroupAvatarUri}
+        groupBgUri={groupBgUri}
+        setGroupBgUri={setGroupBgUri}
+        creatingGroup={creatingGroup}
+        onCreateGroup={onCreateGroup}
+      />
 
       <ChapterModal
         visible={!!topic}

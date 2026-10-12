@@ -25,6 +25,7 @@ import { generateImage, detectImageProvider, probeImageProvider } from './imageG
 import { getImageGenSettings, saveImageGenSettings } from './storage/settings.js';
 import { resolveImageFormat } from './imageGen/imageResultFormat.js';
 import createStyles from './imageGen/imageGenScreenStyles.js';
+import ProviderSettingsModal from './imageGen/ProviderSettingsModal.js';
 import ChapterModal from './books/ChapterModal.js';
 import { getImageDimensions, takePhoto } from './chat/attachments.js';
 import { Chip, FieldHint, FieldLabel, PrimaryButton, TextField, TopicButton } from './ui/index.js';
@@ -738,92 +739,26 @@ export default function ImageGenScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>{t('imageGen.providerSettings', { label: t(provider.labelKey) })}</Text>
-            <FieldHint style={styles.hint}>{t('imageGen.keyLocalHint')}</FieldHint>
-            {provider.keyHintKey ? (
-              <FieldHint style={styles.hint}>{t('imageGen.keyHint', { hint: t(provider.keyHintKey) })}</FieldHint>
-            ) : null}
-            {provider.corsNoteKey ? (
-              <FieldHint style={styles.hint}>
-                {t('imageGen.corsNote', { note: t(provider.corsNoteKey) })}
-              </FieldHint>
-            ) : null}
-            <FieldLabel style={styles.label}>{t('imageGen.apiAddressLabel')}</FieldLabel>
-            <TextField
-              value={draftBaseUrl}
-              onChangeText={setDraftBaseUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder={provider.baseUrlPlaceholder || provider.baseUrl || 'https://example.com/v1/images'}
-            />
-            {providerRequiresApiKey(provider) ? (
-              <>
-                <FieldLabel style={styles.label}>API Key</FieldLabel>
-                <TextField
-                  value={draftApiKey}
-                  onChangeText={setDraftApiKey}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry
-                  placeholder="sk-..."
-                />
-                <TouchableOpacity
-                  style={[styles.selectButton, styles.apiKeyButton]}
-                  onPress={openApiKeyUrl}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
-                  <Text style={styles.selectButtonText}>{t('imageGen.getApiKey')}</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <FieldHint style={styles.hint}>{t('imageGen.localNoKeyHint')}</FieldHint>
-            )}
-            <FieldLabel style={styles.label}>{t('imageGen.modelNameLabel')}</FieldLabel>
-            <TextField
-              value={draftModel}
-              onChangeText={setDraftModel}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder={provider.defaultModel || t('imageGen.modelNamePlaceholder')}
-            />
-            <TouchableOpacity
-              style={[styles.selectButton, styles.detectButton, detecting && styles.generateButtonDisabled]}
-              onPress={detectProvider}
-              disabled={detecting}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="pulse-outline" size={16} color={theme.colors.textMuted} />
-              <Text style={styles.selectButtonText}>{detecting ? t('imageGen.detecting') : t('imageGen.detectConnectivity')}</Text>
-            </TouchableOpacity>
-            <FieldLabel style={styles.label}>{t('imageGen.extraLabel')}</FieldLabel>
-            <TextField
-              style={styles.extraInput}
-              value={draftExtra}
-              onChangeText={setDraftExtra}
-              autoCapitalize="none"
-              autoCorrect={false}
-              multiline
-              placeholder='{"quality":"hd"}'
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.selectButton, styles.selectButtonGhost]}
-                onPress={() => setSettingsOpen(false)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.selectButtonText}>{t('imageGen.cancel')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.selectButton} onPress={confirmSettings} activeOpacity={0.8}>
-                <Text style={styles.selectButtonText}>{t('imageGen.save')}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ProviderSettingsModal
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        styles={styles}
+        theme={theme}
+        t={t}
+        provider={provider}
+        draftBaseUrl={draftBaseUrl}
+        setDraftBaseUrl={setDraftBaseUrl}
+        draftApiKey={draftApiKey}
+        setDraftApiKey={setDraftApiKey}
+        draftModel={draftModel}
+        setDraftModel={setDraftModel}
+        draftExtra={draftExtra}
+        setDraftExtra={setDraftExtra}
+        detecting={detecting}
+        detectProvider={detectProvider}
+        openApiKeyUrl={openApiKeyUrl}
+        confirmSettings={confirmSettings}
+      />
 
       <ChapterModal
         visible={!!topic}
