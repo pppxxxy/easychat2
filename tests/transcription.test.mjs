@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_TRANSCRIPTION_MODEL,
+  TRANSCRIPTION_UNSUPPORTED_CODE,
   buildTranscriptionUrl,
   normalizeTranscriptionConfig,
   resolveTranscription,
@@ -67,14 +68,20 @@ test('resolveTranscription：都没有时返回 none', () => {
   assert.equal(fallback.source, 'reused');
 });
 
-test('isUnsupportedTranscriptionError：404/405/501 与明确文案判为不支持', () => {
+test('isUnsupportedTranscriptionError：只认 404/405/501 与结构化标记，不猜文案', () => {
   assert.equal(isUnsupportedTranscriptionError({ status: 404 }), true);
   assert.equal(isUnsupportedTranscriptionError({ status: 405 }), true);
   assert.equal(isUnsupportedTranscriptionError({ status: 501 }), true);
   assert.equal(isUnsupportedTranscriptionError({ unsupported: true }), true);
-  assert.equal(isUnsupportedTranscriptionError({ message: 'model not found' }), true);
-  assert.equal(isUnsupportedTranscriptionError({ message: 'unsupported endpoint' }), true);
+  assert.equal(isUnsupportedTranscriptionError({ code: TRANSCRIPTION_UNSUPPORTED_CODE }), true);
+  // 回归：服务端自由文案不再是判据。旧口径把 'model not found' 判成「该来源不支持转写」，
+  // 于是 ChatScreen 把该会话永久钉成「不支持」——用户按提示配好独立转写配置也仍被跳过。
+  assert.equal(isUnsupportedTranscriptionError({ message: 'model not found' }), false);
+  assert.equal(isUnsupportedTranscriptionError({ message: 'unsupported endpoint' }), false);
+  assert.equal(isUnsupportedTranscriptionError({ status: 500, message: 'not found' }), false);
   assert.equal(isUnsupportedTranscriptionError({ status: 500, message: 'internal error' }), false);
+  // 状态码优先：即使文案写着别的，404 依然是「端点不存在」。
+  assert.equal(isUnsupportedTranscriptionError({ status: 404, message: 'internal error' }), true);
   assert.equal(isUnsupportedTranscriptionError(null), false);
 });
 

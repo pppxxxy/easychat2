@@ -63,6 +63,25 @@ export default function TranscriptionPanel({ visible, onClose }) {
   }, [visible]);
 
   const persist = useCallback(async next => {
+    // 读失败就拒绝写（本面板的写路径守卫）。为什么必须有：
+    // getTranscriptionSettings() 在结构损坏时先 backupCorruptValue 再**抛错**
+    // （storage/settings/tts.js:90-101），而 :50-59 的 catch 只弹 Alert、不置 loaded，
+    // 于是 loaded 停在 false、settings 停在初始 {activeId:'',configs:[]}。
+    // 此时 :167 的 `loaded ? configs.map(...)` 只挡住了配置列表，而 :151-165 的「仅复用
+    // 当前聊天来源」行与 :246-266 的厂商芯片**不受 loaded 限制**——用户点任一个都会走到
+    // 这里，把「读不出的现有配置」整键覆盖成空：已配置的转写服务（含 API Key 引用）
+    // 在 UI 与存储里同时消失，且不可逆。
+    // 先例：① 同域孪生面板 src/TtsPanel.js:72-73 的 `if (!loaded) return false;`；
+    //      ② src/storage/settings/chatOptions.js:19-33 的 assertReadableForMutation
+    //         「读不出原值就不写」。
+    // 但**不能静默返回**：TtsPanel 刚踩过这个坑（TtsPanel.js:80-90 注释：「点了没反应、
+    // 弹窗不关、也没有任何提示，用户只会以为界面卡住了」），它的修法是给出**可见**原因。
+    // 同理复用读失败文案，说清是「配置没读出来」，而不是笼统的「保存失败」——后者会把
+    // 用户引去查存储权限，而真实原因是读失败。
+    if (!loaded) {
+      Alert.alert(t('transcription.alert.loadFailed.title'), t('transcription.alert.loadFailed.body'));
+      return null;
+    }
     const previous = settingsRef.current;
     settingsRef.current = next;
     setSettings(next);
@@ -77,7 +96,7 @@ export default function TranscriptionPanel({ visible, onClose }) {
       Alert.alert(t('transcription.alert.saveFailed.title'), t('transcription.alert.saveFailed.body'));
       return null;
     }
-  }, [t]);
+  }, [loaded, t]);
 
   const selectSource = useCallback(id => {
     persist({ ...settingsRef.current, activeId: id === REUSED_ID ? '' : id });

@@ -29,7 +29,11 @@ export const backup = {
   'backup.alert.importDone.body': 'Restored {keys} data keys and {media} media files. Characters, sessions and appearance were refreshed; the API Key must be re-entered.',
   'backup.alert.importFailed.title': 'Import failed',
   'backup.alert.importFailed.body': 'The backup file could not be restored; existing data is unchanged.',
-  'backup.title': 'Close',
+  // The panel name and "Close" are two different meanings and must not share one key
+  // (same shape as transcription.title + transcription.closeA11y). `title` used to hold the
+  // close wording, so the panel header read "Close".
+  'backup.title': 'Backup & Restore',
+  'backup.closeA11y': 'Close',
   'backup.cancelExport': 'Cancel export',
   'backup.export': 'Export backup',
   'backup.hint': 'Backups include characters, sessions, messages, settings, and media files. API keys, secrets, and secure storage references are not exported.',

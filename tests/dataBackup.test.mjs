@@ -233,6 +233,8 @@ test('planBackupImport：opaqueRaw 条目透传，不做结构化清理', () => 
 // 于是「盘上只有引用」的保护被备份绕过：**旧明文数据**（从没被保险箱保护过）会被原样
 // 写进备份包（实测 mcpToken / githubToken / headers 里的 Bearer token 都在）。
 test('回归：备份脱敏口径必须覆盖保险箱保护的全部字段（不能只靠 secure:v1: 前缀兜底）', () => {
+  // 对象形态的密钥字段**按域限定**（判据同 secretStore.js:87-92 isScopedSecretObject）：
+  // 顶层存储键当 namespace 传进去，headers 只在 MCP 域才是密钥。
   const out = sanitizeBackupValue([{
     id: 'notes',
     mcpToken: 'zQ7mcptokenplain9x',
@@ -240,7 +242,7 @@ test('回归：备份脱敏口径必须覆盖保险箱保护的全部字段（�
     githubAccessToken: 'zQ7githubaccesstoken9x',
     githubRefreshToken: 'zQ7githubrefreshtoken9x',
     headers: { Authorization: 'Bearer zQ7headerplainsecretvalue9x' },
-  }]);
+  }], '', '@easychat2_mcp_servers');
   assert.equal(out[0].mcpToken, '');
   assert.equal(out[0].githubToken, '');
   assert.equal(out[0].githubAccessToken, '');
@@ -248,6 +250,16 @@ test('回归：备份脱敏口径必须覆盖保险箱保护的全部字段（�
   // 对象形态的密钥字段：值全部清空、键名保留（用户恢复后知道要重填）
   assert.deepEqual(out[0].headers, { Authorization: '' });
   assert.equal(JSON.stringify(out).includes('zQ7'), false, '备份包里不得出现任何明文密钥');
+});
+
+test('对象形态密钥字段按域限定：别的域的同名 headers 不被清空（回归 17）', () => {
+  const value = [{ id: 'x', headers: { 'X-Env': 'prod' } }];
+  // MCP 域（含 `::` 分键形式）命中
+  assert.deepEqual(sanitizeBackupValue(value, '', '@easychat2_mcp_servers')[0].headers, { 'X-Env': '' });
+  assert.deepEqual(sanitizeBackupValue(value, '', '@easychat2_mcp_servers::a')[0].headers, { 'X-Env': '' });
+  // 其它域（以及没给域）不命中：导出侧清多不清少虽安全，但恢复后用户会丢配置
+  assert.deepEqual(sanitizeBackupValue(value, '', '@easychat2_other')[0].headers, { 'X-Env': 'prod' });
+  assert.deepEqual(sanitizeBackupValue(value)[0].headers, { 'X-Env': 'prod' });
 });
 
 test('回归：合并遍历（导出路径）同样清空对象形态的密钥字段', () => {

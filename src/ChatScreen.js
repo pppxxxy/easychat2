@@ -529,9 +529,9 @@ export default function ChatScreen() {
     autoBroadcastMessage,
     synthesizeVoice,
   } = useChatTts({ characterId });
-  // 语音录制：仅在单聊且非群聊时提供入口。转录判定按会话缓存（见 transcriptionSupportedRef）。
+  // 语音录制：仅在单聊且非群聊时提供入口。转录判定按「会话 + 来源 url」缓存（见 transcriptionSupportedRef）。
   const recorder = useChatRecorder();
-  const transcriptionSupportedRef = useRef({}); // sessionId -> false 表示该来源已确认不支持转写
+  const transcriptionSupportedRef = useRef({}); // sessionId -> 已确认不支持转写的 url（粘性钉 url，换 url 即重试）
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [fullScreenText, setFullScreenText] = useState('');
@@ -2414,9 +2414,9 @@ export default function ChatScreen() {
           t('chat.voice.noTranscription.body')
         );
       }
-      // 该会话已确认来源不支持转写：跳过请求，直接用占位（需求 3.5）。
+      // 该会话已确认「这个 url」不支持转写：跳过请求，直接用占位（需求 3.5）。粘性钉 url 而非布尔（先例 transcription.js:87-93 只看 status/code）：用户照提示配好独立转写后 url 变化即自动重试。
       const known = transcriptionSupportedRef.current[guard.sessionId];
-      if (target.source !== 'none' && known !== false) {
+      if (target.source !== 'none' && known !== target.url) {
         try {
           const result = await transcribeAudio({
             config: target,
@@ -2426,7 +2426,7 @@ export default function ChatScreen() {
           text = String(result.text || '').trim();
         } catch (error) {
           if (isUnsupportedTranscriptionError(error)) {
-            transcriptionSupportedRef.current[guard.sessionId] = false;
+            transcriptionSupportedRef.current[guard.sessionId] = target.url;
             Alert.alert(
               t('chat.voice.unsupported.title'),
               t('chat.voice.unsupported.body')

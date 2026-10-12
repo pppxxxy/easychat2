@@ -39,6 +39,15 @@ function throwIfAborted(signal) {
   if (signal && signal.aborted) throw createAbortError();
 }
 
+// 我们自己写的、面向用户的错误（文案走 i18n）：打上 userFacing 标记，UI 才会在**发布构建**里
+// 原样透出。其余错误（AsyncStorage / JSON 的内部英文文案）由 BackupPanel 只在 __DEV__ 显示
+// ——见 BackupPanel 的 userMessage。
+function userFacingError(message) {
+  const error = new Error(message);
+  error.userFacing = true;
+  return error;
+}
+
 async function readRawValue(key) {
   // readJsonStatus 在 getItem 抛错或 JSON.parse 失败时已经调用过
   // readLargeAsyncStorageValue 兜底读取；这里再读一次是重复的昂贵 SQLite 全值读取。
@@ -57,7 +66,7 @@ async function readRawStorageString(key) {
   } catch (error) {
     const recovered = await readLargeAsyncStorageValue(key);
     if (recovered !== null) return recovered;
-    throw new Error(tActive('error.backup.restoreReadFailed', { key }));
+    throw userFacingError(tActive('error.backup.restoreReadFailed', { key }));
   }
 }
 
@@ -249,7 +258,7 @@ async function writeBackupStream(uri, payload, { signal, report }) {
       bytes += encoded.length;
       pieceCount += 1;
       if (bytes > BACKUP_MAX_BYTES) {
-        throw new Error(tActive('error.backup.tooLarge', { mb: Math.round(BACKUP_MAX_BYTES / 1024 / 1024) }));
+        throw userFacingError(tActive('error.backup.tooLarge', { mb: Math.round(BACKUP_MAX_BYTES / 1024 / 1024) }));
       }
       // 每片之后让出一次事件循环：写盘阶段不再独占主线程，取消能及时生效。
       if (pieceCount % 4 === 0) {
@@ -274,7 +283,9 @@ async function writeBackupStream(uri, payload, { signal, report }) {
 
 export async function importBackup(payload, mode = 'merge') {
   const plan = planBackupImport(payload, mode);
-  if (!plan.valid) throw new Error(plan.error);
+  // plan.error 来自 validateBackupPayload（走 tActive 的用户文案）⇒ 标成 userFacing，
+  // 发布构建里也要原样透出，而不是被换成笼统的「备份文件无法恢复」。
+  if (!plan.valid) throw userFacingError(plan.error);
   const storageKeys = plan.storage
     .map(item => item.key)
     .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
@@ -282,10 +293,17 @@ export async function importBackup(payload, mode = 'merge') {
   const mediaSnapshot = await snapshotMediaFiles(plan.media);
   let opaqueCount = 0;
   try {
-    if (plan.mode === 'replace' && storageKeys.length > 0) {
-      // 只清理备份包明确管理的键：读取失败或新版本新增的本机键应保留。
-      await AsyncStorage.multiRemove(storageKeys);
-    }
+    // 覆盖恢复**不做「先删后写」**（原实现在这里 multiRemove(storageKeys)）。
+    // 为什么删掉整个破坏性阶段：storageKeys 就是下面逐键 setItem 的键集（validateBackupPayload
+    // 已保证每个键都以 @easychat2_ 开头、不以 __corrupt_backup 结尾，:278-280 的过滤是恒等
+    // 变换）⇒ 每个被 remove 的键随后都会被写回，multiRemove 对最终状态**零影响**，只制造
+    // 「全部键消失、尚未写回」的窗口。该窗口内进程被杀（进入本函数前已 JSON.parse 整个包，
+    // snapshotMediaFiles 又拷一份 base64，双份常驻 JS 堆，而 BACKUP_MAX_BYTES 允许 2GB）
+    // ⇒ 这些键**永久为空**，而 :307-317 的回滚只覆盖抛错、不覆盖进程死亡。
+    // setItem 本身就是覆盖语义：覆盖恢复的「替换备份管理范围内的数据」（需求 2.4）由
+    // 「包内每个键都以备份内容为准」实现，包外的本机键（读取失败的、新版本新增的）保留
+    // ——这正是原注释的口径，也是**不能**改成「删掉本地多出的键」的原因（那会删掉新版
+    // 本新增键并让 App 不可用）。
     for (const item of plan.storage) {
       // opaqueRaw 条目是结构损坏时抢救下来的原始串：原样写回，不做 parse——
       // 它的价值恰恰在于「应用读不出但字节不丢」，重新序列化会再次损坏。

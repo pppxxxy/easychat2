@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], packableDirectories = null }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], packableDirectories = null, multiRemoveCalls = [] }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -48,7 +48,7 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
       storage.set(key, value);
     },
     async removeItem(key) { storage.delete(key); },
-    async multiRemove(keys) { keys.forEach(key => storage.delete(key)); },
+    async multiRemove(keys) { multiRemoveCalls.push([...keys]); keys.forEach(key => storage.delete(key)); },
     async getAllKeys() { return [...storage.keys()]; },
   };
   const io = {
@@ -187,6 +187,28 @@ test('importBackup replace：写入失败后回滚原有存储', async () => {
   );
   assert.equal(storage.get('@easychat2_character_index'), JSON.stringify(['old']));
   assert.equal(storage.get('@easychat2_keep'), JSON.stringify({ keep: true }));
+});
+
+test('importBackup replace：不再先删后写（覆盖语义由 setItem 完成，没有「键全消失」窗口）', async () => {
+  const storage = new Map([
+    ['@easychat2_character_index', JSON.stringify(['old'])],
+    ['@easychat2_keep', JSON.stringify({ keep: true })],
+  ]);
+  const files = new Map();
+  const multiRemoveCalls = [];
+  const backup = loadBackup({ storage, files, multiRemoveCalls });
+  const result = await backup.importBackup(payload([
+    { key: '@easychat2_character_index', value: ['new'] },
+  ]), 'replace');
+  assert.equal(result.mode, 'replace');
+  // 破坏性阶段必须整段消失：storageKeys 与写回键集是同一个集合（见 backup.js 注释），
+  // 先删只制造「全部键消失、尚未写回」的窗口——窗口内进程被杀，这些键就永久为空，
+  // 而回滚只覆盖抛错、不覆盖进程死亡。
+  assert.deepEqual(multiRemoveCalls, [], '覆盖恢复不得先删后写');
+  assert.equal(storage.get('@easychat2_character_index'), JSON.stringify(['new']), '包内键以备份内容为准');
+  // replace 的语义是「只替换备份管理范围内（= 包内）的数据」（需求 2.4），不是
+  // 「清空本地多出的键」：后者会删掉新版本新增的键、让 App 不可用，故包外键保留。
+  assert.equal(storage.get('@easychat2_keep'), JSON.stringify({ keep: true }), '包外的本机键保留');
 });
 
 test('importBackup：媒体写入失败后回滚已存在媒体', async () => {
