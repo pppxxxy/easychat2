@@ -32,4 +32,12 @@ export const world = {
   'world.map.real.html.zoomIn': 'Zoom in',
   'world.map.real.html.zoomOut': 'Zoom out',
   'world.map.real.html.recenter': 'Back to my location',
+  'world.map.real.html.hint': 'Drag to pan · pinch to zoom',
+  'world.map.real.loadFailed': 'Could not read the location settings (the original data was backed up, not overwritten). Retry later, or restore a backup under Settings → About → Backup & restore.',
+  'world.map.real.saveFailed.corrupt': 'Could not read the location settings; the corrupted data was backed up and this change was not saved. Retry later.',
+  // Grid map: a house left behind by a deleted character becomes "vacant" when the user
+  // already owns a house of their own. These keys live in the world domain on purpose.
+  'world.map.house.orphaned': 'Vacant house',
+  'world.map.owner.none': 'No owner',
+  'world.map.owner.noneMeta': 'Left empty after a character was deleted',
 };

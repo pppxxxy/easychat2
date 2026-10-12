@@ -33,8 +33,29 @@ const ioStub = {
     };
   },
   backupCorruptValue: async () => {},
-  readJsonStatus: async () => ({ status: 'missing' }),
-  readJsonStatusWithSecrets: async () => ({ status: 'missing' }),
+  // 忠实桩（与 booksStorage / localModelStorage / locationStorage 等 6 个兄弟文件同款）。
+  // 早先这里是 `async () => ({ status: 'missing' })` 的占位：只要被测模块不读状态就够用。
+  // 但 sessionStats 的写路径已改为「读失败→拒绝写回」（变体①，见 storage/sessionStats.js:51），
+  // 占位桩恒报 missing 且不带 value ⇒ 每次读都是空表 ⇒ 分区表永远只写进 1 个会话。
+  // 桩必须镜像 io.js 的对外契约，否则失败信息指向"存储行为不对"，而真因是桩不忠实。
+  readJsonStatus: async key => {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
+    }
+  },
+  readJsonStatusWithSecrets: async key => {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
+    }
+  },
   setJsonWithSecrets: async () => {},
 };
 

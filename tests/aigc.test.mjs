@@ -16,6 +16,7 @@ import {
 } from '../src/aigc/attribution.js';
 import { DISCLAIMER_SECTIONS, DISCLAIMER_TEXT } from '../src/onboarding/disclaimerContent.js';
 import { zhCN } from '../src/i18n/locales/zh-CN.js';
+import { translate } from '../src/i18n/index.js';
 import { createForgeDraft, draftFromCharacter, draftToCharacterPatch, mergeDraft, parseCardPatch, projectForgeDraft } from '../src/cardForge/forge.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -32,7 +33,9 @@ const DISCLAIMER = DISCLAIMER_TEXT;
 
 test('生成标识元数据：字段完整、来源可自定义、编号可追溯', () => {
   const meta = buildAigcMeta({ model: 'deepseek-chat', generatedAt: 1700000000000 });
-  assert.equal(meta.label, AIGC_NOTICE_TEXT);
+  // AIGC_NOTICE_TEXT 是取值函数而非字符串常量：合规标识必须随界面语言取词，
+  // 常量会在模块加载时把文案冻结住（2026-10 修复，见 aigc/attribution.js 头注释）。
+  assert.equal(meta.label, AIGC_NOTICE_TEXT());
   assert.equal(meta.producer, 'EasyChat2');
   assert.equal(meta.producerCode, 'easychat2');
   assert.equal(meta.source, 'easychat2-card-forge');
@@ -51,12 +54,13 @@ test('生成标识元数据：字段完整、来源可自定义、编号可追�
 });
 
 test('导出显式标识：追加到 creator_notes 尾部且不重复叠加', () => {
-  assert.equal(appendExportNotice(''), AIGC_EXPORT_NOTICE);
-  assert.equal(appendExportNotice('备注'), `备注\n\n${AIGC_EXPORT_NOTICE}`);
+  const notice = AIGC_EXPORT_NOTICE();
+  assert.equal(appendExportNotice(''), notice);
+  assert.equal(appendExportNotice('备注'), `备注\n\n${notice}`);
   // 重复导出不叠加
   const once = appendExportNotice('备注');
   assert.equal(appendExportNotice(once), once);
-  assert.ok(AIGC_EXPORT_NOTICE.includes('本卡片内容由 AI 生成'));
+  assert.ok(notice.includes('本卡片内容由 AI 生成'));
 });
 
 test('知名 IP 关键词扫描：命中、大小写与多字段输入', () => {
@@ -78,6 +82,26 @@ test('IP 命中提示：列出来词并声明责任自负', () => {
   assert.ok(text.includes('真实人物'));
 });
 
+test('AIGC 合规标识随语言切换（不再在英文界面显示中文）', () => {
+  // 回归：三条合规文案此前硬编码中文。用 translate 直接比对两种语言的词条，
+  // 不用 setActiveLocale——那会改全局活动语言，污染同进程里其它测试文件的状态。
+  const noticeZh = translate('zh-CN', 'common.aigc.notice');
+  const noticeEn = translate('en', 'common.aigc.notice');
+  assert.equal(noticeZh, '本内容由 AI 生成');
+  assert.match(noticeEn, /AI-generated/);
+  assert.notEqual(noticeEn, noticeZh, '英文界面必须取到英文合规标识');
+
+  const exportZh = translate('zh-CN', 'common.aigc.exportNotice');
+  const exportEn = translate('en', 'common.aigc.exportNotice');
+  assert.ok(exportZh.includes('本卡片内容由 AI 生成'));
+  assert.match(exportEn, /AI-generated/);
+  assert.notEqual(exportEn, exportZh);
+
+  // IP 提示是整条词条 + {keywords} 插值，中英都必须带占位符
+  assert.ok(translate('zh-CN', 'common.aigc.ipNotice', { keywords: 'X' }).includes('X'));
+  assert.ok(translate('en', 'common.aigc.ipNotice', { keywords: 'X' }).includes('X'));
+});
+
 test('制卡 AI 路径统一打标并做 IP 提示', () => {
   // 三条整卡 AI 路径（生成、问答改写、补写高级内容）都经过 applyAigcAttribution
   assert.ok(FORGE_SCREEN.includes('applyAigcAttribution(draft, model)'));
@@ -87,8 +111,13 @@ test('制卡 AI 路径统一打标并做 IP 提示', () => {
   assert.equal(zhCN['forge.screen.alert.ipNotice.title'], '版权风险提示', '语言包中文值正确');
   // 字段辅助生成同样写生成标识（source 区分）
   assert.ok(FORGE_EDITOR.includes("source: 'easychat2-field-assist'"));
-  // 编辑器界面有显式标识提示（引用 AIGC_NOTICE_TEXT 常量）与内容编号徽标
-  assert.ok(FORGE_EDITOR.includes("t('forge.aigc.notice', { notice: AIGC_NOTICE_TEXT })"), '应引用显式标识提示的 i18n 键并注入 AIGC_NOTICE_TEXT');
+  // 编辑器界面有显式标识提示（引用 AIGC_NOTICE_TEXT 取值函数）与内容编号徽标。
+  // 2026-10：AIGC_NOTICE_TEXT 从字符串常量改成取值函数（合规文案须随语言切换），
+  // 调用点同步改为 AIGC_NOTICE_TEXT()——漏改会把函数源码渲染到界面上。
+  assert.ok(
+    FORGE_EDITOR.includes("t('forge.aigc.notice', { notice: AIGC_NOTICE_TEXT() })"),
+    '应引用显式标识提示的 i18n 键并注入 AIGC_NOTICE_TEXT()'
+  );
   assert.ok(zhCN['forge.aigc.notice'].includes('{notice}'), '语言包中文值正确');
   assert.ok(FORGE_EDITOR.includes("t('forge.aigc.badge'"), '应引用内容编号徽标的 i18n 键');
   assert.ok(zhCN['forge.aigc.badge'].includes('内容编号'), '语言包中文值正确');

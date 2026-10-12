@@ -49,7 +49,6 @@ export function searchChatMessages(messages, query, { limit = 50 } = {}) {
       id: String((message && message.id) || `idx-${index}`),
       index,
       role: String((message && message.role) || ''),
-      at: Number(message && message.at) || 0,
       preview: preview(text),
     });
   });

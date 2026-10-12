@@ -45,6 +45,10 @@ export const workspace = {
   'workspace.git.noFiles': '这次提交没有文件改动。',
   'workspace.git.noMessage': '（无提交说明）',
   'workspace.git.diffTitle': '{path} 的改动',
+  // 回合检查点的兜底提交说明（workspace/gitCheckpoint.js）：请求为空时用它。
+  // 它会被写进**本地提交历史**（git_log 工具与「历史」面板直接显示），所以必须随语言走；
+  // 提交那一刻取当前语言的值就定稿了（历史不可变，不能等展示时再翻）。
+  'workspace.git.checkpointFallback': '回合检查点',
   'workspace.python.title': 'Python 环境',
   'workspace.python.available': 'Python 运行时可用（已随 APK 打包）。',
   'workspace.python.checking': '正在检查 Python 运行时…',
@@ -191,6 +195,15 @@ export const workspace = {
   'workspace.github.rollback.lostNote': '另有 {count} 个文件的旧内容未存（过大或拉取失败），无法自动恢复——它们保持现状。',
   'workspace.github.rollback.confirmAction': '恢复',
   'workspace.github.rollback.done': '已恢复 {restored} 个文件；{failed} 个未能恢复（旧内容未存）。现在可以点推送把旧版本同步到远端。',
+  // 不可恢复项的前置清单（2026-10-12）：以前只给一个数量，用户看不到是哪几个、为什么。
+  'workspace.github.rollback.lostTitle': '以下文件的旧内容未存，回滚后保持现状：',
+  // 词条名不带连字符（i18n key 只允许点分字母数字），故原因码 'too-large' → 'tooLarge'。
+  'workspace.github.rollback.lostReason.tooLarge': '单文件过大',
+  'workspace.github.rollback.lostReason.totalLimit': '超出总量上限',
+  'workspace.github.rollback.lostReason.fetchFailed': '拉取旧内容失败',
+  'workspace.github.rollback.lostReason.noSha': '远端无该文件记录',
+  'workspace.github.rollback.lostReason.unknown': '原因未知',
+  'workspace.github.rollback.lostMore': '另有 {count} 个文件同样未存（未列出）。',
   'workspace.diff.webviewMissing': '当前环境不支持内嵌 diff 视图（缺少 WebView 组件）。',
   'workspace.fileHistory.title': '文件历史',
   'workspace.fileHistory.titleFile': '文件历史 · {path}',
@@ -601,6 +614,8 @@ export const workspace = {
   'workspace.toolCard.name.remoteBuild': '触发云端构建',
   'workspace.toolCard.name.docx': '导出 Word',
   'workspace.chat.summary.title': '本次改了什么（{count} 个文件）',
+  // git 开着时面板显示的是**最近一次提交**改了什么，未必是本轮（见 TurnSummaryPanel 的说明）。
+  'workspace.chat.summary.titleCommit': '最近一次提交改了什么（{count} 个文件）',
   'workspace.chat.summary.op.write': '写入',
   'workspace.chat.summary.op.edit': '修改',
   'workspace.chat.summary.op.mkdir': '建目录',
@@ -623,6 +638,15 @@ export const workspace = {
   'workspace.chat.tool.noOutput': '（无输出）',
   'workspace.chat.tool.plan': '计划',
   'workspace.chat.tool.subtask': '子任务',
+  // ---- 工具结果的「界面侧」提示（toolDefs/toolNotices.js 的 TOOL_NOTICE_KEYS）----
+  // 这三条对应工具结果正文里的中文（模型侧，按铁律不翻译）。工具结果额外带 noticeKey，
+  // 展示层取到后用这些词条渲染当前语言。**接线在 workspace/conversation.js 与
+  // screen/ToolCallRow.js**（不在本批所有权内）——接线前工具气泡仍显示中文正文。
+  // 措辞有意与模型侧不同一处：正文说「用户」（第三人称，模型读），界面说「你」（第二人称，
+  // 直接对用户讲话）。两侧受众不同，不该互相将就。
+  'workspace.chat.tool.notice.gitNoRepo': '本地版本控制还没就绪：这个工作区还没有 git 仓库。请在「工作区 → 设置」里打开「本地版本控制」开关（会初始化仓库），然后再试。',
+  'workspace.chat.tool.notice.subagentWriteBlocked': '写子代理不可用：当前是只读模式，写操作需要你切到「可改」模式（未执行）。',
+  'workspace.chat.tool.notice.workflowWriteBlocked': '工作流无法执行：步骤 {steps} 要求 write 模式，但当前是只读模式，写操作需要你切到「可改」模式（未执行）。',
   'workspace.chat.plan.title': '计划（{done}/{total}）',
   'workspace.chat.trace.title': '工具调用（{count}）',
   'workspace.chat.steering.title': '补充指令',

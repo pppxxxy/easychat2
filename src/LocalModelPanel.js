@@ -104,6 +104,7 @@ export default function LocalModelPanel({ visible, onClose }) {
                   moduleAvailable={isLocalModelModuleAvailable()}
                   settings={settings}
                   entries={models.entries}
+                  deviceMemoryBytes={models.deviceMemoryBytes}
                   cleanupBusy={models.cleanupBusy}
                   runtime={models.runtime}
                   onCleanupOrphans={feedback.onCleanupOrphans}
@@ -140,8 +141,9 @@ export default function LocalModelPanel({ visible, onClose }) {
                   onOpenSearch={() => setSearchVisible(true)}
                   onDownload={feedback.onDownload}
                   onCancelDownload={acquire.handleCancelDownload}
-                  onPickGguf={() => feedback.onPick(acquire.pickGguf())}
-                  onPickMmproj={() => feedback.onPick(acquire.pickMmproj())}
+                  // pick 返回 Promise：不 await 则 onPick 拿不到 {ok,code}，PICK_FAILED 分支永不命中。
+                  onPickGguf={async () => feedback.onPick(await acquire.pickGguf())}
+                  onPickMmproj={async () => feedback.onPick(await acquire.pickMmproj())}
                   onImport={feedback.onImport}
                 />
               ) : null}

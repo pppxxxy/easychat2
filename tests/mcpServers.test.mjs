@@ -54,11 +54,20 @@ const ioStub = {
     const raw = storage.get(key);
     return raw ? JSON.parse(raw) : fallback;
   },
+  // 忠实桩：镜像 io.js 的 readJsonStatusWithSecrets 契约（{status,value}）。
+  // mcpServers 的写路径已改为「读失败→拒绝写回」（变体①，见 storage/settings/mcpServers.js:197），
+  // 桩里缺这个名字会报 "readJsonStatusWithSecrets is not a function" —— 一句与真实缺陷无关的
+  // 错，很容易被误判成"迁移逻辑坏了"。stub 必须跟着被测模块的 import 面同步。
   readJsonStatusWithSecrets: async key => {
     const raw = storage.get(key);
     if (raw === null || raw === undefined) return { status: 'missing' };
-    try { return { status: 'ok', value: JSON.parse(raw) }; } catch (error) { return { status: 'corrupt' }; }
+    try {
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
+    }
   },
+  backupCorruptValue: async () => {},
   setJsonWithSecrets: async (key, payload) => {
     storage.set(key, JSON.stringify(payload));
   },

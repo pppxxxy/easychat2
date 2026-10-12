@@ -15,6 +15,7 @@ import { repoManifestPath } from '../src/workspace/repoPaths.js';
 import {
   MATERIALIZE_MAX_PER_CALL,
   MATERIALIZE_TOOL_DEFINITION,
+  groupPendingByDir,
 } from '../src/workspace/toolDefs/materializeTool.js';
 
 test('parseRepoFilePath：repos/<owner>/<repo>/<branch>/<rel>；不满足形态返回 null', () => {
@@ -197,6 +198,82 @@ test('materialize_repo：单次上限 25（默认与 limit 收敛）+ 剩余量�
   );
   assert.equal(executed.length, MATERIALIZE_MAX_PER_CALL + 3, 'limit 收敛');
   assert.match(limited, /还有 27 个未物化/);
+});
+
+// F 项（2026-10-12）：大仓库反复调用 25 个一批时，模型此前看不见「还剩哪些目录」，
+// 只能猜下一批——现在 subdir 收敛 + 剩余目录分布如实列出，反复调用才能逐目录拉完。
+test('materialize_repo：subdir 收敛一批；剩余文件的目录分布如实列出（模型据此挑下一批）', async () => {
+  const entries = [
+    { path: 'src/a.js', type: 'blob' },
+    { path: 'src/b.js', type: 'blob' },
+    { path: 'src/deep/c.js', type: 'blob' },
+    { path: 'docs/x.md', type: 'blob' },
+    { path: 'docs/y.md', type: 'blob' },
+    { path: 'README.md', type: 'blob' },
+  ];
+  const store = {
+    async readWorkspaceFile() { return { content: JSON.stringify({ entries }) }; },
+    async listWorkspaceFiles() { return []; },
+  };
+  const executed = [];
+  const options = { store, materializer: async item => { executed.push(item); return true; } };
+
+  // 全仓一批：按清单顺序取前 N（默认 25 → 全取），剩余为 0 时不再列目录
+  const all = await MATERIALIZE_TOOL_DEFINITION.execute(options, { path: 'repos/o/r/main/' }, { characterId: 'c1' });
+  assert.equal(executed.length, 6);
+  assert.match(all, /成功 6 个/);
+  assert.equal(/未物化的目录/.test(all), false, '全部拉完时不再列剩余目录');
+
+  // subdir 只处理该子目录（含其子目录），剩余量按**全仓**报（不谎称拉完）
+  executed.length = 0;
+  const scoped = await MATERIALIZE_TOOL_DEFINITION.execute(
+    options,
+    { path: 'repos/o/r/main/', subdir: 'src/' },
+    { characterId: 'c1' }
+  );
+  assert.deepEqual(executed, ['repos/o/r/main/src/a.js', 'repos/o/r/main/src/b.js', 'repos/o/r/main/src/deep/c.js'],
+    'subdir 递归覆盖其下所有文件');
+  assert.match(scoped, /还有 3 个未物化/, '剩余量按全仓算（docs 2 + README 1）');
+  assert.match(scoped, /docs\/（2 个）/, '剩余目录分布要点名数量最多的目录');
+  assert.match(scoped, /（仓库根目录）\/（1 个）/, '顶层文件归到仓库根目录');
+  assert.match(scoped, /可用 subdir 指定其中一个/);
+
+  // subdir 写法归一化：首尾斜杠随便给，越界段拒绝
+  executed.length = 0;
+  await MATERIALIZE_TOOL_DEFINITION.execute(options, { path: 'repos/o/r/main/', subdir: '/docs' }, { characterId: 'c1' });
+  assert.deepEqual(executed, ['repos/o/r/main/docs/x.md', 'repos/o/r/main/docs/y.md'], '首尾斜杠不影响匹配');
+  assert.match(
+    await MATERIALIZE_TOOL_DEFINITION.execute(options, { path: 'repos/o/r/main/', subdir: '../src' }, { characterId: 'c1' }),
+    /不能含 \.\. 或 \. 段/,
+    '越界子目录一律拒绝（与 git 路径越界同口径）'
+  );
+  // subdir 下没有未物化文件 → 如实说，并给出全仓剩余量
+  assert.match(
+    await MATERIALIZE_TOOL_DEFINITION.execute(options, { path: 'repos/o/r/main/', subdir: 'nope/' }, { characterId: 'c1' }),
+    /没有未物化的文件；全仓还有 6 个未物化/
+  );
+});
+
+test('groupPendingByDir：首层目录归组、数量降序、可截断（纯函数，Node 直测）', () => {
+  const prefix = 'repos/o/r/main/';
+  const paths = [
+    `${prefix}src/a.js`, `${prefix}src/b.js`, `${prefix}src/deep/c.js`,
+    `${prefix}docs/x.md`, `${prefix}README.md`,
+  ];
+  const all = groupPendingByDir(paths, prefix);
+  // 数量降序；同数量按目录名（'' 是仓库根目录，排在最前）——顺序稳定才可断言。
+  assert.deepEqual(all.list, [
+    { dir: 'src', count: 3 },
+    { dir: '', count: 1 },
+    { dir: 'docs', count: 1 },
+  ]);
+  assert.equal(all.total, 3);
+  const capped = groupPendingByDir(paths, prefix, { max: 2 });
+  assert.equal(capped.list.length, 2);
+  assert.equal(capped.total, 3, '截断时仍报总目录数（调用方据此提示「另有 N 个目录」）');
+  assert.deepEqual(groupPendingByDir(null, prefix), { list: [], total: 0 });
+  // 前缀不匹配时按原样算（防御：不静默丢文件）
+  assert.deepEqual(groupPendingByDir([`${prefix}src/a.js`], '').list, [{ dir: 'repos', count: 1 }]);
 });
 
 test('C3 批量推送接线：面板按钮 + 一次确认 + truncated 安全失败 + 绝不 force', () => {

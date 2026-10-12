@@ -28,19 +28,48 @@ function diaryItemKey(id) {
   return `${DIARY_ITEM_PREFIX}::${String(id || '')}`;
 }
 
-export async function getDiarySettings() {
+// 读设置并**保留读取状态**。读路径对外行为不变（损坏时仍返回默认设置给 UI），
+// status 只交给写路径判定「这次能不能写回」。
+// 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+async function readDiarySettingsStatus() {
   const stored = await readJsonStatus(DIARY_SETTINGS_KEY);
   if (stored.status === 'corrupt') {
     await backupCorruptValue(DIARY_SETTINGS_KEY);
-    return normalizeDiarySettings(null);
+    return { status: 'corrupt', settings: normalizeDiarySettings(null) };
   }
-  return normalizeDiarySettings(stored.status === 'ok' ? stored.value : null);
+  return {
+    status: stored.status === 'ok' ? 'ok' : 'missing',
+    settings: normalizeDiarySettings(stored.status === 'ok' ? stored.value : null),
+  };
 }
 
-export async function saveDiarySettings(settings) {
-  const normalized = normalizeDiarySettings(settings);
-  await AsyncStorage.setItem(DIARY_SETTINGS_KEY, JSON.stringify(normalized));
-  return normalized;
+export async function getDiarySettings() {
+  return (await readDiarySettingsStatus()).settings;
+}
+
+// 保存设置。变体①：读失败就抛错中止，绝不用默认设置整键覆盖。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap）与 src/storage/cardForge.js:182-186。
+//
+// 两件事：
+// 1) 被抹掉的是**全部角色的日记开关 + 全局 API 来源**：saveDiarySettings 是整键覆盖，
+//    读失败时归一化输入里的 `roles` 只剩本次传入的那些，其余角色开关全丢。
+//    触发点很隐蔽：角色删除钩子（本文件末尾）会 getDiarySettings() → 改 → saveDiarySettings()，
+//    一次读失败就把所有角色的开关一起清掉。
+// 2) **统一本文件两条写路径的纪律**：同文件的 updateDiaries（:127-134）一直走
+//    readDiariesForMutation（损坏即抛错），而 saveDiarySettings 此前是裸 setItem——
+//    同一个域里「条目写入受保护、设置写入不受保护」纯属漏掉。现在两条都 fail-closed。
+// 入队理由与 saveDiaries/updateDiaries 相同：设置键与条目键由同一批角色删除钩子写入，
+// 串行化避免交错的读-改-写互相覆盖。
+export function saveDiarySettings(settings) {
+  return enqueueDiaryMutation(async () => {
+    const current = await readDiarySettingsStatus();
+    if (current.status === 'corrupt') {
+      throw new Error(tActive('error.storage.diaryReadFailed'));
+    }
+    const normalized = normalizeDiarySettings(settings);
+    await AsyncStorage.setItem(DIARY_SETTINGS_KEY, JSON.stringify(normalized));
+    return normalized;
+  });
 }
 
 async function readDiaryIndex() {

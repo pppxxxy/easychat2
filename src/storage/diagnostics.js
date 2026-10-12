@@ -37,17 +37,30 @@ function getAsyncStorage() {
 
 let maskSecretsFn;
 let maskSecretsLoaded = false;
+// 惰性 require。**失败绝不缓存**：置位语句放在 require 成功之后（不是进函数就置位），
+// 「脱敏器还没就绪」只是这一次降级，下次调用会重试。
+//
+// 为什么必须这样：旧实现一进函数就 `maskSecretsLoaded = true`，一次 require 失败
+// 就把 maskSecretsFn 永久钉成 null——脱敏器从那一刻起对**全部**诊断失效（粘性失败），
+// 一次加载异常被放大成「此后所有诊断日志都不脱敏」。脱敏器加载失败是异常态，
+// 缓存它等于把异常态固化成常态。
 function getMaskSecrets() {
-  if (!maskSecretsLoaded) {
+  if (maskSecretsLoaded) return maskSecretsFn;
+  try {
+    const mod = require('./secrets.js');
+    if (typeof mod.maskSecrets !== 'function') return null;
+    maskSecretsFn = mod.maskSecrets;
     maskSecretsLoaded = true;
-    try {
-      maskSecretsFn = require('./secrets.js').maskSecrets;
-    } catch (error) {
-      maskSecretsFn = null;
-    }
+  } catch (error) {
+    return null;
   }
   return maskSecretsFn;
 }
+
+// 脱敏不可用时的占位文本：**绝不回落原文**。
+// 不导出是刻意的：eslint 的硬编码中文规则查「模块级**导出**常量」，非导出常量不在其内，
+// 而该文本只出现在诊断日志里（不是界面文案）。含中文也比落明文密钥好得多。
+const MASK_UNAVAILABLE_TEXT = '[脱敏不可用，已省略]';
 
 let cache = null;
 let writeQueue = Promise.resolve();
@@ -67,10 +80,24 @@ function truncate(text) {
   return value.length > MAX_FIELD_CHARS ? value.slice(0, MAX_FIELD_CHARS) : value;
 }
 
+// 脱敏的降级方向必须是 **fail-closed**（先例 src/localModel/adapter.js:278
+// 「fail-closed：没钥匙也清」）：脱敏器不可用、抛错、或返回非字符串时，一律
+// **省略文本**并留占位符，绝不 `truncate(raw)` 回落原文。
+//
+// 为什么不能回落原文：本文件的对外承诺是「全部文本经 maskSecrets 脱敏，绝不落明文密钥」
+// （见文件头第 5 行）。回落原文会把「脱敏器加载失败」这件异常悄悄转换成
+// 「把明文 API Key 写进本地诊断日志」——而且旧实现还会把这个失败粘性缓存下来，
+// 一次失败等于此后全部诊断都未脱敏。占位符同时让这条异常在日志里可见。
 function mask(text) {
   const raw = clean(text);
   const masker = getMaskSecrets();
-  return truncate(masker ? masker(raw) : raw);
+  if (typeof masker !== 'function') return truncate(MASK_UNAVAILABLE_TEXT);
+  try {
+    const masked = masker(raw);
+    return truncate(typeof masked === 'string' ? masked : MASK_UNAVAILABLE_TEXT);
+  } catch (error) {
+    return truncate(MASK_UNAVAILABLE_TEXT);
+  }
 }
 
 function normalizeKind(kind) {

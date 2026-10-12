@@ -27,7 +27,30 @@ import {
   recordAnswer,
   requestedAdvancedSections,
   summarizeAnswers,
+  // 问题 D/H：字段上限表与高级内容 sanitizer 现在都在 barrel（公共 API）里
+  ENTRY_KEYS_MAX_COUNT,
+  AVATAR_DIRECTORY,
+  FORGE_MEDIA_DIRECTORY,
+  buildForgeImageName,
+  buildPromotedAvatarName,
+  collapseOnlyFlags,
+  entryFieldLimit,
+  forgeImageExtension,
+  forgeImageNamesToDelete,
+  forgeMediaDirectory,
+  avatarDirectory,
+  isForgeMediaUri,
+  isForgePayloadFileName,
+  sanitizeAdvancedArray,
+  sanitizePreset,
+  sanitizeRegexScript,
+  sanitizeWorldEntry,
 } from '../src/cardForge/forge.js';
+// 危险正则判定与聊天引擎共用同一份实现（问题 A）：这里直接引用引擎的纯函数，
+// 断言「被标记的那条 == 引擎会跳过的那条」，而不是自己再写一遍启发式。
+import { isUnsafeRegexPattern } from '../src/prompt/regexEngine.js';
+// 参考实现：worldInfo 的 depth 口径以 cardParser 的 firstNumber 为准（问题 C）。
+import { firstNumber } from '../src/character/cardParser/normalizeUtils.js';
 import {
   buildPreviewDisplayTurns,
   buildPreviewOpeningTurns,
@@ -784,7 +807,7 @@ test('整卡生成可只出基础字段，高级内容由第二步补写', () =>
   // 默认（不传选项）仍包含高级内容，保持既有调用语义
   assert.ok(buildGeneratePrompt(state).includes('worldInfo'));
 
-  const advanced = buildAdvancedPrompt(state, { name: '晚星', description: '北境少女' });
+  const advanced = buildAdvancedPrompt(state, { draft: { name: '晚星', description: '北境少女' } });
   assert.ok(advanced.includes('已生成的角色卡'));
   assert.ok(advanced.includes('北境少女'));
   assert.ok(advanced.includes('worldInfo'));
@@ -881,4 +904,208 @@ test('条目辅助可改正则 flags/placement/两种 Only 并同步 placementLa
   const kept = mergeEntryAssistPatch(base, 'regexScripts', { placement: [3, 9] });
   assert.deepEqual(kept.placement, [2]);
   assert.equal(kept.placementLabel, 'AI 输出');
+});
+
+// ================= 问题 A：生成路径必须筛查危险正则 =================
+test('危险正则（灾难性回溯）在生成路径被标记，而不是静默入库', () => {
+  const patch = parseCardPatch(JSON.stringify({
+    name: '晚星',
+    regexScripts: [
+      { name: '会挂死', findRegex: '(a+)+$', replaceString: 'X' },
+      { name: '正常', findRegex: 'foo', replaceString: 'bar' },
+    ],
+  }));
+  // 标记而不是丢弃：丢了用户连改的机会都没有，且条数会无声变少
+  assert.equal(patch.regexScripts.length, 2);
+  assert.equal(patch.regexScripts[0].unsafe, true);
+  assert.equal(patch.regexScripts[1].unsafe, false);
+  // 复用引擎那一份启发式：被标记的那条 == regexEngine 会 continue 的那条
+  assert.equal(isUnsafeRegexPattern(patch.regexScripts[0].findRegex), true);
+  assert.equal(isUnsafeRegexPattern(patch.regexScripts[1].findRegex), false);
+  // 有界嵌套量词不该被误伤（与引擎同一口径）
+  assert.equal(sanitizeRegexScript({ findRegex: '(a{2,3})+' }, 0).unsafe, false);
+  // 编辑器必须在脚本列表里给出可见告警（照 character/editors.js:233 的写法）
+  assert.ok(FORGE_EDITOR_SOURCE.includes('isUnsafeRegexPattern'), '编辑器复用同一份判定，不另写');
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.regex.unsafeHint')"), '展开时的详细告警');
+  assert.ok(FORGE_EDITOR_SOURCE.includes("t('forge.regex.unsafeBadge')"), '折叠时列表里的可见标记');
+  assert.ok(zhCN['forge.regex.unsafeHint'].includes('灾难性回溯'), '语言包中文值正确');
+  assert.ok(zhCN['forge.regex.unsafeBadge'].includes('危险正则'), '语言包中文值正确');
+});
+
+// ================= 问题 B：markdownOnly / promptOnly 互斥收口 =================
+test('markdownOnly / promptOnly 互斥收口：both-true 不再等于「全量生效」', () => {
+  // 引擎语义：两个 skip 条件都不成立 → 两边都生效，与 both-false 等价。
+  // 辅助生成路径（mergeEntryAssistPatch）必须收口，否则本应只改展示的正则开始改发给模型的内容。
+  const merged = mergeEntryAssistPatch(
+    { id: 'r1', name: '高亮', findRegex: 'foo', replaceString: 'bar', markdownOnly: false, promptOnly: false },
+    'regexScripts',
+    { markdownOnly: true, promptOnly: true }
+  );
+  assert.equal(merged.markdownOnly, true);
+  assert.equal(merged.promptOnly, false, 'both-true 必须被收口成一个');
+  // 原本就是 promptOnly 的条目：保留用户原有的那一侧，不被模型的 both-true 冲成全量生效
+  const keptPrompt = mergeEntryAssistPatch(
+    { id: 'r2', findRegex: 'foo', markdownOnly: false, promptOnly: true },
+    'regexScripts',
+    { markdownOnly: true }
+  );
+  assert.equal(keptPrompt.promptOnly, true);
+  assert.equal(keptPrompt.markdownOnly, false);
+  // 生成路径（sanitizeRegexScript）走同一口径
+  const generated = parseCardPatch(JSON.stringify({
+    regexScripts: [{ name: 'x', findRegex: 'foo', markdownOnly: true, promptOnly: true }],
+  })).regexScripts[0];
+  assert.equal(generated.markdownOnly, true);
+  assert.equal(generated.promptOnly, false);
+  // 单一实现：收口函数在 shared.js，两条路径共用
+  const collapsed = collapseOnlyFlags({ markdownOnly: true, promptOnly: true }, {});
+  assert.deepEqual([collapsed.markdownOnly, collapsed.promptOnly], [true, false]);
+});
+
+// ================= 问题 C：depth 的 null / '' 视为缺省 =================
+test('世界书 depth：null / 空串视为缺省 4，而不是被存成 0', () => {
+  const [nullDepth] = parseCardPatch(JSON.stringify({
+    worldInfo: [{ keys: ['月'], content: '月亮的设定', position: 4, depth: null }],
+  })).worldInfo;
+  assert.equal(nullDepth.position, 4);
+  // Number(null) === 0 且过 Number.isFinite：旧实现存 0，chatPipeline 会把条目
+  // 注入到最末一条消息旁，而不是提示词承诺的「倒数第 4 条」。
+  assert.equal(nullDepth.depth, 4);
+
+  const [blankDepth] = parseCardPatch(JSON.stringify({
+    worldInfo: [{ keys: ['月'], content: 'x', depth: '' }],
+  })).worldInfo;
+  assert.equal(blankDepth.depth, 4);
+
+  const [explicit] = parseCardPatch(JSON.stringify({
+    worldInfo: [{ keys: ['月'], content: 'x', depth: 2 }],
+  })).worldInfo;
+  assert.equal(explicit.depth, 2, '显式给了深度就照用');
+  assert.equal(sanitizeWorldEntry({ keys: ['月'], content: 'x', depth: '3' }, 0).depth, 3);
+
+  // 与参考实现同口径：cardParser 的 firstNumber 也把 null / '' 当缺省
+  assert.equal(firstNumber([{ depth: null }], ['depth'], 4), 4);
+  assert.equal(firstNumber([{ depth: '' }], ['depth'], 4), 4);
+  assert.equal(firstNumber([{ depth: 2 }], ['depth'], 4), 2);
+});
+
+// ================= 问题 D：字段上限的单一来源 =================
+test('同一字段两条写入路径共用一张上限表（生成路径 == 辅助生成路径）', () => {
+  const longComment = '标'.repeat(300);
+  const [generated] = parseCardPatch(JSON.stringify({
+    worldInfo: [{ keys: ['月'], content: 'x', comment: longComment }],
+  })).worldInfo;
+  assert.equal(generated.comment.length, 120);
+  // 辅助生成过去一律按 MAX_PRESERVED_TEXT 截断：能落一条 50 万字的 comment
+  const assisted = mergeEntryAssistPatch({ id: 'w1' }, 'worldInfo', { comment: longComment });
+  assert.equal(assisted.comment.length, 120, '两条路径必须同一口径');
+
+  const [script] = parseCardPatch(JSON.stringify({
+    regexScripts: [{ findRegex: 'x', flags: 'g'.repeat(30) }],
+  })).regexScripts;
+  assert.equal(script.flags.length, 10);
+  const assistedScript = mergeEntryAssistPatch({ id: 'r1' }, 'regexScripts', { flags: 'g'.repeat(30) });
+  assert.equal(assistedScript.flags.length, 10);
+
+  const [preset] = parseCardPatch(JSON.stringify({
+    presets: [{ prompt: 'x', name: '名'.repeat(300) }],
+  })).presets;
+  assert.equal(preset.name.length, 120);
+  const assistedPreset = mergeEntryAssistPatch({ id: 'p1' }, 'presets', { name: '名'.repeat(300) });
+  assert.equal(assistedPreset.name.length, 120);
+
+  // 关键词条数上限同样单一来源
+  const manyKeys = Array.from({ length: 80 }, (unused, index) => `键${index}`);
+  assert.equal(sanitizeWorldEntry({ keys: manyKeys, content: 'x' }, 0).keys.length, ENTRY_KEYS_MAX_COUNT);
+  assert.equal(
+    mergeEntryAssistPatch({ id: 'w2' }, 'worldInfo', { keys: manyKeys }).keys.length,
+    ENTRY_KEYS_MAX_COUNT
+  );
+
+  // 表就是那张表：两个模块都从这里查，不再各写一份
+  assert.equal(entryFieldLimit('worldInfo', 'comment'), 120);
+  assert.equal(entryFieldLimit('regexScripts', 'flags'), 10);
+  assert.equal(entryFieldLimit('presets', 'name'), 120);
+  assert.equal(entryFieldLimit('presets', '没登记的字段'), 500000, '未登记字段回退默认值而不是 0');
+});
+
+// ================= 问题 G：实质为空的条目统一返回 null =================
+test('实质为空的条目 / 脚本被丢弃，不再产生「看着生成了、实际不生效」的静默条目', () => {
+  const patch = parseCardPatch(JSON.stringify({
+    name: '晚星',
+    worldInfo: [
+      { comment: '空条目', keys: [], content: '' },
+      { keys: ['月'], content: '' },
+      { comment: '只有次要关键词', secondaryKeys: ['月'], content: '' },
+    ],
+    regexScripts: [
+      { name: '空脚本', findRegex: '', replaceString: 'x' },
+      { name: '正常', findRegex: 'foo' },
+    ],
+  }));
+  assert.equal(patch.worldInfo.length, 2, '空 content + 空 keys 的条目被丢弃');
+  assert.equal(patch.regexScripts.length, 1, '空 findRegex 的脚本被丢弃');
+
+  // 三个 sanitizer 口径统一（sanitizePreset 本来就返回 null）
+  assert.equal(sanitizePreset({ prompt: '   ' }, 0), null);
+  assert.equal(sanitizeWorldEntry({ content: '  ', keys: [] }, 0), null);
+  assert.equal(sanitizeRegexScript({ findRegex: '  ' }, 0), null);
+  assert.equal(sanitizeRegexScript({ findRegex: 'x' }, 0) === null, false, '非空脚本照常保留');
+  // 整组都是空条目 → 不构成清空指令（mergeDraft 只在拿到非空数组时才替换）
+  assert.equal(sanitizeAdvancedArray([{ content: '' }], sanitizeWorldEntry), null);
+  assert.equal(sanitizeAdvancedArray([], sanitizeWorldEntry), null);
+});
+
+// ================= 问题 H：barrel 就是公共 API =================
+test('forge.js barrel 收录高级内容 sanitizer 与图片路径规则', () => {
+  const barrel = readFileSync(path.join(HERE, '..', 'src', 'cardForge', 'forge.js'), 'utf8');
+  assert.ok(barrel.includes("from './forge/advanced.js'"), 'sanitizer 必须从 barrel 可取');
+  assert.ok(barrel.includes("from './mediaPaths.js'"), '图片路径规则必须从 barrel 可取');
+  assert.ok(barrel.includes('ENTRY_FIELD_LIMITS'), '字段上限表也是公共 API');
+  // 从 barrel 拿到的必须真的可用（不是 undefined）
+  assert.equal(FORGE_MEDIA_DIRECTORY, 'card-forge');
+  assert.equal(AVATAR_DIRECTORY, 'avatars');
+  assert.equal(forgeMediaDirectory('file:///doc/'), 'file:///doc/card-forge/');
+  assert.equal(avatarDirectory('file:///doc/'), 'file:///doc/avatars/');
+  assert.equal(isForgeMediaUri('file:///doc/card-forge/a.jpg', 'file:///doc/'), true);
+  assert.equal(forgeImageExtension('image/png', ''), '.png');
+  assert.equal(buildForgeImageName({ key: 'bgUri', now: 1, random: () => 0 }), 'bg-1-0.jpg');
+  assert.match(buildPromotedAvatarName({ now: 1, random: () => 0 }), /^forge-1-0\.jpg$/);
+  assert.equal(isForgePayloadFileName('a.json'), true);
+  assert.deepEqual(forgeImageNamesToDelete(['a.jpg', 'b.json']), ['a.jpg']);
+  [sanitizeWorldEntry, sanitizeRegexScript, sanitizePreset, sanitizeAdvancedArray, entryFieldLimit, collapseOnlyFlags]
+    .forEach(fn => assert.equal(typeof fn, 'function'));
+});
+
+// ================= 问题 I：两个提示词构造函数的第二参语义统一 =================
+test('buildAdvancedPrompt 与 buildGeneratePrompt 的第二参统一为选项对象', () => {
+  const state = { ...createForgeState(1), answers: { advanced: '全部' } };
+  // draft 选项生效；sections 由调用方传入（它为了提前 return 已经算过），不再重算
+  const advanced = buildAdvancedPrompt(state, {
+    draft: { name: '晚星', description: '北境少女' },
+    sections: ['world'],
+  });
+  assert.ok(advanced.includes('北境少女'), 'draft 选项必须生效（旧签名下这个参数是无效的）');
+  assert.ok(advanced.includes('worldInfo'));
+  assert.equal(advanced.includes('regexScripts'), false, '传入的 sections 直接生效，不重算');
+
+  // 单参调用仍可用：draft 回落 state.draft
+  const fallback = buildAdvancedPrompt({ ...state, draft: { name: '回落的卡' } });
+  assert.ok(fallback.includes('回落的卡'));
+
+  // 与 buildGeneratePrompt 同一形态：第二参都是选项对象
+  assert.ok(buildGeneratePrompt(state, { includeAdvanced: false }).includes('当前草稿'));
+  // 调用方（CardForgeScreen 的补写高级内容步骤）也按新语义传参
+  assert.ok(
+    FORGE_SCREEN_SOURCE.includes('buildAdvancedPrompt(baseState, { draft: baseState && baseState.draft, sections })'),
+    '调用方必须把已算好的 sections 传进来'
+  );
+});
+
+// ================= 问题 J：零引用导出与过度导出 =================
+test('mediaPaths：删掉零引用的 FORGE_IMAGE_KEYS，imageKeyLabel 不再过度导出', () => {
+  const source = readFileSync(path.join(HERE, '..', 'src', 'cardForge', 'mediaPaths.js'), 'utf8');
+  assert.equal(source.includes('FORGE_IMAGE_KEYS'), false, '全仓零引用的常量必须删除');
+  assert.equal(/export\s+function\s+imageKeyLabel/.test(source), false, '只被本文件调用，不做公共导出');
+  assert.ok(/function\s+imageKeyLabel\s*\(/.test(source), '函数本体保留（buildForgeImageName 还在用）');
 });

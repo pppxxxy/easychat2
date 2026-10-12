@@ -7,7 +7,6 @@ import { tActive } from '../i18n/index.js';
 
 // 目录提供方：hf-mirror 复用 HuggingFace 的搜索/文件接口，仅下载主机不同。
 // （原 CATALOG_PROVIDERS 常量只有 id/name/revision，全仓零消费，已删。）
-
 const SOURCE_PROVIDER = {
   huggingface: 'huggingface',
   'hf-mirror': 'huggingface',

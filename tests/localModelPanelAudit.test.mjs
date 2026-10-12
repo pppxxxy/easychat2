@@ -36,6 +36,7 @@ const PANEL = [SHELL, ...PANEL_FILES.map(readPanel)].join('\n');
 const MODELS_SECTION = readPanel('ModelsSection.js');
 const MODEL_CARD = readPanel('ModelCard.js');
 const ACQUIRE_SECTION = readPanel('AcquireSection.js');
+const DOWNLOAD_TASKS = readPanel('DownloadTasks.js');
 const USE_ACQUIRE = readPanel('useAcquireModel.js');
 const USE_API = readPanel('useApiServer.js');
 const USE_PANEL = readPanel('usePanelModels.js');
@@ -193,7 +194,16 @@ test('C1：拆分后壳只做组合与渲染，panel/ 组件各不超 300 行', 
 
 test('C3：设置更新收口 updateSettings（重读最新再合并）', () => {
   assert.ok(USE_PANEL.includes('const updateSettings = useCallback'));
-  assert.ok(USE_PANEL.includes('await getLocalModelSettings().catch(() => null)'));
+  // fail-closed（口径同 storage/worldMap.js 的「写前必读」）：读失败必须抛出、不写回。
+  // 旧实现 `await getLocalModelSettings().catch(() => null)` 是 fail-open —— base 退化成
+  // {}，对象 patch（服务域传整个 apiServer）会把 enabled/activeModelId/enableMediaInput
+  // 一并抹掉。本断言原先把 .catch 形状钉死，随该缺陷修复一并改成 fail-closed 形状。
+  assert.ok(USE_PANEL.includes('const base = await getLocalModelSettings();'),
+    'updateSettings 必须裸读设置（读失败即抛出，不写回）');
+  assert.ok(!USE_PANEL.includes('const latest = await getLocalModelSettings().catch'),
+    '不得把读失败吞成 null（fail-open 整表覆盖）');
+  assert.ok(USE_PANEL.includes("if (!base) throw new Error('local model settings unavailable')"),
+    '读到空值也必须中止写回');
   assert.ok(USE_PANEL.includes("typeof patch === 'function' ? patch(base) : patch"));
   // 既有手动合并点全部改走 updateSettings
   for (const anchor of [
@@ -327,4 +337,78 @@ test('v5 §3：模型中心为全屏 Modal（非透明弹层）；弹层样式�
   assert.ok(styles.includes('centerScreen:'), '全屏容器样式存在');
   // backdrop/sheet 是参数弹窗等子层在用的，不能跟着全屏化被删
   assert.ok(styles.includes('backdrop:') && styles.includes('sheet:'), '子弹窗弹层样式必须保留');
+});
+
+// ---- 2026-10-12 缺陷修复批：A/B/C/D/E ----
+
+test('A：下载进度单位收口为 0–100（队列出口换算，消费方不再各自换算）', () => {
+  const QUEUE = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'downloadQueue.js'), 'utf8');
+  const MANAGER = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'modelManager.js'), 'utf8');
+  // 唯一定义处：downloadQueue.toProgressPercent，写入 currentTask 时换算
+  assert.ok(QUEUE.includes('export function toProgressPercent'), '队列应导出进度换算函数');
+  assert.ok(QUEUE.includes('progress: toProgressPercent(progress)'), '快照写入时必须换算成百分数');
+  assert.ok(QUEUE.includes('0–100'), '注释必须写明「进度一律 0–100」的单位口径');
+  // 下载器保持 0–1 比值（换算不在这一层重复）
+  assert.ok(MANAGER.includes('Math.min(1, written / total)'), '下载器仍产出 0–1 比值');
+  // 两处消费方不再各自换算：DownloadTasks 直接用、AcquireSection 去掉 ×100
+  assert.ok(!ACQUIRE_SECTION.includes('task.progress * 100'), 'AcquireSection 不得再 ×100');
+  assert.ok(ACQUIRE_SECTION.includes('const downloadPercent ='), 'AcquireSection 直接用快照百分数');
+  assert.ok(!DOWNLOAD_TASKS.includes('progress * 100'), 'DownloadTasks 不得再自行换算');
+  assert.ok(DOWNLOAD_TASKS.includes('Number(task.progress) || 0'), 'DownloadTasks 直接用快照值');
+});
+
+test('B：取消下载用队列真实 task.id，不从草稿反推（死按钮 + 误取消根因）', () => {
+  assert.ok(USE_ACQUIRE.includes('activeTaskIdRef'), '应镜像快照里的真实任务 id');
+  assert.ok(USE_ACQUIRE.includes('activeTaskIdRef.current = String((current && current.id) || (pending && pending.id)'),
+    '真实 id 必须来自快照的 current/pending');
+  assert.ok(USE_ACQUIRE.includes('activeTaskIdRef.current = String(result.id || \'\')'),
+    '入队成功后应记住队列返回的 id');
+  assert.ok(!USE_ACQUIRE.includes('localModelIdFromFileName'),
+    '取消路径不得再按文件名反推 id（该导入已移除）');
+  const cancelRegion = USE_ACQUIRE.slice(USE_ACQUIRE.indexOf('const handleCancelDownload'));
+  assert.ok(cancelRegion.includes('cancelQueuedDownload(id)'), '取消应传真实 id');
+  assert.ok(cancelRegion.includes('if (!id) return Promise.resolve(false)'),
+    '无已知任务 id 时不得取消任何任务（宁可无效也不能取消别人）');
+});
+
+test('C：设备内存透传到模型卡（兼容分级不再恒为「内存未知」）', () => {
+  assert.ok(MODELS_SECTION.includes('deviceMemoryBytes'), 'ModelsSection 应接收设备内存');
+  assert.ok(MODELS_SECTION.includes('deviceMemoryBytes={memoryBytes}'), '必须透传给 ModelCard');
+  assert.ok(MODEL_CARD.includes('deviceMemoryBytes'), 'ModelCard 应接收设备内存');
+  assert.ok(!MODEL_CARD.includes('totalMemoryBytes: 0'), '不得再把总内存硬编码成 0');
+  assert.ok(MODEL_CARD.includes('totalMemoryBytes: deviceMemoryBytes'), '分级必须用真实内存');
+});
+
+test('D：精选卡 hasVision 来自 featured 目录（不再硬编码 false）', () => {
+  assert.ok(USE_PANEL.includes('featuredCardEntry'), '精选卡条目应由 featured.featuredCardEntry 构造');
+  assert.ok(!USE_PANEL.includes('hasVision: false'), '不得硬编码 hasVision:false');
+  const FEATURED = readFileSync(path.join(HERE, '..', 'src', 'localModel', 'featured.js'), 'utf8');
+  assert.ok(/repoId: 'unsloth\/gemma-3-4b-it-GGUF'[\s\S]{0,320}?hasVision: true/.test(FEATURED),
+    'gemma3-4b（multimodal）必须在目录里标 hasVision:true');
+});
+
+test('E1：空态占位用专有词条（不再误用「查看运行日志」）', () => {
+  assert.ok(MODELS_SECTION.includes("t('localModel.noActiveModel')"), '空态应用 noActiveModel');
+  assert.ok(!MODELS_SECTION.includes("t('localModel.viewLogs')"), '不得再用 viewLogs 当空态占位');
+  const zhSrc = readFileSync(path.join(HERE, '..', 'src', 'i18n', 'locales', 'zh-CN', 'localModel.js'), 'utf8');
+  const enSrc = readFileSync(path.join(HERE, '..', 'src', 'i18n', 'locales', 'en', 'localModel.js'), 'utf8');
+  assert.ok(zhSrc.includes("'localModel.noActiveModel'"), '中文词条要补');
+  assert.ok(enSrc.includes("'localModel.noActiveModel'"), '英文词条要补');
+});
+
+test('E2：onPick 兼容 Promise 入参（PICK_FAILED 分支不再是死代码）', () => {
+  const feedback = readPanel('panelFeedback.js');
+  const region = feedback.slice(feedback.indexOf('const onPick'), feedback.indexOf('const onImport'));
+  assert.ok(region.includes('const onPick = async'), 'onPick 必须 async');
+  assert.ok(region.includes('await pickInput'), '必须 await 壳传入的 Promise');
+  assert.ok(region.includes("code === 'PICK_FAILED'"), 'PICK_FAILED 分支保留');
+  assert.ok(region.includes('catch (error)'), 'Promise reject 也要兜成 PICK_FAILED');
+});
+
+test('E3：重复入队透传 DUPLICATE（不再谎报「已加入队列」并清空草稿）', () => {
+  const region = USE_ACQUIRE.slice(USE_ACQUIRE.indexOf('const handleDownload'), USE_ACQUIRE.indexOf('const handleCancelDownload'));
+  assert.ok(region.includes("if (result.code === 'DUPLICATE') return { ok: false, code: 'DUPLICATE' }"),
+    'DUPLICATE 必须透传给反馈层');
+  const feedback = readPanel('panelFeedback.js');
+  assert.ok(feedback.includes("result.code === 'DUPLICATE'"), '反馈层的 DUPLICATE 静默分支应可命中');
 });

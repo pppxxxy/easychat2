@@ -1,13 +1,14 @@
 // 「模型库」段：状态行 + 启用/多媒体开关 + 运行状态卡 + 下载任务卡 + 已装模型卡列表。
 // 纯渲染：数据与回调由壳装配；模型卡是唯一交互原语（ModelCard）。
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import EngineCard from './EngineCard.js';
 import DownloadTasks from './DownloadTasks.js';
 import ModelCard from './ModelCard.js';
+import { getDeviceMemoryInfo } from '../deviceMemory.js';
 
 export default function ModelsSection({
   styles,
@@ -34,7 +35,15 @@ export default function ModelsSection({
   goAcquireLabel,
   featuredEntries,
   onDownloadFeatured,
+  deviceMemoryBytes,
 }) {
+  // 兼容分级需要设备总内存：模型卡曾把它硬编码成 0，于是 classifyModelMemory 恒返回
+  // 「内存未知」，推荐/难跑/跑不了三档从未生效。壳透传的 prop 优先；prop 缺省（本批
+  // 文件所有权不允许改壳 LocalModelPanel.js）时直接读设备内存兜底，两者同一口径。
+  const memoryBytes = useMemo(
+    () => (Number(deviceMemoryBytes) > 0 ? Number(deviceMemoryBytes) : getDeviceMemoryInfo().totalMemoryBytes),
+    [deviceMemoryBytes]
+  );
   return (
     <>
       <Text style={styles.hint}>{t('localModel.hint')}</Text>
@@ -61,7 +70,7 @@ export default function ModelsSection({
             ? t('localModel.currentModel', {
               name: (entries.find(item => item.id === settings.activeModelId) || {}).name || settings.activeModelId,
             })
-            : t('localModel.viewLogs')}
+            : t('localModel.noActiveModel')}
         </Text>
         <SwitchRow
           theme={theme}
@@ -125,6 +134,7 @@ export default function ModelsSection({
             theme={theme}
             t={t}
             entry={entry}
+            deviceMemoryBytes={memoryBytes}
             active={Boolean(settings && settings.activeModelId === entry.id)}
             loaded={loadedModelId === entry.id}
             loading={loadBusyId === entry.id}
@@ -145,6 +155,7 @@ export default function ModelsSection({
           theme={theme}
           t={t}
           entry={entry}
+          deviceMemoryBytes={memoryBytes}
           active={false}
           loaded={false}
           loading={false}

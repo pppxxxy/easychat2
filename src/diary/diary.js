@@ -1,5 +1,9 @@
 // 角色日记：纯函数层。日期口径、候选筛选、提示词与规范化都在这里，
 // 与 UI / 存储解耦，便于单测。真实写日记的请求在 Runner 里。
+//
+// 日期展示文案（formatDiaryDate）走 i18n：它是纯函数、没有 React 上下文，
+// 所以用 tActive 同步取词，而不是 useTranslation()。
+import { tActive } from '../i18n/index.js';
 
 export const MAX_DIARIES_PER_CHARACTER = 365;
 export const DIARY_TEXT_MAX = 4000;
@@ -387,5 +391,10 @@ export function formatDiaryDate(dateKey) {
   const value = clean(dateKey, 10);
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
-  return `${Number(match[2])}月${Number(match[3])}日`;
+  // 日期文案走 i18n：中文「9月26日」/ 英文「9/26」。此前硬编码成中文，
+  // 英文界面下日记列表的日期是中文写法（DiaryPanel.js 直接渲染本函数返回值）。
+  return tActive('diary.date.monthDay', {
+    month: Number(match[2]),
+    day: Number(match[3]),
+  });
 }

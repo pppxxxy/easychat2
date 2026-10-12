@@ -88,6 +88,55 @@ export function rollbackRestorableEntries(payload) {
   return { restorable, unrestorable };
 }
 
+// 纯函数：**执行前**列清「不可恢复项」——哪几个文件、各自为什么回不去。
+//
+// 为什么需要（2026-10-12）：不可恢复项此前只在事后被发现。回滚确认框只写一句
+// 「另有 N 个文件的旧内容未存」，用户看不到是哪几个、也不知道原因（过大？拉取失败？），
+// 于是无法判断「这次回滚到底会留下什么」——只能先点下去再吃结果。确认门的价值就在
+// 「点之前知道会发生什么」，所以这里把清单算出来交给 UI 前置展示。
+//
+// 三类不可恢复项：
+// - 记了条目但 content 为 null：超单文件/总量限额或拉取失败（repoPush 的三重限额），
+//   原因码见 repoPush（'too-large' / 'total-limit' / 'fetch-failed' / 'no-sha'）；
+// - payload.skippedCount：连条目都没记下的那部分（文件数超限被跳过），只知道数量；
+// - 两条都没有时为 0——UI 不该显示空清单。
+export function rollbackUnrestorableReport(payload, limit = 8) {
+  const entries = Array.isArray(payload && payload.entries) ? payload.entries : [];
+  const unrestorable = entries.filter(item => item && typeof item.content !== 'string');
+  const missingCount = Number(payload && payload.skippedCount) > 0 ? Number(payload.skippedCount) : 0;
+  const shown = unrestorable.slice(0, Math.max(0, limit)).map(item => ({
+    path: String(item.path || ''),
+    reason: String(item.reason || 'unknown'),
+    // 原因码是 kebab（repoPush 写的 'too-large'），i18n key 只允许点分字母数字 ⇒ 转 camel。
+    // 映射放纯模块里：UI 只做「取词条 + 拼行」，口径与测试都在一处。
+    reasonKey: `workspace.github.rollback.lostReason.${String(item.reason || 'unknown').replace(/-([a-z0-9])/g, (match, ch) => ch.toUpperCase())}`,
+  }));
+  return {
+    unrestorableCount: unrestorable.length,
+    missingCount,
+    total: unrestorable.length + missingCount,
+    shown,
+    // 既包括被 limit 截掉的，也包括只知道数量的 skippedCount（它们没有路径可展示）。
+    omittedCount: Math.max(0, unrestorable.length - shown.length) + missingCount,
+  };
+}
+
+// 纯函数：把上面那份报告拼成确认框里那段人读的清单（每行「· 路径（原因）」+ 一条「还有 N 个」）。
+// labelFor 由宿主注入（t 的包装）：模块不 import i18n，测试传个 stub 就能逐字断言。
+// 词条缺失时 t 会原样返回 key——这里统一换成「原因未知」，不把内部原因码糊到用户脸上。
+// 无可恢复项时返回空串（UI 直接拼在确认正文后面，不必再判空）。
+export function formatRollbackUnrestorableLines(report, labelFor, title = '') {
+  const label = (key, params) => {
+    const text = typeof labelFor === 'function' ? labelFor(key, params) : key;
+    // 回退必须**直接**再调一次 labelFor（不能递归调 label：没有 labelFor 时会无限自调）。
+    return text === key ? (typeof labelFor === 'function' ? labelFor('workspace.github.rollback.lostReason.unknown') : key) : text;
+  };
+  const lines = (report && Array.isArray(report.shown) ? report.shown : [])
+    .map(item => `· ${item.path}（${label(item.reasonKey)}）`);
+  if (report && report.omittedCount > 0) lines.push(label('workspace.github.rollback.lostMore', { count: report.omittedCount }));
+  return lines.length === 0 ? '' : `\n\n${title}\n${lines.join('\n')}`;
+}
+
 // IO：列出快照（只读元信息，不读内容）。
 export async function listRollbackSnapshots(store, characterId) {
   if (!store || typeof store.listWorkspaceFiles !== 'function') return [];

@@ -16,9 +16,15 @@ const presetEnv = require.resolve('@babel/preset-env');
 const store = new Map();
 const fileStore = new Map();
 const corruptBackups = [];
+// 「读会抛错」的键：AsyncStorage.getItem 直接抛（Android 上超 CursorWindow 上限、
+// SAF/权限失败都是这个形态），readJsonStatus 据此判 corrupt。
+const failedGets = new Set();
 
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failedGets.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
   multiSet: async entries => { entries.forEach(([key, value]) => store.set(key, value)); },
@@ -199,6 +205,44 @@ test('书评：追加、幂等、上限、锚归一化与随书删除', async ()
   assert.equal(removedKeys, 2);
   assert.deepEqual(await comments.getBookComments('book-b'), []);
   await assert.rejects(() => comments.appendBookComment('book-c', { id: 'm2', text: '  ' }));
+});
+
+test('书评：读取失败必须明确失败并拒绝写回，原评论不被覆盖（不得当成「还没有评论」）', async () => {
+  store.clear();
+  failedGets.clear();
+  corruptBackups.length = 0;
+  await comments.appendBookComment('book-a', { id: 'm1', text: '原来的评论', createdAt: 1 });
+  const key = comments.bookCommentsKey('book-a');
+  const before = store.get(key);
+
+  // ① 读会抛错（值本身是好的，只是这一次读不到）
+  failedGets.add(key);
+  await assert.rejects(
+    () => comments.getBookComments('book-a'),
+    /book-comments-read-failed/,
+    '读路径必须拒绝，不能把 [] 交给面板当「还没有评论」'
+  );
+  await assert.rejects(
+    () => comments.appendBookComment('book-a', { id: 'm2', text: '新评论' }),
+    /book-comments-read-failed/,
+    '写路径必须拒绝，不能以 [] 为底写回'
+  );
+  assert.equal(store.get(key), before, '读失败不得覆盖原评论');
+  failedGets.delete(key);
+
+  // ② 值是坏的（JSON 解析不了）：同样拒绝，且原始内容原样保留
+  store.set(key, '{broken');
+  await assert.rejects(() => comments.getBookComments('book-a'), /book-comments-read-failed/);
+  await assert.rejects(() => comments.appendBookComment('book-a', { id: 'm3', text: '再来一条' }));
+  assert.equal(store.get(key), '{broken', '损坏原值不得被覆盖');
+  assert.ok(corruptBackups.includes(key), '损坏值先备份再拒绝');
+
+  // ③ 读得回来时行为不变
+  failedGets.clear();
+  store.set(key, before);
+  assert.deepEqual((await comments.getBookComments('book-a')).map(item => item.id), ['m1']);
+  await comments.appendBookComment('book-a', { id: 'm4', text: '正常追加' });
+  assert.deepEqual((await comments.getBookComments('book-a')).map(item => item.id), ['m1', 'm4']);
 });
 
 test('书架：按章进度补丁合并落库（同章取最大），旧条目迁移为空映射', async () => {

@@ -9,9 +9,12 @@
 //
 // 纯函数：配置数组由调用方从 `getApiConfigs()` 取好后传入。
 
-// 取不到配置时的安全默认：什么都不支持（宁可不发图片/音频，也不要发给不支持的端点）。
+// 取不到配置时的安全默认：什么都不支持（宁可不发图片/音频/视频，也不要发给不支持的端点）。
+// allowVideo 必须与 allowVision/allowAudio 一起显式给 false：`filterRequestMedia` 是
+// 解构取默认值（缺字段 = false），这里少写一个字段就会让「取不到配置」这条最危险的路径
+// 依赖别处的默认值——能力对象要能自证它放行了什么。
 export const EMPTY_ONLINE_REQUEST_CONTEXT = Object.freeze({
-  media: Object.freeze({ allowVision: false, allowAudio: false }),
+  media: Object.freeze({ allowVision: false, allowAudio: false, allowVideo: false }),
   modelName: '',
   configLabel: '',
   contextWindow: 0,
@@ -30,14 +33,24 @@ export function resolveOnlineRequestContext(configs, activeId, expectedConfigId,
     || list[0];
   if (!config) return { ...EMPTY_ONLINE_REQUEST_CONTEXT };
   const modelName = String(getModel(config) || '').trim();
-  // 媒体能力按**当前模型**解析（capabilitiesForModel），与发送链路的其它判定同一口径。
-  // 不再读配置级 supportsVision/supportsAudio——配置级字段是旧版兼容读取用，
-  // 逐模型能力编辑器只写 modelCapabilities，读配置级会漏掉用户新开的识图/音频。
+  // 媒体能力一律按**当前模型**解析（capabilitiesForModel），与发送侧门控同一口径：
+  // - allowVision/allowAudio 不再读配置级 supports*——配置级字段只剩「旧版兼容读取」，
+  //   逐模型能力编辑器只写 modelCapabilities，读配置级会漏掉用户新开的识图/音频。
+  // - allowVideo 此前**从来没被产出过**：`filterRequestMedia` 是解构取默认值（缺字段 =
+  //   false），而这里只给 allowVision/allowAudio ⇒ 已经建好的 `video_url` 被裁成一行
+  //   「【视频：名称】」纯文本，**静默丢件**——用户以为视频发出去了，模型只看到文件名
+  //   （附件菜单/发送侧却是按「支持视频」放行的，两边口径不一致）。
+  //   判据与发送侧 videoEnabled（useChatSend.js:1392）逐字同源：模型声明 supportsVideo
+  //   **且**线协议是 OpenAI 兼容——`video_url` 是 OpenAI 兼容端点的扩展类型，
+  //   Responses/Anthropic 都没有视频输入（协议层另有一道丢弃，见 apiProtocols/messages.js）。
+  //   本地 llama.cpp 链路没有视频能力，`filterRequestMedia` 的默认 false 保持不动，留给它继续裁剪。
   const caps = getCapabilities(config, modelName) || {};
   return {
     media: {
       allowVision: caps.supportsVision === true,
       allowAudio: caps.supportsAudio === true,
+      allowVideo: caps.supportsVideo === true
+        && String(config.protocol || 'openai') === 'openai',
     },
     modelName,
     configLabel: String(config.name || config.id || ''),

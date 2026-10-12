@@ -175,7 +175,7 @@ function formatApiError(text, status) {
 function extractErrorMessage(payload) {
   if (!payload || !payload.error) return '';
   // 复用共享错误解析：error.message + metadata.raw（OpenRouter 上游真凶）。
-  return describeErrorPayload(payload.error) || tActive('error.api.badResponse');
+  return describeErrorPayload(payload.error) || tActive('error.api.responseError');
 }
 
 export function createAbortError() {
@@ -532,7 +532,7 @@ async function requestOnce(messages, options, attempt) {
           return;
         }
         if (!sawPayloadData && parseFailures > 0) {
-          fail(new Error(tActive('error.api.unparsable')));
+          fail(new Error(tActive('error.api.unparseableResponse')));
           xhr.abort();
           return;
         }
@@ -754,7 +754,7 @@ async function requestOnce(messages, options, attempt) {
         fullText = parsed.text;
         finishWithConfig(() => succeed(makeResult()));
       } catch (error) {
-        fail(new Error(tActive('error.api.unparsable')));
+        fail(new Error(tActive('error.api.unparseableResponse')));
       }
     };
 
@@ -764,7 +764,7 @@ async function requestOnce(messages, options, attempt) {
       networkError.network = true;
       fail(networkError);
     };
-    xhr.onabort = () => fail(canceled ? createAbortError() : new Error(tActive('error.api.aborted')));
+    xhr.onabort = () => fail(canceled ? createAbortError() : new Error(tActive('error.api.requestInterrupted')));
 
     if (settled) return;
     try {

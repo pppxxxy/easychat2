@@ -31,6 +31,7 @@ import {
   upsertPlace,
 } from '../storage/location.js';
 import { formatCoordinate, resolveActivePlace, wgs84ToGcj02 } from '../location/geo.js';
+import { maskSecrets } from '../storage/secrets.js';
 import { buildRealMapHtml } from './realMapHtml.js';
 
 // react-native-webview 是可选能力，缺失时降级为文字提示（与 RichHtmlMessage 一致）。
@@ -50,6 +51,15 @@ const EXAMPLE_PLACE_KEYS = [
   'world.map.real.example.hogwarts',
 ];
 
+// storage/location.js 在数据损坏时抛出的固定文案。那里没有 error.code，只能按特征识别；
+// 换文案就必须同步改这里，所以两边各留一条注释互相指向（见 location.js 的 updateLocationSettings）。
+const CORRUPT_STORAGE_MARKER = '位置设置读取失败';
+
+// 内联页自身的加载只可能是这两个 URL：iOS 用 about:blank 作 baseURL 调 loadHTMLString，
+// Android 用 loadDataWithBaseURL（baseUrl 为空时同样报 about:blank，也兼容 data: 形式）。
+// 白名单写成「只认这两个」而不是「排除 http」，任何自定义 scheme 也一并拦下。
+const ALLOWED_PAGE_PREFIXES = ['about:blank', 'data:text/html'];
+
 export default function RealMapView() {
   const { theme, fonts, tokens } = useTheme();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -58,8 +68,13 @@ export default function RealMapView() {
   const [settings, setSettings] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // 读失败必须与「真的还没有位置」分开：两者都是空清单，混在一起用户只会看到
+  // 「还没有位置」+ 示例也不再出现，完全不知道出了事（见下方 load 的 catch）。
+  const [loadFailed, setLoadFailed] = useState(false);
   const [webReady, setWebReady] = useState(false);
   const webRef = useRef(null);
+  // 「重试」按钮：只用来重新触发下面那个加载 effect（effect 依赖里不能直接放函数）。
+  const [loadNonce, setLoadNonce] = useState(0);
 
   // 位置编辑器（新增/编辑共用）：draftLat/draftLng 用字符串在编辑，保存时解析。
   const [editorOpen, setEditorOpen] = useState(false);
@@ -94,17 +109,36 @@ export default function RealMapView() {
       }
       if (alive) setSettings(loaded);
     })().catch(() => {
-      if (alive) {
-        setSettings({ enabled: false, awareness: false, places: [], activePlaceId: '', seeded: true, tileUrl: '' });
-      }
+      if (!alive) return;
+      // 读失败（数据损坏）走 updateLocationSettings 抛错这条路径：绝不假装「没有位置」，
+      // 而是给出可见提示（清空 settings 让界面停在加载态，别渲染出一个假的空清单）。
+      setSettings(null);
+      setLoadFailed(true);
     });
     return () => { alive = false; };
-  }, [t]);
+  }, [t, loadNonce]);
+
+  const retryLoad = useCallback(() => {
+    setLoadFailed(false);
+    setError('');
+    setLoadNonce(value => value + 1);
+  }, []);
 
   // html 只依赖瓦片模板。若依赖整个 settings，选中/编辑每次变化都会重建 source，
   // WebView 的 source 一变就可能整页重载——而 webReady 还是 true，标记会注进旧文档。
+  // 页面文案（署名/按钮/提示）在这里由 t() 取好传进去：t 本身不放进依赖（换语言不必
+  // 整页重载，下次瓦片模板变化或重新进入时自然跟上当前语言）。
   const tileUrl = settings && settings.tileUrl ? settings.tileUrl : undefined;
-  const html = useMemo(() => buildRealMapHtml({ tileUrl }), [tileUrl]);
+  const html = useMemo(() => buildRealMapHtml({
+    tileUrl,
+    strings: {
+      attribution: t('world.map.real.html.attribution'),
+      zoomIn: t('world.map.real.html.zoomIn'),
+      zoomOut: t('world.map.real.html.zoomOut'),
+      recenter: t('world.map.real.html.recenter'),
+      hint: t('world.map.real.html.hint'),
+    },
+  }), [tileUrl]);
 
   useEffect(() => {
     setWebReady(false);
@@ -139,7 +173,19 @@ export default function RealMapView() {
       setError('');
       return saved;
     } catch (caught) {
-      setError(t('world.map.real.saveFailed'));
+      // 两段式归因（照抄正面模板 src/screenWatch/useScreenWatchComments.js:239-255）：
+      // 已知原因给专属文案，其余必须附上真实原因——此前一律显示「保存失败，请检查存储
+      // 空间后重试」，而实际抛出的常是「位置设置读取失败，请稍后重试」（数据损坏已备份），
+      // 用户被指向「存储空间」这个完全不相干的方向。
+      const detail = maskSecrets(String((caught && caught.message) || '')).trim();
+      let message;
+      if (detail.includes(CORRUPT_STORAGE_MARKER)) {
+        message = t('world.map.real.saveFailed.corrupt');
+      } else {
+        const base = t('world.map.real.saveFailed');
+        message = detail ? `${base}\n${detail}` : base;
+      }
+      setError(message);
       return null;
     } finally {
       setBusy(false);
@@ -228,9 +274,17 @@ export default function RealMapView() {
   }, [busy, persist, t]);
 
   if (!settings) {
+    // 没有 settings 有两种含义，必须分开呈现：还在读（转圈）与读失败（可见提示 + 重试）。
+    if (!loadFailed) {
+      return (
+        <View style={styles.center}>
+          <ActivityIndicator color={theme.colors.primary} />
+        </View>
+      );
+    }
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={theme.colors.primary} />
+      <View style={styles.container}>
+        <LoadFailureNotice styles={styles} t={t} onRetry={retryLoad} />
       </View>
     );
   }
@@ -324,7 +378,17 @@ export default function RealMapView() {
         <WebViewComponent
           ref={webRef}
           style={styles.map}
-          originWhitelist={['*']}
+          // 收紧到最小必要集：页面本体是 about:blank / data:（库内部恒定放行 about:blank，
+          // 显式写上是为了让意图可读）。原来写 '*' 等于对所有导航放行，
+          // 页面内任何注入/被改写的内容都能把用户带出去。
+          originWhitelist={['about:blank', 'data:*']}
+          // 只放行内联页自身的加载；其余（http/https 外链、自定义 scheme）一律拦下。
+          // 注意别把 about:blank 也拦了——iOS 的 loadHTMLString 就是用它当 baseURL 的，
+          // 拦掉等于整页不加载（地图直接空白）。
+          onShouldStartLoadWithRequest={request => {
+            const url = String((request && request.url) || '');
+            return ALLOWED_PAGE_PREFIXES.some(prefix => url.startsWith(prefix));
+          }}
           javaScriptEnabled
           domStorageEnabled={false}
           setSupportMultipleWindows={false}
@@ -377,6 +441,25 @@ export default function RealMapView() {
           </View>
         </View>
       </Modal>
+    </View>
+  );
+}
+
+// 读失败提示：读失败与「真的没有位置」是两件事，这里必须说清「数据没丢（已备份）」
+// 并给一个重试入口——原来静默当成空清单，用户只看到「还没有位置」却查不出原因。
+function LoadFailureNotice({ styles, t, onRetry }) {
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>{t('world.map.real.places.title')}</Text>
+      <Text style={styles.errorText}>{t('world.map.real.loadFailed')}</Text>
+      <TouchableOpacity
+        style={styles.retryButton}
+        onPress={onRetry}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+      >
+        <Text style={styles.retryButtonText}>{t('common.retry')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -461,6 +544,16 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(12),
     marginTop: 10,
   },
+  retryButton: {
+    alignSelf: 'flex-start',
+    borderRadius: tokens.radius.md,
+    borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginTop: 10,
+  },
+  retryButtonText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '700' },
   map: { height: 320, borderRadius: tokens.radius.md, overflow: 'hidden', marginTop: 12 },
   modalBackdrop: {
     flex: 1,

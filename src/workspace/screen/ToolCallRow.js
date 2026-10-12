@@ -22,7 +22,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { formatElapsed } from '../../utils/format.js';
-import { argText } from '../conversation.js';
+import { argText, toolNoticeText } from '../conversation.js';
 
 // 按工具族给图标（认得出「这一类在干什么」即可）。
 const TOOL_ICONS = Object.freeze({
@@ -144,6 +144,13 @@ export default function ToolCallRow({ tool, onOpenHistory = null }) {
 
 // 各族的卡片主体（都只在展开时渲染）。返回 null 表示这一族没有额外内容可看。
 function renderBody({ kind, tool, args, expanded, styles, t }) {
+  // 界面侧提示优先：工具结果正文是给模型的中文（toolDefs/toolNotices.js），有 noticeKey
+  // 就改用当前语言的词条渲染；老轨迹没有这个字段时 notice 为空串 → 回落中文正文
+  //（resultText/resultPreview 原样，不伪造）。**只换「显示哪段字」**，下面的
+  // status（error/ok）判定与各分支的取舍一律照旧，不动既有错误态/成功态的区分。
+  const notice = toolNoticeText(tool, t);
+  const resultText = notice || tool.resultText;
+  const resultPreview = notice || tool.resultPreview;
   if (kind === 'edit') {
     // 失败的编辑没有「改动」可言——只在成功时画 find → replace。
     if (tool.status !== 'ok') return null;
@@ -189,7 +196,7 @@ function renderBody({ kind, tool, args, expanded, styles, t }) {
         ) : null}
         <Text style={styles.bodyLabel}>{t('workspace.chat.tool.output')}</Text>
         <Text style={styles.mono} numberOfLines={expanded ? 60 : 3}>
-          {tool.resultText ? tool.resultText : t('workspace.chat.tool.noOutput')}
+          {resultText ? resultText : t('workspace.chat.tool.noOutput')}
         </Text>
       </View>
     );
@@ -215,7 +222,7 @@ function renderBody({ kind, tool, args, expanded, styles, t }) {
     const tasks = Array.isArray(args && args.tasks) ? args.tasks : [];
     const first = tasks[0] && typeof tasks[0] === 'object' ? tasks[0] : null;
     const label = first ? String(first.task || first.prompt || first.name || '') : '';
-    if (!label && !tool.resultPreview) return null;
+    if (!label && !resultPreview) return null;
     return (
       <View style={styles.body}>
         {label ? (
@@ -226,17 +233,17 @@ function renderBody({ kind, tool, args, expanded, styles, t }) {
         ) : null}
         <Text style={styles.bodyLabel}>{t('workspace.chat.tool.output')}</Text>
         <Text style={styles.mono} numberOfLines={expanded ? 40 : 3}>
-          {tool.resultText || t('workspace.chat.tool.noOutput')}
+          {resultText || t('workspace.chat.tool.noOutput')}
         </Text>
       </View>
     );
   }
 
   // 通用行：结果首行（W1 的行为，保持不变）。
-  if (!tool.resultPreview) return null;
+  if (!resultPreview) return null;
   return (
     <View style={styles.body}>
-      <Text style={styles.preview} numberOfLines={expanded ? 12 : 1}>{tool.resultPreview}</Text>
+      <Text style={styles.preview} numberOfLines={expanded ? 12 : 1}>{resultPreview}</Text>
     </View>
   );
 }

@@ -7,8 +7,10 @@ import path from 'node:path';
 import {
   buildRichHtmlCommandBridge,
   buildRichHtmlDocument,
+  classifyRichHtmlLink,
   isViewportRichHtml,
   needsRichHtmlRendering,
+  normalizeRichHtmlLink,
   resolveViewportCardHeight,
   shouldRenderRichHtml,
   splitFullHtmlDocument,
@@ -280,6 +282,75 @@ test('命令桥在 click 里重新置真手势标志（否则按钮与 triggerSl
   // 到 click 时标志已被 setTimeout(...,0) 清零。
   assert.match(bridge, /addEventListener\("click", function\(ev\)\{/);
   assert.match(bridge, /if \(!ev\.isTrusted\) return;\n\s*userGestureActive = true;/);
+});
+
+// 卡片内链接处置（2026-10-12 回归）。
+//
+// 症状：卡片里的相对链接 / 锚点 / mailto: 点了毫无反应也无提示——WebView 把导航交给
+// onShouldStartLoadWithRequest，那里只有「首次加载」分支，其余一律 return false 静默吞掉。
+// 判定抽成纯函数后，这里钉住分类口径；接线（拦住导航 + 提示 / 交系统打开）钉 RichHtmlMessage 源码。
+test('卡片内链接分类：外部 scheme 交系统打开，其余明确拦截', () => {
+  for (const url of [
+    'https://example.com/a?b=1',
+    'http://example.com',
+    'mailto:a@b.com',
+    'tel:+8613800000000',
+    'sms:+8613800000000',
+    'geo:31.2,121.5',
+  ]) {
+    const link = classifyRichHtmlLink(url);
+    assert.equal(link.kind, 'external', `${url} 应可交系统打开`);
+    assert.equal(link.url, url);
+  }
+  // 相对链接 / 页内锚点：没有 scheme，浏览器语义上「同目录」，卡片里无从解析 ⇒ 拦截并提示
+  for (const url of ['#section', './a.html', '../x.png', 'a.html', '?q=1', '/root']) {
+    const link = classifyRichHtmlLink(url);
+    assert.equal(link.kind, 'blocked', `${url} 应拦截`);
+    assert.equal(link.scheme, '', `${url} 无 scheme`);
+  }
+  // 本地与代码执行面一律拦下：javascript: 等于把命令执行面交给正文
+  for (const url of [
+    'javascript:alert(1)',
+    'file:///etc/passwd',
+    'blob:https://example.com/uuid',
+    'data:text/html,<h1>x</h1>',
+    'about:blank',
+    'content://media/external/1',
+  ]) {
+    assert.equal(classifyRichHtmlLink(url).kind, 'blocked', `${url} 应拦截`);
+  }
+  // 空 href 静默忽略（点了个没有地址的 <a>）
+  assert.equal(classifyRichHtmlLink('').kind, 'empty');
+  assert.equal(classifyRichHtmlLink(null).kind, 'empty');
+  assert.equal(classifyRichHtmlLink(undefined).kind, 'empty');
+});
+
+test('链接归一化：空白与控制字符不能绕过 scheme 判定', () => {
+  // HTML 属性里常带换行/制表；不清理就会让 "java\nscript:" 逃过 scheme 识别。
+  assert.equal(normalizeRichHtmlLink('  https://a.com \n'), 'https://a.com');
+  assert.equal(normalizeRichHtmlLink('java\nscript:alert(1)'), 'javascript:alert(1)');
+  assert.equal(classifyRichHtmlLink('java\nscript:alert(1)').kind, 'blocked', '换行绕过必须被拦');
+  assert.equal(classifyRichHtmlLink('  mailto:a@b.com\t').kind, 'external', '首尾空白不影响外部判定');
+  assert.equal(classifyRichHtmlLink('HTTPS://A.COM').kind, 'external', 'scheme 大小写不敏感');
+  assert.equal(classifyRichHtmlLink('JavaScript:alert(1)').kind, 'blocked', '大小写不能绕过');
+});
+
+test('接线：卡片内链接一律不放行 WebView 导航，且给出反馈', () => {
+  const source = readFileSync(path.join(HERE, '..', 'src', 'chat', 'RichHtmlMessage.js'), 'utf8');
+  assert.ok(source.includes('classifyRichHtmlLink'), '走纯函数判定');
+  // 首帧之后来的导航请求 = 用户点了链接：处置后必须 return false（绝不放行 WebView 自己导航）
+  const branchAt = source.indexOf('if (loadedRef.current) {');
+  assert.ok(branchAt > 0, '有「非首次加载」分支');
+  const branch = source.slice(branchAt, source.indexOf('loadedRef.current = true;', branchAt));
+  assert.ok(branch.includes('handleCardLink('), '非首次加载的请求交给链接处置');
+  assert.ok(branch.includes('return false'), '仍然拦住导航');
+  // 两个动作都要有出口：external → Linking，blocked → Alert（此前 blocked 是静默 return false）
+  assert.ok(source.includes('Linking.openURL(link.url)'), '外部链接交系统打开');
+  assert.ok(source.includes("t('chat.richHtml.linkUnsupported.title')"), '不支持的链接有明确提示');
+  assert.ok(source.includes("t('chat.richHtml.linkFailed.title')"), '系统打不开也有提示');
+  // target="_blank" 只走 onOpenWindow，不能是空函数
+  assert.ok(source.includes('onOpenWindow={event => handleCardLink('), 'target=_blank 链接同样被处置');
+  assert.equal(source.includes('onOpenWindow={() => {}}'), false, '空 onOpenWindow 会让 _blank 链接静默失效');
 });
 
 test('全屏交互机制已移除：视口卡在列表内直接渲染', () => {

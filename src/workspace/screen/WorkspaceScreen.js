@@ -49,6 +49,28 @@ const DOMAIN_KEYS = [
   { id: 'settings', icon: 'settings-outline', labelKey: 'workspace.screen.rail.settings' },
 ];
 
+// 领域 → 面板渲染器（**必须与 DOMAIN_KEYS 一一对应**，chat 除外：它是主体，见 renderChatPanel）。
+// 此前这里对应的是 renderDomainPanel 里的 5 个 if 分支：领域清单在 DOMAIN_KEYS 与那条 if 链
+// 各写一份，正是 SettingsScreen「五处同步」的同型病——左栏多一个领域而这里忘了加分支，
+// 点开就是一片空白，且不报错。渲染器放模块级、参数靠 props 传（面板本身不含业务逻辑），
+// 键集一致性由 tests/workspaceHome.test.mjs 断言。
+const DOMAIN_PANELS = {
+  files: props => (
+    <FilesPanel
+      visible={props.visible}
+      embedded
+      initialSection={props.filesSection}
+      onOpenHistory={props.openHistory}
+    />
+  ),
+  github: props => (
+    <GithubPanel characterId={props.characterId} storeRef={props.storeRef} onHandoff={props.handoffToChat} />
+  ),
+  terminal: props => <TerminalPanel characterId={props.characterId} />,
+  history: props => <GitHistoryPanel characterId={props.characterId} />,
+  settings: props => <WorkspaceSettingsPanel characterId={props.characterId} />,
+};
+
 export default function WorkspaceScreen({ visible, onClose }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
@@ -152,39 +174,22 @@ export default function WorkspaceScreen({ visible, onClose }) {
     },
   }), []);
 
+  const openHistory = useCallback(() => setPanel('history'), []);
   const renderChatPanel = () => (
     <ChatPanel
       visible={visible}
       draft={draft}
       onOpenPanel={openFiles}
-      onOpenHistory={() => setPanel('history')}
+      onOpenHistory={openHistory}
     />
   );
   // 非对话领域。**不接收 onClose**：导航是屏幕的职责（左栏切领域 + 返回键按层级退）。
-  const renderDomainPanel = id => (
-    <>
-      {id === 'files' ? (
-        <FilesPanel
-          visible={visible}
-          embedded
-          initialSection={filesSection}
-          onOpenHistory={() => setPanel('history')}
-        />
-      ) : null}
-      {id === 'github' ? (
-        <GithubPanel characterId={characterId} storeRef={storeRef} onHandoff={handoffToChat} />
-      ) : null}
-      {id === 'terminal' ? (
-        <TerminalPanel characterId={characterId} />
-      ) : null}
-      {id === 'history' ? (
-        <GitHistoryPanel characterId={characterId} />
-      ) : null}
-      {id === 'settings' ? (
-        <WorkspaceSettingsPanel characterId={characterId} />
-      ) : null}
-    </>
-  );
+  // 渲染器从 DOMAIN_PANELS 按 id 取（未登记的 id 返回 null，不会画出空白面板）。
+  const renderDomainPanel = id => {
+    const render = DOMAIN_PANELS[id];
+    if (!render) return null;
+    return render({ visible, filesSection, characterId, storeRef, handoffToChat, openHistory });
+  };
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleRequestClose}>

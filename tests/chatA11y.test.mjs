@@ -87,6 +87,24 @@ test('折叠头：role=button + accessibilityState.expanded + 明确 label', () 
   }
 });
 
+// F 回归（2026-10-12）：回合小结的标题必须跟着**实际数据源**走。
+//
+// 面板有两个数据源：git 开着且有提交时显示「最近一次提交改了什么」（能看见 run_shell 改的
+// 文件），否则退回工具轨迹推导的「本轮」。旧标题一律写「本次改了什么」——git 开着时它说的
+// 是上一次提交的内容，界面在说谎（提交可能是上一轮的，也可能是用户在终端改完手动提交的）。
+test('回合小结标题与数据源一致（提交口径不再冒充「本轮」）', () => {
+  const source = read('src/workspace/screen/TurnSummaryPanel.js');
+  assert.ok(source.includes("'workspace.chat.summary.titleCommit'"), '提交口径有自己的词条');
+  assert.ok(source.includes('const fromCommit = '), '数据源判定要显式化（标题据此选词条）');
+  // 两个词条都必须在，且占位符一致（缺一个就是一边在说谎）
+  const zh = read('src/i18n/locales/zh-CN/workspace.js');
+  const en = read('src/i18n/locales/en/workspace.js');
+  for (const file of [zh, en]) {
+    assert.ok(file.includes("'workspace.chat.summary.titleCommit'"), '词条中英都要有');
+  }
+  assert.ok(source.includes('accessibilityLabel={title}'), '读屏 label 与可见标题同一口径');
+});
+
 test('消息列表：只有多选态才把消息当按钮，且旧 hint 键已退役', async () => {
   const source = read('src/chat/MessageList.js');
   assert.ok(

@@ -75,22 +75,27 @@ function normalizeEnabledMap(source, presets) {
   return enabled;
 }
 
+// 读开关表并**保留读取状态**。
+//
+// 读路径**不能**抛错：getEnabledGlobalPresetPrompts 位于发送消息的 Promise.all 中，
+// 一个损坏的开关文件会让「聊天完全发不出去」。所以损坏时仍然退回空开关并备份原始值。
+// 但这条理由只覆盖了读——它不构成「写回时也可以拿空开关覆盖」的许可：
+// 写路径（saveGlobalPresetSettings）读到的是「全部预设都关」，写回就是把用户开着的
+// 预设整体关掉。状态因此必须从这里传出去，由写路径判定。
+// 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
 async function readGlobalPresetSettings() {
   const stored = await readJsonStatus(GLOBAL_PRESETS_KEY);
-  if (stored.status === 'missing') return {};
+  if (stored.status === 'missing') return { status: 'missing', enabled: {} };
   const enabled = stored.status === 'ok' ? stored.value : null;
   if (!enabled || typeof enabled !== 'object' || Array.isArray(enabled)) {
-    // 这里抛错会连累 getEnabledGlobalPresetPrompts，而后者位于发送消息的
-    // Promise.all 中 —— 一个损坏的开关文件会导致“聊天完全发不出去”。
-    // 改为退回空开关并备份原始值。
     await backupCorruptValue(GLOBAL_PRESETS_KEY);
-    return {};
+    return { status: 'corrupt', enabled: {} };
   }
-  return enabled;
+  return { status: 'ok', enabled };
 }
 
 export async function createGlobalPresetId(presets) {
-  const enabled = await readGlobalPresetSettings();
+  const { enabled } = await readGlobalPresetSettings();
   const used = new Set([...presets.map(preset => preset.id), ...Object.keys(enabled)]);
   const base = `preset-${Date.now()}`;
   let id = base;
@@ -103,14 +108,25 @@ export async function createGlobalPresetId(presets) {
 }
 
 export async function getGlobalPresetSettings() {
-  const [raw, presets] = await Promise.all([
+  const [stored, presets] = await Promise.all([
     readGlobalPresetSettings(),
     getGlobalPresets(),
   ]);
-  return normalizeEnabledMap(raw, presets);
+  return normalizeEnabledMap(stored.enabled, presets);
 }
 
+// 写路径守卫（变体①：拒绝写回 / 抛错）。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap）与 src/storage/cardForge.js:182-186。
+//
+// 为什么必须守卫：本函数是整键覆盖，而读失败时「当前开关」是空表——
+// 调用方 PresetPanel.js:115 的 `saveGlobalPresetSettings({ ...enabled, [id]: value })`
+// 用的是它自己内存里的 enabled，看似无害，但 normalizeEnabledMap 会以 presets 为准
+// 重建整张表，任何一次读失败都可能把用户开着的预设写成全关。
 export async function saveGlobalPresetSettings(enabled) {
+  const stored = await readGlobalPresetSettings();
+  if (stored.status === 'corrupt') {
+    throw new Error(tActive('error.storage.globalPresetsReadFailed'));
+  }
   const presets = await getGlobalPresets();
   const normalized = normalizeEnabledMap(enabled, presets);
   await AsyncStorage.setItem(GLOBAL_PRESETS_KEY, JSON.stringify(normalized));
@@ -119,7 +135,7 @@ export async function saveGlobalPresetSettings(enabled) {
 
 export async function getEnabledGlobalPresetPrompts() {
   const presets = await getGlobalPresets();
-  const raw = await readGlobalPresetSettings();
+  const { enabled: raw } = await readGlobalPresetSettings();
   const enabled = normalizeEnabledMap(raw, presets);
   return presets.filter(preset => enabled[preset.id]).map(preset => preset.prompt);
 }

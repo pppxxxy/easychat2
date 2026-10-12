@@ -187,6 +187,8 @@ export const localModel = {
   'localModel.chip.quant': '量化 {label}',
   'localModel.chip.size': '规模 {label}',
   'localModel.currentModel': '当前模型：{name}',
+  // 模型库状态行的空态占位（原先误用 localModel.viewLogs=「查看运行日志」）
+  'localModel.noActiveModel': '未选择本地模型',
   'localModel.download.mmprojLabel': '配套 mmproj（可选，多模态）',
   'localModel.download.mmprojSkip': '不下载',
   'localModel.download.modelId': '模型 ID',

@@ -19,14 +19,9 @@ import SessionRow, { SessionAvatar } from './memory/SessionRow.js';
 import { EmptyState } from './ui/index.js';
 import { useTheme } from './theme/ThemeContext.js';
 import { useTranslation } from './i18n/I18nContext.js';
-
-function formatTime(timestamp) {
-  const value = Number(timestamp);
-  if (!Number.isFinite(value) || value <= 0) return '';
-  const date = new Date(value);
-  const pad = number => String(number).padStart(2, '0');
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+// 时间标签与聊天页定位条共用同一个函数（此前这里是逐字重复的一份实现，中英格式化
+// 要改两处——两处都是「1月2日 09:05」的硬编码中文）。t 显式传入，跟随界面语言。
+import { formatScrubberTime } from './chat/chatHelpers.js';
 
 function buildSnippet(text, keyword) {
   const source = String(text || '').replace(/\s+/g, ' ').trim();
@@ -157,7 +152,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
           disabled={searching || !keyword.trim()}
           activeOpacity={0.8}
         >
-          <Text style={styles.searchButtonText}>{searching ? '搜索中...' : '搜索'}</Text>
+          <Text style={styles.searchButtonText}>{searching ? t('search.action.searching') : t('search.action.search')}</Text>
         </TouchableOpacity>
 
         {searching ? (
@@ -171,13 +166,13 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
             style={styles.list}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.listContent}
-            ListHeaderComponent={<Text style={styles.count}>{`找到 ${results.length} 条记录`}</Text>}
+            ListHeaderComponent={<Text style={styles.count}>{t('search.result.count', { count: results.length })}</Text>}
             renderItem={({ item: result }) => {
               const character = characterMap.get(result.characterId);
               const isGroup = result.sessionType === 'group';
               const name = isGroup
-                ? (result.sessionName || '群聊')
-                : ((character && character.name) || '角色资料缺失');
+                ? (result.sessionName || t('common.groupChat'))
+                : ((character && character.name) || t('search.result.missingCharacter'));
               return (
                 <SessionRow
                   mode="result"
@@ -190,7 +185,7 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
                   )}
                   name={name}
                   preview={buildSnippet(result.text, keyword)}
-                  time={formatTime(result.updatedAt)}
+                  time={formatScrubberTime(result.updatedAt, t)}
                   onPress={() => onPick(result)}
                 />
               );
@@ -199,8 +194,8 @@ export default function SearchScreen({ visible, onClose, onOpenResult, character
         ) : (
           <EmptyState
             icon={searched ? 'search-outline' : 'chatbubbles-outline'}
-            title={searched ? '未找到匹配记录' : '搜索历史对话'}
-            description={searched ? '请换个关键词重新搜索。' : '输入关键词搜索全部角色的聊天记录。'}
+            title={searched ? t('search.empty.notFound.title') : t('search.empty.hint.title')}
+            description={searched ? t('search.empty.notFound.description') : t('search.empty.hint.description')}
           />
         )}
       </KeyboardAvoidingView>

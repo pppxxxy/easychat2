@@ -5,6 +5,7 @@ import path from 'node:path';
 import Module from 'node:module';
 import { createRequire } from 'node:module';
 import { TOOL_RESULT_LIMIT } from '../src/agent/messages.js';
+import { toOpenAiMessages } from '../src/apiProtocols/messages.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -595,4 +596,74 @@ test('P1 回归：中止时 onTranscript 仍回抛已发生的工具调用轨迹
   assert.equal(transcripts[0][0].tool_calls[0].id, 'c1');
   assert.equal(transcripts[0][1].role, 'tool', '第二条是那次调用的结果');
   assert.equal(transcripts[0][1].tool_call_id, 'c1');
+});
+
+// ---- 界面侧提示（noticeKey/noticeParams）：第 2 跳 ----
+//
+// 工具结果正文是给模型读的中文（铁律：不得翻译），界面要按当前语言渲染就得靠随结果带下来的
+// noticeKey/noticeParams（toolDefs/toolNotices.js）。这两个字段必须**随 tool 消息**走下去，
+// extractToolTrace 才搬得到展示层（见 tests/toolTrace.test.mjs）。
+test('界面侧提示：noticeKey/noticeParams 随 tool 消息进 transcript；无提示的工具不造 undefined 键', async () => {
+  streamPlan = [
+    {
+      text: 'r1',
+      toolCalls: [
+        { id: 'c1', name: 'run_workflow', arguments: '{}' },
+        { id: 'c2', name: 'read_file', arguments: '{}' },
+      ],
+    },
+    { text: 'done' },
+  ];
+  runHandler = call => (call.name === 'run_workflow'
+    ? {
+      content: '工作流无法执行：步骤 write-step 要求 write 模式……',
+      isError: true,
+      noticeKey: 'workspace.chat.tool.notice.workflowWriteBlocked',
+      noticeParams: { steps: 'write-step' },
+    }
+    : { content: 'file body', isError: false });
+  const { runAgentTurn } = loadLoop();
+  let transcript = null;
+  await runAgentTurn([{ role: 'user', content: 'hi' }], {
+    mode: 'read',
+    onTranscript: msgs => { transcript = msgs; },
+  });
+  const withNotice = transcript.find(item => item.role === 'tool' && item.tool_call_id === 'c1');
+  assert.equal(withNotice.content, '工作流无法执行：步骤 write-step 要求 write 模式……', '模型侧正文一个字都不变');
+  assert.equal(withNotice.noticeKey, 'workspace.chat.tool.notice.workflowWriteBlocked');
+  assert.deepEqual(withNotice.noticeParams, { steps: 'write-step' }, '插值参数原样带下去（t(key, params) 用）');
+  const plain = transcript.find(item => item.role === 'tool' && item.tool_call_id === 'c2');
+  assert.equal('noticeKey' in plain, false, '没有提示的工具保持「无该字段」——展示层据此回落中文正文');
+  assert.equal('noticeParams' in plain, false, '缺失时不造 undefined 键');
+});
+
+// 内部字段出网检查（第 2 跳的硬要求）：**用循环真实产出的 tool 消息**过一遍 openai 协议，
+// 断言出网形态只剩协议字段。
+//
+// 为什么这么写：`toOpenAiMessages` 是「整体展开 + 黑名单剥离」（fail-open）——任何新加在
+// tool 消息上的内部字段都会**默认出网**，直到有人记得登记 OPENAI_INTERNAL_FIELDS。
+// 逐个 `in` 断言挡不住「下一个新字段」，而「出网后 key 集合恰好等于协议字段」是机械的：
+// 谁忘了登记，这里当场红（anthropic / openai-responses 是逐条显式构造，天然只有协议字段）。
+test('内部字段不得出网：循环产出的 tool 消息经 openai 协议后只剩 role/tool_call_id/content', async () => {
+  streamPlan = [
+    { text: 'r1', toolCalls: [{ id: 'c1', name: 'git_status', arguments: '{}' }] },
+    { text: 'done' },
+  ];
+  // 一次带满内部字段的工具结果：isError（权威状态）+ noticeKey/noticeParams（界面侧词条）。
+  runHandler = () => ({
+    content: '本地版本控制还没就绪：这个工作区还没有 git 仓库。',
+    isError: true,
+    noticeKey: 'workspace.chat.tool.notice.gitNoRepo',
+    noticeParams: { steps: 'a' },
+  });
+  const { runAgentTurn } = loadLoop();
+  await runAgentTurn([{ role: 'user', content: 'hi' }], { mode: 'read' });
+  // 第 2 轮请求里带着上一轮那条 tool 消息——这才是真正会出网的东西。
+  const toolMsg = streamCalls[1].messages.find(item => item.role === 'tool');
+  assert.equal(toolMsg.content, '本地版本控制还没就绪：这个工作区还没有 git 仓库。', '模型侧正文逐字不变');
+  assert.equal(toolMsg.isError, true);
+  assert.equal(toolMsg.noticeKey, 'workspace.chat.tool.notice.gitNoRepo', '内部字段确实带在消息上（toolTrace 靠它搬运）');
+  const wire = toOpenAiMessages([toolMsg])[0];
+  assert.deepEqual(Object.keys(wire).sort(), ['content', 'role', 'tool_call_id'], '内部字段一律不得出网');
+  assert.equal(wire.content, toolMsg.content, '出网正文逐字不变');
 });

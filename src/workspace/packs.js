@@ -4,7 +4,11 @@
 //
 // 纯逻辑（schema / 构建 / 解析 / 应用）+ 一层薄 IO（读工作区 / 写工作区）。可 Node 直测。
 //
-// 安全边界：只允许扩展根目录下的文件进包/落盘（isPackablePath），拒绝路径穿越（..）。
+// 安全边界：只允许扩展根目录下的文件进包/落盘（isPackablePath），拒绝路径穿越（..）；
+// 落盘前再过一道**写工具同款**的受保护路径守卫（assertWritableWorkspacePath）——
+// 本模块走 store.writeWorkspaceFile 直写，绕开了写工具的路径守卫，所以守卫要在这里补一份。
+
+import { assertWritableWorkspacePath, isProtectedWorkspacePath } from './paths.js';
 
 export const PACK_FORMAT = 'easychat2-extension-pack';
 export const PACK_VERSION = 1;
@@ -61,27 +65,36 @@ export function buildPack({ name, description = '', files = [], now = Date.now()
   };
 }
 
-// 纯函数：解析/校验一个包（输入字符串或对象）→ { ok, pack, errors }。
+// 纯函数：解析/校验一个包（输入字符串或对象）→ { ok, pack, errors, rejected }。
+// errors  = 致命问题（整包不可用，ok:false）；
+// rejected = 非致命问题（个别文件被守卫拒收，其余照常安装）——安装方**必须**把它
+// 并入 result.errors 如实汇报。受保护路径（审计流 / 写前快照 / 推送基线）走这里：
+// 包格式白名单本来就不放它们进来，但静默丢弃会让「有人拿包来改审计流」这件事
+// 在安装结果里彻底消失（用户与模型都看不见）。
 export function parsePack(input) {
   let data = input;
   if (typeof input === 'string') {
     try {
       data = JSON.parse(input);
     } catch (error) {
-      return { ok: false, pack: null, errors: ['不是合法 JSON'] };
+      return { ok: false, pack: null, errors: ['不是合法 JSON'], rejected: [] };
     }
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { ok: false, pack: null, errors: ['不是对象'] };
+    return { ok: false, pack: null, errors: ['不是对象'], rejected: [] };
   }
   const errors = [];
+  const rejected = [];
   if (data.format !== PACK_FORMAT) errors.push(`format 不匹配（应为 ${PACK_FORMAT}）`);
   if (Number(data.version) > PACK_VERSION) errors.push(`版本过新（${data.version} > ${PACK_VERSION}）`);
   const files = [];
   let total = 0;
   for (const file of (Array.isArray(data.files) ? data.files : [])) {
     const path = String((file && file.path) || '');
-    if (!isPackablePath(path)) continue;
+    if (!isPackablePath(path)) {
+      if (isProtectedWorkspacePath(path)) rejected.push(`拒绝写入受保护路径：${path}`);
+      continue;
+    }
     if (files.length >= PACK_MAX_FILES) break;
     const content = String((file && file.content) || '');
     if (content.length > PACK_MAX_FILE_BYTES) continue;
@@ -90,7 +103,7 @@ export function parsePack(input) {
     files.push({ path, content });
   }
   if (files.length === 0) errors.push('包里没有可安装的扩展文件');
-  if (errors.length) return { ok: false, pack: null, errors };
+  if (errors.length) return { ok: false, pack: null, errors, rejected };
   return {
     ok: true,
     pack: {
@@ -102,6 +115,7 @@ export function parsePack(input) {
       files,
     },
     errors: [],
+    rejected,
   };
 }
 
@@ -134,16 +148,36 @@ export async function collectWorkspacePack(store, characterId, { name, descripti
 
 // IO：把包里的扩展文件写入工作区。默认**不覆盖**已有文件（幂等/防误伤）；
 // overwrite=true 才覆盖。返回 { installed, skipped, errors }。
+//
+// 守卫（P0）：本函数用 store.writeWorkspaceFile **直写**，不经过写工具的 execute 入口，
+// 因此写工具那道的受保护路径守卫（paths.js 的 assertWritableWorkspacePath）在这里会漏。
+// 漏掉的后果不只是「覆盖一个文件」：包里能带 `.easychat/hooks.json`，而 hooks 的
+// before_tool / before_prompt 是工具前门与提示词注入面——装一个包就等于让第三方
+// 改写「哪些工具拦得住」并往系统提示里塞指令。所以：写前逐个文件过守卫，
+// 被拒的计入 errors 如实汇报（不静默跳过，也不整包失败——其余文件照常安装）。
 export async function installWorkspacePack(store, characterId, pack, { overwrite = false } = {}) {
   const parsed = parsePack(pack);
-  if (!parsed.ok) return { installed: 0, skipped: [], errors: parsed.errors };
+  if (!parsed.ok) {
+    return { installed: 0, skipped: [], errors: [...parsed.errors, ...(parsed.rejected || [])] };
+  }
   if (!store || typeof store.writeWorkspaceFile !== 'function') {
     return { installed: 0, skipped: [], errors: ['工作区存储不可用'] };
   }
   const installed = [];
   const skipped = [];
-  const errors = [];
+  const errors = [...(parsed.rejected || [])];
   for (const file of parsed.pack.files) {
+    // 说明（如实）：当前 PACK_ROOTS / PACK_FILES 与受保护前缀（.easychat/sessions/、
+    // file-history/、rollback/）没有交集，所以这道闸在**今天**是防御性的第二层——
+    // 受保护路径在 parsePack 就被挡下并记进 rejected。留着它是为了「以后有人往
+    // PACK_ROOTS 里加一个覆盖到受保护前缀的根」时，守卫不会因为少写一行而消失。
+    try {
+      assertWritableWorkspacePath(file.path);
+    } catch (error) {
+      const reason = error && error.message ? error.message : '受保护路径';
+      errors.push(`${file.path}：${reason}`);
+      continue;
+    }
     if (!overwrite) {
       try {
         const existing = await store.readWorkspaceFile({ characterId, path: file.path });

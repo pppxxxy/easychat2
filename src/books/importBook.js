@@ -22,9 +22,14 @@ export function makeBookId(now = Date.now()) {
   return `bk-${now}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 展示名去掉扩展名；解析不出书名时回退到 i18n 的「未命名书籍」。
+//
+// 取舍（2026-10）：这是**会落库的数据**——用户在英文界面导入时，库里存的是
+// "Untitled book"。这与仓库其它「默认名」的处理一致（默认名跟随界面语言，
+// 之后不会因切换语言而改写已存的记录）；换来的是英文界面下书架列表不再出现中文。
 export function bookDisplayName(fileName) {
   const name = String(fileName || '').replace(/\.[a-z0-9]{1,8}$/i, '').trim();
-  return name || '未命名书籍';
+  return name || tActive('books.unnamed');
 }
 
 // 返回 { canceled: true } 或 { item, blocks }；任何失败都清理半成品文件。

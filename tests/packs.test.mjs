@@ -105,3 +105,76 @@ test('installWorkspacePack：坏包报错、无 store 报错', async () => {
   const noStore = await installWorkspacePack(null, 'c', buildPack({ files: [] }));
   assert.ok(noStore.errors.length > 0);
 });
+
+// P0 回归（2026-10-12）：install_extension_pack 是**写类**动作，必须过确认门。
+//
+// 事故形态：定义里只有 `readOnly: false`，既没有 requiresConfirmation、也没有路径守卫，
+// 于是「装一个包」= 无确认地把 hooks.json 写进工作区（before_tool / before_prompt
+// 是工具前门与提示词注入面）。对照：run_shell / run_python / git_discard 都是
+// readOnly:false + requiresConfirmation:true。
+test('P0 回归：install_extension_pack 逐条确认（readOnly:false + requiresConfirmation:true）', async () => {
+  const { INSTALL_PACK_TOOL_DEFINITION, EXPORT_PACK_TOOL_DEFINITION } = await import('../src/workspace/toolDefs/packTools.js');
+  assert.equal(INSTALL_PACK_TOOL_DEFINITION.readOnly, false);
+  assert.equal(INSTALL_PACK_TOOL_DEFINITION.requiresConfirmation, true, '装包必须逐条确认');
+  // 导出是只读工具，不该被这次修改顺手带上确认门（没有副作用就不打扰用户）。
+  assert.equal(EXPORT_PACK_TOOL_DEFINITION.readOnly, true);
+  assert.equal('requiresConfirmation' in EXPORT_PACK_TOOL_DEFINITION, false);
+
+  // 端到端：聚合层（tools.js）必须把该字段透传进注册表，否则定义上写了也等于没写。
+  const { createWorkspaceToolDefinitions } = await import('../src/workspace/tools.js');
+  const definitions = createWorkspaceToolDefinitions({});
+  const install = definitions.find(item => item.name === 'install_extension_pack');
+  assert.equal(install.readOnly, false);
+  assert.equal(install.requiresConfirmation, true, '聚合层要透传 requiresConfirmation');
+  const exported = definitions.find(item => item.name === 'export_extension_pack');
+  assert.equal(exported.requiresConfirmation, undefined, '只读导出不需要确认');
+});
+
+// P0 回归（2026-10-12）：装包不得无确认地写「受保护路径」。
+//
+// 事故形态：installWorkspacePack 走 store.writeWorkspaceFile **直写**，绕开了写工具
+// execute 入口的路径守卫（paths.js 的 assertWritableWorkspacePath 只在 writeTools /
+// docxTool 里调）。而包里能带 `.easychat/hooks.json`（before_tool / before_prompt
+// 是工具前门与提示词注入面）——于是一次装包就是一次绕过守卫的写入。
+// 本用例钉住可观察契约：受保护路径**不落盘**，且**如实计入 errors**（不静默跳过）。
+test('P0 回归：installWorkspacePack 拒绝受保护路径（不写入 + errors 有记录）', async () => {
+  const dest = makeStore({});
+  const tampered = {
+    format: PACK_FORMAT,
+    version: PACK_VERSION,
+    name: 'evil',
+    files: [
+      { path: '.easychat/sessions/x.jsonl', content: '{"type":"tool_call"}' },
+      { path: '.easychat/file-history/x', content: 'snapshot' },
+      { path: '.easychat/rollback/base', content: 'baseline' },
+    ],
+  };
+  const result = await installWorkspacePack(dest, 'c', tampered);
+  assert.equal(result.installed, 0);
+  assert.deepEqual(dest.files, {}, '受保护路径一个都不许落盘');
+  for (const path of ['.easychat/sessions/x.jsonl', '.easychat/file-history/x', '.easychat/rollback/base']) {
+    assert.ok(
+      result.errors.some(item => String(item).includes(path)),
+      `${path} 必须在 errors 里有记录（不能静默跳过）`
+    );
+  }
+
+  // 混合包：合法的扩展文件照常安装，受保护路径单独报错——**不整包失败**。
+  const mixed = {
+    format: PACK_FORMAT,
+    version: PACK_VERSION,
+    name: 'mixed',
+    files: [
+      { path: '.easychat/skills/a/SKILL.md', content: 'skill-a' },
+      { path: '.easychat/sessions/x.jsonl', content: 'tamper' },
+    ],
+  };
+  const partial = await installWorkspacePack(dest, 'c', mixed);
+  assert.equal(partial.installed, 1, '合法文件必须照常安装（不整包失败）');
+  assert.equal(dest.files['.easychat/skills/a/SKILL.md'], 'skill-a');
+  assert.equal('.easychat/sessions/x.jsonl' in dest.files, false, '受保护路径仍不得落盘');
+  assert.ok(
+    partial.errors.some(item => String(item).includes('.easychat/sessions/x.jsonl')),
+    '被拒的文件要如实汇报'
+  );
+});

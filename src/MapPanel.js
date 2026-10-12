@@ -24,6 +24,7 @@ import {
   houseResidentNames,
   makeMapHouseId,
   MAP_GRID_SIZE,
+  MAP_OWNER_NONE,
   MAP_OWNER_SELF,
   placeHouse,
   removeHouseAtCell,
@@ -99,9 +100,15 @@ export default function MapPanel() {
   const openCell = useCallback((x, y) => {
     const house = houseAtCell(houses, x, y);
     setDraftName(house ? house.name : '');
-    setDraftOwner(house && house.ownerType === 'character'
-      ? { type: 'character', id: house.ownerId, name: house.ownerName }
-      : { type: MAP_OWNER_SELF, id: '', name: '' });
+    // 无主房必须保持无主打开：默认成「自己」的话，saveHouse 的 canAssignOwner 会命中
+    // 用户已有的那栋房（每人最多 1 栋），弹「转移失败」并 return——改名/改住户都存不进去。
+    if (house && house.ownerType === 'character') {
+      setDraftOwner({ type: 'character', id: house.ownerId, name: house.ownerName });
+    } else if (house && house.ownerType === MAP_OWNER_NONE) {
+      setDraftOwner({ type: MAP_OWNER_NONE, id: '', name: '' });
+    } else {
+      setDraftOwner({ type: MAP_OWNER_SELF, id: '', name: '' });
+    }
     setDraftResidents(house && Array.isArray(house.residents) ? house.residents : []);
     setEditing({ x, y, house });
   }, [houses]);
@@ -127,6 +134,11 @@ export default function MapPanel() {
 
   const chooseOwnerSelf = useCallback(() => {
     setDraftOwner({ type: MAP_OWNER_SELF, id: '', name: '' });
+  }, []);
+
+  // 无主：删掉角色后留下的房子，用户还没想好归谁时保持原样（不占「自己」的唯一名额）。
+  const chooseOwnerNone = useCallback(() => {
+    setDraftOwner({ type: MAP_OWNER_NONE, id: '', name: '' });
   }, []);
 
   const chooseOwnerCharacter = useCallback(character => {
@@ -228,6 +240,7 @@ export default function MapPanel() {
     selfHouse: t('map.house.self'),
     characterFallback: t('map.characterFallback'),
     ownedBy: t('map.house.ownedBy'),
+    orphanedHouse: t('world.map.house.orphaned'),
     unnamed: t('map.unnamed'),
     deletedCharacter: t('map.deletedCharacter'),
   }), [t]);
@@ -242,16 +255,18 @@ export default function MapPanel() {
 
   const ownerOptions = [
     { value: MAP_OWNER_SELF, label: t('map.owner.self'), meta: t('map.owner.selfMeta') },
+    // 无主是合法选项：删角色留下的空房需要「谁也不归」这个状态才编辑得动。
+    { value: MAP_OWNER_NONE, label: t('world.map.owner.none'), meta: t('world.map.owner.noneMeta') },
     ...characters.map(item => ({
       value: item.id,
       label: item.name || t('map.unnamed'),
       meta: item.id === draftOwner.id ? t('map.owner.current') : t('map.owner.set'),
     })),
   ];
-  const ownerValue = draftOwner.type === 'character' ? draftOwner.id : MAP_OWNER_SELF;
+  const ownerValue = draftOwner.type === 'character' ? draftOwner.id : draftOwner.type;
   const ownerValueLabel = draftOwner.type === 'character'
     ? (draftOwner.name || t('map.characterFallback'))
-    : t('map.owner.self');
+    : (draftOwner.type === MAP_OWNER_NONE ? t('world.map.owner.none') : t('map.owner.self'));
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -312,8 +327,11 @@ export default function MapPanel() {
                     onPress={() => openHouse(house)}
                     activeOpacity={0.85}
                   >
-                    <View style={styles.houseNumberBadge}>
-                      <Text style={styles.houseNumberText}>{label}</Text>
+                    <View style={[styles.houseNumberBadge, !label && styles.houseNumberBadgeNone]}>
+                      {/* 无主房没有编号（assignHouseNumbers 给空 label）：显示占位而不是空徽章。 */}
+                      <Text style={[styles.houseNumberText, !label && styles.houseNumberTextNone]}>
+                        {label || '—'}
+                      </Text>
                     </View>
                     <View style={styles.houseInfo}>
                       <Text style={styles.houseOwner} numberOfLines={1}>
@@ -354,20 +372,25 @@ export default function MapPanel() {
                     {Array.from({ length: MAP_GRID_SIZE }).map((_, x) => {
                       const house = houseLookup.get(`${x}:${y}`) || null;
                       const isRoleHouse = !!house && house.ownerType === 'character';
+                      // 无主房（删角色后留下的）单独一色：不能画成「我的房子」的样式，
+                      // 否则用户以为自己多了一栋，点进去又发现屋主不是自己。
+                      const isNoneHouse = !!house && house.ownerType === MAP_OWNER_NONE;
                       return (
                         <View
                           key={x}
                           style={[
                             styles.cell,
                             house && styles.cellHouse,
-                            house && (isRoleHouse ? styles.cellRole : styles.cellSelf),
+                            house && (isRoleHouse ? styles.cellRole : (isNoneHouse ? styles.cellNone : styles.cellSelf)),
                           ]}
                         >
                           {house ? (
                             <Ionicons
                               name="home"
                               size={12}
-                              color={isRoleHouse ? theme.colors.star : theme.colors.primaryContrast}
+                              color={isRoleHouse
+                                ? theme.colors.star
+                                : (isNoneHouse ? theme.colors.textFaint : theme.colors.primaryContrast)}
                             />
                           ) : null}
                         </View>
@@ -413,6 +436,8 @@ export default function MapPanel() {
                   onSelect={value => {
                     if (value === MAP_OWNER_SELF) {
                       chooseOwnerSelf();
+                    } else if (value === MAP_OWNER_NONE) {
+                      chooseOwnerNone();
                     } else {
                       const character = characters.find(item => item.id === value);
                       if (character) chooseOwnerCharacter(character);
@@ -531,6 +556,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: 10,
   },
   houseNumberText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '800' },
+  houseNumberBadgeNone: { backgroundColor: theme.colors.surface },
+  houseNumberTextNone: { color: theme.colors.textFaint },
   houseInfo: { flex: 1, marginRight: 8 },
   houseOwner: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
   houseMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
@@ -556,6 +583,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   cellHouse: { backgroundColor: theme.colors.primary },
   cellSelf: { backgroundColor: theme.colors.primary },
   cellRole: { backgroundColor: theme.colors.primarySoft },
+  cellNone: { backgroundColor: theme.colors.surface },
   notice: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), marginTop: 14 },
   overlay: {
     flex: 1,

@@ -34,8 +34,14 @@ const transformed = babel.transformSync(fs.readFileSync(workspaceStoragePath, 'u
 }).code;
 
 const store = new Map();
+// 「读会抛错」的注入开关：把某个键的 getItem 变成抛错（模拟真机上的 CursorWindow 单值
+// 读取上限 / 底层读失败）。沿用本项目既有的注入方式（内存 Map + 模块加载替换）。
+const failingKeys = new Set();
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failingKeys.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
 };
@@ -46,6 +52,18 @@ const ioStub = {
       return raw ? JSON.parse(raw) : fallback;
     } catch (error) {
       return fallback;
+    }
+  },
+  // 与 src/storage/io.js:160 同口径的最小实现：getItem 抛错 / JSON 坏 → corrupt，
+  // 键不存在 → missing，正常 → ok。被测代码靠它区分「键不在」与「读失败」。
+  readJsonStatus: async key => {
+    let raw;
+    try {
+      raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
     }
   },
   createMutationQueue: () => {
@@ -65,6 +83,9 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === '@react-native-async-storage/async-storage') return AsyncStorage;
   if (request === './io.js') return ioStub;
   if (request === '../workspace/settings.js') return { normalizeWorkspaceSettings };
+  // 抛错文案走 i18n（存储层不许硬编码中文）：按既有先例（sessionBranches.test.mjs）
+  // 返回键名，避免加载整棵词条树。
+  if (request === '../i18n/index.js') return { tActive: key => String(key) };
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -306,4 +327,59 @@ test('N2 整表替换：覆盖式写入（压缩后落库用），不是追加',
   // 不存在的会话 / 缺参数 → null，不改动
   assert.equal(await replaceWorkspaceChatMessages('compact-a', 'nope', [{ id: 'x', role: 'user', content: 'x' }]), null);
   assert.equal(await replaceWorkspaceChatMessages('', chat.id, []), null);
+});
+
+// 工作区会话是**一手数据**（用户与 agent 的对话，丢了不可重建）——读失败一次就用空表
+// 整表覆盖，等于把用户所有角色的对话一次抹掉。变体①「拒绝写回」
+//（参考 src/storage/worldMap.js:37）：八个写入口全部抛错中止。
+test('工作区会话：读失败时八个写入口全部抛错，绝不用空表覆盖已有对话', async () => {
+  const {
+    appendWorkspaceChatMessages,
+    clearWorkspaceChats,
+    createWorkspaceChat,
+    deleteWorkspaceChat,
+    getWorkspaceChats,
+    replaceWorkspaceChatMessages,
+    saveWorkspaceChatDraft,
+    setActiveWorkspaceChat,
+    setWorkspaceChatArchived,
+    WORKSPACE_CHATS_KEY,
+  } = loadWorkspaceStorage();
+
+  store.clear();
+  failingKeys.clear();
+  // 用户已有的一手对话（另一角色也有一份，用来证明「写回空表会连带抹掉别人的会话」）
+  const mine = await createWorkspaceChat('role-a');
+  await appendWorkspaceChatMessages('role-a', mine.id, [{ id: 'm1', role: 'user', content: '一手对话' }]);
+  const other = await createWorkspaceChat('role-b');
+  await appendWorkspaceChatMessages('role-b', other.id, [{ id: 'n1', role: 'user', content: '别人的对话' }]);
+  const before = store.get(WORKSPACE_CHATS_KEY);
+
+  failingKeys.add(WORKSPACE_CHATS_KEY);
+  const expect = fn => assert.rejects(fn, /chatLogReadFailed/, '读失败必须抛错，不得静默写回空表');
+  await expect(() => createWorkspaceChat('role-a'));
+  await expect(() => appendWorkspaceChatMessages('role-a', mine.id, [{ id: 'm2', role: 'user', content: '新消息' }]));
+  await expect(() => replaceWorkspaceChatMessages('role-a', mine.id, [{ id: 'm9', role: 'user', content: '压缩后' }]));
+  await expect(() => setWorkspaceChatArchived('role-a', mine.id, true));
+  await expect(() => saveWorkspaceChatDraft('role-a', mine.id, '草稿'));
+  await expect(() => setActiveWorkspaceChat('role-a', mine.id));
+  await expect(() => deleteWorkspaceChat('role-a', mine.id));
+  await expect(() => clearWorkspaceChats('role-a'));
+  failingKeys.delete(WORKSPACE_CHATS_KEY);
+
+  // (b) 原会话表一字未动：自己的与别人的都在
+  assert.equal(store.get(WORKSPACE_CHATS_KEY), before, '读失败时绝不允许整表覆盖');
+  assert.equal((await getWorkspaceChats('role-a')).chats[0].messages[0].content, '一手对话');
+  assert.equal((await getWorkspaceChats('role-b')).chats[0].messages[0].content, '别人的对话');
+
+  // 读路径的用户体验不变：读失败时列表仍返回空清单，不抛错
+  failingKeys.add(WORKSPACE_CHATS_KEY);
+  const fallback = await getWorkspaceChats('role-a');
+  failingKeys.delete(WORKSPACE_CHATS_KEY);
+  assert.deepEqual(fallback.chats, [], '读失败仍给空清单（不弹报错）');
+
+  // 守卫只在 corrupt 时生效，不是永久封锁：读恢复后照常追加
+  const updated = await appendWorkspaceChatMessages('role-a', mine.id, [{ id: 'm3', role: 'user', content: '恢复后' }]);
+  assert.equal(updated.messages.length, 2);
+  assert.equal((await getWorkspaceChats('role-a')).chats[0].messages[1].content, '恢复后');
 });

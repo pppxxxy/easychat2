@@ -103,6 +103,29 @@ export function previewToolResult(content, { max = TOOL_RESULT_PREVIEW_CHARS } =
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+// 工具结果的「界面侧提示」取词：`noticeKey` → 当前语言的词条（toolDefs/toolNotices.js）。
+//
+// 为什么需要它：工具结果正文（content）是给模型读的，按仓库铁律**不得翻译**；而工具行会把
+// 正文直接显示给用户，于是英文界面里会冒出中文（git 仓库未就绪、只读模式拦下写子代理/
+// 工作流这三句）。工具结果因此额外带 `noticeKey`（同一句话的界面侧词条），展示层优先用它
+// 按当前语言渲染。`t` 由渲染层传进来（ToolCallRow 用 useTranslation() 的 t，与本仓既有
+// 取词方式一致，不引入新的全局单例）。
+//
+// 放在行投影层而不是组件里，是因为本层是纯函数、Node 直测——「中英各取到对应语言」这条
+// 契约可以真断言，而组件（含 RN 依赖）在本仓只能做源码级锚点（无 React 渲染器）。
+//
+// 回落纪律（两条都返回空串，由调用方回落中文正文，**绝不把 key 显示给用户**）：
+//   · 老轨迹没有 noticeKey；
+//   · 词条漏登记时 t() 原样返回 key。
+export function toolNoticeText(tool, t) {
+  const key = tool && tool.noticeKey ? String(tool.noticeKey) : '';
+  if (!key || typeof t !== 'function') return '';
+  // 插值参数按既有 t(key, params) 签名透传（noticeParams 只放语言相关的变量，如步骤名）。
+  const text = t(key, tool.noticeParams);
+  const value = typeof text === 'string' ? text : '';
+  return value && value !== key ? value : '';
+}
+
 function toolCallName(call) {
   const fn = call && call.function ? call.function : call;
   return String((fn && fn.name) || '').trim();
@@ -161,6 +184,16 @@ export function toolRowsFromTrace(trace, { messageId = '' } = {}) {
             ? `${content.slice(0, TOOL_RESULT_TEXT_MAX)}\n…（输出过长，已截断）`
             : content,
           resultTruncated: content.length > TOOL_RESULT_TEXT_MAX,
+          // 界面侧提示（toolDefs/toolNotices.js → chat/toolTrace.js）：有 noticeKey 就说明
+          // 这段正文有对应的界面词条，渲染层优先用当前语言渲染它，没有（老轨迹）才回落
+          // 上面那段中文正文。**本层只搬运、不翻译**——行投影是纯函数，没有 t；取词由下面
+          // 同文件的 toolNoticeText 负责（渲染层把 I18nContext 的 t 传进来）。
+          // 缺失时不造 undefined 键：老轨迹/结果缺失（轨迹被截断）都保持「无该字段」。
+          // 注意判据写成 `result && result.noticeKey !== undefined`：结果缺失时 result 是
+          // undefined，反过来写会在 else 分支里读 result.noticeKey 直接抛错（轨迹被截断过
+          // 的会话就会白屏）。
+          ...(result && result.noticeKey !== undefined ? { noticeKey: String(result.noticeKey) } : {}),
+          ...(result && result.noticeParams !== undefined ? { noticeParams: result.noticeParams } : {}),
         },
       });
     }

@@ -31,6 +31,27 @@ export const error = {
   'error.storage.locationPinInvalid': '标注点坐标无效',
   'error.storage.momentsReadFailed': '动态记录读取失败，请稍后重试',
   'error.storage.worldMapReadFailed': '地图读取失败，请稍后重试',
+  // 以下 10 条是「读失败 → 拒绝写回」守卫（变体①）的报错文案：读不出原值时不覆盖，
+  // 由调用方提示用户「先处理损坏数据」，而不是静默把用户配置冲成默认值。
+  'error.storage.securityReadFailed': '隐私安全设置读取失败，已中止保存以免锁名单被清空，请稍后重试',
+  'error.storage.mcpServersReadFailed': 'MCP 服务器列表读取失败，已中止保存以免已有服务器被清空，请稍后重试',
+  'error.storage.chatOptionsReadFailed': '聊天与外观设置读取失败，已中止保存以免其余选项被重置，请稍后重试',
+  'error.storage.permissionsReadFailed': '授权规则读取失败，已中止保存以免已记住的授权被覆盖，请稍后重试',
+  'error.storage.personasReadFailed': '人设读取失败，已中止保存以免其余人设被覆盖，请稍后重试',
+  'error.storage.globalPresetsReadFailed': '全局预设开关读取失败，已中止保存以免开关被整体重置，请稍后重试',
+  'error.storage.proactiveSettingsReadFailed': '定时主动消息设置读取失败，已中止保存以免时段配置被清空，请稍后重试',
+  'error.storage.sessionStatsReadFailed': '会话统计读取失败，已中止保存以免其他会话的统计被清空，请稍后重试',
+  'error.storage.characterIndexReadFailed': '角色索引读取失败，已中止保存以免角色库被覆盖，请稍后重试',
+  'error.storage.legacyMessagesReadFailed': '旧版聊天记录读取失败，已跳过迁移以免对话丢失，请稍后重试',
+  // 「状态未知」三态的界面文案（见 src/security/SecurityGate.js）。安全设置读损坏/读抛错时
+  // **不能**把界面显示成「未加锁」——那正是 fail-open 的表现形态；必须让用户看出是
+  // 「状态未知」，并说明本次为什么从严处理（要求验证，而不是静默放行）。
+  'error.security.stateUnknownTitle': '无法确认锁定状态',
+  'error.security.stateUnknownHint': '隐私安全设置读取失败（数据可能已损坏），无法确认应用锁与角色锁是否开启。为安全起见，本次不会直接放行可能已加锁的内容。',
+  'error.security.stateUnknownRetry': '重新读取',
+  'error.security.stateUnknownVerify': '验证身份后继续',
+  'error.security.stateUnknownContinue': '仍然继续',
+  'error.security.stateUnknownNotice': '隐私设置状态未知（读取失败），已按「已开启」从严处理。',
   'error.tts.invalidBaseUrl': '请填写有效的语音服务地址',
   'error.tts.wssUnsupported': '该语音服务使用 WebSocket 协议（wss），当前引擎暂不支持，请改用其他引擎或 HTTP 端点',
   'error.tts.tencentSignerNotImplemented': '腾讯云语音签名（TC3-HMAC-SHA256）尚未实现，暂时无法使用该引擎',
@@ -82,25 +103,19 @@ export const error = {
   'error.api.baseUrlMissing': '请先在“设置 → API 配置”里填写 API 地址。',
   'error.api.modelMissing': '请先在“设置 → API 配置”里添加并选择模型。',
   'error.api.invalidUrl': '请填写有效的 HTTP(S) API 地址。',
-  // 2026-10-12：api.js 的请求期错误文案 + requestTimeout.js 的三档超时文案。
-  // 后者此前在 requestTimeout.js 里以 `return '中文'` 硬编码——两条 lint 规则都看不见
-  //（规则只查 Alert.alert / throw new Error / JSX 正文 / 导出常量），是真正的盲区。
+  // 网络层（network/api.js）的错误文案：Error.message 由聊天页/诊断直接展示，必须随语言
+  // 切换（分类判定一律看 code / 结构化标记，不看文案——见该文件 :64 注释）。
   'error.api.httpFailed': '请求失败（HTTP {status}）',
-  'error.api.badResponse': '接口返回错误。',
-  'error.api.unparsable': '接口返回了无法解析的内容。',
+  'error.api.responseError': '接口返回错误。',
+  'error.api.unparseableResponse': '接口返回了无法解析的内容。',
   'error.api.networkFailed': '网络请求失败，请检查网络或 API 地址。',
-  'error.api.aborted': '请求已中断。',
+  'error.api.requestInterrupted': '请求已中断。',
+  // 三档超时文案：key 由 requestTimeout.js 的 timeoutMessageKey(phase) 产出（纯函数、单测
+  // 钉住映射）。注意静态键扫描器看不见「函数返回的 key」，所以存在性由
+  // tests/apiErrorI18n.test.mjs 显式断言（zh/en 各一条），别只依赖扫描器。
   'error.api.timeoutFirstByte': '等待首个响应超时，请检查网络或 API 地址（推理模型可能较慢，可稍后重试）',
   'error.api.timeoutIdle': '请求超时，请检查网络后重试',
   'error.api.timeoutNonstream': '等待响应超时（非流式请求需服务端算完整篇再回包），请检查网络或 API 地址，可稍后重试',
-  // 2026-10-12：AppContext 的不变量错误（此前是 23 处 `throw new Error('中文')`）。
-  // 「会话不存在」复用既有的 error.storage.sessionNotFound，不另造同义 key。
-  'error.app.charactersNotLoaded': '角色尚未加载完成',
-  'error.app.characterNotFound': '角色不存在',
-  'error.app.defaultCharacterUndeletable': '默认角色不可删除',
-  'error.app.noDeletableCharacters': '没有可删除的角色',
-  'error.app.sessionsNotLoaded': '会话尚未加载完成',
-  'error.app.providerMissing': 'useApp 必须在 AppProvider 内使用',
   'error.transcription.notConfigured': '未配置语音转写服务',
   'error.transcription.timeout': '转写请求超时，请检查网络后重试',
   'error.transcription.networkFailed': '转写请求失败，请检查网络',
@@ -196,6 +211,12 @@ export const error = {
   'error.vectorMemory.apiKeyRequired': '请先填写向量服务密钥',
   'error.vectorMemory.modelRequired': '请先填写向量模型',
   'error.vectorMemory.noValidVector': '未返回有效向量',
+  // 向量请求的中断/超时/网络/解析失败文案：同文件其余错误早已走 tActive，
+  // 这五处是漏网（经 settings/useVectorSettings.js 的 error?.message 直进 Alert）。
+  'error.vectorMemory.aborted': '向量请求已中断',
+  'error.vectorMemory.timeout': '向量请求超时',
+  'error.vectorMemory.networkFailed': '向量服务网络请求失败',
+  'error.vectorMemory.unparseableResponse': '向量服务返回无法解析',
   'error.vectorMemory.httpAuth': '密钥无效或未授权',
   'error.vectorMemory.httpRateLimited': '请求过于频繁，请稍后重试',
   'error.vectorMemory.httpFailed': '向量服务请求失败（HTTP {status}）',
@@ -248,4 +269,22 @@ export const error = {
   'error.workspace.importUnsupported': '当前环境不支持扩展导入（缺少网络或工作区模块）。',
   'error.workspace.importNoRepo': '没有搜到匹配的仓库。',
   'error.workspace.importFailed': '导入失败',
+  // AppContext 的状态守卫文案（2026-10-12）：这些 Error 只带 message，由调用方 catch 后
+  // 经 error.message 直通 Alert/提示条，所以必须走 i18n（否则英文界面弹中文）。
+  // 「未加载完成」是同一个竞态（异步 load 未落地就发起了写操作）在多个入口的表现，
+  // 但按领域分开命名——将来只有角色或只有会话需要改文案时不会误伤另一半。
+  'error.context.characterNotLoaded': '角色尚未加载完成',
+  'error.context.characterNotFound': '角色不存在',
+  'error.context.defaultCharacterUndeletable': '默认角色不可删除',
+  'error.context.noDeletableCharacters': '没有可删除的角色',
+  'error.context.sessionNotLoaded': '会话尚未加载完成',
+  'error.context.sessionNotFound': '会话不存在',
+  'error.context.providerMissing': 'useApp 必须在 AppProvider 内使用',
+  // memory/memorySummary.js 的报错：同样只带 message，由 MemoryScreen 等 catch 后
+  // `(error && error.message) || t('...')` 直通 Alert。
+  'error.memory.summaryReadFailed': '记忆摘要读取失败，请稍后重试',
+  'error.memory.noSummarizableMessages': '没有可总结的消息',
+  'error.memory.summaryReset': '会话摘要已重置',
+  'error.memory.scopeChanged': '记忆作用域已变化',
+  'error.memory.characterUpdated': '角色已在总结期间更新',
 };

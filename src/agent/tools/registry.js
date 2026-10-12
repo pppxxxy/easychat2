@@ -287,7 +287,18 @@ export async function runTool(call, ctx = {}) {
     ]);
     if (isAbortError(result)) throw result;
     if (result && typeof result === 'object' && typeof result.content === 'string') {
-      return applyResultHook(ctx, name, args, { content: result.content, isError: result.isError === true });
+      // noticeKey/noticeParams（toolDefs/toolNotices.js）：content 是给模型读的中文正文，
+      // 这两个字段是**同一句话的界面侧词条引用**，给展示层按当前语言渲染用。
+      // 必须与 isError 同款**显式搬运**——这里是从工具结果到展示层的第 1 跳，只挑字段，
+      // 漏一个整条链就断在源头（英文界面继续显示中文正文）。
+      // 缺失时不造 undefined 键：老工具/老形态保持「无该字段」，展示层据此回落中文正文
+      //（见 workspace/conversation.js 的 toolRowsFromTrace 与 screen/ToolCallRow.js）。
+      return applyResultHook(ctx, name, args, {
+        content: result.content,
+        isError: result.isError === true,
+        ...(result.noticeKey === undefined ? {} : { noticeKey: result.noticeKey }),
+        ...(result.noticeParams === undefined ? {} : { noticeParams: result.noticeParams }),
+      });
     }
     return applyResultHook(ctx, name, args, {
       content: typeof result === 'string' ? result : String(result === undefined || result === null ? '' : result),

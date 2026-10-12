@@ -363,6 +363,12 @@ export const chat = {
   'chat.richHtml.loadFailed': 'HTML 内容加载失败',
   'chat.richHtml.reloadA11y': '重新加载卡片',
   'chat.richHtml.loading': '卡片加载中…',
+  // 卡片内链接的反馈（2026-10-12）：此前非 http 链接点了毫无反应，现在明确告知。
+  'chat.richHtml.linkUnsupported.title': '暂不支持该链接类型',
+  'chat.richHtml.linkUnsupported.body': '卡片内的链接只支持 http / https / mailto / tel 等外部地址，无法打开：{scheme}。',
+  'chat.richHtml.linkUnsupported.relative': '相对地址或页内锚点',
+  'chat.richHtml.linkFailed.title': '无法打开链接',
+  'chat.richHtml.linkFailed.body': '系统里没有可以处理该地址的应用。',
   'chat.list.chooseGreeting': '选择开场白',
   'chat.list.emptyTitle': '开始聊天',
   'chat.list.currentRole': '当前角色：{name}',
@@ -557,4 +563,11 @@ export const chat = {
   'chat.branch.rewindWorkspace.body': '这条分支之后有 {count} 个工作区文件被改过。是否把文件也回退到该分支的时刻？',
   'chat.branch.rewindWorkspace.skip': '只回退对话',
   'chat.branch.rewindWorkspace.confirm': '一并回退文件',
+  // ---- 工具轨迹截断标记（chat/toolTrace.js）----
+  // 双受众：模型靠它知道历史里「这里被截断过」，用户在工作区工具行的结果预览里看到它。
+  // 模型侧兜底仍是这句中文（见 toolTrace.js），此处是界面侧取值。
+  'chat.toolTrace.truncated': '…（轨迹截断）…',
+  // ---- 快速定位条的时间标签（chat/chatHelpers.js 的 formatScrubberTime）----
+  // 整句走词条：日期语序是语言的一部分，别只翻「月/日」两个字。
+  'chat.scrubber.time': '{month}月{day}日 {time}',
 };

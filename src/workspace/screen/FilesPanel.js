@@ -914,6 +914,44 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     </>
   );
 
+  // P4-4：破坏性操作的面板内确认条（删除文件 / 清空改动 / 删除空目录）。**必须**与浏览区
+  // 平级：viewer 二级层的文件页签渲染的就是同一个 renderFileBrowser（清空改动更只在历史页签），
+  // 塞进 `viewerOpen ? … : (…)` 的 else 分支会让 viewer 内点删除毫无反应、状态却已置位。
+  // 三条确认条共用的外壳 props：抽出来是为了让本文件的净行数不涨（行数棘轮只许收紧），
+  // 顺手也去掉三处逐字重复。
+  const confirmBarChrome = { confirmLabel: t('common.delete'), cancelLabel: t('common.cancel'), theme, fonts, tokens };
+  const renderConfirmBars = () => (
+    <>
+      {pendingDelete ? (
+        <ConfirmBar
+          title={t('workspace.panel.delete.title')}
+          body={t('workspace.panel.delete.body', { name: pendingDelete.name })}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+          {...confirmBarChrome}
+        />
+      ) : null}
+      {pendingClear ? (
+        <ConfirmBar
+          title={t('workspace.panel.viewer.clear.title')}
+          body={t('workspace.panel.viewer.clear.body')}
+          onConfirm={confirmClear}
+          onCancel={() => setPendingClear(false)}
+          {...confirmBarChrome}
+        />
+      ) : null}
+      {pendingDirDelete ? (
+        <ConfirmBar
+          title={t('workspace.panel.delete.dirTitle')}
+          body={t('workspace.panel.delete.dirBody', { name: pendingDirDelete.label })}
+          onConfirm={confirmDirDelete}
+          onCancel={() => setPendingDirDelete(null)}
+          {...confirmBarChrome}
+        />
+      ) : null}
+    </>
+  );
+
   // 文件面板（工作区单屏内的「文件」领域）：不自套 Modal、不自带顶栏——那是单屏的职责。
   // 面板内二级层是铺满面板的 View（styles.layer）：全局唯一 Modal 在 WorkspaceScreen（守卫钉着）。
   return (
@@ -1061,49 +1099,6 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             </View>
           ) : null}
 
-          {/* P4-4：破坏性操作的面板内确认条（第一个接入的流程是删除文件）。 */}
-          {pendingDelete ? (
-            <ConfirmBar
-              title={t('workspace.panel.delete.title')}
-              body={t('workspace.panel.delete.body', { name: pendingDelete.name })}
-              confirmLabel={t('common.delete')}
-              cancelLabel={t('common.cancel')}
-              onConfirm={confirmDelete}
-              onCancel={() => setPendingDelete(null)}
-              theme={theme}
-              fonts={fonts}
-              tokens={tokens}
-            />
-          ) : null}
-
-          {pendingClear ? (
-            <ConfirmBar
-              title={t('workspace.panel.viewer.clear.title')}
-              body={t('workspace.panel.viewer.clear.body')}
-              confirmLabel={t('common.delete')}
-              cancelLabel={t('common.cancel')}
-              onConfirm={confirmClear}
-              onCancel={() => setPendingClear(false)}
-              theme={theme}
-              fonts={fonts}
-              tokens={tokens}
-            />
-          ) : null}
-
-          {pendingDirDelete ? (
-            <ConfirmBar
-              title={t('workspace.panel.delete.dirTitle')}
-              body={t('workspace.panel.delete.dirBody', { name: pendingDirDelete.label })}
-              confirmLabel={t('common.delete')}
-              cancelLabel={t('common.cancel')}
-              onConfirm={confirmDirDelete}
-              onCancel={() => setPendingDirDelete(null)}
-              theme={theme}
-              fonts={fonts}
-              tokens={tokens}
-            />
-          ) : null}
-
           {renderFileBrowser()}
 
           {/* 「调参」折叠卡已删除：思考强度 + 上下文占用在对话面板的 ⚙ 设置里各有一行同款
@@ -1112,6 +1107,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
           </>
           )}
         </ScrollView>
+        {/* 确认条与浏览区平级：见 renderConfirmBars 的说明。 */}
+        {renderConfirmBars()}
       </View>
 
         {characterPickerOpen ? (

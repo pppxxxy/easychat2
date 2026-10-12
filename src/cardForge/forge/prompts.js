@@ -94,9 +94,17 @@ export function buildGeneratePrompt(state, { includeAdvanced = true } = {}) {
 
 // 「补写高级内容」的第二步提示词：带上已生成的角色卡投影与全文设定，只要求世界书/正则/预设。
 // 拆成第二步是为了避免单次输出数千字 JSON 被截断，导致后半段（高级内容）敷衍或解析失败。
-export function buildAdvancedPrompt(state, draft) {
-  const sections = requestedAdvancedSections(state);
-  const source = draft && typeof draft === 'object' ? draft : ((state && state.draft) || {});
+//
+// 第二个参数与 buildGeneratePrompt 统一为**选项对象**（问题 I）：旧签名收的是 draft 本体，
+// 而实现里又允许回落 state.draft——调用方（CardForgeScreen 的补写高级内容步骤）传的正是
+// 同一个 state.draft，该参数等于无效。现在显式传 { draft, sections }：
+// - draft：要补写高级内容的角色卡投影，缺省回落到 state.draft（单参调用仍可用）；
+// - sections：调用方为了提前 return 已经算过 requestedAdvancedSections，直接传进来，
+//   避免这里再算一遍（同一份 state 上重复计算）。
+export function buildAdvancedPrompt(state, options = {}) {
+  const opts = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+  const sections = Array.isArray(opts.sections) ? opts.sections : requestedAdvancedSections(state);
+  const source = opts.draft && typeof opts.draft === 'object' ? opts.draft : ((state && state.draft) || {});
   const advancedLines = buildAdvancedLines(sections);
   return [
     '你是角色卡（SillyTavern 风格）撰写助手。请根据下面的角色卡与设定，补写它的高级内容（世界书 / 正则脚本 / 文本预设）。',

@@ -29,4 +29,7 @@ export const diary = {
   'diary.nextDay': '下一天',
   'diary.saving': '保存中…',
   'diary.save': '保存设置',
+  // 日记条目上的日期（diary/formatDiaryDate）：中文习惯「9月26日」，英文用「Sep 26」。
+  // 整条词条 + {month}/{day} 插值，不拼接——两种语言的语序与单位不同。
+  'diary.date.monthDay': '{month}月{day}日',
 };

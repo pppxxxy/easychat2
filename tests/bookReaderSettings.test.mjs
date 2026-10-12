@@ -1,5 +1,5 @@
 // 阅读器设置（翻页方式）测试：注入 AsyncStorage 与 io 桩（沿用 musicPlaylists.test.mjs 机制），
-// 验证三档合法值、非法值回退、读写往返与读取失败不抛。
+// 验证四档合法值、非法值回退、读写往返，以及「读失败：读路径回退默认、写路径拒绝写回」。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,9 +13,15 @@ const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
 
 const store = new Map();
+// 「读会抛错」的键：AsyncStorage.getItem 直接抛（Android 上超 CursorWindow 上限、
+// SAF/权限失败都是这个形态），readJsonStatus 据此判 corrupt。
+const failedGets = new Set();
 
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failedGets.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
   multiSet: async entries => { entries.forEach(([key, value]) => store.set(key, value)); },
@@ -116,13 +122,32 @@ test('阅读器设置：首次读取（无键）返回默认，写入后往返�
   assert.equal((await settings.getBookReaderSettings()).pageTurn, 'slide');
 });
 
-test('阅读器设置：存储损坏时读取回退默认而不抛错（阅读不被设置读失败阻断）', async () => {
+test('阅读器设置：读失败回退默认（读路径不变），但保存拒绝写回，原值不被抹掉', async () => {
   store.clear();
-  store.set(KEY, '{ not json');
-  const loaded = await settings.getBookReaderSettings();
-  assert.equal(loaded.pageTurn, 'tap');
+  failedGets.clear();
 
-  const saved = await settings.saveBookReaderSettings({ pageTurn: 'curl' });
-  assert.equal(saved.pageTurn, 'curl');
+  // ① 读会抛错：读路径仍回退默认，不阻断阅读
+  store.set(KEY, JSON.stringify({ pageTurn: 'fade' }));
+  const before = store.get(KEY);
+  failedGets.add(KEY);
+  assert.equal((await settings.getBookReaderSettings()).pageTurn, 'tap', '读失败回退默认，不抛错');
+  await assert.rejects(
+    () => settings.saveBookReaderSettings({ pageTurn: 'curl' }),
+    /book-reader-settings-read-failed/,
+    '读失败必须拒绝写回：否则会用默认值抹掉用户的设置'
+  );
+  assert.equal(store.get(KEY), before, '读失败不得覆盖原值');
+  failedGets.delete(KEY);
+
+  // ② 值是坏的（JSON 解析不了）：同样拒绝，原始内容原样保留
+  store.set(KEY, '{ not json');
+  assert.equal((await settings.getBookReaderSettings()).pageTurn, 'tap');
+  await assert.rejects(() => settings.saveBookReaderSettings({ pageTurn: 'curl' }), /book-reader-settings-read-failed/);
+  assert.equal(store.get(KEY), '{ not json', '损坏原值不得被覆盖');
+
+  // ③ 读得回来时写回行为不变（patch 语义：读旧值合并）
+  store.set(KEY, JSON.stringify({ pageTurn: 'fade' }));
+  assert.equal((await settings.getBookReaderSettings()).pageTurn, 'fade');
+  assert.equal((await settings.saveBookReaderSettings({ pageTurn: 'curl' })).pageTurn, 'curl');
   assert.equal((await settings.getBookReaderSettings()).pageTurn, 'curl');
 });

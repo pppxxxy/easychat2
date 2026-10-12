@@ -29,4 +29,6 @@ export const diary = {
   'diary.nextDay': 'Next day',
   'diary.saving': 'Saving…',
   'diary.save': 'Save settings',
+  // 见 zh-CN 同名条目的说明：日记日期。英文用「9/26」的月/日数字式。
+  'diary.date.monthDay': '{month}/{day}',
 };

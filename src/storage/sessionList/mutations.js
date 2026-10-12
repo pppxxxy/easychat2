@@ -19,7 +19,7 @@ import {
   removeVectorIndexForSession,
   removeVectorIndexForSessions,
 } from '../vector.js';
-import { readJson } from '../io.js';
+import { readJsonStatus } from '../io.js';
 import { tActive } from '../../i18n/index.js';
 import { markMediaWrite } from '../mediaProtection.js';
 import { collectChatImageFiles, collectVoiceFiles } from '../sessionFiles.js';
@@ -69,11 +69,29 @@ async function clearSessionSidecarData(sessionId) {
   await clearStreamDraft(sessionId).catch(() => {});
 }
 
+// 读旧版「按角色 id 分键」的消息（迁移取值入口）。
+// **读失败绝不能当成「这个角色没有旧消息」**：本函数是迁移路径的取值来源，
+// 调用方（sessionList/migration.js:66）用 `messages.length === 0` 判定「没有可迁的对话」
+// 而 continue，成功路径则要 removeItem 删源键（migration.js:88-94）。
+// 以前这里用 readJson(key, null)：读失败 → null → []，于是读不到的旧对话
+// **既不迁移**（会话列表里看不见）**也不删除**（源键仍在）——一个既看不见也删不掉的孤儿。
+// 现在改用 readJsonStatus 三态读取，corrupt 直接抛错（拒绝），与调用方
+// isLegacyMessagesReadable（migration.js:32-51）的探测口径一致：探测先跳过该角色，
+// 真走到这里还读不出来就是明确失败，不再被静默降级成空列表。
 export async function readLegacyMessages(characterId) {
-  let stored = await readJson(messagesKey(characterId), null);
+  const primaryKey = messagesKey(characterId);
+  const primary = await readJsonStatus(primaryKey);
+  if (primary.status === 'corrupt') {
+    throw new Error(tActive('error.storage.legacyMessagesReadFailed'));
+  }
+  let stored = primary.status === 'ok' ? primary.value : null;
   if ((!Array.isArray(stored) || stored.length === 0)
     && characterId === DEFAULT_CHARACTER.id) {
-    stored = await readJson(LEGACY_MESSAGES_KEY, null);
+    const legacy = await readJsonStatus(LEGACY_MESSAGES_KEY);
+    if (legacy.status === 'corrupt') {
+      throw new Error(tActive('error.storage.legacyMessagesReadFailed'));
+    }
+    stored = legacy.status === 'ok' ? legacy.value : null;
   }
   return Array.isArray(stored) ? stored.filter(item => item && !item.pending) : [];
 }

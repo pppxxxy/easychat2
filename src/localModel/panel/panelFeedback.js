@@ -105,7 +105,16 @@ export function createPanelFeedback({
     else alertCancelable(t('localModel.alert.downloadFailed.title'), (result && result.message) || t('localModel.alert.downloadFailed.body'));
   };
 
-  const onPick = pickResult => {
+  // 壳接线处传的是 pickGguf()/pickMmproj() 的 **Promise**（`onPickGguf={() => feedback.onPick(acquire.pickGguf())}`），
+  // 旧实现直接读 pickResult.code：Promise 上恒为 undefined，PICK_FAILED 分支永不执行（选文件失败静默）。
+  // 这里 await 收口，Promise 与结果对象两种入参都兼容；若 Promise 自身 reject 也兜成 PICK_FAILED。
+  const onPick = async pickInput => {
+    let pickResult = null;
+    try {
+      pickResult = (await pickInput) || {};
+    } catch (error) {
+      pickResult = { ok: false, code: 'PICK_FAILED', message: error && error.message };
+    }
     if (!pickResult.ok && pickResult.code === 'PICK_FAILED') {
       alertCancelable(t('localModel.alert.pickFileFailed.title'), (pickResult && pickResult.message) || t('localModel.alert.pickFileFailed.body'));
     }

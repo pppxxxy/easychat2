@@ -30,6 +30,9 @@ export default function AcquireSection({
 }) {
   const downloading = task.kind === 'download';
   const importing = task.kind === 'import';
+  // 进度单位：downloadQueue 快照出口已是 0–100 百分数（与 runtime/engineStatus 同口径），
+  // 这里不再 ×100——历史上本文件乘了 100、DownloadTasks 没乘，同一时刻两处显示互相矛盾。
+  const downloadPercent = Math.max(0, Math.min(100, Math.round(Number(task.progress) || 0)));
   return (
     <>
       <View style={styles.subTabRow}>
@@ -135,14 +138,14 @@ export default function AcquireSection({
             </>
           ) : null}
           {downloading ? (
-            <View style={styles.downloadProgressWrap} accessibilityLabel={t('localModel.download.progressA11y', { progress: Math.round(task.progress * 100) })}>
+            <View style={styles.downloadProgressWrap} accessibilityLabel={t('localModel.download.progressA11y', { progress: downloadPercent })}>
               <View style={styles.downloadProgressBar}>
-                <View style={[styles.downloadProgressFill, { width: `${Math.round(task.progress * 100)}%` }]} />
+                <View style={[styles.downloadProgressFill, { width: `${downloadPercent}%` }]} />
               </View>
               <Text style={styles.downloadProgressText}>
                 {task.totalBytes > 0
-                  ? `${Math.round(task.progress * 100)}% · ${formatBytes(task.writtenBytes) || '0B'}/${formatBytes(task.totalBytes)}`
-                  : `${Math.round(task.progress * 100)}%`}
+                  ? `${downloadPercent}% · ${formatBytes(task.writtenBytes) || '0B'}/${formatBytes(task.totalBytes)}`
+                  : `${downloadPercent}%`}
               </Text>
             </View>
           ) : null}

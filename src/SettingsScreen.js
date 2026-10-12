@@ -119,12 +119,13 @@ const CHAT_PROTOCOL_OPTIONS = [
 // app.json 的 expo.version）。
 const APP_VERSION = Constants.expoConfig ? String(Constants.expoConfig.version || '') : '';
 
-// 设置卡渲染顺序（单一事实源）：JSX 顺序、stickyHeaderIndices、sectionOffsetsRef
-// 与搜索索引（searchIndex.js 的 sectionId）都以它为准——调序必须五处同步，漏一处
-// 即搜索跳错或吸顶错位。2026-10-07 调序：本地模型从「关于」卡里的一行升级为独立卡
-// （GitHub 之后），「关于」按用户预期殿底；语言移到关于之前（可发现性由搜索 + 默认展开保障）。
-const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'autoBackup', 'language', 'about'];
-
+// 设置卡渲染顺序——**导出给测试用的单一事实源**。调序只改这一行：stickyHeaderIndices 按它算，
+// 每张卡的 onLayout 统一走 registerSection（同一个 id），搜索索引（searchIndex.js）的
+// sectionId 必须落在它里面（以上由 tests/settingsSectionLayout.test.mjs 钉住）。JSX 里 15 张
+// 卡的书写顺序无法在不重写整段的前提下由数组生成，故同样由该测试逐条比对。
+// 2026-10-07 调序：本地模型从「关于」卡里的一行升级为独立卡（GitHub 之后），「关于」按用户
+// 预期殿底；语言移到关于之前（可发现性由搜索 + 默认展开保障）。
+export const SECTION_RENDER_ORDER = ['api', 'sampling', 'persona', 'appearance', 'experience', 'extensions', 'vector', 'workspace', 'github', 'mcpservers', 'localmodel', 'security', 'autoBackup', 'language', 'about'];
 // 思考参数预设：字段名 + 取值格式的组合。做成「折叠 + 点击选择」而不是手输——
 // 字段名/格式配错时服务端通常**静默忽略**（思考开关看着开了却不生效，很难查）。
 // 每项标注适用模型；只有选「自定义」才露出字段名输入框。
@@ -378,6 +379,8 @@ export default function SettingsScreen() {
   const sectionSaveTimerRef = useRef(null);
   const sectionOffsetsRef = useRef({});
   const scrollRef = useRef(null);
+  // 分区偏移登记的唯一入口：id 必须是 SECTION_RENDER_ORDER 里的那个（否则搜索跳转静默失灵）。
+  const registerSection = id => event => { sectionOffsetsRef.current[id] = event.nativeEvent.layout.y; };
 
   useEffect(() => {
     getUiSections()
@@ -1628,7 +1631,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'api' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.api = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('api')}
         >
           <CollapsibleSection
             title={t('settings.api.title')}
@@ -1661,15 +1664,16 @@ export default function SettingsScreen() {
           </CollapsibleSection>
         </Card>
 
-<SamplingCard
+        {/* SamplingCard 不接受 onLayout，故偏移登记包一层 View——此前它是唯一漏登记的分区。 */}
+        <View onLayout={registerSection('sampling')}><SamplingCard
           open={isSectionOpen('sampling')}
           onToggle={next => toggleSection('sampling', next)}
           flash={flashSection === 'sampling'}
-          onLayout={event => { sectionOffsetsRef.current.sampling = event.nativeEvent.layout.y; }} />
+        /></View>
 
         <Card
           style={[styles.sectionCard, flashSection === 'persona' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.persona = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('persona')}
         >
           <CollapsibleSection
             title={t('settings.persona.title')}
@@ -1695,7 +1699,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'appearance' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.appearance = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('appearance')}
         >
           <CollapsibleSection
             title={t('settings.appearance.title')}
@@ -1710,7 +1714,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'experience' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.experience = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('experience')}
         >
           <CollapsibleSection
             title={t('settings.experience.title')}
@@ -1725,7 +1729,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'extensions' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.extensions = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('extensions')}
         >
           <CollapsibleSection
             title={t('settings.extensions.title')}
@@ -1748,7 +1752,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'vector' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.vector = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('vector')}
         >
           <CollapsibleSection
             title={t('settings.vector.title')}
@@ -1771,7 +1775,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'workspace' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.workspace = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('workspace')}
         >
           <CollapsibleSection
             title={t('settings.workspace.title')}
@@ -1786,7 +1790,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'github' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.github = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('github')}
         >
           <CollapsibleSection
             title={t('settings.github.title')}
@@ -1803,7 +1807,7 @@ export default function SettingsScreen() {
             （令牌页指引等 GitHub 特有流程）。 */}
         <Card
           style={[styles.sectionCard, flashSection === 'mcpservers' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.mcpservers = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('mcpservers')}
         >
           <CollapsibleSection
             title={t('settings.mcp.title')}
@@ -1820,7 +1824,7 @@ export default function SettingsScreen() {
             完整三段式面板（模型/获取/服务），入口配得上自己的卡片。 */}
         <Card
           style={[styles.sectionCard, flashSection === 'localmodel' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.localmodel = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('localmodel')}
         >
           <CollapsibleSection
             title={t('settings.localModel.title')}
@@ -1845,7 +1849,7 @@ export default function SettingsScreen() {
         {/* 隐私与安全：应用锁（生物识别）+ 单角色锁（数字密码）。放在「关于」之前。 */}
         <Card
           style={[styles.sectionCard, flashSection === 'security' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.security = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('security')}
         >
           <CollapsibleSection
             title={t('settings.security.title')}
@@ -1857,14 +1861,18 @@ export default function SettingsScreen() {
           </CollapsibleSection>
         </Card>
 
-        <AutoBackupCard styles={styles} flash={flashSection === 'autoBackup'} open={isSectionOpen('autoBackup')} onToggle={next => toggleSection('autoBackup', next)} onLayout={y => { sectionOffsetsRef.current.autoBackup = y; }} />
+        {/* AutoBackupCard 的 onLayout 回传的是数字，无法直接接 registerSection（要的是事件），
+            故与 SamplingCard 同款：包一层 View 做偏移登记，卡片自身不再接 onLayout。 */}
+        <View onLayout={registerSection('autoBackup')}>
+          <AutoBackupCard styles={styles} flash={flashSection === 'autoBackup'} open={isSectionOpen('autoBackup')} onToggle={next => toggleSection('autoBackup', next)} />
+        </View>
 
         {/* 语言：独立卡、默认展开——此前只藏在外观折叠卡里，找语言的人翻不到。
             2026-10-07 调序：语言移到「关于」之前（关于殿底是用户对设置页的
             强预期），可发现性由搜索 + 默认展开保障，不再依赖垫底。 */}
         <Card
           style={[styles.sectionCard, flashSection === 'language' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.language = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('language')}
         >
           <CollapsibleSection
             title={t('settings.language.title')}
@@ -1903,7 +1911,7 @@ export default function SettingsScreen() {
 
         <Card
           style={[styles.sectionCard, flashSection === 'about' && styles.sectionCardFlash]}
-          onLayout={event => { sectionOffsetsRef.current.about = event.nativeEvent.layout.y; }}
+          onLayout={registerSection('about')}
         >
           <CollapsibleSection
             title={t('settings.about.title')}

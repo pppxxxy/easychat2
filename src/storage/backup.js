@@ -24,6 +24,16 @@ import { createBackupChunkGenerator } from './backupStream.js';
 const MANAGED_PREFIX = '@easychat2_';
 const CORRUPT_SUFFIX = '__corrupt_backup';
 
+// 媒体目录清单：**唯一权威是 dataBackup.js 的 BACKUP_MEDIA_DIRECTORIES**，这里只
+// re-export 同一个对象（不是副本、不是第二份字面量数组）。
+// 为什么必须只有一份：打包（buildBackupPayload）与导入校验（validateBackupPayload）都
+// 用 dataBackup.js 那份白名单，而本文件历史上另手写了一份；两份漂移后 `music`/`books`
+// 被 isAllowedMediaPath 静默过滤——用户的音乐库与书籍不进备份，恢复时才发现，且不可逆。
+// 新增/移除媒体目录请**只改 dataBackup.js**：那里逐项注明产出方模块与常量，并写明
+// 刻意排除的目录（screen-watch/、local-models/、.transcripts/、workspace/）及各自理由。
+// tests/storageBackup.test.mjs 断言两边是同一个对象，并逐条比对产出方常量。
+export { BACKUP_MEDIA_DIRECTORIES };
+
 function createAbortError() {
   const error = new Error('导出已取消');
   error.name = 'AbortError';
@@ -259,11 +269,11 @@ export async function exportBackup({
   const unreadableMedia = [];
   report('media', 0, 0);
   let mediaSeen = 0;
-  // 媒体目录清单：新增媒体目录必须同步登记，否则备份会静默丢文件
-  // （恢复侧按备份载荷泛化处理，无需改动）。
-  // screen-watch/ 刻意不登记：截图是临时运行文件（滚动保留 20 张自动清扫），
-  // 不是用户创作内容；备份带上应用界面截图只有隐私暴露没有价值。评论文本在
-  // AsyncStorage 键里随备份走，恢复后 imageUri 悬空不影响阅读。
+  // 目录清单见 dataBackup.js 的 BACKUP_MEDIA_DIRECTORIES（全仓唯一一份，新增目录只改那里）；
+  // 快速模式另有一份更窄的 QUICK_MEDIA_DIRECTORIES，同样在 dataBackup.js。
+  // screen-watch/ 刻意不登记：截图是临时运行文件（滚动保留 20 张自动清扫），不是用户创作
+  // 内容；备份带上应用界面截图只有隐私暴露没有价值。评论文本在 AsyncStorage 键里随备份走，
+  // 恢复后 imageUri 悬空不影响阅读。
   for (const directory of (quick ? QUICK_MEDIA_DIRECTORIES : BACKUP_MEDIA_DIRECTORIES)) {
     throwIfAborted(signal);
     const collected = await collectMedia(directory, '', {
@@ -279,6 +289,15 @@ export async function exportBackup({
   throwIfAborted(signal);
   report('packing', 0, 0);
   const payload = buildBackupPayload({ storage, media, appVersion, mode, secrets });
+  // 打包层用 dataBackup.js 的 BACKUP_MEDIA_DIRECTORIES（isAllowedMediaPath）过滤内容，恢复侧
+  // 校验也用同一份：两边现在是**同一个对象**（上面的 re-export），口径已不可能再漂移。
+  // 这道「收集数 vs 入包数」的核对仍然保留，作为兜底——将来若有人把清单又拆成两份，被丢掉的
+  // 文件会并进 unreadableMedia，让「备份不完整」在导出那一刻就可见，而不是等恢复时才发现
+  // 「备份里没有我的书/音乐」（文案说的是「读取失败」，原因措辞略粗，但"文件没进备份"是真的）。
+  const packedPaths = new Set(payload.media.map(item => item.path));
+  for (const item of media) {
+    if (!packedPaths.has(item.path)) unreadableMedia.push(item.path);
+  }
   // directory 缺省写 documentDirectory 根（手动导出）；自动备份传入专用子目录，
   // 与手动导出分开，避免「淘汰旧备份」误删用户手动导出的包。fileName 缺省用时间戳名。
   const baseDir = String(directory || FileSystem.documentDirectory || '');

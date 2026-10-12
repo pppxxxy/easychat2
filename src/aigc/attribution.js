@@ -4,17 +4,26 @@
 // - 隐式标识：随角色卡导出的元数据（生成属性、制作工具、内容编号），可被识别追溯
 // EasyChat2 是本地开源客户端，模型服务来自用户自行配置的 API——隐式标识里的
 // producer 记录生成工具（EasyChat2），不冒充模型服务提供者。
+//
+// 合规文案走 i18n（2026-10 修复）：此前 AIGC_NOTICE_TEXT / AIGC_EXPORT_NOTICE /
+// ipKeywordNotice 都是硬编码中文，英文界面下把**合规标识**显示成中文。
+// 这里导出的是**取值函数**而不是字符串常量：常量在模块加载时就把当时语言的文案
+// 冻结住了，切换语言后界面不会更新；函数每次读都按当前活动语言取词。
+// 用 tActive（同步取词）而不是 hook：这些值在 React 组件之外的导出/工具函数里也要用。
+import { tActive } from '../i18n/index.js';
 
-export const AIGC_NOTICE_TEXT = '本内容由 AI 生成';
+export const AIGC_NOTICE_TEXT = () => tActive('common.aigc.notice');
 export const AIGC_META_FIELD = 'aigcMeta';
 
 // 导出文件内的显式标识行：追加在 creator_notes 尾部（SillyTavern 等卡查看器可见）
-export const AIGC_EXPORT_NOTICE = '—— 本卡片内容由 AI 生成（EasyChat2 制卡）';
+export const AIGC_EXPORT_NOTICE = () => tActive('common.aigc.exportNotice');
 
 export function buildAigcMeta({ model = '', generatedAt = Date.now(), contentCode = '', source = 'easychat2-card-forge' } = {}) {
   const timestamp = Number(generatedAt) || Date.now();
   return {
-    label: AIGC_NOTICE_TEXT,
+    // 取当前语言文案写进元数据：隐式标识随卡导出，卡查看器按导出时的界面语言
+    // 读到完整标识；label 只作展示，isValidAigcMeta 不校验它。
+    label: AIGC_NOTICE_TEXT(),
     producer: 'EasyChat2',
     producerCode: 'easychat2',
     source: String(source || 'easychat2-card-forge'),
@@ -36,9 +45,10 @@ export function isValidAigcMeta(value) {
 
 // creator_notes 尾部追加显式标识行；重复导出不叠加
 export function appendExportNotice(creatorNotes) {
+  const notice = AIGC_EXPORT_NOTICE();
   const base = String(creatorNotes || '').trim();
-  if (base.includes(AIGC_EXPORT_NOTICE)) return base;
-  return base ? `${base}\n\n${AIGC_EXPORT_NOTICE}` : AIGC_EXPORT_NOTICE;
+  if (base.includes(notice)) return base;
+  return base ? `${base}\n\n${notice}` : notice;
 }
 
 // ---- 知名 IP 关键词提示（降低侵权风险的提示层，不阻断同人创作）----
@@ -73,10 +83,10 @@ export function findIpKeywords(texts) {
   return [...hits];
 }
 
-// 命中提示文案：明确「不阻断、责任自负」与真实人物风险
+// 命中提示文案：明确「不阻断、责任自负」与真实人物风险。
+// 文案整体是一条词条（带 {keywords} 插值），不拼接句子——英文语序与中文不同，
+// 拼接出来的句子没法翻译。
 export function ipKeywordNotice(hits) {
   const list = (Array.isArray(hits) ? hits : []).slice(0, 8).join('、');
-  return `生成的卡片中检测到可能与知名 IP 相似的名称：${list}。`
-    + 'AI 生成内容与既有作品相似可能存在版权风险，请自行确认有权使用后再保存或传播，相关责任由你自行承担。'
-    + '若内容涉及真实人物姓名，请额外注意肖像权与名誉风险。';
+  return tActive('common.aigc.ipNotice', { keywords: list });
 }

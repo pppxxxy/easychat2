@@ -14,9 +14,15 @@ const presetEnv = require.resolve('@babel/preset-env');
 
 const store = new Map();
 const corruptBackups = [];
+// 「读会抛错」的键：AsyncStorage.getItem 直接抛（Android 上超 CursorWindow 上限、
+// SAF/权限失败都是这个形态），readJsonStatus 据此判 corrupt。
+const failedGets = new Set();
 
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failedGets.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
   multiSet: async entries => { entries.forEach(([key, value]) => store.set(key, value)); },
@@ -194,13 +200,38 @@ test('音乐评论：追加、同 id 幂等、上限 50 丢最旧', async () => 
   assert.equal(list[49].source, 'manual', '未登记来源回退 manual');
 });
 
-test('音乐评论：损坏列表回落为空并备份；清空与随歌删除', async () => {
+test('音乐评论：读取失败必须明确失败并拒绝写回，原评论不被覆盖（不得当成「还没有评论」）', async () => {
   store.clear();
+  failedGets.clear();
   await comments.appendMusicComment('song-b', { id: 'm1', text: '好听' });
-  store.set(comments.musicCommentsKey('song-c'), 'not json');
+  const keyB = comments.musicCommentsKey('song-b');
+  const beforeB = store.get(keyB);
+
+  // ① 读会抛错（值本身是好的，只是这一次读不到）
+  failedGets.add(keyB);
+  await assert.rejects(
+    () => comments.getMusicComments('song-b'),
+    /music-comments-read-failed/,
+    '读路径必须拒绝，不能把 [] 交给面板当「还没有评论」'
+  );
+  await assert.rejects(
+    () => comments.appendMusicComment('song-b', { id: 'm2', text: '新评论' }),
+    /music-comments-read-failed/,
+    '写路径必须拒绝，不能以 [] 为底写回'
+  );
+  assert.equal(store.get(keyB), beforeB, '读失败不得覆盖原评论');
+  failedGets.delete(keyB);
+
+  // ② 值是坏的（JSON 解析不了）：同样拒绝，且原始内容原样保留
+  const keyC = comments.musicCommentsKey('song-c');
+  store.set(keyC, 'not json');
   corruptBackups.length = 0;
-  assert.deepEqual(await comments.getMusicComments('song-c'), []);
-  assert.deepEqual(corruptBackups, [comments.musicCommentsKey('song-c')]);
+  await assert.rejects(() => comments.getMusicComments('song-c'), /music-comments-read-failed/);
+  await assert.rejects(() => comments.appendMusicComment('song-c', { id: 'm3', text: 'x' }));
+  assert.equal(store.get(keyC), 'not json', '损坏原值不得被覆盖');
+  assert.ok(corruptBackups.includes(keyC), '损坏值先备份再拒绝');
+
+  // ③ 清空与随歌删除行为不变
   await comments.clearMusicComments('song-b');
   assert.deepEqual(await comments.getMusicComments('song-b'), []);
   await comments.appendMusicComment('song-d', { id: 'm1', text: 'x' });

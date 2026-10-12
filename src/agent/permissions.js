@@ -123,16 +123,34 @@ export function pathMatchesGlob(pattern, target) {
   return globToRegExp(cleaned).test(clean(String(target == null ? '' : target).trim()));
 }
 
+// 单一定义：shell 元字符（**不含空白**——空白是正常的参数分隔，不是多效果信号）。
+// 下面两个判据问的是两个不同的问题，但共用这一份清单，避免清单各自漂移。
+const SHELL_META = ';|&><)(';
+const META_CLASS = SHELL_META.replace(/[\\\]^]/g, '\\$&');
+const META_RE = new RegExp(`[${META_CLASS}]`);
+const BOUNDARY_RE = new RegExp(`^[\\s${META_CLASS}]`);
+
+// 「这条命令只有一个效果」：整串不含 shell 元字符——`npm install express` 是，`npm install && rm -rf /` 不是。
+// 只对 shell 命令成立（args.code 是源码，不是 shell 语境，见 ruleMatches 里的 effect 分派）。
+// 只有 **allow** 规则走这里：allow 是「不必再问」的承诺，宽一寸就等于放行了没被审过的第二条命令。
+// deny/ask 绝不能跟着改窄——workspace/hooks.js:288-293 的 before_shell deny 复用同一个
+// commandPrefixMatches，改窄会让 `rm -rf x && ...` 不再被拦（安全不回退）。
+function isSimpleCommand(command) {
+  return !META_RE.test(String(command == null ? '' : command));
+}
+
 // 命令前缀匹配（词边界）：`npm install` 命中 `npm install express`，
 // 但**不**命中 `npm installx`——纯 startsWith 会在这里静默放行一条没被审过的命令。
 // 前缀必须在「命令结尾 / 空白 / shell 分隔符」处结束才算命中。
+// 注意这只回答「前缀是不是一个完整的词」，**不**回答「整条命令是不是只有一个效果」
+// （`npm install && rm -rf /` 在这里同样是命中）——那是 allow 规则的事，见 isSimpleCommand。
 export function commandPrefixMatches(prefix, command) {
   const needle = String(prefix == null ? '' : prefix).trim();
   const haystack = String(command == null ? '' : command).trim();
   if (!needle) return false;
   if (needle === haystack) return true;
   if (!haystack.startsWith(needle)) return false;
-  return /^[\s;|&><)(]/.test(haystack.slice(needle.length));
+  return BOUNDARY_RE.test(haystack.slice(needle.length));
 }
 
 // 从工具参数里取「被匹配的原文」：字段驱动（不硬编码工具名），
@@ -155,7 +173,15 @@ export function ruleMatches(rule, { tool, args } = {}) {
   if (!matchToolPattern(normalized.tool, name)) return false;
   if (!normalized.match) return true; // 工具级规则：参数不限
   const { kind, value } = permissionMatchValue(args);
-  if (kind === 'command') return commandPrefixMatches(normalized.match, value);
+  if (kind === 'command') {
+    // 按 effect 分派：allow 额外要求「这条命令只有一个效果」（`npm install` 的 allow 规则
+    // 不得吞掉 `npm install && rm -rf /`）；deny/ask 原样走前缀判据——对它们宽 = 安全。
+    // 这道门槛只对 **shell 命令**成立：args.code 是编程语言源码，`print(a > b)` 里的括号与
+    // 大于号不是「第二个效果」；若把 code 也算进来，run_python 的「永远允许」将永远命不中。
+    const shell = !!(args && String(args.command == null ? '' : args.command).trim());
+    if (normalized.effect === 'allow' && shell && !isSimpleCommand(value)) return false;
+    return commandPrefixMatches(normalized.match, value);
+  }
   if (kind === 'path') return pathMatchesGlob(normalized.match, value);
   // 带 match 的规则但调用没有可比的原文（如 list 的 subdir）：不命中——宁问不猜。
   return false;

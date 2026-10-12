@@ -78,6 +78,57 @@ test('D4-1 结果钩子：成功可增强；错误结果不增强；钩子抛错
   assert.equal((await runTool({ name: 'echo', arguments: '{}' }, { mode: 'read' })).content, '原始内容');
 });
 
+// 第 1 跳（2026-10-12）：界面侧提示字段必须与 isError 同款**透传**。
+//
+// 事故形态：runTool 出口只挑 content/isError 交给 applyResultHook，工具结果上多带的
+// noticeKey/noticeParams 在**源头**就被丢掉——后面 toolTrace → conversation → ToolCallRow
+// 三跳再怎么搬都搬不到，英文界面继续显示中文正文（toolDefs/toolNotices.js 的拆分白做）。
+test('runTool 透传界面侧提示字段（noticeKey/noticeParams）；缺失时不造 undefined 键', async () => {
+  registerTool({
+    name: 'git_status',
+    readOnly: true,
+    parameters: {},
+    execute: async () => ({
+      content: '本地版本控制还没就绪：这个工作区还没有 git 仓库。',
+      isError: true,
+      noticeKey: 'workspace.chat.tool.notice.gitNoRepo',
+    }),
+  });
+  const withKey = await runTool({ name: 'git_status', arguments: '{}' }, { mode: AGENT_MODES.READ });
+  assert.equal(withKey.content, '本地版本控制还没就绪：这个工作区还没有 git 仓库。', '模型侧正文一个字都不变');
+  assert.equal(withKey.isError, true);
+  assert.equal(withKey.noticeKey, 'workspace.chat.tool.notice.gitNoRepo', '界面侧 key 必须活着出 runTool');
+  assert.equal('noticeParams' in withKey, false, '没有参数就不塞空对象/undefined');
+
+  registerTool({
+    name: 'run_workflow',
+    readOnly: true,
+    parameters: {},
+    execute: async () => ({
+      content: '工作流无法执行：步骤 write-step 要求 write 模式……',
+      isError: true,
+      noticeKey: 'workspace.chat.tool.notice.workflowWriteBlocked',
+      noticeParams: { steps: 'write-step' },
+    }),
+  });
+  const withParams = await runTool({ name: 'run_workflow', arguments: '{}' }, { mode: AGENT_MODES.READ });
+  assert.deepEqual(withParams.noticeParams, { steps: 'write-step' }, '插值参数原样透传（t(key, params) 用）');
+
+  // 普通工具（结果里没有这两个字段）：返回对象**不许**凭空多出 undefined 键。
+  // 这里用 deepEqual 是刻意的——它会把这些键算作差异，正是「顺手写 noticeKey: result.noticeKey」
+  // 那种写法会留下的痕迹（老工具/老形态必须保持「无该字段」，展示层据此回落中文正文）。
+  registerTool({
+    name: 'plain',
+    readOnly: true,
+    parameters: {},
+    execute: async () => ({ content: '结构化', isError: false }),
+  });
+  assert.deepEqual(
+    await runTool({ name: 'plain', arguments: '{}' }, { mode: AGENT_MODES.READ }),
+    { content: '结构化', isError: false },
+  );
+});
+
 test('listToolsForMode 按 ask/read/write 门控', () => {
   registerTool({ name: 'read_a', readOnly: true, parameters: {}, execute: async () => 'a' });
   registerTool({ name: 'write_b', readOnly: false, parameters: {}, execute: async () => 'b' });

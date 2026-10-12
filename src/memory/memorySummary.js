@@ -13,6 +13,9 @@ import {
 import { capMemoryEntries, DEFAULT_MEMORY_MAX_ENTRIES, MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX } from './memoryConstants.js';
 import { AUTO_COMPACT_RATIO } from '../chat/contextUsage.js';
 import { normalizeCompactionFocus } from '../chat/compaction.js';
+// 本模块的 Error 只带 message，由 MemoryScreen 等调用方 catch 后经
+// `(error && error.message) || t(...)` 直通 Alert，所以文案必须走 i18n。
+// 用 tActive（同步取词）而非 hook：这里全是纯函数，没有 React 上下文。
 import { tActive } from '../i18n/index.js';
 
 export { MEMORY_SCOPE_THRESHOLD, MEMORY_SUMMARY_PREFIX };
@@ -539,7 +542,7 @@ export async function applySummary({
  }) {
   const list = (Array.isArray(messages) ? messages : []).filter(isConversational);
   if (list.length === 0) {
-    throw new Error(tActive('error.memory.nothingToSummarize'));
+    throw new Error(tActive('error.memory.noSummarizableMessages'));
   }
   const summaryRevision = getSessionSummaryRevision(session.id);
   const summaryState = scoped
@@ -570,6 +573,7 @@ export async function applySummary({
     ? Boolean(getCurrentScope())
     : scoped;
   if (effectiveScoped !== scoped) {
+    // canceled=true 是调用方的「静默放弃」标记：不是故障，不该弹错误提示。
     const error = new Error(tActive('error.memory.scopeChanged'));
     error.canceled = true;
     throw error;

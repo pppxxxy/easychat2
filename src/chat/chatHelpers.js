@@ -8,6 +8,10 @@ import {
   isThinkingPlaceholder,
 } from './chatConstants.js';
 import { STICKER_MESSAGE_KIND } from './chatMedia.js';
+// 同步取词入口（非 React 树）：formatScrubberTime 在 hook 的 memo 里被调用、
+// 也允许被纯函数式地直接调用，取词不能依赖 React 上下文。
+// 只 import tActive —— 多处测试把 i18n/index.js 打桩成 `{ tActive }`，多引一个符号就会炸。
+import { tActive } from '../i18n/index.js';
 
 // 拼生图提示词：风格前缀 + 场景描述（场景描述由模型转写或本地兜底得到）。
 export function buildInlineImagePrompt(sceneText, stylePrefix, maxChars) {
@@ -74,12 +78,26 @@ export function buildGreetingMessage(sessionId, firstMes, userName) {
   };
 }
 
-export function formatScrubberTime(timestamp) {
+// 定位条时间标签的格式：**整句**走词条，而不是只把「月/日」两个字翻掉——
+// 日期语序是语言的一部分（`1月2日 09:05` vs `1/2 09:05`），拼字符串必然在某个语言里别扭。
+export const SCRUBBER_TIME_KEY = 'chat.scrubber.time';
+
+export function formatScrubberTime(timestamp, t = tActive) {
   const value = Number(timestamp);
   if (!Number.isFinite(value) || value <= 0) return '';
   const date = new Date(value);
   const pad = number => String(number).padStart(2, '0');
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const params = {
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+  // t 可注入（useScrollScrubber 手里就有 t，见那里的注释）；默认 tActive 是为了让
+  // 尚未显式传 t 的调用点也跟随语言，而不是退回硬编码中文（本函数的旧行为）。
+  const text = typeof t === 'function' ? String(t(SCRUBBER_TIME_KEY, params) || '') : '';
+  // 词条漏登记时 t 返回 key 本身——不能把 `chat.scrubber.time` 显示给用户，
+  // 故回落基准语言格式（与语言包 zh-CN 的值一致）。
+  return text && text !== SCRUBBER_TIME_KEY ? text : `${params.month}月${params.day}日 ${params.time}`;
 }
 
 // 把一条 pending 占位消息“结算”：有内容（正文或思考）就保留并落盘，

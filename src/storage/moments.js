@@ -160,14 +160,35 @@ function normalizeProactiveSettings(raw) {
   };
 }
 
-export async function getProactiveSettings() {
+// 读主动消息设置并**保留读取状态**（读路径对外行为不变：损坏时仍给空设置，面板不崩）。
+// 参考 src/storage/worldMap.js:19-27（getWorldMapStatus）。
+async function readProactiveSettingsStatus() {
   const stored = await readJsonStatus(PROACTIVE_SETTINGS_KEY);
   if (stored.status === 'corrupt') {
     // 与其它集合一致：损坏先备份，不静默覆盖用户的时间设置
     await backupCorruptValue(PROACTIVE_SETTINGS_KEY);
-    return { slots: [], apiConfigId: '', model: '' };
+    return { status: 'corrupt', settings: { slots: [], apiConfigId: '', model: '' } };
   }
-  return normalizeProactiveSettings(stored.status === 'ok' ? stored.value : null);
+  return {
+    status: stored.status === 'ok' ? 'ok' : 'missing',
+    settings: normalizeProactiveSettings(stored.status === 'ok' ? stored.value : null),
+  };
+}
+
+export async function getProactiveSettings() {
+  return (await readProactiveSettingsStatus()).settings;
+}
+
+// 写路径守卫（变体①：拒绝写回 / 抛错）。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap）与 src/storage/cardForge.js:182-186。
+//
+// 为什么必须守卫：被抹掉的是**每个角色的时段、人格、自定义提示词**——用户手填的昂贵配置。
+// 读失败时「当前设置」是 `{ slots: [] }`，整键写回即全清。
+function requireProactiveSettingsForMutation(current) {
+  if (current.status === 'corrupt') {
+    throw new Error(tActive('error.storage.proactiveSettingsReadFailed'));
+  }
+  return current.settings;
 }
 
 export function saveProactiveSettings(settings) {
@@ -175,6 +196,8 @@ export function saveProactiveSettings(settings) {
   // 这条写入若绕过队列，就会插到「它读完、还没写」的中间——两边都基于旧快照，
   // 后落盘的那次把对方刚提交的改动整个覆盖掉（后发起的调用不再生效）。
   return enqueueMomentsMutation(async () => {
+    // 变体①：读失败就抛错中止，绝不用空时段整键覆盖（参考实现同上）。
+    requireProactiveSettingsForMutation(await readProactiveSettingsStatus());
     const normalized = normalizeProactiveSettings(settings);
     await AsyncStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(normalized));
     return normalized;
@@ -188,7 +211,11 @@ export function bindProactiveSlotSession(slotId, sessionId) {
   const bound = String(sessionId || '');
   if (!target || !bound) return Promise.resolve(false);
   return enqueueMomentsMutation(async () => {
-    const stored = await getProactiveSettings();
+    // 同样是读-改-写整键覆盖，同样走守卫（变体①）。此前只是**侥幸**躲过覆盖：
+    // 损坏时 slots 为空、匹配不到目标槽 → 提前 return false。但那是巧合而非判据——
+    // normalizeProactiveSlot 会按 `slot-<index>-<roleId>-<h>-<m>` 派生 id，
+    // 一旦派生出同 id 的槽就会命中，把整表写成「只有这一个槽」。显式拒绝才可靠。
+    const stored = requireProactiveSettingsForMutation(await readProactiveSettingsStatus());
     let hit = false;
     const slots = stored.slots.map(slot => {
       if (slot.slotId !== target || slot.sessionTargetId === bound) return slot;
@@ -242,8 +269,21 @@ export async function getMomentsStatus() {
   return { status: 'ok', moments };
 }
 
+// 变体①：读失败就抛错，不再把「读不出来」伪装成「一条动态都没有」。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap「读失败就抛错中止」）。
+//
+// 同文件的 readMomentsForMutation 一直是这个纪律，getMomentsStatus 也一直把 status 带出来，
+// 只有 getMoments 把 status 丢掉、corrupt 时直接返回 []——于是调用方无从区分
+// 「没有动态」与「动态读不出来」（MomentsView.js:114 会 setMoments([])）。
+// **要状态请走 getMomentsStatus()（本文件里正确的那道门）**；只想要列表的调用方
+// 必须显式处理失败。现有 4 个调用点都已经带 .catch（MomentsView.js:121/374、
+// runUserMomentComments.js:43、runHousemateReactions.js:38），所以这不改变任何
+// 用户可见行为，只把契约从「静默空列表」改成「显式失败」。
 export async function getMoments() {
-  const { moments } = await getMomentsStatus();
+  const { status, moments } = await getMomentsStatus();
+  if (status === 'corrupt') {
+    throw new Error(tActive('error.storage.momentsReadFailed'));
+  }
   return moments;
 }
 

@@ -13,6 +13,7 @@
 import { normalizeManifest, validateManifest, PLUGIN_MANIFEST_VERSION } from './manifest.js';
 import { createSlotRegistry } from './registry.js';
 import { runInSandbox } from './sandbox.js';
+import { tActive } from '../../i18n/index.js';
 import { safeJsonStringify } from '../../utils/safeJson.js';
 
 export const PLUGINS_FILE = '.easychat/plugins.json';
@@ -85,22 +86,56 @@ export function buildPluginRuntime(plugins, { capabilities = {}, source = 'exten
   return { registry, tools, hooks, pluginIds };
 }
 
+// 「文件不存在」与「读失败」的判据：workspace 两个后端在文件不存在时抛的都是同一条
+// i18n 文案 error.workspace.fileNotFound（store.js:120、safStore.js:178/180），
+// 底层文件系统直接冒上来的 ENOENT 同义（code 约定见 workspace/gitFs.js:45-46）。
+// 其余异常（权限、SAF、底层 IO）才是「读失败」。
+function isWorkspaceFileMissing(error) {
+  if (!error) return false;
+  if (error.code === 'ENOENT') return true;
+  const message = String(error.message || '');
+  if (!message) return false;
+  // 裸 `new Error('ENOENT')`（Node/RN 底层与测试桩的常见形态）：只有 message、没有 code，
+  // 上面那条拿不到。不认它会把「首次安装」误判成读失败，installPlugin 于是拒绝写入 ——
+  // 表现是「装了插件却什么都没落盘」，且没有任何报错。故 message 也要认。
+  if (message.includes('ENOENT')) return true;
+  return message === tActive('error.workspace.fileNotFound', { path: PLUGINS_FILE });
+}
+
+// 读插件文件的**三态**结果：
+//   ok      —— 读到了（含空文件：text 为 ''，等价于「还没装任何插件」）；
+//   missing —— 文件不存在（首次安装的正常态）；
+//   error   —— 读失败，内容不可知。
+// 为什么必须分开：以前两种失败都被吞成 ''，于是 installPlugin 的 existing=[] 会被当成
+// 「用户还没装插件」，写回时把整份 plugins.json 覆盖成只含本次安装的那一个 ——
+// 静默删掉用户已装的插件（先例：src/storage/worldMap.js:34-40「读失败就抛错中止：
+// 绝不用空列表覆盖已有地图」）。
 async function readPluginsText(store, characterId) {
   try {
     const result = await store.readWorkspaceFile({ characterId, path: PLUGINS_FILE });
-    return String((result && result.content) || '');
+    return { status: 'ok', text: String((result && result.content) || '') };
   } catch (error) {
-    return '';
+    if (isWorkspaceFileMissing(error)) return { status: 'missing', text: '' };
+    return { status: 'error', text: '', error: String((error && error.message) || error) };
   }
 }
 
 // 读并装配（宿主调用）。store 缺 list/read/write 时降级为空运行时。
 export async function loadPluginRuntime({ store, characterId, capabilities = {} } = {}) {
   if (!store || typeof store.readWorkspaceFile !== 'function') {
-    return { ...buildPluginRuntime([], { capabilities }), plugins: [] };
+    // 没有 store = 宿主没接插件能力，当作「一个都没装」。
+    return { ...buildPluginRuntime([], { capabilities }), plugins: [], status: 'missing' };
   }
-  const plugins = loadPluginsFromText(await readPluginsText(store, characterId));
-  return { ...buildPluginRuntime(plugins, { capabilities }), plugins };
+  const read = await readPluginsText(store, characterId);
+  const plugins = loadPluginsFromText(read.text);
+  // 读失败时运行时只能降级为空（没有可用的清单），但把 status 透出去——
+  // 调用方不会把它误当成「用户一个插件都没装」。
+  return {
+    ...buildPluginRuntime(plugins, { capabilities }),
+    plugins,
+    status: read.status,
+    ...(read.error ? { error: read.error } : {}),
+  };
 }
 
 // 安装一个插件（幂等：同 id 覆盖）。返回 { ok, error?, plugins }。
@@ -108,7 +143,12 @@ export async function installPlugin({ store, characterId, manifest } = {}) {
   const check = validateManifest(manifest);
   if (!check.ok) return { ok: false, error: check.errors.join('；'), plugins: [] };
   const normalized = normalizeManifest(manifest);
-  const existing = loadPluginsFromText(await readPluginsText(store, characterId));
+  const read = await readPluginsText(store, characterId);
+  // 读失败**拒绝写入**：此时 existing 只能是 []，写回等于用「只含本次安装」覆盖整份清单。
+  if (read.status === 'error') {
+    return { ok: false, error: read.error || 'plugins-read-failed', plugins: [] };
+  }
+  const existing = loadPluginsFromText(read.text);
   if (!existing.some(item => item.id === normalized.id) && existing.length >= PLUGIN_INSTALL_MAX) {
     return { ok: false, error: `插件数已达上限 ${PLUGIN_INSTALL_MAX}`, plugins: existing };
   }
@@ -124,7 +164,12 @@ export async function installPlugin({ store, characterId, manifest } = {}) {
 // 卸载一个插件。返回 { ok, plugins }。
 export async function uninstallPlugin({ store, characterId, id } = {}) {
   const key = String(id == null ? '' : id).trim().toLowerCase();
-  const existing = loadPluginsFromText(await readPluginsText(store, characterId));
+  const read = await readPluginsText(store, characterId);
+  // 同 installPlugin：读失败拒绝写入，否则会把整份清单覆盖成「只少了这一个」的空表。
+  if (read.status === 'error') {
+    return { ok: false, error: read.error || 'plugins-read-failed', plugins: [] };
+  }
+  const existing = loadPluginsFromText(read.text);
   const next = existing.filter(item => item.id !== key);
   if (next.length === existing.length) return { ok: false, error: '插件未安装', plugins: existing };
   try {

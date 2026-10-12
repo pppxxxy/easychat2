@@ -7,10 +7,11 @@
 
 export const FORGE_MEDIA_DIRECTORY = 'card-forge';
 export const AVATAR_DIRECTORY = 'avatars';
-export const FORGE_IMAGE_KEYS = ['avatarUri', 'bgUri'];
 
 // 文件名里的 key：avatarUri → avatar，bgUri → bg（只求可读，语义由调用方定）。
-export function imageKeyLabel(key) {
+// 只被本文件的 buildForgeImageName 调用，属实现细节，不做导出（问题 J：
+// 过度导出会让外部以为它是公共 API；同批删掉了全仓零引用的图片 key 清单常量）。
+function imageKeyLabel(key) {
   return key === 'bgUri' ? 'bg' : 'avatar';
 }
 

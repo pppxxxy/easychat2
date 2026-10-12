@@ -104,9 +104,51 @@ test('normalizePin / isValidPin：只留数字并限长', () => {
 test('默认设置：应用锁关闭，离开后重新上锁默认开启', async () => {
   const mod = loadSecurity();
   const settings = await mod.getSecuritySettings();
+  assert.equal(settings.status, mod.SECURITY_STATUS.MISSING, '键不存在 = missing（「没有锁」是事实）');
   assert.equal(settings.appLock.enabled, false);
   assert.equal(settings.appLock.relockOnBackground, true);
   assert.deepEqual(settings.characterLocks, {});
+});
+
+test('读取状态三态：ok / missing / unknown 必须能区分开', async () => {
+  const mod = loadSecurity();
+  // missing：全新安装
+  assert.equal((await mod.getSecuritySettings()).status, mod.SECURITY_STATUS.MISSING);
+  // ok：结构完好
+  await mod.saveAppLockSettings({ enabled: true });
+  const ok = await mod.getSecuritySettings();
+  assert.equal(ok.status, mod.SECURITY_STATUS.OK);
+  assert.equal(ok.appLock.enabled, true);
+  // unknown：结构损坏。**关键**：不能退化成 ok/missing —— 那正是「损坏 = 未加锁」的 fail-open。
+  store.set(KEY, '{not json');
+  const broken = await mod.getSecuritySettings();
+  assert.equal(broken.status, mod.SECURITY_STATUS.UNKNOWN);
+  assert.notEqual(broken.status, mod.SECURITY_STATUS.OK);
+  assert.notEqual(broken.status, mod.SECURITY_STATUS.MISSING);
+});
+
+test('resolveAppLockPolicy：未知态按最保守处理（要求验证，绝不放行）', async () => {
+  const mod = loadSecurity();
+  // 未知 ⇒ 即使默认值是「未加锁」，也必须要求验证。
+  const unknown = mod.resolveAppLockPolicy(mod.SECURITY_STATUS.UNKNOWN, { enabled: false });
+  assert.equal(unknown.unknown, true, 'UI 要能看出是「状态未知」');
+  assert.equal(unknown.requireUnlock, true, '未知态必须要求解锁，不能静默放行');
+  // 未知 ⇒ 自动重新上锁的默认也保持开启（往严的一侧倒）。
+  assert.equal(unknown.relockOnBackground, true);
+  // 正常态不受影响：真的没开锁就不该平白拦人。
+  assert.equal(mod.resolveAppLockPolicy(mod.SECURITY_STATUS.OK, { enabled: false }).requireUnlock, false);
+  assert.equal(mod.resolveAppLockPolicy(mod.SECURITY_STATUS.MISSING, { enabled: false }).requireUnlock, false);
+  assert.equal(mod.resolveAppLockPolicy(mod.SECURITY_STATUS.OK, { enabled: true }).requireUnlock, true);
+  // 显式关掉自动重新上锁时仍然尊重用户设置（未知态除外）。
+  assert.equal(
+    mod.resolveAppLockPolicy(mod.SECURITY_STATUS.OK, { enabled: true, relockOnBackground: false }).relockOnBackground,
+    false
+  );
+  assert.equal(
+    mod.resolveAppLockPolicy(mod.SECURITY_STATUS.UNKNOWN, { enabled: true, relockOnBackground: false }).relockOnBackground,
+    true,
+    '未知态按最保守处理'
+  );
 });
 
 test('saveAppLockSettings：局部更新不丢另一字段', async () => {
@@ -179,8 +221,10 @@ test('损坏存储：备份原始值后按默认处理，不静默覆盖', async
   const mod = loadSecurity();
   store.set(KEY, '{not json');
   const settings = await mod.getSecuritySettings();
+  // 三态：损坏必须是 unknown，不能被折叠成「默认 = 未加锁」。
+  assert.equal(settings.status, mod.SECURITY_STATUS.UNKNOWN);
   assert.deepEqual(settings.characterLocks, {});
-  assert.equal(settings.appLock.enabled, false);
+  assert.equal(settings.appLock.enabled, false, '读路径给 UI 的默认值不变');
   assert.ok(store.has(`${KEY}__corrupt_backup`), '损坏值已备份');
   assert.equal(store.get(KEY), '{not json', '原值未被默认值覆盖');
 });

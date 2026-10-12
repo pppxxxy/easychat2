@@ -76,6 +76,10 @@ export const forge = {
   'forge.regex.groupHint': '对展示文本或发送提示词做替换，点条目标题展开编辑',
   'forge.regex.empty': '还没有正则脚本。',
   'forge.regex.summary': '查找：{find} → 替换：{replace}',
+  // 危险正则告警（问题 A）：advanced.js 与聊天引擎共用 isUnsafeRegexPattern 判定，
+  // 引擎对灾难性回溯模式直接跳过，所以这里必须让用户看见「为什么不生效」。
+  'forge.regex.unsafeBadge': '危险正则',
+  'forge.regex.unsafeHint': '该表达式存在嵌套无界量词，疑似灾难性回溯；为避免卡死界面，聊天时会跳过此脚本（等于永不生效）。请改写表达式（例如避免 (a+)+ 这类嵌套量词）后再启用。',
   'forge.regex.emptyValue': '（空）',
   'forge.regex.unset': '未设置查找内容',
   'forge.regex.expandA11y': '展开正则脚本 {n}',
@@ -192,4 +196,8 @@ export const forge = {
   'forge.preview.typing': '角色正在输入…',
   'forge.preview.inputPlaceholder': '以用户身份发一句话，测试这张卡',
   'forge.preview.send': '发送',
+  // 「从对话生成角色卡」面板的素材计数（问题 E / F）。词条放在 forge 域而不是
+  // chat 域：面板的素材口径由 cardForge/forge/conversation.js 定义，中英文同批加。
+  'forge.conversation.breakdown': '保留 {kept} 条 / 裁剪 {clipped} 条 / 丢弃 {dropped} 条',
+  'forge.conversation.filtered': '其中 {count} 条不是对话消息（系统提示 / 备注 / 空内容），不会参与提炼。',
 };

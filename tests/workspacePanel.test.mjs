@@ -188,6 +188,35 @@ test('F1/F2/F3 文件面板：子目录空状态 + 空目录可删（非空拦�
   assert.ok(source.includes("t('workspace.panel.group.empty')"), '空组不再伪装成有内容的仓库');
 });
 
+// P4-4 回归（2026-10-12）：确认条必须渲染在「查看文件」二级层之外。
+//
+// 删除入口在 renderEntryRow，而 viewer 的「文件」页签渲染的就是同一个 renderFileBrowser
+// （「清空改动」更是只存在于 viewer 的历史页签）——三个确认条原先写在
+// `viewerOpen ? … : (…)` 的 else 分支里，viewer 打开时整块不渲染：用户点删除毫无反应，
+// 待确认状态却已置位，关掉 viewer 才「突然」冒出确认条。这里钉住渲染顺序：
+// viewer 三元 → 浏览区 </ScrollView> → 确认条 → 面板容器收口。
+test('P4-4 回归：破坏性操作确认条不在 viewer 三元分支内（二级层里点删除必须有反应）', () => {
+  const source = readSource('src/workspace/screen/FilesPanel.js');
+  const viewerAt = source.indexOf('{viewerOpen ? renderViewerBody() : (');
+  const scrollEndAt = source.indexOf('</ScrollView>', viewerAt);
+  const confirmBarsAt = source.indexOf('{renderConfirmBars()}');
+  const containerEndAt = source.indexOf('</View>', scrollEndAt);
+  assert.ok(viewerAt > 0 && scrollEndAt > viewerAt, 'viewer 三元与浏览区都在');
+  assert.ok(confirmBarsAt > 0, '确认条走 renderConfirmBars() 单点渲染');
+  assert.ok(
+    !source.slice(0, scrollEndAt).includes('{renderConfirmBars()}'),
+    '确认条不得出现在 viewer 三元的 else 分支里（否则 viewer 内点删除毫无反应）'
+  );
+  assert.ok(
+    scrollEndAt < confirmBarsAt && confirmBarsAt < containerEndAt,
+    '确认条与浏览区平级（</ScrollView> 之后、面板容器收口之前）'
+  );
+  // 三个待确认状态都要有出口——少一个就是「状态置位了却没人渲染」。
+  for (const key of ['pendingDelete', 'pendingClear', 'pendingDirDelete']) {
+    assert.ok(source.includes(`{${key} ? (`), `${key} 的确认条仍在渲染`);
+  }
+});
+
 test('D1 文件面板：导入文件到当前目录（技能生态通路，落点跟随 subdir）', () => {
   const source = readSource('src/workspace/screen/FilesPanel.js');
   assert.ok(source.includes('handleImportToCurrentDir'), '导入入口存在');

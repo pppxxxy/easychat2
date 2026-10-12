@@ -24,7 +24,7 @@ import { maskSecrets } from '../storage/secrets.js';
 // 却什么都不说，看起来像卡住或没反应。三处成因相同（角色已删、会话归属守卫拒绝），
 // 反馈也必须一致，所以收口成一个函数。
 //
-// 显示原因而不是一句笼统提示：这些错误本身已是本地化文案（AppContext 的 error.app.*
+// 显示原因而不是一句笼统提示：这些错误本身已是本地化文案（AppContext 的 error.context.*
 // 与 error.storage.sessionNotFound），直接给用户看才有用；仍过一遍 maskSecrets——
 // 底层存储错误可能带上键名，与仓库里其它「把 error.message 显示给用户」的地方同一纪律
 //（CardForgeScreen / CharacterDetailScreen 同款写法）。

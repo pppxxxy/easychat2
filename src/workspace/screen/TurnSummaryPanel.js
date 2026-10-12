@@ -84,7 +84,16 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
   }, [characterId, gitOn, sending]);
 
   const traced = (changes && Array.isArray(changes.files)) ? changes.files : [];
-  const files = (gitFiles && gitFiles.length > 0) ? gitFiles : traced;
+  // F：两个数据源的口径**不是一回事**，标题必须跟着数据源走（见下方 title 处说明）。
+  const fromCommit = !!(gitFiles && gitFiles.length > 0);
+  const files = fromCommit ? gitFiles : traced;
+  // 标题按实际数据源选词条：commit 路径说的是「最近一次提交改了什么」——那**未必是本轮**
+  // （可能是上一轮、或用户在终端/外部改完手动提交的）。旧标题一律写「本次改了什么」，
+  // 于是 git 开着时界面在说谎。轨迹路径才是真正的「本轮」（turnChanges 只看最后一个带
+  // 工具轨迹的助手消息），所以两个词条并存、各说各的。
+  const title = fromCommit
+    ? t('workspace.chat.summary.titleCommit', { count: files.length })
+    : t('workspace.chat.summary.title', { count: files.length });
 
   const undo = useCallback(async () => {
     if (busy) return;
@@ -128,12 +137,12 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
         onPress={() => setCollapsed(value => !value)}
         activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel={t('workspace.chat.summary.title', { count: files.length })}
+        accessibilityLabel={title}
         accessibilityState={{ expanded: !collapsed }}
       >
         <Ionicons name="git-commit-outline" size={14} color={theme.colors.primary} />
         <Text style={styles.title} numberOfLines={1}>
-          {t('workspace.chat.summary.title', { count: files.length })}
+          {title}
         </Text>
         {/* chevron 纯装饰：展开状态由 header 的 accessibilityState.expanded 表达。 */}
         <Ionicons

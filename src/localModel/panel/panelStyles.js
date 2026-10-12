@@ -68,9 +68,7 @@ export function createPanelStyles(theme, fonts, tokens) {
     item: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, padding: 10, marginBottom: 8 },
     itemActive: { borderColor: theme.colors.primary },
     itemHeader: { flexDirection: 'row', alignItems: 'center' },
-    itemInfo: { flex: 1, marginRight: 8 },
     itemName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6 },
     chip: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginRight: 10, marginBottom: 4 },
     tierChip: { fontSize: fonts.scaled(11), fontWeight: '800', marginBottom: 4 },
     itemActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
@@ -78,7 +76,6 @@ export function createPanelStyles(theme, fonts, tokens) {
     // 「设为当前」是主操作 = 实底反衬（成品小样）；「下载」保持描边，层级拉开。
     selectButtonPrimary: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     selectButtonPrimaryText: { color: theme.colors.primaryContrast },
-    loadButtonBusy: { opacity: 0.75 },
     loadProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
     loadProgressBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.surfaceBorder, overflow: 'hidden' },
     loadProgressFill: { height: '100%', borderRadius: 2, backgroundColor: theme.colors.primary },
@@ -88,9 +85,7 @@ export function createPanelStyles(theme, fonts, tokens) {
     iconButton: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
     // 删除按钮是 itemActions 行的最后一个元素：marginRight 归零，danger 色（变体）。
     deleteIconButton: { marginRight: 0 },
-    deleteIconButtonText: { color: theme.colors.danger || theme.colors.textFaint },
     iconButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
-    itemBytes: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), fontWeight: '700', marginLeft: 8 },
     empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 8 },
     sourceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
     sourceChip: { borderRadius: tokens.radius.pill, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), backgroundColor: theme.colors.primaryAlpha(0.12), paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, marginBottom: 8 },
@@ -147,7 +142,6 @@ export function createPanelStyles(theme, fonts, tokens) {
     },
     resetAll: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 12, marginBottom: 2 },
     resetAllText: { color: theme.colors.primary, fontSize: fonts.scaled(12), fontWeight: '600', marginLeft: 5 },
-    engineCard: { borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), borderRadius: tokens.radius.md, padding: 12, marginBottom: 8, backgroundColor: theme.colors.primaryAlpha(0.08) },
     // 运行状态卡（v5 Stage C，预览对齐）
     // 运行状态卡（v5 设计稿）：就绪 = 绿（success 语义色）、加载中 = 品牌色、失败 = 红。
     runCard: { borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, padding: 12, marginBottom: 8, backgroundColor: theme.colors.surface },
@@ -177,12 +171,10 @@ export function createPanelStyles(theme, fonts, tokens) {
     cardMissing: { opacity: 0.62 },
     // 下载任务卡（v5 Stage B/C）：模型库页顶部，队列任务可多张。
     downloadTaskWrap: { marginBottom: 8 },
-    downloadTaskTitle: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '800', marginBottom: 6 },
     downloadTaskCard: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.primaryMutedAlpha(0.45), borderRadius: tokens.radius.md, padding: 10, marginBottom: 8 },
     downloadTaskHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     downloadTaskName: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700', marginRight: 8 },
     downloadTaskCount: { color: theme.colors.primarySoft, fontSize: fonts.scaled(10), fontWeight: '700' },
-    downloadTaskMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 6 },
     downloadTaskFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
     downloadTaskFooterMeta: { flex: 1, color: theme.colors.textFaint, fontSize: fonts.scaled(10), marginRight: 8 },
     downloadProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },

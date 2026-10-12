@@ -125,10 +125,71 @@ test('commandPrefixMatches：词边界——绝不静默放行「前缀相同但
   assert.equal(commandPrefixMatches('npm install', '  npm install express  '), true, '两侧空白先归一');
   assert.equal(commandPrefixMatches('npm install', 'npm installx'), false, '纯 startsWith 会在这里放行一条没审过的命令');
   assert.equal(commandPrefixMatches('npm install', 'npm install-a'), false, '连字符是词的一部分（install-a ≠ install）');
-  assert.equal(commandPrefixMatches('npm install', 'npm install && rm -rf /'), true, 'shell 分隔符算边界');
-  assert.equal(commandPrefixMatches('npm install', 'npm install | tee log'), true);
   assert.equal(commandPrefixMatches('', 'anything'), false, '空前缀不匹配（空规则不是全放行）');
   assert.equal(commandPrefixMatches(null, 'x'), false);
+  // 词边界判据本身对 deny/ask 是准确的（宽 = 安全），但**不能**当 allow 的判据：
+  // `npm install && rm -rf /` 与 `npm install express` 在边界处一模一样（下一个字符都是空格），
+  // 差别在命令**还有第二个效果**。allow 规则放行它 = 静默放行一条没被审过的命令。
+  const allowNpm = { effect: 'allow', tool: 'run_shell', match: 'npm install', scope: 'always' };
+  assert.equal(
+    evaluatePermissionRules([allowNpm], { tool: 'run_shell', args: { command: 'npm install && rm -rf /' } }),
+    null,
+    'shell 分隔符不是 allow 的边界：这条命令有两个效果'
+  );
+  assert.equal(
+    evaluatePermissionRules([allowNpm], { tool: 'run_shell', args: { command: 'npm install | tee log' } }),
+    null,
+    '管道同样是第二个效果'
+  );
+});
+
+// allow 要回答的是「这条命令是否只有一个效果」，deny/ask 要回答的是「前缀是否在词边界结束」。
+// 两个判据共用同一份 SHELL_META 清单，但分派必须按 effect 走：
+// 把 allow 也按词边界放宽，命中就来自那个空格——而不是 `&&`。
+test('effect 分派：allow 只放行「只有一个效果」的命令；deny/ask 保持词边界（宽 = 安全）', () => {
+  const allowNpm = { effect: 'allow', tool: 'run_shell', match: 'npm install', scope: 'always' };
+  assert.equal(
+    evaluatePermissionRules([allowNpm], { tool: 'run_shell', args: { command: 'npm install express' } }),
+    'allow',
+    '多了参数仍是同一条命令（空白只是正常的参数分隔）'
+  );
+  assert.equal(
+    evaluatePermissionRules([allowNpm], { tool: 'run_shell', args: { command: 'npm install && rm -rf /' } }),
+    null,
+    '挂了第二条命令 → 不命中，照常弹框'
+  );
+  assert.equal(
+    evaluatePermissionRules([allowNpm], { tool: 'run_shell', args: { command: 'npm install > out.log' } }),
+    null,
+    '重定向也算第二个效果（它会写文件）'
+  );
+
+  // deny 侧绝不能跟着改窄：workspace/hooks.js 的 before_shell deny 复用同一个
+  // commandPrefixMatches，窄了 `rm -rf / && ...` 就漏网了（安全不回退）。
+  const denyRm = { effect: 'deny', tool: 'run_shell', match: 'rm -rf /', scope: 'always' };
+  assert.equal(
+    evaluatePermissionRules([denyRm], { tool: 'run_shell', args: { command: 'rm -rf /' } }),
+    'deny'
+  );
+  assert.equal(
+    evaluatePermissionRules([denyRm], { tool: 'run_shell', args: { command: 'rm -rf / && echo x' } }),
+    'deny',
+    'deny 仍是词边界判据：后面挂什么都照样拦'
+  );
+  assert.equal(
+    commandPrefixMatches('rm -rf /', 'rm -rf / && echo x'),
+    true,
+    'commandPrefixMatches 的语义未变（deny/ask 与 hooks.js 都依赖它）'
+  );
+
+  // code 是源码、不是 shell 语境：`print(1)` 里的括号不是「第二个效果」。
+  // 否则 run_python 的「永远允许」会变成永不生效的死键（下面落盘后重启的用例钉死了这点）。
+  const allowPrint = { effect: 'allow', tool: 'run_python', match: 'print(1)', scope: 'always' };
+  assert.equal(
+    evaluatePermissionRules([allowPrint], { tool: 'run_python', args: { code: 'print(1)' } }),
+    'allow',
+    'shell 元字符清单只在 shell 语境下才有「多效果」的含义'
+  );
 });
 
 test('permissionMatchValue：command/code 优先、其次 path、都没有才是 any', () => {

@@ -11,9 +11,11 @@ import {
   buildConversationRows,
   previewToolResult,
   summarizeToolArgs,
+  toolNoticeText,
   toolRowsFromTrace,
 } from '../src/workspace/conversation.js';
 import { COMPACTION_MARKER } from '../src/chat/compaction.js';
+import { translate } from '../src/i18n/index.js';
 
 const toolCall = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 
@@ -70,6 +72,79 @@ test('toolRowsFromTrace：状态优先信权威 isError（正文正则只是老�
     { role: 'tool', tool_call_id: 'c2', content: '日志里出现了“错误”二字，但这次读取成功', isError: false },
   ], { messageId: 'm3' });
   assert.deepEqual(rows.map(row => row.tool.status), ['error', 'ok']);
+});
+
+// ---- 界面侧提示（noticeKey/noticeParams）：第 3 跳 + 第 4 跳 ----
+//
+// 工具结果正文（content）是给模型读的中文，按铁律不得翻译；界面要按当前语言渲染就得靠
+// 结果上额外带的 noticeKey/noticeParams（toolDefs/toolNotices.js）。这条链是
+//   工具定义 → registry → loop 的 tool 消息 → toolTrace → 本层（row.tool）→ ToolCallRow
+// 每一跳都可能只挑字段，所以逐跳钉住：这一层只**搬运**（不翻译），取词由 toolNoticeText 做。
+test('toolRowsFromTrace：界面侧提示字段搬进 row.tool；老轨迹（无该字段）保持没有', () => {
+  const rows = toolRowsFromTrace([
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        toolCall('c1', 'git_status', {}),
+        toolCall('c2', 'run_workflow', {}),
+        toolCall('c3', 'read_workspace_file', { path: 'a.js' }),
+      ],
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'c1',
+      content: '本地版本控制还没就绪：这个工作区还没有 git 仓库。',
+      isError: true,
+      noticeKey: 'workspace.chat.tool.notice.gitNoRepo',
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'c2',
+      content: '工作流无法执行：步骤 write-step 要求 write 模式……',
+      isError: true,
+      noticeKey: 'workspace.chat.tool.notice.workflowWriteBlocked',
+      noticeParams: { steps: 'write-step' },
+    },
+    { role: 'tool', tool_call_id: 'c3', content: '文件内容第一行' },
+  ], { messageId: 'm9' });
+  assert.equal(rows[0].tool.noticeKey, 'workspace.chat.tool.notice.gitNoRepo');
+  assert.equal('noticeParams' in rows[0].tool, false, '没有参数就不塞空对象/undefined 键');
+  assert.deepEqual(rows[1].tool.noticeParams, { steps: 'write-step' }, '插值参数原样搬到行上');
+  assert.equal('noticeKey' in rows[2].tool, false, '老轨迹保持无该字段——展示层据此回落中文正文');
+  // 正文一个字都没被界面接线改动（模型侧文本不受影响），回落时显示的就是它
+  assert.equal(rows[0].tool.resultText, '本地版本控制还没就绪：这个工作区还没有 git 仓库。');
+});
+
+// 取词（第 4 跳）：有 noticeKey 走词条（中英各一次），没有则返回空串交给渲染层回落中文正文。
+// 这里用真实的 translate() 而不是打桩——「英文界面不再显示中文」正是这一跳要证的事。
+const tFor = locale => (key, params) => translate(locale, key, params);
+
+test('toolNoticeText：有 noticeKey 时按当前语言取词条（中英各一次），并透传 noticeParams', () => {
+  const key = 'workspace.chat.tool.notice.gitNoRepo';
+  const zh = toolNoticeText({ noticeKey: key }, tFor('zh-CN'));
+  const en = toolNoticeText({ noticeKey: key }, tFor('en'));
+  assert.ok(zh.includes('本地版本控制'), `中文界面走中文词条，实际：${zh}`);
+  assert.ok(en.includes('Local version control'), `英文界面走英文词条，实际：${en}`);
+  assert.notEqual(zh, en, '两种语言取到的不是同一句话');
+
+  // 带参数的那条：占位符必须被 noticeParams 填掉（t(key, params) 的既有签名）
+  const workflow = toolNoticeText(
+    { noticeKey: 'workspace.chat.tool.notice.workflowWriteBlocked', noticeParams: { steps: 'write-step' } },
+    tFor('en'),
+  );
+  assert.ok(workflow.includes('write-step'), `noticeParams 要插进词条，实际：${workflow}`);
+  assert.equal(/\{steps\}/.test(workflow), false, '占位符不得留在界面上');
+});
+
+test('toolNoticeText：没有 noticeKey（老轨迹）或词条取不到时返回空串，由展示层回落中文正文', () => {
+  // 老轨迹：row.tool 上根本没有这两个字段，只有中文正文
+  assert.equal(toolNoticeText({ resultText: '中文正文' }, tFor('en')), '', '没有 key → 空串（调用方回落正文）');
+  assert.equal(toolNoticeText({ noticeKey: '' }, tFor('en')), '');
+  assert.equal(toolNoticeText(null, tFor('en')), '');
+  assert.equal(toolNoticeText({ noticeKey: 'k' }, null), '', '没有 t 也不能抛');
+  // 词条漏登记：translate 找不到时返回 key 本身——宁可回落中文正文，也不把 key 显示给用户
+  assert.equal(toolNoticeText({ noticeKey: 'not.a.registered.key' }, tFor('en')), '');
 });
 
 test('buildConversationRows：工具行排在终稿之前（发生顺序），用户/助手行按原序', () => {

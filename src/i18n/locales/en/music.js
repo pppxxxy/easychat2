@@ -33,6 +33,8 @@ export const music = {
   'music.a11y.markHere': 'Add a marker at the current position',
   'music.a11y.deleteTrigger': 'Delete the marker at {time}',
   'music.player.mark': 'Mark here',
+  // 见 zh-CN 同名条目的说明：锁屏/通知栏媒体标题兜底。
+  'music.player.nowPlayingFallback': 'Now playing',
   'music.triggers.hint': 'Timeline markers (tap to seek; character comments appear here)',
   'music.save.failed.title': 'Save failed',
   'music.save.failed.body': 'The marker could not be saved. Please retry.',
@@ -78,4 +80,6 @@ export const music = {
   'music.playlists.filterHint': 'Viewing “{name}”: {count} songs',
   'music.playlists.filterEmpty.title': 'This playlist is empty',
   'music.playlists.filterEmpty.body': 'Tap the “⋯” on a song in the library to add it to this playlist.',
+  // 见 zh-CN 同名条目的说明：导入歌曲的默认名，会落库并显示在曲库/锁屏标题里。
+  'music.unnamed': 'Untitled song',
 };

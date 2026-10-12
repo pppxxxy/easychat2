@@ -79,11 +79,54 @@ test('filterPendingMessages：递归过滤 pending 消息', () => {
 
 test('媒体路径校验：只允许应用媒体目录且拒绝穿越', () => {
   assert.equal(isAllowedMediaPath('avatars/a.jpg'), true);
+  assert.equal(isAllowedMediaPath('stickers/s.png'), true);
+  assert.equal(isAllowedMediaPath('chat-images/i.jpg'), true);
   assert.equal(isAllowedMediaPath('voice/a.m4a'), true);
   assert.equal(isAllowedMediaPath('characters/a.json'), true);
   assert.equal(isAllowedMediaPath('card-forge/draft.json'), true);
+  assert.equal(isAllowedMediaPath('music/song.mp3'), true);
+  assert.equal(isAllowedMediaPath('books/b.txt'), true);
+  assert.equal(isAllowedMediaPath('chat-videos/v.mp4'), true);
   assert.equal(isAllowedMediaPath('unknown/a.json'), false);
   assert.equal(isAllowedMediaPath('voice/../secret.txt'), false);
+});
+
+// P0 回归（2026-10）：白名单曾经**有两份**且已漂移——dataBackup.js 这份只有 6 项、缺
+// music/books，于是音乐库与书籍在打包时被静默过滤（不进备份），恢复侧还会拒收含这些路径的包。
+// 这里把「必须放行的目录」逐条钉住：删掉任何一项都会立刻变红。
+test('媒体目录白名单：必须包含全部用户内容目录（9 项，删项即红）', () => {
+  const required = [
+    'avatars', 'stickers', 'chat-images', 'voice', 'characters',
+    'card-forge', 'music', 'books', 'chat-videos',
+  ];
+  for (const dir of required) {
+    assert.ok(BACKUP_MEDIA_DIRECTORIES.includes(dir), `${dir}/ 必须能被备份（缺了就是用户数据静默丢失）`);
+  }
+  assert.equal(new Set(BACKUP_MEDIA_DIRECTORIES).size, BACKUP_MEDIA_DIRECTORIES.length, '清单不得有重复项');
+  assert.equal(Object.isFrozen(BACKUP_MEDIA_DIRECTORIES), true, '清单必须是冻结的常量，避免被运行时改写');
+  // 刻意排除项（理由见 dataBackup.js 清单注释）：它们**不得**被顺手加回来
+  for (const dir of ['screen-watch', 'local-models', '.transcripts', 'workspace']) {
+    assert.equal(BACKUP_MEDIA_DIRECTORIES.includes(dir), false, `${dir}/ 属刻意排除项（见清单注释），不得登记`);
+  }
+});
+
+// P0 回归：含 music/books/chat-videos 路径的备份包必须**既能打包进去、又能通过导入校验**。
+// 这正是「恢复侧拒收」的直接回归测试：旧白名单下 validateBackupPayload 会判 invalid。
+test('回归：music/books/chat-videos 路径能打包进备份，也能通过导入校验', () => {
+  const media = [
+    { path: 'music/song.mp3', base64: 'AA==' },
+    { path: 'books/novel/0001.txt', base64: 'BB==' },
+    { path: 'chat-videos/v.mp4', base64: 'CC==' },
+  ];
+  const payload = buildBackupPayload({ appVersion: 'test', storage: [], media });
+  assert.deepEqual(payload.media.map(item => item.path), media.map(item => item.path),
+    'buildBackupPayload 不得丢掉这些目录的文件');
+  const validation = validateBackupPayload(payload);
+  assert.equal(validation.valid, true, `含 music/books/chat-videos 的备份包必须能通过校验：${validation.error}`);
+  // 导入计划同样要放行（恢复侧第二道口径）
+  const plan = planBackupImport(payload, 'merge');
+  assert.equal(plan.valid, true);
+  assert.equal(plan.media.length, 3);
 });
 
 test('buildBackupPayload：带版本、标记密钥排除并过滤 pending', () => {

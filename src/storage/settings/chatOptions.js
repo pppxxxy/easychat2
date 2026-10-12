@@ -7,7 +7,8 @@ import { normalizeImagePosition } from '../../imageGen/inlineImagePrompt.js';
 import { normalizeStickerChance, normalizeStickerPosition } from '../../chat/stickerPolicy.js';
 import { normalizeHiddenToolNotices } from '../../chat/toolNoticeVisibility.js';
 import { BUBBLE_STYLES, THEMES, normalizeCustomColors } from '../../theme/themes.js';
-import { readJson, createMutationQueue } from '../io.js';
+import { tActive } from '../../i18n/index.js';
+import { backupCorruptValue, createMutationQueue, readJson, readJsonStatus } from '../io.js';
 import { normalizeImageProviderId } from './imageProvider.js';
 
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
@@ -18,6 +19,22 @@ const UI_SECTIONS_KEY = '@easychat2_ui_sections';
 
 // 外观键（主题/字号/语言）由多个 Context 共享写入：入队串行化，避免并发读改写丢字段。
 const appearanceMutation = createMutationQueue();
+
+// 写路径守卫（变体①：拒绝写回 / 抛错）。
+// 参考 src/storage/worldMap.js:34-40（updateWorldMap）：「读失败就抛错中止：绝不用空列表
+// 覆盖已有地图」；同型见 src/storage/cardForge.js:182-186（saveCardForgeInternal）。
+//
+// 为什么本模块需要它：这 5 个键的 get 全是「读不出来就回落默认值」，而 save 是**整键覆盖**。
+// 于是任何一次读失败都会把用户填过的设置静默重置成默认——本模块的读路径行为保持不变
+// （损坏时仍返回默认值给 UI），只有写路径改判「读不出原值就不写」。
+async function assertReadableForMutation(key) {
+  const stored = await readJsonStatus(key);
+  if (stored.status === 'corrupt') {
+    // 覆盖不可逆，先留原始字节的副本再拒绝。
+    await backupCorruptValue(key);
+    throw new Error(tActive('error.storage.chatOptionsReadFailed'));
+  }
+}
 
 function normalizeChatOptions(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -63,6 +80,7 @@ export async function getChatOptions() {
 }
 
 export async function saveChatOptions(options) {
+  await assertReadableForMutation(CHAT_OPTIONS_KEY);
   const normalized = normalizeChatOptions(options);
   await AsyncStorage.setItem(CHAT_OPTIONS_KEY, JSON.stringify(normalized));
   return normalized;
@@ -91,6 +109,7 @@ export async function getMusicClipSettings() {
 }
 
 export async function saveMusicClipSettings(settings) {
+  await assertReadableForMutation(MUSIC_CLIP_KEY);
   const normalized = normalizeMusicClip(settings);
   await AsyncStorage.setItem(MUSIC_CLIP_KEY, JSON.stringify(normalized));
   return normalized;
@@ -126,6 +145,7 @@ export async function getAppearanceSettings() {
 }
 
 export async function saveAppearanceSettings(settings) {
+  await assertReadableForMutation(APPEARANCE_KEY);
   const normalized = normalizeAppearance(settings);
   await AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(normalized));
   return normalized;
@@ -137,10 +157,19 @@ export async function saveAppearanceSettings(settings) {
 // Context 维护（ThemeContext / I18nContext）。若各自直接调用
 // saveAppearanceSettings 且只带上自己的字段，归一化会把其余字段归回默认值——
 // 表现为「改主题把语言重置了」。所有写入方都应走这个函数。
+//
+// 但「读现值」这一步必须**区分读失败与读到空**（变体①）：此前的实现走
+// getAppearanceSettings()，读失败时它给的是默认值，于是「当前值」被当成
+// `{themeId:'dark', fontScaleId:'default', localeId:'zh-CN'}`，合并后整键写回——
+// 切一次主题就把用户的语言与字号一起重置（切语言同理，ThemeContext.js:69 /
+// I18nContext.js:62 两个入口都走这里）。所以这里自己拿 status：
+// 读失败 → 备份 + 抛错中止，绝不拿默认值当「当前值」。
 export async function patchAppearanceSettings(patch) {
   // 串行化读-改-写：主题/字号/语言由相互独立的 Context 分别修改，并发时各自读同一份
   // 现值再整表覆盖，后写者会丢掉先写者的字段（此前只解决「字段缺失」没解决并发）。
+  // 队列内同样 fail-closed：读不出原值就不写（见 assertReadableForMutation）。
   return appearanceMutation.enqueue(async () => {
+    await assertReadableForMutation(APPEARANCE_KEY);
     const current = await getAppearanceSettings();
     const merged = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
     const normalized = normalizeAppearance(merged);
@@ -179,6 +208,7 @@ export async function getUiSections() {
 }
 
 export async function saveUiSections(sections) {
+  await assertReadableForMutation(UI_SECTIONS_KEY);
   const normalized = normalizeUiSections(sections);
   await AsyncStorage.setItem(UI_SECTIONS_KEY, JSON.stringify(normalized));
   return normalized;
@@ -221,6 +251,7 @@ export async function getInlineImageSettings() {
 }
 
 export async function saveInlineImageSettings(settings) {
+  await assertReadableForMutation(INLINE_IMAGE_KEY);
   const normalized = normalizeInlineImage(settings);
   await AsyncStorage.setItem(INLINE_IMAGE_KEY, JSON.stringify(normalized));
   return normalized;

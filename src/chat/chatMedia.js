@@ -1,8 +1,10 @@
+// 消息 kind 常量：**导出**（imageDownloadRunner 等模块按 kind 建消息，需要同一个字面量；
+// 合并时对方把这行改成了非导出，导致具名导入健全性测试抓到 undefined）。
 export const IMAGE_MESSAGE_KIND = 'image';
 export const STICKER_MESSAGE_KIND = 'sticker';
 export const VIDEO_MESSAGE_KIND = 'video';
 
-export function isMediaMessage(message) {
+function isMediaMessage(message) {
   return !!(message && message.image && (
     !message.kind
     || message.kind === IMAGE_MESSAGE_KIND

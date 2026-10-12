@@ -76,6 +76,11 @@ export const forge = {
   'forge.regex.groupHint': 'Replace display text or outgoing prompts; tap an entry title to expand and edit',
   'forge.regex.empty': 'No regex scripts yet.',
   'forge.regex.summary': 'Find: {find} → Replace: {replace}',
+  // Unsafe-pattern warning (issue A): advanced.js and the chat engine share the same
+  // isUnsafeRegexPattern check, and the engine skips catastrophic patterns entirely —
+  // so the user must be told why the script never takes effect.
+  'forge.regex.unsafeBadge': 'Unsafe regex',
+  'forge.regex.unsafeHint': 'This expression has nested unbounded quantifiers (risk of catastrophic backtracking); to avoid freezing the UI the chat engine skips it, so it never takes effect. Rewrite it (e.g. avoid nested quantifiers like (a+)+) before enabling.',
   'forge.regex.emptyValue': '(empty)',
   'forge.regex.unset': 'No find pattern set',
   'forge.regex.expandA11y': 'Expand regex script {n}',
@@ -192,4 +197,8 @@ export const forge = {
   'forge.preview.typing': 'The character is typing…',
   'forge.preview.inputPlaceholder': 'Send a message as the user to test this card',
   'forge.preview.send': 'Send',
+  // Material counts for the "card from chat" panel (issues E / F). They live in the
+  // forge domain because the counting rules come from cardForge/forge/conversation.js.
+  'forge.conversation.breakdown': '{kept} kept / {clipped} trimmed / {dropped} dropped',
+  'forge.conversation.filtered': '{count} of them are not chat messages (system notes / comments / empty) and will not be used.',
 };

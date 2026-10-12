@@ -12,7 +12,17 @@ import { safeJsonParse } from '../utils/safeJson.js';
 //   systemCache —— 内部缓存计划字段（见 prompt/systemSections.js）
 //   isError     —— agent 工具结果的权威错误标记（loop.js 带上、toolTrace 保留供展示层判状态），
 //                  绝不能泄漏给端点（部分 OpenAI 兼容实现会对未知字段直接 400）。
-const OPENAI_INTERNAL_FIELDS = ['systemCache', 'isError'];
+//   noticeKey / noticeParams —— 工具结果的**界面侧**词条引用（toolDefs/toolNotices.js；
+//                  loop.js 随 tool 消息带下去、toolTrace 搬运到展示层）。同属内部字段。
+//
+// ⚠️ 这份名单的语义是**默认放行（fail-open）**，**不是白名单**：这里只删列出来的字段，
+// 其余一律原样出网。⇒ **给 tool 消息（或任何消息）新增非协议字段时，必须同步登记到这里**，
+// 否则该字段会静默发往端点。本次 noticeKey/noticeParams 就是这样撞上来的。
+// 真正的根治方向是把 toOpenAiMessages 改成**白名单**（只挑协议需要的字段，
+// 照 toAnthropicRequest / toResponsesRequest 逐条显式构造的写法）——同族两处写法
+// 一处 fail-closed、一处 fail-open，是「新增字段静默出网」这一整类风险的根因；
+// 但那会动到本函数的整体结构，属独立改动，本次不做。
+const OPENAI_INTERNAL_FIELDS = ['systemCache', 'isError', 'noticeKey', 'noticeParams'];
 export function toOpenAiMessages(messages) {
   return (Array.isArray(messages) ? messages : []).map(message => {
     if (!message || typeof message !== 'object') return message;

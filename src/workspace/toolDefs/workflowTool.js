@@ -9,6 +9,8 @@ import { WORKFLOW_MAX_STEPS } from '../../agent/workflow.js';
 import { loadPersistentBlackboard, savePersistentBlackboard } from '../boardStore.js';
 import { buildSubagentTools } from './subagentTools.js';
 import { runWorkflowSteps, formatWorkflowResult } from './workflowRunner.js';
+// 双受众提示文案（模型侧中文 + 界面侧词条 key）集中在 toolNotices.js，见那里的文件头。
+import { workflowWriteBlockedText, TOOL_NOTICE_KEYS, noticeFields } from './toolNotices.js';
 
 export const WORKFLOW_TOOL_DEFINITION = {
   name: 'run_workflow',
@@ -63,9 +65,13 @@ export const WORKFLOW_TOOL_DEFINITION = {
       .map(item => item.id);
     if (writeStepIds.length > 0 && workspaceMode !== 'write') {
       return {
-        content: `工作流无法执行：步骤 ${writeStepIds.join('、')} 要求 write 模式，`
-          + '但当前是只读模式，写操作需要用户切到「可改」模式（未执行）。',
+        // 模型侧：中文正文，**不翻译**（模型靠它判断下一步；tests/readModeEscalation
+        // 把「只读模式」钉在这里）。「写操作需要用户切到…」那半句与 run_subagent
+        // 逐字共用同一个常量，见 toolNotices.js。
+        content: workflowWriteBlockedText(writeStepIds),
         isError: true,
+        // 界面侧：展示层按此 key 用 t() 渲染当前语言（步骤名走 params）。
+        ...noticeFields(TOOL_NOTICE_KEYS.workflowWriteBlocked, { steps: writeStepIds.join('、') }),
       };
     }
     const result = await runWorkflowSteps({

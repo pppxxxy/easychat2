@@ -62,10 +62,13 @@ test('resolveOnlineRequestContext：期望配置 > 活动配置 > 第一个；�
     const ctx = resolveOnlineRequestContext(bad, 'x', 'y', helpers);
     assert.deepEqual(ctx, { ...EMPTY_ONLINE_REQUEST_CONTEXT });
   }
-  // 不注入查询函数也能跑（退化为无模型名、无窗口），不抛
+  // 不注入查询函数也能跑（退化为无模型名、无窗口），不抛。
+  // 从 EMPTY_ONLINE_REQUEST_CONTEXT 派生而不是手抄整个形状：媒体能力位会随协议演进增减
+  // （如 allowVideo），手抄一份等于在测试里再养一份平行定义——加一个字段就红一片，
+  // 而失败信息指向的是"形状不符"，不是"行为错了"。这里只覆盖本用例真正关心的一处差异。
   assert.deepEqual(
     resolveOnlineRequestContext(configs, 'a', 'a'),
-    { media: { allowVision: false, allowAudio: false }, modelName: '', configLabel: 'A', contextWindow: 0 }
+    { ...EMPTY_ONLINE_REQUEST_CONTEXT, configLabel: 'A' }
   );
 });
 

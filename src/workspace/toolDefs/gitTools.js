@@ -16,6 +16,8 @@
 // 42ms，真机未测）。所以 status/diff 显式声明 30s 超时——默认 15s 对大仓库有风险。
 
 import { formatDiffText } from '../lineDiff.js';
+// 双受众提示文案（模型侧中文 + 界面侧词条 key）集中在 toolNotices.js，见那里的文件头。
+import { GIT_NO_REPO_TEXT, TOOL_NOTICE_KEYS, noticeFields } from './toolNotices.js';
 
 export const GIT_LOG_DEFAULT_LIMIT = 20;
 export const GIT_LOG_MAX_LIMIT = 100;
@@ -50,7 +52,21 @@ export function formatGitLog(entries) {
 }
 
 // 仓库未就位时的如实回话（不假装、不顺手 init）。
-const NO_REPO_TEXT = '本地版本控制还没就绪：这个工作区还没有 git 仓库。请在「工作区 → 设置」里打开「本地版本控制」开关（会初始化仓库），然后再试。';
+//
+// 正文（模型侧）是中文，**不翻译**——模型靠它判断下一步；界面侧另有词条
+// `TOOL_NOTICE_KEYS.gitNoRepo`（中英），由展示层按 noticeKey 用 t() 渲染。
+// 文案本体在 toolNotices.js（与另外两条双受众提示同处一份），此处只做转发，
+// 避免同一句话在仓库里出现两个版本。
+const NO_REPO_TEXT = GIT_NO_REPO_TEXT;
+
+// 仓库未就位的统一返回：content 给模型读（中文），noticeKey 给界面读（当前语言）。
+function noRepoResult() {
+  return {
+    content: NO_REPO_TEXT,
+    isError: true,
+    ...noticeFields(TOOL_NOTICE_KEYS.gitNoRepo),
+  };
+}
 
 function openRepo(options, ctx) {
   const runner = options && options.git;
@@ -76,7 +92,7 @@ export const GIT_STATUS_TOOL_DEFINITION = {
     const opened = openRepo(options, ctx);
     if (opened.error) return { content: opened.error, isError: true };
     try {
-      if (!(await opened.git.isRepo())) return { content: NO_REPO_TEXT, isError: true };
+      if (!(await opened.git.isRepo())) return noRepoResult();
       return { content: formatGitStatus(await opened.git.changedFiles()) };
     } catch (error) {
       return { content: `读取 git 状态失败：${String((error && error.message) || '')}`, isError: true };
@@ -103,7 +119,7 @@ export const GIT_DIFF_TOOL_DEFINITION = {
     const opened = openRepo(options, ctx);
     if (opened.error) return { content: opened.error, isError: true };
     try {
-      if (!(await opened.git.isRepo())) return { content: NO_REPO_TEXT, isError: true };
+      if (!(await opened.git.isRepo())) return noRepoResult();
       const model = await opened.git.diffModel(path);
       return { content: `--- ${path}\n${formatDiffText(model)}` };
     } catch (error) {
@@ -132,7 +148,7 @@ export const GIT_LOG_TOOL_DEFINITION = {
     const opened = openRepo(options, ctx);
     if (opened.error) return { content: opened.error, isError: true };
     try {
-      if (!(await opened.git.isRepo())) return { content: NO_REPO_TEXT, isError: true };
+      if (!(await opened.git.isRepo())) return noRepoResult();
       return { content: formatGitLog(await opened.git.log({ depth: limit })) };
     } catch (error) {
       return { content: `读取 git 历史失败：${String((error && error.message) || '')}`, isError: true };
@@ -162,7 +178,7 @@ export const GIT_COMMIT_TOOL_DEFINITION = {
     const opened = openRepo(options, ctx);
     if (opened.error) return { content: opened.error, isError: true };
     try {
-      if (!(await opened.git.isRepo())) return { content: NO_REPO_TEXT, isError: true };
+      if (!(await opened.git.isRepo())) return noRepoResult();
       const changed = await opened.git.changedFiles();
       if (changed.length === 0) return { content: '没有未提交的改动，不需要提交。' };
       const oid = await opened.git.commitAll(message);
@@ -206,7 +222,7 @@ export const GIT_DISCARD_TOOL_DEFINITION = {
     const opened = openRepo(options, ctx);
     if (opened.error) return { content: opened.error, isError: true };
     try {
-      if (!(await opened.git.isRepo())) return { content: NO_REPO_TEXT, isError: true };
+      if (!(await opened.git.isRepo())) return noRepoResult();
       const changed = await opened.git.changedFiles();
       if (path && !changed.some(row => row.path === path)) {
         return { content: `没有未提交的改动：${path}（它和上一次提交一致）。` };

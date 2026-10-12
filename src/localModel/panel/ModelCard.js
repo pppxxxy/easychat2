@@ -29,6 +29,7 @@ export default function ModelCard({
   loading,
   progress,
   uninstalled = false,
+  deviceMemoryBytes = 0,
   onSelectActive,
   onLoadModel,
   onUnloadModel,
@@ -37,7 +38,10 @@ export default function ModelCard({
   onDownload,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const summary = buildModelSummary(entry, { totalMemoryBytes: 0, contextSize: 2048 });
+  // 兼容分级要用设备总内存：曾硬编码 0 ⇒ classifyModelMemory 恒返回「内存未知」，
+  // 推荐/难跑/跑不了三档从未生效。改由 ModelsSection 透传真实值（缺省 0 时保持
+  // 「内存未知」，不虚报）。
+  const summary = buildModelSummary(entry, { totalMemoryBytes: deviceMemoryBytes, contextSize: 2048 });
   const name = entry.name || entry.id;
 
   const badgeKey = active
