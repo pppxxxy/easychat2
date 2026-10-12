@@ -168,7 +168,9 @@ export const workspace = {
   'workspace.github.pull.busy': '下载中…',
   'workspace.github.pull.progress': '写入 {done}/{total}…',
   'workspace.github.pull.cancel': '取消',
-  'workspace.github.pull.cancelled': '已取消拉取，本次写入的文件已回滚。',
+  // beginBatch 非事务：取消只中止写入并保留残留清单（R1 下次拉取据此识别残缺），
+  // 已写下的文件不会回滚——旧文案说「已回滚」是假的。
+  'workspace.github.pull.cancelled': '已取消拉取。本次已写入的文件保留在本地（不完整状态）——下次拉取会提示并修复缺失文件。',
   'workspace.github.pull.done': '已写入 {count} 个文件到本地副本。（跳过：二进制/超大 {binary}+{oversize}，可疑路径 {slip}，目录条目 {dirs}）',
   'workspace.github.pull.noFiles': '快照里没有可写入的文本文件（可能全是二进制）。',
   'workspace.github.pull.branchPlaceholder': '分支',
@@ -247,8 +249,23 @@ export const workspace = {
   'workspace.github.branch.defaultTag': '默认',
   'workspace.github.branch.overLimit': '分支超过 200 个，仅列出前 200 个——其余请手动输入。',
   'workspace.github.pull.overwriteTitle': '本地有未推送的改动',
-  'workspace.github.pull.overwriteBody': '本地副本相对上次拉取有 {count} 处未推送的增删；重新拉取会覆盖同名文件。确定继续吗？',
   'workspace.github.pull.overwriteConfirm': '覆盖并继续',
+  // R1：守卫文案拆分——旧版只报一个合并数（added+removed），残缺态下把缺口算成
+  // 「未推送的改动」吓唬用户。拆分后如实报告两个数字，缺失多于新增时附残缺嫌疑。
+  'workspace.github.pull.overwriteBodySplit': '本地副本相对上次拉取：新增 {added} 个文件、缺失 {removed} 个文件；重新拉取会覆盖同名文件。确定继续吗？',
+  'workspace.github.pull.overwriteBodySuspect': '本地副本相对上次拉取：新增 {added} 个文件、缺失 {removed} 个文件。缺失较多，可能上次拉取未完整——重新拉取会修复缺失文件。确定继续吗？',
+  // R1-1a：dirtyPull 态（manifest 残留 = 上次拉取中断）跳过覆盖守卫，改弹说明性确认。
+  'workspace.github.pull.dirtyTitle': '上次拉取未完成',
+  'workspace.github.pull.dirtyBody': '本地处于不完整状态（相对基线缺 {missing} 个文件；上次拉取目标 {target} 个文件）。这不算是你的未推送改动——本次重新拉取将修复缺失文件。',
+  'workspace.github.pull.dirtyConfirm': '重新拉取',
+  // R1-3：dirtyPull 态下推送面板「待同步」不可信，阻断把缺口当删除推送的路径。
+  'workspace.github.push.dirtyNote': '上次拉取未完成，待同步统计不准确（缺口会被误算成待删除）。请先点「拉取快照」重新拉取，再推送。',
+  'workspace.github.push.gapsNote': '提示：本地缺失 {removed} 个文件且多于新增——可能上次拉取未完整；推送不会删它们以外的东西，但先重新拉取一次更稳妥。',
+  // R0-4：失败文案细分——网络类如实说明「已自动重试 N 次」，限流折算 Retry-After，
+  // 仓库超限建议缩小范围（旧版一律「GitHub 操作失败，请检查网络后重试」）。
+  'workspace.github.pull.retryHint': '网络中断或超时：已自动重试 {retries} 次仍未成功。请检查网络后重试（弱网下大包容易断流，重试是整包重下）。',
+  'workspace.github.err.rateLimitWait': '（约 {seconds} 秒后可重试）',
+  'workspace.github.err.repoLimit': '仓库超出导入限制（压缩包/条目/解压总量/单文件）。建议缩小范围：换更小的目录仓库，或用「快速检出」按需下载。',
   'workspace.github.checkout.action': '快速检出（1 次请求先出全树；带云朵的文件点开时按需下载）',
   'workspace.github.checkout.busy': '检出中…',
   'workspace.github.checkout.truncatedHint': '清单可能不完整（仓库过大被 GitHub 截断）——建议用「拉取快照」完整拉取。',

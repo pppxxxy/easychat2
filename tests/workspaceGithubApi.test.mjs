@@ -35,8 +35,42 @@ import {
   RETRY_AFTER_CAP_MS,
   retryDelayFor,
   truncateDiffText,
+  zipTimeoutFor,
+  ZIP_RETRIES,
+  ZIP_TIMEOUT_CAP_MS,
+  ZIP_TIMEOUT_MS,
 } from '../src/workspace/github/restApi.js';
 import { strToU8, zipSync } from 'fflate';
+import { describeGithubError, GITHUB_ERROR_KEYS } from '../src/workspace/github/errorCopy.js';
+
+// 假 t：查表回显「键(参数…)」，够验文案路由与参数。
+const table = {
+  'workspace.github.pull.retryHint': p => `retry:${p.retries}`,
+  'workspace.github.err.rateLimit': () => 'rate',
+  'workspace.github.err.rateLimitWait': p => `(${p.seconds}s)`,
+  'workspace.github.err.repoLimit': () => 'repo-limit',
+  'workspace.github.err.generic': () => 'generic',
+};
+const fakeT = (key, params) => (table[key] ? table[key](params || {}) : `KEY:${key}`);
+
+test('R0-4 describeGithubError：四类各归各话', () => {
+  // NETWORK：说明自动重试预算（用户不再人肉补重试次数）
+  assert.equal(describeGithubError({ code: 'NETWORK' }, fakeT), `retry:${ZIP_RETRIES}`);
+  // RATE_LIMIT：有 Retry-After 就折算秒数（向上取整），没有就不附
+  assert.equal(describeGithubError({ code: 'RATE_LIMIT', retryAfterMs: 4500 }, fakeT), 'rate(5s)');
+  assert.equal(describeGithubError({ code: 'RATE_LIMIT', retryAfterMs: 4200 }, fakeT), 'rate(5s)');
+  assert.equal(describeGithubError({ code: 'RATE_LIMIT' }, fakeT), 'rate');
+  assert.equal(describeGithubError({ code: 'RATE_LIMIT', retryAfterMs: 0 }, fakeT), 'rate', '0 不附');
+  assert.equal(describeGithubError({ code: 'RATE_LIMIT', retryAfterMs: Number.NaN }, fakeT), 'rate', '坏数不附');
+  // REPO_LIMIT_* 与 REPO_EMPTY：仓库超限 → 缩小范围建议
+  for (const code of ['REPO_LIMIT_DOWNLOAD', 'REPO_LIMIT_ENTRIES', 'REPO_LIMIT_TOTAL', 'REPO_EMPTY']) {
+    assert.equal(describeGithubError({ code }, fakeT), 'repo-limit', code);
+  }
+  // 其余按映射键；未知 code 落 generic
+  assert.equal(describeGithubError({ code: 'AUTH' }, fakeT), 'KEY:' + GITHUB_ERROR_KEYS.AUTH);
+  assert.equal(describeGithubError({ code: 'WHATEVER' }, fakeT), 'generic');
+  assert.equal(describeGithubError(null, fakeT), 'generic');
+});
 
 function makeResponse(status, data, headers = {}) {
   const map = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v)]));
@@ -195,20 +229,40 @@ test('C4 超时：挂起的 fetch 被 AbortController 中止（不挂死、归�
   assert.ok(Date.now() - startedAt < 2000, '超时被中止而不是挂死');
 });
 
-test('C4 downloadZip：断流整包重试 1 次；HTTP 错误按 mapGithubError 抛', async () => {
+test('C4+R0 downloadZip：断流整包重试至多 3 次（退避 1s/2s/4s）；HTTP 错误按 mapGithubError 抛', async () => {
   let attempts = 0;
   const flaky = async () => {
     attempts += 1;
     if (attempts === 1) throw new Error('socket reset');
-    return makeResponse(200, null, { 'content-length': '10' });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    };
   };
-  const response = await downloadZip({
+  const sleeps = [];
+  const result = await downloadZip({
     fetchImpl: flaky,
     url: 'https://codeload.example/z',
-    sleepImpl: async () => {},
+    sleepImpl: async ms => { sleeps.push(ms); },
   });
-  assert.equal(attempts, 2, '断流后整包重下 1 次');
-  assert.equal(response.status, 200);
+  assert.equal(attempts, 2, '断流后整包重下（R0 预算内）');
+  assert.deepEqual(sleeps, [1000], '首次断流按退避表 1s');
+  assert.deepEqual(result.bytes, new Uint8Array([1, 2, 3]), 'R0：body 归传输层读完，返回 { declared, bytes }');
+  assert.equal(result.declared, 0, '无 content-length（codeload 现状 chunked）时 declared=0');
+
+  // 断流共 5 次（1 首下 + 3 重试都失败）：第 5 次抛出，不再重下。
+  let hardCalls = 0;
+  await assert.rejects(
+    downloadZip({
+      fetchImpl: async () => { hardCalls += 1; throw new Error('reset again'); },
+      url: 'https://codeload.example/z',
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'NETWORK'
+  );
+  assert.equal(hardCalls, 1 + ZIP_RETRIES, '默认 retries=3：共 4 次连接机会');
 
   // 404 不可重试：一次即抛 NOT_FOUND
   let notFoundCalls = 0;
@@ -222,17 +276,56 @@ test('C4 downloadZip：断流整包重试 1 次；HTTP 错误按 mapGithubError 
   );
   assert.equal(notFoundCalls, 1);
 
-  // 断流两次（超过 retries=1）：第二次仍抛出
-  let flaky2 = 0;
+  // R0：body 读取阶段停滞（arrayBuffer 永不 resolve）被掐表归一为 NETWORK，而不是挂死。
+  let stalledAttempts = 0;
   await assert.rejects(
     downloadZip({
-      fetchImpl: async () => { flaky2 += 1; throw new Error('reset again'); },
+      fetchImpl: async () => {
+        stalledAttempts += 1;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          arrayBuffer: () => new Promise(() => {}),
+        };
+      },
       url: 'https://codeload.example/z',
+      timeoutMs: 30,
+      retries: 0,
       sleepImpl: async () => {},
     }),
-    error => error.code === 'NETWORK'
+    error => error.code === 'NETWORK' && error.retryable === true
   );
-  assert.equal(flaky2, 2, '重试 1 次后仍失败即抛');
+  assert.equal(stalledAttempts, 1);
+
+  // 预检：有 content-length 且超 maxBytes 时直接 REPO_LIMIT_DOWNLOAD（不发 body 请求）。
+  await assert.rejects(
+    downloadZip({
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: key => (key === 'content-length' ? '99999' : null) },
+        arrayBuffer: async () => new Uint8Array(10).buffer,
+      }),
+      url: 'https://codeload.example/z',
+      maxBytes: 1024,
+      sleepImpl: async () => {},
+    }),
+    error => error.code === 'REPO_LIMIT_DOWNLOAD'
+  );
+});
+
+test('R0-2 zipTimeoutFor：无 content-length 按兜底，有则按 64KB/s 估算并夹在 [240s, 600s]', () => {
+  assert.equal(zipTimeoutFor(0), ZIP_TIMEOUT_MS, 'chunked 无 length（codeload 现状）：240s 兜底');
+  assert.equal(zipTimeoutFor(-5), ZIP_TIMEOUT_MS);
+  assert.equal(zipTimeoutFor(Number.NaN), ZIP_TIMEOUT_MS);
+  assert.equal(zipTimeoutFor(1024), ZIP_TIMEOUT_MS, '小包不缩短——下限就是兜底值');
+  // 9.7MB 实测仓库：估算约 155s，仍取 240s 下限
+  assert.equal(zipTimeoutFor(9.7 * 1024 * 1024), ZIP_TIMEOUT_MS);
+  // 50MB（导入上限）：50*1024*1024/65536*1000 = 800000ms → 封顶 600s
+  assert.equal(zipTimeoutFor(50 * 1024 * 1024), ZIP_TIMEOUT_CAP_MS);
+  assert.equal(zipTimeoutFor(20 * 1024 * 1024), 320000, '20MB 按 64KB/s 估 320s');
+  assert.equal(zipTimeoutFor(1024, 5000), 5000, 'base 可注入（测试用小值）');
 });
 
 test('mapGithubError：401/403(限额 vs 权限)/404/409/422/429', () => {

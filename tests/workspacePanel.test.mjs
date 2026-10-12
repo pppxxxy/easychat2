@@ -237,7 +237,9 @@ test('F4 拉取提示与残留清单接线：保持前台提示 + 清单写/清�
   const pull = readSource('src/workspace/screen/github/useRepoPull.js');
   assert.ok(github.includes("t('workspace.github.pull.foregroundPreparing')"), '下载解压阶段提示保持前台');
   assert.ok(github.includes("t('workspace.github.pull.foreground', { eta: pullEta })"), '写入阶段带剩余秒数估算');
-  assert.ok(pull.includes("t('workspace.github.pull.resumeNote', { count: stale.files })"), '残留检测提示');
+  // R1：残留变量改名 staleManifest（裁决序 classifyPullGuard 的输入）；语义不变。
+  assert.ok(pull.includes("t('workspace.github.pull.resumeNote', { count: staleManifest.files })"), '残留检测提示');
+  assert.ok(pull.includes('const manifestWritten = await writePullManifest('), 'R1-3：进入写入窗口的置态以写入结果为准');
   // 顺序契约：先写清单、批结算之后才清——失败/取消路径（在清之前就跳出）保留清单，
   // 下次拉取才能检出「上次没跑完」。
   const writeAt = pull.indexOf('await writePullManifest(');

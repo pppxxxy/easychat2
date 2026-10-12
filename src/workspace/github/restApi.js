@@ -15,9 +15,26 @@ import { strFromU8, unzipSync } from 'fflate';
 export const GITHUB_API_BASE = 'https://api.github.com';
 
 // —— C4 传输健壮性 ——
-// JSON API 单请求超时；codeload zip 整包下载超时（6MB 级，给足 90s）。
+// JSON API 单请求超时；codeload zip 整包下载超时（R0 修订：旧注释假设「6MB 级、90s」
+// 已过时——实测用户仓库工作树 9.7MB / 1059 文件，弱网下 90s 预算很紧，兜底提到 240s；
+// codeload 实测不回 content-length（chunked 传输），能拿到长度时按 64KB/s 估算并封顶 600s）。
 export const API_TIMEOUT_MS = 15000;
-export const ZIP_TIMEOUT_MS = 90000;
+export const ZIP_TIMEOUT_MS = 240000;
+// 有 content-length 时的超时估算：下限 ZIP_TIMEOUT_MS，上限 ZIP_TIMEOUT_CAP_MS 防挂死。
+export const ZIP_TIMEOUT_CAP_MS = 600000;
+export const ZIP_MIN_BYTES_PER_SEC = 64 * 1024;
+// R0-1：zip 断流后的整包重下预算——「手动重试几次能成」直接变自动。
+export const ZIP_RETRIES = 3;
+
+// 纯函数：整包 body 读取的超时（毫秒）。有 content-length 时按 ZIP_MIN_BYTES_PER_SEC
+// 估算、夹在 [base, ZIP_TIMEOUT_CAP_MS]；没有（codeload 实测 chunked 不回 length）
+// 按 base（ZIP_TIMEOUT_MS=240s）兜底。封顶防挂死，下限保证小仓库也不被 15s 掐掉。
+export function zipTimeoutFor(contentLengthBytes, baseMs = ZIP_TIMEOUT_MS) {
+  const size = Number(contentLengthBytes);
+  if (!Number.isFinite(size) || size <= 0) return baseMs;
+  const estimated = (size / ZIP_MIN_BYTES_PER_SEC) * 1000;
+  return Math.min(ZIP_TIMEOUT_CAP_MS, Math.max(baseMs, Math.round(estimated)));
+}
 // 可重试错误（429 / 403 限流 / 5xx / 网络断流）的退避表：1s / 2s / 4s，最多 3 次。
 export const GITHUB_RETRY_DELAYS = Object.freeze([1000, 2000, 4000]);
 // Retry-After 优先于退避表，但封顶——服务端说等 1 小时也不能把用户吊死。
@@ -164,15 +181,39 @@ export async function request(fetchImpl, url, {
   }
 }
 
-// codeload zip 整包下载（C4）：同样走超时 + 断流整包重试（默认重下 1 次——
-// 6MB 秒级，比让用户手动重点便宜）。返回 response（调用方读 content-length /
-// arrayBuffer）；HTTP 错误按 mapGithubError 抛。
+// codeload zip 整包下载（C4 + R0）：超时 + 断流**整包**重试（R0-1：预算 1 → 3——
+// 用户实测「手动多点几次就能拉下来」，多点的那几次现在自动完成）。zip 没有 Range
+// 续传（codeload 实测 chunked、不回 content-length），断流只能整包重下。
+// R0-2：body 读取阶段也有超时——RN 的 fetch 在**响应头到达时**就 resolve，chunked
+// 流停滞既不抛也不结束；不掐表就会挂死在 arrayBuffer 上。有 content-length 时按
+// ZIP_MIN_BYTES_PER_SEC 估算并封顶 ZIP_TIMEOUT_CAP_MS；没有（codeload 现状）按
+// timeoutMs 兜底。返回 { declared, bytes }（不再返回 response——body 归传输层管）。
+function zipRetryDelay(error, retryCount) {
+  return retryDelayFor(error, retryCount)
+    ?? GITHUB_RETRY_DELAYS[Math.min(retryCount, GITHUB_RETRY_DELAYS.length - 1)];
+}
+
+function withBodyTimeout(promise, timeoutMs) {
+  if (!(timeoutMs > 0)) return promise;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(fail('NETWORK', `zip body stalled after ${timeoutMs}ms`, { retryable: true })),
+      timeoutMs
+    );
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 export async function downloadZip({
   fetchImpl = fetch,
   url,
   token,
   timeoutMs = ZIP_TIMEOUT_MS,
-  retries = 1,
+  retries = ZIP_RETRIES,
+  maxBytes = 0,
   sleepImpl = defaultSleep,
 } = {}) {
   for (let retryCount = 0; ; retryCount += 1) {
@@ -181,7 +222,7 @@ export async function downloadZip({
       response = await fetchOnce(fetchImpl, url, { token, timeoutMs, headers: { Accept: 'application/zip' } });
     } catch (error) {
       if (retryCount >= retries) throw error;
-      await sleepImpl(GITHUB_RETRY_DELAYS[0]);
+      await sleepImpl(zipRetryDelay(error, retryCount));
       continue;
     }
     if (!response.ok) {
@@ -192,10 +233,29 @@ export async function downloadZip({
       } catch (error) {}
       const mapped = mapGithubError(response.status, { headers: response.headers, bodyText });
       if (mapped.retryable !== true || retryCount >= retries) throw mapped;
-      await sleepImpl(GITHUB_RETRY_DELAYS[0]);
+      await sleepImpl(zipRetryDelay(mapped, retryCount));
       continue;
     }
-    return response;
+    const declared = Number(
+      response.headers && typeof response.headers.get === 'function'
+        ? response.headers.get('content-length')
+        : 0
+    ) || 0;
+    // 预检：只有服务端回了 content-length 才拦得住（codeload 实测 chunked 不回——
+    // 这条路径多为 API 网关形态）。真实字节数由调用方（scanRepoZipball）复核。
+    if (maxBytes > 0 && declared > maxBytes) {
+      throw fail('REPO_LIMIT_DOWNLOAD', `zip declares ${declared} bytes > limit ${maxBytes}`);
+    }
+    try {
+      const buffer = await withBodyTimeout(response.arrayBuffer(), zipTimeoutFor(declared, timeoutMs));
+      return { declared, bytes: new Uint8Array(buffer) };
+    } catch (error) {
+      const normalized = error && error.code === 'NETWORK'
+        ? error
+        : fail('NETWORK', `zip download failed: ${String((error && error.message) || error)}`, { retryable: true, cause: error });
+      if (retryCount >= retries) throw normalized;
+      await sleepImpl(zipRetryDelay(normalized, retryCount));
+    }
   }
 }
 

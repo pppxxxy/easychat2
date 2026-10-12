@@ -169,7 +169,7 @@ export const workspace = {
   'workspace.github.pull.busy': 'Downloading…',
   'workspace.github.pull.progress': 'Writing {done}/{total}…',
   'workspace.github.pull.cancel': 'Cancel',
-  'workspace.github.pull.cancelled': 'Pull cancelled; files written in this run were rolled back.',
+  'workspace.github.pull.cancelled': 'Pull cancelled. Files already written stay in the local copy (incomplete) — the next pull will flag it and repair the missing files.',
   'workspace.github.pull.done': 'Wrote {count} files to the local copy. (Skipped: binary/oversize {binary}+{oversize}, suspicious paths {slip}, directory entries {dirs})',
   'workspace.github.pull.noFiles': 'No writable text files in this snapshot (it may be all binary).',
   'workspace.github.pull.branchPlaceholder': 'Branch',
@@ -248,8 +248,21 @@ export const workspace = {
   'workspace.github.branch.defaultTag': 'default',
   'workspace.github.branch.overLimit': 'More than 200 branches; only the first 200 are listed — type the rest manually.',
   'workspace.github.pull.overwriteTitle': 'Local changes not pushed',
-  'workspace.github.pull.overwriteBody': 'The local copy has {count} un-pushed addition(s)/removal(s) since the last pull; re-pulling will overwrite files with the same names. Continue?',
   'workspace.github.pull.overwriteConfirm': 'Overwrite and continue',
+  // R1: the guard copy now reports the two numbers separately — the merged count
+  // used to turn an interrupted pull's gaps into "your un-pushed changes".
+  'workspace.github.pull.overwriteBodySplit': 'Local copy vs the last pull: {added} file(s) added, {removed} file(s) missing. Re-pulling will overwrite files with the same names. Continue?',
+  'workspace.github.pull.overwriteBodySuspect': 'Local copy vs the last pull: {added} file(s) added, {removed} file(s) missing. Many files are missing — the last pull may have been incomplete; re-pulling will repair them. Continue?',
+  // R1-1a: dirtyPull (leftover pull manifest) skips the overwrite guard and shows this instead.
+  'workspace.github.pull.dirtyTitle': 'Previous pull did not finish',
+  'workspace.github.pull.dirtyBody': 'The local copy is incomplete ({missing} file(s) missing vs the baseline; the interrupted pull targeted {target} file(s)). These are not your un-pushed changes — this re-pull will repair the missing files.',
+  'workspace.github.pull.dirtyConfirm': 'Re-pull',
+  // R1-3: in a dirtyPull state the "pending sync" numbers are unreliable — block pushing gaps as deletions.
+  'workspace.github.push.dirtyNote': 'The previous pull did not finish, so these pending-sync numbers are inaccurate (missing files would be pushed as deletions). Pull the snapshot again first, then push.',
+  'workspace.github.push.gapsNote': 'Heads-up: {removed} file(s) are missing locally, more than were added — the last pull may have been incomplete. Pushing is still allowed (it only deletes paths you really removed), but re-pulling first is safer.',
+  'workspace.github.pull.retryHint': 'Connection dropped or timed out: {retries} automatic retries did not help. Check your network and retry (the zip cannot resume — each retry re-downloads the whole package).',
+  'workspace.github.err.rateLimitWait': '(retry in about {seconds}s)',
+  'workspace.github.err.repoLimit': 'The repository exceeds the import limits (archive size / entries / uncompressed total / single file). Narrow the scope: pick a smaller repo or directory, or use "Quick checkout" to fetch files on demand.',
   'workspace.github.checkout.action': 'Quick checkout (1 request for the full tree; ☁ files download on open)',
   'workspace.github.checkout.busy': 'Checking out…',
   'workspace.github.checkout.truncatedHint': 'Listing may be partial (too large for GitHub) — use "Pull snapshot" for the full copy.',

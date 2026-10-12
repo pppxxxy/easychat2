@@ -30,10 +30,11 @@ import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { getRepoSnapshot } from '../../storage/workspace.js';
 import { breadcrumbsOf, directoryChildren, mergeManifestEntries } from '../screen/buildTree.js';
-import { diffRepoSnapshot } from './repoDiff.js';
+import { diffRepoSnapshot, hasMissingGaps, isDirtyPullState } from './repoDiff.js';
 import { listRollbackSnapshots } from '../rollbackBaseline.js';
 import { formatSkippedList } from '../repoImport.js';
 import { canDeleteRepo } from '../github/restApi.js';
+import { describeGithubError } from '../github/errorCopy.js';
 import createStyles from './githubPanelStyles.js';
 import BuildSection from './github/BuildSection.js';
 import useGithubBuild from './github/useGithubBuild.js';
@@ -45,17 +46,8 @@ import useRepoManage from './github/useRepoManage.js';
 import useRepoList from './github/useRepoList.js';
 import useRepoFiles from './github/useRepoFiles.js';
 
-// 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
-const ERROR_KEYS = {
-  AUTH: 'workspace.github.err.auth',
-  FORBIDDEN: 'workspace.github.err.forbidden',
-  NOT_FOUND: 'workspace.github.err.notFound',
-  RATE_LIMIT: 'workspace.github.err.rateLimit',
-  INVALID: 'workspace.github.err.invalid',
-  CONFLICT: 'workspace.github.err.conflict',
-  INVALID_NAME: 'workspace.github.err.invalidName',
-  DELETE_CONFIRM_REQUIRED: 'workspace.github.err.deleteConfirm',
-};
+// 错误码 → 文案（R0-4 起收口在 github/errorCopy.js 的 describeGithubError，
+// 网络/限流/仓库超限各给一句可操作的话；本面板只在 describeError 里调它）。
 
 export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   const { theme, fonts, tokens } = useTheme();
@@ -105,10 +97,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     return () => { alive = false; };
   }, [characterId]);
 
-  const describeError = useCallback(caught => {
-    const code = caught && caught.code;
-    return t(ERROR_KEYS[code] || 'workspace.github.err.generic');
-  }, [t]);
+  const describeError = useCallback(caught => describeGithubError(caught, t), [t]);
 
   // H1 云构建的状态与动作已抽到 github/useGithubBuild.js；展示层在 github/BuildSection.js。
   const {
@@ -247,6 +236,42 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     [allFiles, current, repoPrefix, snapshotPaths]
   );
 
+  // 拉取（重拉远端快照到本地副本）域：进度/ETA/前台提示、覆盖确认、跳过清单。
+  // 状态与动作已外提到 github/useRepoPull.js。声明在推送域之前——R1-3 的
+  // dirtyPull（上次拉取中断/残缺嫌疑）是推送面板置灰的数据源。
+  const {
+    pullBusy,
+    pullProgress,
+    pullNotice,
+    pullEta,
+    pullCancelRef,
+    pullManifest,
+    skippedPayload,
+    skippedOpen,
+    setSkippedOpen,
+    pullSnapshot,
+  } = useRepoPull({
+    characterId,
+    storeRef,
+    current,
+    pullBranch,
+    token,
+    describeError,
+    refreshLocal,
+    mountedRef,
+    t,
+    setCurrent,
+    setSubdir,
+    setSnapshotPaths,
+  });
+
+  // R1-3：残缺态 = manifest 残留（硬信号，上次拉取中断、本地是中间态）。此态下
+  // 「待同步」统计不可信——缺口会被当成待删除推到远端（数据损失级），整条推送
+  // 操作区置灰并给出修复路径（重新拉取）。软信号（缺失远多于新增、无残留）只
+  // 提示不阻断——用户真的批量删文件后推送是合法操作，阻断会死锁。
+  const pullDirty = useMemo(() => isDirtyPullState({ manifest: pullManifest }), [pullManifest]);
+  const gapsWarning = useMemo(() => !pullDirty && hasMissingGaps({ diff }), [pullDirty, diff]);
+
   // C3 批量推送 / G1 确认门 / H3 回滚 / 一键交接的状态与动作已外提到 github/useRepoPush.js。
   const { pushBusy, markSynced, pushBatch, rollbackLastPush, handoffPush } = useRepoPush({
     characterId,
@@ -265,6 +290,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     repoPrefix,
     setSnapshotPaths,
     setRollbackInfo,
+    pullDirty,
   });
 
   // 搜索：过滤当前仓库树的全部文件（本地副本全量路径匹配，不区分大小写）。
@@ -291,35 +317,9 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
 
   // 拉取当前仓库的分支快照到本地副本（codeload zipball → 文本文件落盘）。
   // 与 Stage 0 的修复同一条链路：目录条目已跳过、父路径被文件占用有明确报错、
-  // 一次导入只记一条汇总历史（批内挂起逐文件记录）。带进度与取消（取消即回滚）。
+  // 一次导入只记一条汇总历史（批内挂起逐文件写）。带进度与取消（取消即中止批）。
   // C1 快速检出的状态与动作已外提到 github/useRepoBranch.js。
-
-  // 拉取（重拉远端快照到本地副本）域：进度/ETA/前台提示、覆盖确认、跳过清单。
-  // 状态与动作已外提到 github/useRepoPull.js。
-  const {
-    pullBusy,
-    pullProgress,
-    pullNotice,
-    pullEta,
-    pullCancelRef,
-    skippedPayload,
-    skippedOpen,
-    setSkippedOpen,
-    pullSnapshot,
-  } = useRepoPull({
-    characterId,
-    storeRef,
-    current,
-    pullBranch,
-    token,
-    describeError,
-    refreshLocal,
-    mountedRef,
-    t,
-    setCurrent,
-    setSubdir,
-    setSnapshotPaths,
-  });
+  // 拉取域（useRepoPull）声明在本文件上方——R1-3 推送置灰需要它的残留态。
 
 
   // ⑤ 新建仓库 / ⑥ 仓库管理（复制链接/重命名/删除）的状态与动作已外提到 github/useRepoManage.js。
@@ -806,19 +806,29 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     })
                     : t('workspace.github.push.none')}
                 </Text>
-                <FieldHint>{t('workspace.github.push.contentNote')}</FieldHint>
+                {/* R1-3：残缺态下上面的统计不可信（缺口会被算成待删除），推送
+                    会真的删掉远端文件——整条操作区置灰，只留修复路径（重新拉取）。
+                    软信号（缺失远多于新增、无残留）不阻断，只把嫌疑说破。 */}
+                {pullDirty ? (
+                  <FieldHint>{t('workspace.github.push.dirtyNote')}</FieldHint>
+                ) : gapsWarning ? (
+                  <FieldHint>{t('workspace.github.push.gapsNote', { removed: diff.removed.length })}</FieldHint>
+                ) : (
+                  <FieldHint>{t('workspace.github.push.contentNote')}</FieldHint>
+                )}
                 <View style={styles.actions}>
                   {/* C3：批量单提交是主路径（内容改动只有 blob sha 算得出，不看
                       diff.pending）；逐文件 handoff 降为精细模式的备选。 */}
                   <PrimaryButton
                     title={pushBusy ? t('workspace.github.push.batchBusy') : t('workspace.github.push.batch')}
                     small
+                    disabled={pullDirty}
                     onPress={pushBatch}
                   />
-                  {diff.pending > 0 && typeof onHandoff === 'function' ? (
+                  {!pullDirty && diff.pending > 0 && typeof onHandoff === 'function' ? (
                     <GhostButton title={t('workspace.github.push.handoff')} small onPress={handoffPush} />
                   ) : null}
-                  <GhostButton title={t('workspace.github.push.markSynced')} small onPress={markSynced} />
+                  <GhostButton title={t('workspace.github.push.markSynced')} small disabled={pullDirty} onPress={markSynced} />
                   {/* E5：创建 PR（写操作——确认门在 submitCreatePr 内）。 */}
                   <GhostButton
                     title={prBusy ? t('workspace.github.pr.busy') : t('workspace.github.pr.action')}

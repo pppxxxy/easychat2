@@ -33,19 +33,26 @@ export default function useRepoPush({
   repoPrefix,
   setSnapshotPaths,
   setRollbackInfo,
+  // R1-3：残缺态（manifest 残留或缺口异常）——结构性阻断，不靠 UI 置灰自觉：
+  // 此态下 diff 的 removed 是上次拉取没落盘的缺口，推上去就是删远端的文件。
+  pullDirty = false,
 }) {
   const [pushBusy, setPushBusy] = useState(false);
+  const dirtyBlocked = useCallback(() => {
+    Alert.alert(t('workspace.github.title'), t('workspace.github.push.dirtyNote'));
+  }, [t]);
 
   // 把当前清单设为新基线（助手推送成功后，用户手动确认「已同步」）。
   const markSynced = useCallback(async () => {
     if (!current) return;
+    if (pullDirty) { dirtyBlocked(); return; }
     const paths = localRepoPaths({ files: allFiles, prefix: repoPrefix(current) });
     try {
       await setRepoSnapshot(characterId, repoId, { paths });
       if (mountedRef.current) setSnapshotPaths(paths);
       Alert.alert(t('workspace.github.title'), t('workspace.github.push.markedSynced'));
     } catch (error) {}
-  }, [allFiles, characterId, current, mountedRef, repoId, repoPrefix, setSnapshotPaths, t]);
+  }, [allFiles, characterId, current, dirtyBlocked, mountedRef, pullDirty, repoId, repoPrefix, setSnapshotPaths, t]);
 
   // 一键交接：把「哪个仓库/分支、增删了哪些文件」写成一条指令，填进对话面板的输入框，
   // 由助手用 GitHub 工具逐条确认后提交（本面板不做直连推送，写远端一律经确认）。
@@ -103,6 +110,9 @@ export default function useRepoPush({
   // 面板直连 restApi 的快路径。ref 冲突（期间远程被推进）由 GitHub 非快进拒绝，安全失败。
   const pushBatch = useCallback(async () => {
     if (!current || pushBusy) return;
+    // R1-3：残缺态禁止批量推送（removed 里混着「上次拉取没落盘的缺口」，
+    // Trees API 会把它们当删除真的删掉远端文件）。面板同时置灰——这里是结构性守卫。
+    if (pullDirty) { dirtyBlocked(); return; }
     const store = storeRef && storeRef.current;
     if (!store) return;
     const branch = String(pullBranch || current.branch || current.defaultBranch || '').trim();
@@ -174,7 +184,7 @@ export default function useRepoPush({
     } finally {
       if (mountedRef.current) setPushBusy(false);
     }
-  }, [characterId, confirmPushDiff, current, describeError, pullBranch, pushBusy, refreshLocal, storeRef, t, token, mountedRef, setSnapshotPaths, setRollbackInfo]);
+  }, [characterId, confirmPushDiff, current, describeError, dirtyBlocked, pullBranch, pullDirty, pushBusy, refreshLocal, storeRef, t, token, mountedRef, setSnapshotPaths, setRollbackInfo]);
 
   // H3：一键回滚——把本地恢复到最近一次推送之前（modified 写回旧内容 /
   // removed 恢复文件），再让用户走既有推送确认门同步到远端（不自动弹，避免连环弹窗）。

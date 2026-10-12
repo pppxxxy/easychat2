@@ -386,12 +386,17 @@ test('B1/B2/B3 拉取体验接线：分支 chip + 默认分支对齐 + 覆盖守
   assert.ok(branch.includes('branchSeqRef'), '竞态防护：快速切仓库旧响应不覆盖新列表');
   // B2：初值与该仓库真实默认分支同源（normalizeRepo.defaultBranch），不再硬编码 main
   assert.ok(branch.includes('current.branch || current.defaultBranch'), '初值对齐默认分支');
-  // B3：覆盖守卫——守卫调用必须在下载之前（取消 = 连 zip 都不下载）。
-  // 拉取动作已外提到 github/useRepoPull.js，B3 断言读新文件。
+  // B3（R1 改版）：守卫裁决在下载之前（取消 = 连 zip 都不下载）。
+  // 拉取动作在 github/useRepoPull.js；裁决/文案拆分是 repoDiff.js 的纯函数
+  // （classifyPullGuard/pullGuardCopy，行为测试见 workspaceRepoDiff.test.mjs）。
   const pull = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPull.js'), 'utf8');
-  assert.ok(pull.includes('confirmPullOverwrite'), '覆盖确认存在');
-  const guardAt = pull.indexOf('confirmPullOverwrite(guardDiff.pending)');
-  const downloadAt = pull.indexOf('await downloadZip({ url, token })');
+  assert.ok(pull.includes('classifyPullGuard('), '守卫裁决走纯函数');
+  const guardAt = pull.indexOf('classifyPullGuard(');
+  const downloadAt = pull.indexOf('await downloadZip({');
   assert.ok(guardAt > 0 && downloadAt > 0 && guardAt < downloadAt, '守卫在下载之前');
-  assert.ok(pull.includes('guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
+  assert.ok(pull.includes('hasLocal: guardLocal.length > 0'), '首次拉取（本地为空）不拦——只拦未推送改动');
+  assert.ok(pull.includes('readPullManifest('), '守卫先查 manifest 残留（F4 信号联动，R1-1a）');
+  const manifestAt = pull.indexOf('readPullManifest(store, characterId)');
+  assert.ok(manifestAt > 0 && manifestAt < guardAt, '残留读取先于裁决');
+  assert.ok(pull.includes('activateKeepAwakeAsync(') && pull.includes('deactivateKeepAwake('), 'R0-3：拉取期间前台保活');
 });
