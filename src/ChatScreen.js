@@ -133,7 +133,7 @@ import { getImageProvider } from './imageGen/providers.js';
 import useChatTts from './chat/useChatTts.js';
 import useSessionGuard from './chat/useSessionGuard.js';
 import useSessionMessages from './chat/useSessionMessages.js';
-import useSessionSwitch from './chat/useSessionSwitch.js';
+import useSessionSwitch, { notifySwitchFailure } from './chat/useSessionSwitch.js';
 import useChatSend from './chat/useChatSend.js';
 import MessageList from './chat/MessageList.js';
 import useChatModelThinking from './chat/useChatModelThinking.js';
@@ -735,8 +735,8 @@ export default function ChatScreen() {
       // 与会话同角色：先切角色再切会话（切会话的配对守卫会要求角色一致）。
       if (ownerId) await switchCharacter(ownerId);
       await switchSession(id);
-    } catch (error) {}
-  }, [switchCharacter, switchSession]);
+    } catch (error) { notifySwitchFailure(t, error); }
+  }, [switchCharacter, switchSession, t]);
 
   const openGreetingPicker = useCallback((purpose = 'new') => {
     // 用 messagesRef 读取当前消息：回调不该因为流式回复更新 messages 而换引用，

@@ -46,7 +46,12 @@ test('useSessionGuard 保有守卫语义的关键行为（L 系：按会话准�
 });
 
 test('会话切换流程已外提为 useSessionSwitch，ChatScreen 不再内联', () => {
-  assert.ok(CHAT_SCREEN_SOURCE.includes("import useSessionSwitch from './chat/useSessionSwitch.js';"));
+  // 2026-10-12 起还从这里带上「切换失败统一反馈」（运行中角色条那条路径要用同一个）。
+  assert.match(
+    CHAT_SCREEN_SOURCE,
+    /import useSessionSwitch(?:, \{ notifySwitchFailure \})? from '\.\/chat\/useSessionSwitch\.js';/,
+    'ChatScreen 从 useSessionSwitch 引入 hook（及切换失败反馈）'
+  );
   assert.ok(CHAT_SCREEN_SOURCE.includes('} = useSessionSwitch({'));
   // 原内联实现不再残留
   assert.equal(CHAT_SCREEN_SOURCE.includes('const onSwitch = useCallback'), false);
@@ -57,13 +62,27 @@ test('会话切换流程已外提为 useSessionSwitch，ChatScreen 不再内联'
   assert.equal(CHAT_SCREEN_SOURCE.match(/const \[isSwitching, setIsSwitching\] = useState/g)?.length, 1, 'isSwitching 仍归 ChatScreen 持有且恰一处');
 });
 
+test('运行中角色条切会话失败必须给反馈（不再空 catch 吞掉）', () => {
+  // 2026-10-12 修：onOpenRunning 的 catch 原来是 `catch (error) {}` —— 用户点运行中
+  // 角色条想切过去，失败时界面毫无反应（成因与两个切换入口相同：角色已删/归属守卫拒绝）。
+  const block = /const onOpenRunning = useCallback\(async sessionId => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/.exec(CHAT_SCREEN_SOURCE);
+  assert.ok(block, '未找到 onOpenRunning');
+  assert.ok(block[0].includes('notifySwitchFailure(t, error)'), '失败要走统一反馈');
+  assert.equal(/catch \(error\) \{\}/.test(block[0]), false, '不得再是空 catch');
+});
+
 test('useSessionSwitch 保有切换流程的关键守卫语义', () => {
   const SWITCH_SOURCE = readFileSync(path.join(HERE, '..', 'src', 'chat', 'useSessionSwitch.js'), 'utf8');
   // onSwitch/onSwitchGroup：token 守卫 + 草稿快照 + 失败回滚
   assert.equal(SWITCH_SOURCE.split('const switchToken = ++switchOperationRef.current;').length - 1, 2, '两个切换入口各自持有 token');
-  assert.equal(SWITCH_SOURCE.split("Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body'));").length - 1, 2, '两个切换入口各自引用切换失败的 i18n 键');
+  // 失败反馈收口到 notifySwitchFailure（2026-10-12）：原来只弹一句笼统的「请检查存储空间或
+  // 权限」，既不说原因、成因也说错了（真实成因是角色已删 / 会话归属守卫拒绝）。现在两个入口
+  // 都把 error 交给同一个 helper。
+  assert.equal(SWITCH_SOURCE.split('notifySwitchFailure(t, error);').length - 1, 2, '两个切换入口各自报切换失败');
+  assert.ok(SWITCH_SOURCE.includes('export function notifySwitchFailure(t, error)'), '反馈函数从本模块导出（ChatScreen 运行中角色条复用）');
+  assert.ok(SWITCH_SOURCE.includes('maskSecrets('), '显示的 error.message 必须过 maskSecrets');
   assert.equal(zhCN['chat.session.switchFailed.title'], '切换失败', '语言包中文值正确');
-  assert.equal(zhCN['chat.session.switchFailed.body'], '请检查存储空间或权限。', '语言包中文值正确');
+  assert.equal(zhCN['chat.session.switchFailed.body'], '没能切换过去，请重试。', '语言包中文值正确');
   assert.ok(SWITCH_SOURCE.includes('await switchCharacter(previousCharacterId);'));
   assert.ok(SWITCH_SOURCE.includes('setInput(draft.input);'));
   // confirmGreeting：new 模式的三重守卫与开场白注入

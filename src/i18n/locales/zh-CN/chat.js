@@ -294,7 +294,11 @@ export const chat = {
   'chat.editResend.failed.title': '撤回失败',
   'chat.editResend.failed.body': '记忆摘要未能同步重置，请稍后重试。',
   'chat.session.switchFailed.title': '切换失败',
-  'chat.session.switchFailed.body': '请检查存储空间或权限。',
+  // 2026-10-12：原来的「请检查存储空间或权限」对真实成因是错的——切换失败几乎都是
+  // 「角色已删 / 会话归属守卫拒绝」，与磁盘和权限无关。现在这句只是**兜底**：
+  // 有 error.message 时直接显示那个（已经是本地化文案，见 useSessionSwitch 的
+  // notifySwitchFailure），拿不到原因才用这句。
+  'chat.session.switchFailed.body': '没能切换过去，请重试。',
   'chat.session.greetingSaveFailed.title': '开场白保存失败',
   'chat.session.greetingSaveFailed.body': '请稍后重试。',
   'chat.session.ownerMissing.title': '角色资料缺失',

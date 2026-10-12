@@ -16,6 +16,29 @@ import {
   startNewSession,
 } from '../storage/sessions.js';
 import { useTranslation } from '../i18n/I18nContext.js';
+import { maskSecrets } from '../storage/secrets.js';
+
+// 会话/角色切换失败的统一反馈（也导出给 ChatScreen 的「运行中角色条」用）。
+//
+// 为什么需要：切换失败时只做回滚、不**说明原因**——用户点了另一个会话，界面退回原处
+// 却什么都不说，看起来像卡住或没反应。三处成因相同（角色已删、会话归属守卫拒绝），
+// 反馈也必须一致，所以收口成一个函数。
+//
+// 显示原因而不是一句笼统提示：这些错误本身已是本地化文案（AppContext 的 error.app.*
+// 与 error.storage.sessionNotFound），直接给用户看才有用；仍过一遍 maskSecrets——
+// 底层存储错误可能带上键名，与仓库里其它「把 error.message 显示给用户」的地方同一纪律
+//（CardForgeScreen / CharacterDetailScreen 同款写法）。
+//
+// 为什么放在本模块而不是另开文件：另一个调用方 ChatScreen 已经从这里 import，而它卡在
+// **零余量**的行数基线上，新增一条模块 import 会顶破棘轮；而「切换失败怎么报」本来
+// 就是会话切换这一族的语义。
+export function notifySwitchFailure(t, error) {
+  const detail = String((error && error.message) || '').trim();
+  Alert.alert(
+    t('chat.session.switchFailed.title'),
+    maskSecrets(detail || t('chat.session.switchFailed.body'))
+  );
+}
 
 export default function useSessionSwitch({
   // 状态值（依赖数组所需，引用变化即重建回调）
@@ -124,13 +147,16 @@ export default function useSessionSwitch({
         setProtectedChatImageUris([]);
         setIsSwitching(false);
       })
-      .catch(async () => {
+      .catch(async error => {
         if (switchOperationRef.current !== switchToken) return;
 
         try {
           await switchCharacter(previousCharacterId);
           if (previousSessionId) await switchSession(previousSessionId);
-        } catch (error) {}
+        } catch (rollbackError) {
+          // 回滚失败不再单独提示：外层马上会报「切换失败」，这里再弹一条只会刷屏；
+          // 用户看到的是同一件事（没切过去），状态也已回到原处。
+        }
         setIsSwitching(false);
         activeCharacterIdRef.current = previousCharacterId;
         activeSessionIdRef.current = previousSessionId;
@@ -146,7 +172,7 @@ export default function useSessionSwitch({
         setProtectedChatImageUris(draft.attachments
           .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
           .map(item => item.uri));
-        Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body'));
+        notifySwitchFailure(t, error);
       });
   }, [attachments, closeStickerNamePrompt, ensureCharacterSession, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchCharacter, t]);
 
@@ -192,12 +218,14 @@ export default function useSessionSwitch({
         setProtectedChatImageUris([]);
         setIsSwitching(false);
       })
-      .catch(async () => {
+      .catch(async error => {
         if (switchOperationRef.current !== switchToken) return;
 
         try {
           await switchSession(previousSessionId);
-        } catch (error) {}
+        } catch (rollbackError) {
+          // 同上一处：回滚失败不单独提示，外层统一报「切换失败」。
+        }
         setIsSwitching(false);
         activeSessionIdRef.current = previousSessionId;
         sessionVersionRef.current += 1;
@@ -212,7 +240,7 @@ export default function useSessionSwitch({
         setProtectedChatImageUris(draft.attachments
           .filter(item => item && (item.kind === 'image' || item.kind === 'video'))
           .map(item => item.uri));
-        Alert.alert(t('chat.session.switchFailed.title'), t('chat.session.switchFailed.body'));
+        notifySwitchFailure(t, error);
       });
   }, [attachments, closeStickerNamePrompt, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchSession, t]);
 

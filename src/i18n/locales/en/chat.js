@@ -294,7 +294,7 @@ export const chat = {
   'chat.editResend.failed.title': 'Recall failed',
   'chat.editResend.failed.body': 'The memory summary could not be reset in sync. Please try again later.',
   'chat.session.switchFailed.title': 'Switch failed',
-  'chat.session.switchFailed.body': 'Please check storage space or permissions.',
+  'chat.session.switchFailed.body': 'Could not switch. Please try again.',
   'chat.session.greetingSaveFailed.title': 'Failed to save greeting',
   'chat.session.greetingSaveFailed.body': 'Please try again later.',
   'chat.session.ownerMissing.title': 'Character data missing',
