@@ -98,10 +98,11 @@ test('C2 接线契约：read 工具透明物化 + 面板点开即拉 + 宿主注
   assert.ok(readTools.includes('options.materializer'), 'read 工具读失败时试物化');
   assert.ok(readTools.includes("typeof options.materializer !== 'function'"), '没注入 = 旧行为逐字节一致');
 
-  const panel = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
-  assert.ok(panel.includes('virtualPaths.has(path)'), '只对未物化（云朵）文件按需拉');
-  assert.ok(panel.includes('materializeRepoFile({ store, characterId, path, token })'), '点开即拉');
-  assert.ok(panel.includes("t('workspace.github.materialize.fail')"), '失败如实报（不静默）');
+  // 点开即拉已外提到 github/useRepoFiles.js。
+  const files = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoFiles.js'), 'utf8');
+  assert.ok(files.includes('virtualPaths.has(path)'), '只对未物化（云朵）文件按需拉');
+  assert.ok(files.includes('materializeRepoFile({ store, characterId, path, token })'), '点开即拉');
+  assert.ok(files.includes("t('workspace.github.materialize.fail')"), '失败如实报（不静默）');
 
   const chat = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
   assert.ok(chat.includes('materializer: materializeForAgent'), '工作区宿主注入物化器');

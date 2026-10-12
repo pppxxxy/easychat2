@@ -35,12 +35,13 @@
     "src/workspace/screen/GithubPanel.js 1469 → 1353（2026-10-12，六大文件第二刀，m1012m30）：分支与物化域外提到 screen/github/useRepoBranch.js（hook）——分支列表三态 + 竞态防护、默认分支对齐、清单缓存载入、快速检出 quickCheckout；依赖 characterId/storeRef/current/pullBranch/token/describeError/mountedRef/t 与 setPullBranch/setCurrent/setSubdir/setSnapshotPaths 由面板注入。仍 > 800，基线随之下调到实际值。",
     "src/workspace/screen/GithubPanel.js 1353 → 1154（2026-10-12，六大文件第三刀，m1012m30）：推送域外提到 screen/github/useRepoPush.js（hook）——批量推送 pushBatch、删除安全确认门 confirmPushDiff、一键回滚 rollbackLastPush、一键交接 handoffPush、手动确认基线 markSynced；依赖 characterId/storeRef/current/pullBranch/token/describeError/refreshLocal/mountedRef/t/onHandoff/diff/repoId/allFiles/repoPrefix 与 setSnapshotPaths/setRollbackInfo 由面板注入。仍 > 800，基线随之下调到实际值。",
     "src/workspace/screen/GithubPanel.js 1154 → 1046（2026-10-12，六大文件第四刀，m1012m30）：仓库管理域外提到 screen/github/useRepoManage.js（hook）——⑤ 新建仓库 submitCreateRepo、⑥ 仓库管理（复制链接 copyRepoLink / 重命名 submitRename / 删除 submitDelete 三层守卫）与 openManage；依赖 characterId/storeRef/current/token/describeError/refreshLocal/mountedRef/t/selectRepo 与 setRepos/setCurrent/setSubdir/setLayer/setActionBusy 由面板注入。仍 > 800，基线随之下调到实际值。",
-    "src/workspace/screen/GithubPanel.js 1046 → 1009（2026-10-12，六大文件第五刀，m1012m30）：仓库列表域外提到 screen/github/useRepoList.js（hook）——token 读取、仓库列表分页加载 loadRepos、刷新入口 refreshAll、本地条目计数 localCount；依赖 mountedRef/describeError/refreshLocal/repoPrefix/allFiles/setActionBusy/token/setToken 由面板注入（token 仍留在面板，供 useGithubBuild/useGithubHistory 早用）。仍 > 800，基线随之下调到实际值。"
+    "src/workspace/screen/GithubPanel.js 1046 → 1009（2026-10-12，六大文件第五刀，m1012m30）：仓库列表域外提到 screen/github/useRepoList.js（hook）——token 读取、仓库列表分页加载 loadRepos、刷新入口 refreshAll、本地条目计数 localCount；依赖 mountedRef/describeError/refreshLocal/repoPrefix/allFiles/setActionBusy/token/setToken 由面板注入（token 仍留在面板，供 useGithubBuild/useGithubHistory 早用）。仍 > 800，基线随之下调到实际值。",
+    "src/workspace/screen/GithubPanel.js 1009 → 911（2026-10-12，六大文件第六刀，m1012m30）：文件树浏览域外提到 screen/github/useRepoFiles.js（hook）——树内搜索 searchResults、打开文件 openFile（含未物化按需拉取）、导入本地文件 importLocalFiles、新建文件/文件夹 submitEntry；依赖 characterId/storeRef/current/allFiles/subdir/search/entryForm/repoPrefix/refreshLocal/virtualPaths/token/mountedRef/t 与 setPreview/setLayer/setEntryForm/setActionBusy 由面板注入。仍 > 800，基线随之下调到实际值。"
   ],
   "fileLineBaseline": {
     "src/ChatScreen.js": 3162,
     "src/SettingsScreen.js": 2344,
-    "src/workspace/screen/GithubPanel.js": 1009,
+    "src/workspace/screen/GithubPanel.js": 911,
     "src/chat/useChatSend.js": 1974,
     "src/workspace/screen/ChatPanel.js": 1765,
     "src/character/CharacterDetailScreen.js": 1714,

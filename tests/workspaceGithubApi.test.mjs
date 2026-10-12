@@ -333,8 +333,9 @@ test('fetchTokenScopes / canDeleteRepo：读 x-oauth-scopes', async () => {
 const PANEL_SRC = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
 
 test('GithubPanel：四键工具条 + 仓库列表 + 当前仓库树 + 搜索（Stage 3a）', () => {
-  // 仓库列表加载已外提到 github/useRepoList.js。
+  // 仓库列表加载已外提到 github/useRepoList.js；文件树浏览（导入/新建）已外提到 github/useRepoFiles.js。
   const LIST_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoList.js'), 'utf8');
+  const FILES_SRC = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoFiles.js'), 'utf8');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.repos'), '① 仓库列表键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.importLocal'), '② 导入本地文件键');
   assert.ok(PANEL_SRC.includes('workspace.github.toolbar.newEntry'), '③ 新建键');
@@ -342,8 +343,8 @@ test('GithubPanel：四键工具条 + 仓库列表 + 当前仓库树 + 搜索（
   assert.ok(LIST_SRC.includes('listRepos('), '仓库列表走 REST');
   assert.ok(PANEL_SRC.includes('directoryChildren(') && PANEL_SRC.includes('breadcrumbsOf('), '当前仓库树逐层下钻');
   assert.ok(PANEL_SRC.includes('workspace.github.search.placeholder'), '搜索框');
-  assert.ok(PANEL_SRC.includes('DocumentPicker'), '导入本地文件用系统选择器');
-  assert.ok(PANEL_SRC.includes('createWorkspaceDirectory(') && PANEL_SRC.includes('writeWorkspaceFile('), '新建文件/文件夹落盘');
+  assert.ok(FILES_SRC.includes('DocumentPicker'), '导入本地文件用系统选择器');
+  assert.ok(FILES_SRC.includes('createWorkspaceDirectory(') && FILES_SRC.includes('writeWorkspaceFile('), '新建文件/文件夹落盘');
   assert.ok(PANEL_SRC.includes('refreshLocal') && LIST_SRC.includes('loadRepos(1)'), '④ 刷新：重扫本地树 + 重拉列表');
   assert.ok(!/<Modal/.test(PANEL_SRC), '面板内不再有 Modal（二级层都是面板内的层）');
   assert.ok(PANEL_SRC.includes('workspace.github.push.summary'), '底部推送条显示待同步增删');

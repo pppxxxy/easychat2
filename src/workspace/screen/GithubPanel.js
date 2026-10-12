@@ -15,7 +15,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   Switch,
   Text,
@@ -30,11 +29,8 @@ import DiffView from '../DiffView.js';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { getRepoSnapshot } from '../../storage/workspace.js';
-import { isTextLike, readTextAttachment } from '../../chat/attachments.js';
-import { ensureDirectoryName, ensureTextFileName } from '../naming.js';
 import { breadcrumbsOf, directoryChildren, mergeManifestEntries } from '../screen/buildTree.js';
 import { diffRepoSnapshot } from './repoDiff.js';
-import { materializeRepoFile } from '../repoMaterialize.js';
 import { listRollbackSnapshots } from '../rollbackBaseline.js';
 import { formatSkippedList } from '../repoImport.js';
 import { canDeleteRepo } from '../github/restApi.js';
@@ -47,6 +43,7 @@ import useRepoBranch from './github/useRepoBranch.js';
 import useRepoPush from './github/useRepoPush.js';
 import useRepoManage from './github/useRepoManage.js';
 import useRepoList from './github/useRepoList.js';
+import useRepoFiles from './github/useRepoFiles.js';
 
 // 错误码 → i18n 文案键（后端只给 code，文案在这一层收口）。
 const ERROR_KEYS = {
@@ -271,56 +268,26 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
   });
 
   // 搜索：过滤当前仓库树的全部文件（本地副本全量路径匹配，不区分大小写）。
-  const searchResults = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) return [];
-    const prefix = repoPrefix(current);
-    return allFiles
-      .filter(entry => !String(entry).endsWith('/'))
-      .filter(entry => String(entry).startsWith(prefix))
-      .filter(entry => entry.toLowerCase().includes(keyword))
-      .slice(0, 50);
-  }, [allFiles, current, repoPrefix, search]);
-
-  const openFile = useCallback(async path => {
-    const store = storeRef && storeRef.current;
-    if (!store) return;
-    try {
-      const result = await store.readWorkspaceFile({ characterId, path });
-      if (mountedRef.current) {
-        setPreview(result);
-        setLayer('preview');
-      }
-    } catch (caught) {
-      // C2：清单里存在但本地没物化 → 点开即拉（单文件 contents API），拉完重读。
-      // 明确失败（网络/超过单文件上限）时如实报——绝不静默停在打不开的状态。
-      if (virtualPaths.has(path)) {
-        try {
-          const materialized = await materializeRepoFile({ store, characterId, path, token });
-          if (materialized.ok) {
-            const result = await store.readWorkspaceFile({ characterId, path });
-            if (mountedRef.current) {
-              setPreview(result);
-              setLayer('preview');
-            }
-            await refreshLocal();
-            return;
-          }
-          Alert.alert(
-            t('workspace.github.title'),
-            materialized.reason === 'none'
-              ? t('workspace.github.materialize.tooLarge')
-              : t('workspace.github.materialize.fail')
-          );
-          return;
-        } catch (error) {
-          Alert.alert(t('workspace.github.title'), t('workspace.github.materialize.fail'));
-          return;
-        }
-      }
-      Alert.alert(t('workspace.github.title'), t('workspace.github.err.open'));
-    }
-  }, [characterId, refreshLocal, storeRef, t, token, virtualPaths]);
+  // 文件树浏览域（搜索 / 打开文件 / 导入本地文件 / 新建条目）已外提到 github/useRepoFiles.js。
+  const { searchResults, openFile, importLocalFiles, submitEntry } = useRepoFiles({
+    characterId,
+    storeRef,
+    current,
+    allFiles,
+    subdir,
+    search,
+    entryForm,
+    repoPrefix,
+    refreshLocal,
+    virtualPaths,
+    token,
+    mountedRef,
+    t,
+    setPreview,
+    setLayer,
+    setEntryForm,
+    setActionBusy,
+  });
 
   // 拉取当前仓库的分支快照到本地副本（codeload zipball → 文本文件落盘）。
   // 与 Stage 0 的修复同一条链路：目录条目已跳过、父路径被文件占用有明确报错、
@@ -354,71 +321,6 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     setSnapshotPaths,
   });
 
-  // ② 导入本地文件：手机多选 → 文本文件写进当前仓库的本地副本。
-  const importLocalFiles = useCallback(async () => {
-    if (!current) {
-      Alert.alert(t('workspace.github.title'), t('workspace.github.importLocal.noRepo'));
-      return;
-    }
-    const store = storeRef && storeRef.current;
-    if (!store) return;
-    setActionBusy('import');
-    try {
-      const DocumentPicker = require('expo-document-picker');
-      const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
-      if (!result || result.canceled) return;
-      const assets = Array.isArray(result.assets) ? result.assets : [];
-      let written = 0;
-      let skipped = 0;
-      for (const asset of assets) {
-        const name = String((asset && asset.name) || '').split('/').pop() || '';
-        if (!name || !isTextLike(name, asset && asset.mime)) {
-          skipped += 1;
-          continue;
-        }
-        try {
-          const text = await readTextAttachment(asset.uri);
-          await store.writeWorkspaceFile({ characterId, path: `${repoPrefix(current)}${name}`, content: text });
-          written += 1;
-        } catch (caught) {
-          skipped += 1;
-        }
-      }
-      await refreshLocal();
-      if (mountedRef.current) {
-        Alert.alert(t('workspace.github.title'), t('workspace.github.importLocal.done', { written, skipped }));
-      }
-    } catch (caught) {
-      Alert.alert(t('workspace.github.title'), t('workspace.github.importLocal.errBody'));
-    } finally {
-      if (mountedRef.current) setActionBusy('');
-    }
-  }, [characterId, current, refreshLocal, repoPrefix, storeRef, t]);
-
-  // ③ 新建文件 / 文件夹：落点 = 树内当前目录。
-  const submitEntry = useCallback(async () => {
-    const store = storeRef && storeRef.current;
-    if (!store || !current) return;
-    const name = String(entryForm.name || '').trim();
-    if (!name) return;
-    setActionBusy('entry');
-    try {
-      if (entryForm.kind === 'folder') {
-        const path = ensureDirectoryName(name);
-        await store.createWorkspaceDirectory({ characterId, path: `${subdir}${path}` });
-      } else {
-        const path = ensureTextFileName(name);
-        await store.writeWorkspaceFile({ characterId, path: `${subdir}${path}`, content: String(entryForm.content || '') });
-      }
-      setEntryForm({ kind: entryForm.kind, name: '', content: '' });
-      setLayer('');
-      await refreshLocal();
-    } catch (caught) {
-      Alert.alert(t('workspace.github.title'), t('workspace.github.err.save'));
-    } finally {
-      if (mountedRef.current) setActionBusy('');
-    }
-  }, [characterId, current, entryForm, refreshLocal, storeRef, subdir, t]);
 
   // ⑤ 新建仓库 / ⑥ 仓库管理（复制链接/重命名/删除）的状态与动作已外提到 github/useRepoManage.js。
   const {
