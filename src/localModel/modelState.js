@@ -21,24 +21,22 @@ export const LOCAL_MODEL_ITEM_VERSION = 1;
 export const LOCAL_MODEL_SETTINGS_SCHEMA = 2;
 
 // 模型下载源预设：官方 Hugging Face、国内镜像 hf-mirror.com 与魔搭社区。
+// name 走 nameKey（界面文案，见 localModel.sourceName.*）；note 无人渲染，已删。
 export const LOCAL_MODEL_DOWNLOAD_SOURCES = [
   {
     id: 'huggingface',
-    name: 'Hugging Face',
+    nameKey: 'localModel.sourceName.huggingface',
     baseUrl: 'https://huggingface.co',
-    note: '官方源，需国际网络可达。',
   },
   {
     id: 'hf-mirror',
-    name: 'HF Mirror（国内镜像）',
+    nameKey: 'localModel.sourceName.hfMirror',
     baseUrl: 'https://hf-mirror.com',
-    note: '国内直连镜像，地址与官方一致，替换域名即可。',
   },
   {
     id: 'modelscope',
-    name: '魔搭社区',
+    nameKey: 'localModel.sourceName.modelscope',
     baseUrl: 'https://modelscope.cn',
-    note: '国内 ModelScope，需用魔搭上架的 GGUF 仓库。',
   },
 ];
 

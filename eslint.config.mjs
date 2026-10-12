@@ -131,7 +131,7 @@ export default [
       'src/games/games.js',
       'src/imageGen/providers.js',
       'src/localModel/modelCatalog.js',
-      'src/localModel/modelState.js',
+      // 2026-10-12：src/localModel/modelState.js 已迁出（下载源 name → nameKey；note 无人渲染已删）。
       // 2026-10-12：src/network/api.js 已迁出（错误文案走 tActive；两处哨兵常量就地豁免）。
       'src/network/apiVendors.js',
       'src/onboarding/disclaimerContent.js',
