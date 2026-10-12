@@ -10,8 +10,8 @@ import { getMessagesBySession, getSessions } from '../storage/sessions.js';
 import { getMoments, updateMoments } from '../storage/moments.js';
 import { getUserProfile } from '../storage/personas.js';
 import {
+  buildMomentCommentPrompt,
   buildMomentMemoryText,
-  buildMomentReplyPrompt,
   normalizeMomentReply,
 } from './momentReply.js';
 import {
@@ -91,7 +91,9 @@ export async function runUserMomentComments({ momentId, signal = null, random = 
         charName,
         userName,
       }) || rolePersona(character);
-      const prompt = buildMomentReplyPrompt({
+      // 这是「用户发的动态，角色来评论」，不是「角色自己的动态去回复」：
+      // 用 buildMomentCommentPrompt，否则提示词会把用户的正文说成角色自己发的。
+      const prompt = buildMomentCommentPrompt({
         moment,
         comments: threadComments,
         memoryText,

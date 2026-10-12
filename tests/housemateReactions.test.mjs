@@ -49,6 +49,36 @@ test('解析模型输出：点赞/评论、无评论、容错前缀与格式', (
   assert.ok(long.comment.length <= 120);
 });
 
+test('解析模型输出：否定优先、点赞行不落成评论（实测的 8 例）', () => {
+  // 只回答了点赞问题：不能变成正文就是「否」/「是」的评论（runHousemateReactions
+  // 用 !like && !comment 判断跳过，这类垃圾评论正好绕过了那道闸）。
+  assert.deepEqual(parseHousemateReaction('否'), { like: false, comment: '' });
+  assert.deepEqual(parseHousemateReaction('是'), { like: false, comment: '' });
+  // 否定读成点赞的语义反转：「点赞…是」比「不点赞」靠后，取靠前的否定
+  assert.deepEqual(parseHousemateReaction('不点赞是因为今天没空'), {
+    like: false,
+    comment: '不点赞是因为今天没空',
+  });
+  // 只删匹配片段会把「我点赞：否」剩成「我」
+  assert.deepEqual(parseHousemateReaction('我点赞：否'), { like: false, comment: '' });
+  assert.deepEqual(parseHousemateReaction('不点赞'), { like: false, comment: '' });
+  // 反向：肯定在前、评论里出现「我不点赞」时不能被带偏
+  assert.deepEqual(parseHousemateReaction('点赞：是\n评论：我不点赞'), {
+    like: true,
+    comment: '我不点赞',
+  });
+  // 行内字段被削掉，剩下的正文保留
+  assert.deepEqual(parseHousemateReaction('点赞：是 因为今天开心'), {
+    like: true,
+    comment: '因为今天开心',
+  });
+
+  // 按提示词格式输出时必须完全正确（防过度修正）
+  assert.deepEqual(parseHousemateReaction('点赞：否'), { like: false, comment: '' });
+  assert.deepEqual(parseHousemateReaction('点赞：是\n评论：无'), { like: true, comment: '' });
+  assert.deepEqual(parseHousemateReaction('点赞：否\n评论：不去了'), { like: false, comment: '不去了' });
+});
+
 test('选出待反应的同住角色：排除发帖人、已点赞或已评论者', () => {
   const mates = [
     { id: 'c1', name: '甲' },

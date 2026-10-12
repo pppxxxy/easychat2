@@ -46,6 +46,24 @@ export function buildHousemateReactionPrompt({
   return lines.join('\n');
 }
 
+// 点赞字段的两种写法。提示词要求「点赞：是 或 否」，但模型也常写成「不点赞是因为…」，
+// 那时「点赞」后面紧跟的正是「是」——只看肯定式就会把否定读成点赞（语义反转）。
+const LIKE_PATTERN = /点赞\s*[:：]?\s*(?:是|要|会|true|yes|y|👍|1)/i;
+const DISLIKE_PATTERN = /(?:不|没|别|不想)点赞|点赞\s*[:：]?\s*(?:否|不|不会|false|no|n|0|👎)/i;
+// 整行只是一个点赞回答（「点赞：是」「我点赞：否」「不点赞」）：这种行是回答点赞问题，
+// 不是评论，整行丢掉。只删匹配片段会把「我点赞：否」的「我」留成评论（实测过）。
+const LIKE_FIELD_ANY = /[我咱俺]\s*|(?:不|没|别|不会)?点赞\s*[:：]?\s*(?:是|否|不|要|会|不会|true|false|yes|no|y|n|👍|👎|1|0)?/gi;
+// 行内残留的点赞字段（带冒号才算字段，这样「不点赞是因为今天没空」这种句子不会被削）。
+const LIKE_FIELD_INLINE = /(?:不|没|别|不会)?点赞\s*[:：]\s*(?:是|否|不|要|会|不会|true|false|yes|no|y|n|👍|👎|1|0)/gi;
+const LINE_NOISE = /[\s，,。.！!；;：:、~～「」『』“”"'（）()\-—_]/g;
+// 整段只回答了点赞问题（「是」「否」「true」），不是评论。
+const LIKE_ANSWER_ONLY = /^(?:是|否|要|不|会|不会|true|false|yes|no|y|n|👍|👎|1|0)$/i;
+
+function isLikeOnlyLine(line) {
+  if (!/点赞/.test(line)) return false;
+  return line.replace(LIKE_FIELD_ANY, '').replace(LINE_NOISE, '') === '';
+}
+
 // 解析模型输出：容错处理“点赞：是/否”“评论：xxx”、缺行、JSON 等写法。
 // 返回 { like, comment }；comment 为空串表示不评论。
 export function parseHousemateReaction(text, maxLength = REACTION_COMMENT_MAX) {
@@ -55,18 +73,25 @@ export function parseHousemateReaction(text, maxLength = REACTION_COMMENT_MAX) {
   let like = false;
   let comment = '';
 
-  const likeMatch = raw.match(/点赞\s*[:：]?\s*(是|要|会|true|yes|y|👍|1)/i);
-  const dislikeMatch = raw.match(/点赞\s*[:：]?\s*(否|不|不会|false|no|n|0)/i);
-  if (likeMatch) like = true;
-  else if (dislikeMatch) like = false;
+  // 否定优先：两种表达都出现时取更靠前的那个。「不点赞是因为今天没空」里否定在 0、
+  // 「点赞…是」在 1，取前者；「点赞：是\n评论：我不点赞」里肯定在 0，取后者。
+  const likeMatch = raw.match(LIKE_PATTERN);
+  const dislikeMatch = raw.match(DISLIKE_PATTERN);
+  if (dislikeMatch && (!likeMatch || dislikeMatch.index <= likeMatch.index)) like = false;
+  else if (likeMatch) like = true;
   else if (/👍/.test(raw)) like = true;
 
   const commentMatch = raw.match(/评论\s*[:：]\s*([\s\S]*)$/);
   if (commentMatch) {
     comment = commentMatch[1];
   } else {
-    // 没写“评论：”前缀时，去掉“点赞”行后剩余内容当作评论。
-    comment = raw.replace(/点赞\s*[:：]?\s*[^\n]*\n?/i, '');
+    // 没写“评论：”前缀时，按行丢掉「点赞…」回答行，剩下的才算评论
+    // （只删匹配片段会把「我点赞：否」剩成「我」）。
+    comment = raw
+      .split('\n')
+      .filter(line => !isLikeOnlyLine(line))
+      .join('\n')
+      .replace(LIKE_FIELD_INLINE, '');
   }
   comment = comment
     .replace(/^[（(]([^（）()]*)[）)]$/, '$1')
@@ -76,6 +101,8 @@ export function parseHousemateReaction(text, maxLength = REACTION_COMMENT_MAX) {
     .replace(/\s{2,}/g, ' ')
     .trim();
   if (/^(无|没有|不评论|无评论|none|n\/a|-|—)$/i.test(comment)) comment = '';
+  // 只剩一个点赞答案的残留（「是」「否」）不是评论：否则动态下会出现正文就是「否」的评论。
+  if (LIKE_ANSWER_ONLY.test(comment)) comment = '';
   if (comment.length > maxLength) {
     comment = `${comment.slice(0, Math.max(1, maxLength - 1)).trim()}…`;
   }

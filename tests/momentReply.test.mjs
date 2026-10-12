@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 import {
+  buildMomentCommentPrompt,
   buildMomentMemoryText,
   buildMomentReplyPrompt,
   buildMomentThread,
@@ -103,6 +109,49 @@ test('回复清洗：去引号、去换行、去括号、截断', () => {
   assert.ok(cut.endsWith('…'));
 });
 
+test('用户发的动态走“用户发动态、角色来评论”的提示词，角色自己的动态仍走原提示词', () => {
+  const userMoment = { id: 'm1', text: '今天面试过了！', authorType: 'user', characterId: '' };
+  const args = {
+    moment: userMoment,
+    comments: [{ by: 'user', text: '太好了' }],
+    memoryText: '- 你们约好周末去看海',
+    charName: '角色5',
+    userName: '主人',
+  };
+  const prompt = buildMomentReplyPrompt(args);
+  // 不能把用户的动态说成角色自己发的
+  assert.equal(prompt.includes('你刚刚在自己的社交动态里发了一条动态'), false);
+  assert.ok(prompt.includes('主人发了一条动态：'));
+  assert.ok(prompt.includes('「今天面试过了！」'));
+  assert.ok(prompt.includes('请以角色5的身份，在这条动态下写一条评论'));
+  assert.ok(prompt.includes('主人：太好了'));
+  assert.ok(prompt.includes('你们约好周末去看海'));
+  // 与专用入口同源：分流不是第二份实现
+  assert.equal(prompt, buildMomentCommentPrompt(args));
+
+  const ownMoment = {
+    id: 'm2',
+    text: '我自己的动态',
+    authorType: 'character',
+    characterName: '角色5',
+  };
+  const own = buildMomentReplyPrompt({
+    moment: ownMoment,
+    comments: [{ by: 'user', text: '在吗' }],
+    charName: '角色5',
+    userName: '主人',
+  });
+  assert.ok(own.includes('你刚刚在自己的社交动态里发了一条动态'));
+  assert.ok(own.includes('请以角色5的身份，回复最新那条评论'));
+  assert.equal(own.includes('你正在刷社交动态'), false);
+});
+
+test('用户动态的评论执行器用的是「角色来评论」提示词，不再用「角色自己的动态」那条', () => {
+  const source = readFileSync(path.join(HERE, '..', 'src/moments/runUserMomentComments.js'), 'utf8');
+  assert.ok(source.includes('buildMomentCommentPrompt'));
+  assert.equal(source.includes('buildMomentReplyPrompt'), false);
+});
+
 test('记忆正文与评论串都有长度上限', () => {
   const huge = buildMomentMemoryText({
     summaries: Array.from({ length: 20 }, () => ({ summary: 'x'.repeat(1000) })),
@@ -122,4 +171,30 @@ test('记忆正文与评论串都有长度上限', () => {
   assert.equal(thread.length, 2000);
   // 保留最近的部分（末尾）
   assert.ok(thread.endsWith('z'));
+
+  // 提示词层同样设限：调用方（MomentsView 的 buildMemorySummaryText 未传预算）传进来的
+  // 记忆也必须截断，否则 20000 字的记忆会原样进提示词（实测过 prompt 20201 字）。
+  const oversized = 'x'.repeat(20000);
+  const prompt = buildMomentReplyPrompt({
+    moment: { text: '动态' },
+    comments: [],
+    memoryText: oversized,
+  });
+  assert.ok(prompt.includes('x'.repeat(4000)));
+  assert.equal(prompt.includes('x'.repeat(4001)), false);
+  // 用户动态那条提示词同一口径
+  const commentPrompt = buildMomentCommentPrompt({
+    moment: { text: '动态', authorType: 'user' },
+    comments: [],
+    memoryText: oversized,
+  });
+  assert.equal(commentPrompt.includes('x'.repeat(4001)), false);
+
+  // 正常长度不受影响（不误截）
+  const normal = buildMomentReplyPrompt({
+    moment: { text: '动态' },
+    comments: [],
+    memoryText: '- 你们约好周末去看海',
+  });
+  assert.ok(normal.includes('- 你们约好周末去看海'));
 });

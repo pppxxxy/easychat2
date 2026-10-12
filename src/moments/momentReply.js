@@ -83,20 +83,75 @@ export function buildMomentThread(comments, { charName = '角色', userName = '�
   );
 }
 
-export function buildMomentReplyPrompt({
+// 用户发的动态下，角色写评论用的提示词。
+//
+// 与 buildMomentReplyPrompt 的区别：那条是「角色自己的动态 + 有人评论了，去回复」，
+// 这条是「用户发了动态，角色来评论」。两者混用会让角色把用户的动态当成自己发的——
+// 那是事实错误，不只是措辞问题。分流口径照 z 分支 52f82de 的同名实现；
+// 本分支还没有「评论挂靠」（commentThread）能力，所以不带「回复<名字>：」前缀的引导，
+// 免得模型写出的前缀被原样存进评论正文。
+export function buildMomentCommentPrompt({
   moment,
   comments = [],
   memoryText = '',
   charName = '角色',
   userName = '用户',
 } = {}) {
+  const speaker = clean(charName) || '角色';
+  const poster = clean(userName) || '用户';
+  const lines = [
+    `你是${speaker}，你正在刷社交动态。`,
+    `${poster}发了一条动态：`,
+    `「${clean(moment && moment.text)}」`,
+  ];
+
+  // 与 buildMomentReplyPrompt 同一口径：调用方给的记忆必须在这里设上限（见文件头注释）。
+  const memory = capped(clean(memoryText), MAX_MEMORY_CHARS);
+  if (memory) {
+    lines.push('', '你和发动态的人之前聊过这些（供参考）：', memory);
+  }
+
+  const thread = buildMomentThread(comments, { charName: speaker, userName: poster });
+  if (thread) {
+    lines.push('', '这条动态下已有的评论：', thread);
+  }
+
+  lines.push(
+    '',
+    `请以${speaker}的身份，在这条动态下写一条评论。要求：`,
+    `- 重点是回应用户${poster}发的这条动态：说你自己想说的话（关心、调侃、附和、吐槽都可以）。`,
+    '- 上面已有的评论只作参考，可以顺着聊，但不要只复述别人的话。',
+    '- 只写一条，40 字以内，口语化，就像在动态下面评论。',
+    '- 不要写动作描写、旁白、括号补充或思考过程，也不要加引号或署名。',
+    '- 不要提到“记忆”“摘要”“系统”这类词。'
+  );
+  return lines.join('\n');
+}
+
+export function buildMomentReplyPrompt(options = {}) {
+  const {
+    moment,
+    comments = [],
+    memoryText = '',
+    charName = '角色',
+    userName = '用户',
+  } = options;
+  // 用户发的动态：角色是被叫来评论的人，不是发帖人。谁调用都先在这里分流，
+  // 否则提示词会说「你刚刚在自己的社交动态里发了一条动态：<用户正文>」。
+  if (clean(moment && moment.authorType) === 'user') {
+    return buildMomentCommentPrompt(options);
+  }
   const speaker = clean(charName) || clean(moment && moment.characterName) || '角色';
   const lines = [
     '你刚刚在自己的社交动态里发了一条动态：',
     `「${clean(moment && moment.text)}」`,
   ];
 
-  const memory = clean(memoryText);
+  // 上限同 buildMomentMemoryText 的退化路径（:47）：调用方传进来的记忆同样要截断，
+  // 否则长期角色的 worldInfo「记忆总结」会全量进提示词（成本/413/淹没指令）。
+  // 这里不引 memorySummary.js 的 planMemoryBudget：那会把 network/api.js、storage、
+  // i18n 一并拉进这个自述「只依赖纯文本处理工具」的模块，也会拖慢纯 Node 单测。
+  const memory = capped(clean(memoryText), MAX_MEMORY_CHARS);
   if (memory) {
     lines.push('', '这条动态与你们之前的一段对话有关，你对那段经历的记忆是：', memory);
   }
