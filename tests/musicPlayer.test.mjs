@@ -29,8 +29,14 @@ const transformed = babel.transformSync(fs.readFileSync(settingsPath, 'utf8'), {
 }).code;
 
 const store = new Map();
+// 「读会抛错」的键：AsyncStorage.getItem 直接抛（Android 上超 CursorWindow 上限、
+// SAF/权限失败都是这个形态），readJsonStatus 据此判 corrupt。
+const failedGets = new Set();
 const AsyncStorage = {
-  getItem: async key => (store.has(key) ? store.get(key) : null),
+  getItem: async key => {
+    if (failedGets.has(key)) throw new Error(`read failed: ${key}`);
+    return store.has(key) ? store.get(key) : null;
+  },
   setItem: async (key, value) => { store.set(key, value); },
   removeItem: async key => { store.delete(key); },
 };
@@ -41,6 +47,15 @@ const ioStub = {
       return raw ? JSON.parse(raw) : fallback;
     } catch (error) {
       return fallback;
+    }
+  },
+  readJsonStatus: async key => {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (raw === null || raw === undefined) return { status: 'missing' };
+      return { status: 'ok', value: JSON.parse(raw) };
+    } catch (error) {
+      return { status: 'corrupt' };
     }
   },
 };
@@ -148,7 +163,8 @@ test('倍速显示：整数不带小数，0.75 保留两位', () => {
   assert.equal(formatMusicRate(undefined), '1x');
 });
 
-test('存储往返：保存后读回一致，局部更新不打回默认，损坏数据回落默认', async () => {
+test('存储往返：保存后读回一致，局部更新不打回默认；读失败读路径回退默认、写路径拒绝写回', async () => {
+  failedGets.clear();
   assert.deepEqual(await getMusicPlayerSettings(), DEFAULT_MUSIC_PLAYER_SETTINGS);
   const saved = await saveMusicPlayerSettings({ playMode: 'shuffle', rate: 1.5 });
   assert.deepEqual(saved, { playMode: 'shuffle', rate: 1.5 });
@@ -157,8 +173,27 @@ test('存储往返：保存后读回一致，局部更新不打回默认，损�
   const patched = await saveMusicPlayerSettings({ rate: 2 });
   assert.deepEqual(patched, { playMode: 'shuffle', rate: 2 }, '只改倍速不应把播放方式打回默认');
 
+  // ① 读会抛错：读路径仍回退默认（不阻断播放），但写回被拒绝
+  const before = store.get('@easychat2_music_player');
+  failedGets.add('@easychat2_music_player');
+  assert.deepEqual(
+    await getMusicPlayerSettings(),
+    DEFAULT_MUSIC_PLAYER_SETTINGS,
+    '读失败回退默认（读路径行为不变）'
+  );
+  await assert.rejects(
+    () => saveMusicPlayerSettings({ playMode: 'stop' }),
+    /music-player-settings-read-failed/,
+    '读失败必须拒绝写回：否则会用默认值抹掉用户的设置'
+  );
+  assert.equal(store.get('@easychat2_music_player'), before, '读失败不得覆盖原值');
+  failedGets.delete('@easychat2_music_player');
+
+  // ② 值是坏的（JSON 解析不了）：同样拒绝，原始内容原样保留
   store.set('@easychat2_music_player', '{not json');
-  assert.deepEqual(await getMusicPlayerSettings(), DEFAULT_MUSIC_PLAYER_SETTINGS, '损坏数据回落默认');
+  assert.deepEqual(await getMusicPlayerSettings(), DEFAULT_MUSIC_PLAYER_SETTINGS, '损坏数据读路径回落默认');
+  await assert.rejects(() => saveMusicPlayerSettings({ rate: 2 }), /music-player-settings-read-failed/);
+  assert.equal(store.get('@easychat2_music_player'), '{not json', '损坏原值不得被覆盖');
 });
 
 test('播放控件：左右三角是上一首/下一首，跳时间交给 -15 / +15', () => {

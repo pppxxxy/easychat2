@@ -3,7 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { readJson } from '../storage/io.js';
+import { readJsonStatus } from '../storage/io.js';
 
 export const BOOK_READER_SETTINGS_KEY = '@easychat2_book_reader';
 
@@ -24,14 +24,40 @@ export function normalizeBookReaderSettings(raw) {
   };
 }
 
+// 读设置 → { status, settings }，把「没有这个键」与「读不到/结构非法」分开。
+// 以前这里用 readJson(key, DEFAULT)：读失败也返回默认值，面板一保存就把默认值
+// 写回，用户的翻页方式被静默抹掉（不可逆）。
+// 口径同 src/storage/worldMap.js:34-40「读失败就抛错中止：绝不用空列表覆盖已有地图」，
+// 但**读路径行为保持不变**：读失败仍回退默认给 UI，不阻断阅读。
+// 默认值一律经 normalize(null) 现造（不把 DEFAULT_BOOK_READER_SETTINGS 这个模块级
+// 常量按引用交出去，调用方改了它就等于改了全局默认）。
+// 损坏值的备份不在这里重复做：本模块的写路径已改为直接拒绝，损坏原值原地保留，
+// 不存在被默认值覆盖的风险（备份只在「即将覆盖」时才有意义）。
+async function readBookReaderSettingsStatus() {
+  const stored = await readJsonStatus(BOOK_READER_SETTINGS_KEY);
+  const fallback = normalizeBookReaderSettings(null);
+  if (
+    stored.status === 'corrupt'
+    || (stored.status === 'ok'
+      && (stored.value === null || typeof stored.value !== 'object' || Array.isArray(stored.value)))
+  ) {
+    return { status: 'corrupt', settings: fallback };
+  }
+  if (stored.status === 'missing') return { status: 'ok', settings: fallback };
+  return { status: 'ok', settings: normalizeBookReaderSettings(stored.value) };
+}
+
 export async function getBookReaderSettings() {
-  const stored = await readJson(BOOK_READER_SETTINGS_KEY, DEFAULT_BOOK_READER_SETTINGS);
-  return normalizeBookReaderSettings(stored);
+  const result = await readBookReaderSettingsStatus();
+  return result.settings;
 }
 
 export async function saveBookReaderSettings(patch) {
-  const current = await getBookReaderSettings().catch(() => DEFAULT_BOOK_READER_SETTINGS);
-  const next = normalizeBookReaderSettings({ ...current, ...(patch || {}) });
+  const result = await readBookReaderSettingsStatus();
+  // 读失败**拒绝写回**：此时拿到的只能是默认值，写回等于把用户存的设置抹成默认。
+  // 错误码写法同 src/screenWatch/threads.js:99（调用方目前 catch 后静默，不面向用户）。
+  if (result.status === 'corrupt') throw new Error('book-reader-settings-read-failed');
+  const next = normalizeBookReaderSettings({ ...result.settings, ...(patch || {}) });
   await AsyncStorage.setItem(BOOK_READER_SETTINGS_KEY, JSON.stringify(next));
   return next;
 }

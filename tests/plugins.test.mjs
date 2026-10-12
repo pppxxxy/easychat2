@@ -3,6 +3,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   normalizePluginId,
@@ -22,17 +24,28 @@ import {
   uninstallPlugin,
   PLUGINS_FILE,
 } from '../src/workspace/plugins/loader.js';
+import { tActive } from '../src/i18n/index.js';
 
 // 内存 store（只实现 read/write，够 loader 用）。
+// 「文件不存在」按真 store 的口径抛 error.workspace.fileNotFound（store.js:120 /
+// safStore.js:178/180）——loader 正是靠这条文案把「首次安装」与「读失败」分开。
 function memoryStore(initial = {}) {
   const files = { ...initial };
   return {
     files,
     async readWorkspaceFile({ path }) {
-      if (!(path in files)) throw new Error('not found');
+      if (!(path in files)) throw new Error(tActive('error.workspace.fileNotFound', { path }));
       return { content: files[path] };
     },
     async writeWorkspaceFile({ path, content }) { files[path] = String(content); return { ok: true }; },
+  };
+}
+
+// 读会失败的 store：内容还在，但每一次读都抛（权限 / SAF / 底层 IO）。
+function unreadableStore(initial = {}, message = 'permission denied') {
+  return {
+    ...memoryStore(initial),
+    async readWorkspaceFile() { throw new Error(message); },
   };
 }
 
@@ -191,8 +204,100 @@ test('loader：非法清单被拒（validate 兜底）', async () => {
   assert.match(result.error, /id/);
 });
 
+test('loader：读失败必须拒绝写入，已装插件不被覆盖（不得把「读不到」当成「一个都没装」）', async () => {
+  const existing = serializePlugins([normalizeManifest({ id: 'keep', name: 'Keep' })]);
+  const store = unreadableStore({ [PLUGINS_FILE]: existing });
+
+  const installed = await installPlugin({ store, manifest: { id: 'new', name: 'New' } });
+  assert.equal(installed.ok, false, '读失败必须明确失败');
+  assert.match(installed.error, /permission denied/);
+  assert.equal(store.files[PLUGINS_FILE], existing, '读失败不得覆盖原清单');
+
+  const removed = await uninstallPlugin({ store, id: 'keep' });
+  assert.equal(removed.ok, false, '卸载同样不得在读失败时写入');
+  assert.equal(store.files[PLUGINS_FILE], existing, '读失败不得覆盖原清单');
+});
+
+test('loader：文件不存在（首次安装）仍可写入——「读不到」与「没有文件」必须区分', async () => {
+  const store = memoryStore();
+  const result = await installPlugin({ store, manifest: { id: 'x', name: 'X' } });
+  assert.equal(result.ok, true, '首次安装：文件还不存在是正常态');
+  assert.equal(loadPluginsFromText(store.files[PLUGINS_FILE]).length, 1);
+});
+
+test('loader：loadPluginRuntime 把「读失败」与「没有插件」分开透出', async () => {
+  const broken = await loadPluginRuntime({ store: unreadableStore() });
+  assert.deepEqual(broken.plugins, []);
+  assert.equal(broken.status, 'error', '读失败不得被当成「一个插件都没装」');
+  assert.match(broken.error, /permission denied/);
+
+  const empty = await loadPluginRuntime({ store: memoryStore() });
+  assert.deepEqual(empty.plugins, []);
+  assert.equal(empty.status, 'missing', '文件不存在是正常态');
+  assert.equal(empty.error, undefined);
+});
+
 test('loader：loadPluginRuntime 在无 store 时降级为空运行时', async () => {
   const runtime = await loadPluginRuntime({});
   assert.deepEqual(runtime.pluginIds, []);
   assert.equal(runtime.tools.length, 0);
+});
+
+// ---- 槽位接线守卫（2026-10-12）----
+// 背景：manifest 允许 6 种 kind，PluginSlot 也配了 6 种图标，市场里的示例插件用的是
+// chat.header——但 src 里唯一的渲染点是 WorkspacePluginsPanel 的 settings.row。也就是说
+// 其余 5 种「注册成功、校验通过、永不显示」，而上面的注册层断言（reg.render('chat.header')）
+// 照样通过：**假接线在测试上是绿的**。这条守卫要求每种声明的 kind 都有归属：
+//   · 真接线 → src 里必须能找到 `<PluginSlot kind="X"`，且接线表里写的就是那个文件；
+//   · 未接线 → 必须显式标 null，并由插件面板如实列出（用户至少能看到「注册了什么」）。
+// 新增 kind 时必须选一边，不会再默默漏掉。
+function collectJsFiles(dir, out = []) {
+  for (const entry of fs.readdirSync(path.resolve(dir), { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectJsFiles(full, out);
+    else if (entry.name.endsWith('.js')) out.push(full);
+  }
+  return out;
+}
+
+test('槽位接线：manifest 声明的每种 kind 都有归属（接线或显式未接线）', () => {
+  const slotSource = fs.readFileSync(path.resolve('src/workspace/screen/PluginSlot.js'), 'utf8');
+  const table = /const SLOT_RENDER_POINTS = Object\.freeze\(\{([\s\S]*?)\n\}\)/.exec(slotSource);
+  assert.ok(table, 'SLOT_RENDER_POINTS 必须是模块级对象字面量（接线表的单一事实源）');
+  const entries = [...table[1].matchAll(/'([a-z.]+)':\s*(null|'([^']+)')/g)]
+    .map(match => ({ kind: match[1], point: match[3] || null }));
+  assert.deepEqual(
+    entries.map(entry => entry.kind).sort(),
+    [...SLOT_KINDS].sort(),
+    '接线表必须覆盖 manifest 的每一种 kind（不多不少）——新增 kind 时要在这里选边',
+  );
+
+  // 真接线的 kind：源码里必须真的有人渲染它
+  const callSites = new Set();
+  for (const file of collectJsFiles('src')) {
+    const source = fs.readFileSync(file, 'utf8');
+    for (const match of source.matchAll(/<PluginSlot\s+kind="([a-z.]+)"/g)) callSites.add(match[1]);
+  }
+  for (const entry of entries) {
+    if (!entry.point) continue;
+    assert.ok(fs.existsSync(path.resolve(entry.point)), `${entry.kind} 的渲染点 ${entry.point} 不存在`);
+    assert.ok(
+      fs.readFileSync(path.resolve(entry.point), 'utf8').includes(`<PluginSlot kind="${entry.kind}"`),
+      `${entry.kind} 声称接在 ${entry.point}，但那里没有渲染它（接线表与代码不一致）`,
+    );
+    assert.ok(callSites.has(entry.kind), `${entry.kind} 必须真的被渲染（源码里找不到 <PluginSlot kind="${entry.kind}"）`);
+  }
+  for (const entry of entries) {
+    if (entry.point) continue;
+    assert.equal(callSites.has(entry.kind), false,
+      `${entry.kind} 已经有渲染点了，请把接线表里的 null 改成渲染点文件`);
+  }
+
+  // 未接线列表必须是**派生**的（别手写第二份），且插件面板要如实展示未接线的槽位
+  const derived = /const UNWIRED_SLOT_KINDS = Object\.freeze\(([\s\S]*?)\);/.exec(slotSource);
+  assert.ok(derived, 'UNWIRED_SLOT_KINDS 必须存在');
+  assert.ok(derived[1].includes('SLOT_RENDER_POINTS'), '未接线列表必须由接线表派生，不得手写');
+  const panel = fs.readFileSync(path.resolve('src/extension/WorkspacePluginsPanel.js'), 'utf8');
+  assert.ok(panel.includes('UNWIRED_SLOT_KINDS'),
+    '插件面板必须如实列出未接线槽位——注册成功却在任何界面都不出现，才是真正的假接线');
 });
