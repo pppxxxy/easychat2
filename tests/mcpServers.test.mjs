@@ -314,10 +314,43 @@ test('设置页接线：卡片 / sectionProps / 搜索索引 / i18n 中英齐', 
   assert.ok(search.includes("sectionId: 'mcpservers'"), '搜索项');
   const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/settings.js'), 'utf8');
   const en = fs.readFileSync(path.resolve('src/i18n/locales/en/settings.js'), 'utf8');
-  for (const key of ['settings.mcp.title', 'settings.mcp.riskHint', 'settings.mcp.add.action', 'settings.mcp.err.endpoint']) {
+  for (const key of [
+    'settings.mcp.title', 'settings.mcp.riskHint', 'settings.mcp.add.action', 'settings.mcp.err.endpoint',
+    // 2026-10-13：两块各自可折叠所需的词条（漏译会让折叠头显示原始键名）
+    'settings.mcp.thirdParty.title', 'settings.mcp.server.off', 'settings.mcp.server.unavailableShort',
+  ]) {
     assert.ok(zh.includes(`'${key}'`), `中文缺键 ${key}`);
     assert.ok(en.includes(`'${key}'`), `英文缺键 ${key}`);
   }
+});
+
+test('折叠布局（2026-10-13 用户反馈）：内置块默认收起、第三方块默认展开，谁都不用划过谁', () => {
+  const section = fs.readFileSync(path.resolve('src/settings/sections/McpServersSection.js'), 'utf8');
+  const card = fs.readFileSync(path.resolve('src/settings/McpServerCard.js'), 'utf8');
+
+  // 内置 MCP Server：自带折叠头且**默认收起**——字段最多（开关/范围/端口/token/三档/
+  // 连接配置），常驻展开会把同卡的第三方块与添加入口推到一屏之外。
+  assert.ok(card.includes('<CollapsibleSection'), '内置块自带折叠头');
+  assert.ok(/title=\{t\('settings\.mcp\.server\.title'\)\}/.test(card), '折叠头用内置块标题');
+  assert.ok(card.includes('defaultOpen={false}'), '内置块默认收起');
+  assert.ok(card.includes('styles.collapseSummary'), '收起时在头部如实显示运行状态（不展开也知道开没开）');
+  assert.ok(
+    card.includes("t('settings.mcp.server.running'") && card.includes("t('settings.mcp.server.off')"),
+    '状态摘要覆盖「运行中 / 已关闭」两态'
+  );
+  assert.ok(!card.includes("styles.label}>{t('settings.mcp.server.title')}"), '标题不再在正文里重复一遍');
+
+  // 第三方块：可折叠 + **默认展开**（来这张卡多半是要加服务器），摘要给服务器台数。
+  assert.ok(section.includes('<CollapsibleSection'), '第三方块可折叠');
+  assert.ok(section.includes("title={t('settings.mcp.thirdParty.title')}"), '第三方块标题走 i18n');
+  assert.ok(/\n\s+defaultOpen\n/.test(section), '第三方块默认展开');
+  assert.ok(section.includes("t('settings.mcp.count', { count: list.length })"), '折叠头显示服务器台数');
+  // 默认展开 = 添加入口在展开区内（用户不必先划过内置块才能看到它）。
+  const addAt = section.indexOf("t('settings.mcp.add.action')");
+  const collapsibleOpenAt = section.indexOf('<CollapsibleSection');
+  assert.ok(collapsibleOpenAt > 0 && addAt > collapsibleOpenAt, '添加入口位于第三方折叠块内部');
+  // 内置块在第三方块之前渲染（顺序契约不变：被连 → 外连）。
+  assert.ok(section.indexOf('<McpServerCard') < collapsibleOpenAt, '内置块仍排在前面');
 });
 
 test('会话工厂泛化：自定义 headers 与 token 一起送出（第三方 X-Api-Key 场景）', async () => {

@@ -133,6 +133,11 @@ export const settings = {
   'settings.mcp.riskHint': 'Safety boundary: readonly tools run directly; every other tool asks for confirmation; delete / force-push / admin operations are always blocked, even with confirmation.',
   // The other direction: the app itself acts as an MCP server for external agents.
   'settings.mcp.server.title': 'Built-in MCP server',
+  // One-line state on the collapsed header (know whether it is on without expanding);
+  // the two directions collapse independently.
+  'settings.mcp.server.off': 'Off',
+  'settings.mcp.server.unavailableShort': 'Unavailable in this build',
+  'settings.mcp.thirdParty.title': 'Third-party servers',
   'settings.mcp.server.subtitle': 'Let Codex, Claude Code and other external agents connect to the app: read the workspace, edit files, run commands. Off by default.',
   'settings.mcp.server.unavailable': 'This build has no MCP server native module (rebuild the APK).',
   'settings.mcp.server.startFailed': 'Failed to start (the switch was rolled back to off): ',

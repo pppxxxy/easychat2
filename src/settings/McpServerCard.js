@@ -6,12 +6,17 @@
 //
 // 挂在「MCP 服务器」卡内部（McpServersSection 渲染）而不是新开一张设置卡：两个方向
 // 本来就是一回事（外连/被连），共用一张卡也让 SettingsScreen 的区块渲染顺序契约不用动。
+//
+// 2026-10-13（用户反馈）：**整块默认收起**。它是「被连」的方向，字段最多（开关/范围/
+// 端口/token/三档/连接配置），常驻展开会把同卡下面的「第三方服务器 + 添加入口」推到
+// 一屏之外——用户想加个第三方服务器得先划过整个内置块。折叠头右侧如实显示运行状态
+//（运行中/已关闭），沿用 ExtensionsSection 那条「开关状态一眼可见、参数默认收起」的先例。
 
 import React, { useCallback, useState } from 'react';
 import { Switch, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Chip, FieldHint, FieldLabel, GhostButton, TextField } from '../ui/index.js';
+import { Chip, CollapsibleSection, FieldHint, FieldLabel, GhostButton, TextField } from '../ui/index.js';
 import SecretTextField from './SecretTextField.js';
 import useMcpServer from './useMcpServer.js';
 import { MCP_SERVER_PORT_DEFAULT } from '../storage/settings.js';
@@ -39,9 +44,21 @@ export default function McpServerCard({ styles, theme, t }) {
     }
   }, [server]);
 
+  // 折叠头右侧的一行状态：不展开也知道内置服务器现在开没开（沿用设置页其它折叠块的
+  // collapseSummary 位）。可用性优先于开关状态——本构建没有原生模块时先说这个。
+  const summary = !server.status.available
+    ? t('settings.mcp.server.unavailableShort')
+    : (server.status.running
+      ? t('settings.mcp.server.running', { port: server.status.port })
+      : t('settings.mcp.server.off'));
+
   return (
-    <>
-      <FieldLabel style={styles.label}>{t('settings.mcp.server.title')}</FieldLabel>
+    <CollapsibleSection
+      title={t('settings.mcp.server.title')}
+      icon="radio-outline"
+      defaultOpen={false}
+      right={<Text style={styles.collapseSummary} numberOfLines={1}>{summary}</Text>}
+    >
       <FieldHint style={styles.hint}>{t('settings.mcp.server.subtitle')}</FieldHint>
 
       {server.status.available ? null : (
@@ -162,6 +179,6 @@ export default function McpServerCard({ styles, theme, t }) {
           disabled={disabled}
         />
       </View>
-    </>
+    </CollapsibleSection>
   );
 }

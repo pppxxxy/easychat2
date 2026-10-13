@@ -10,7 +10,7 @@ import React from 'react';
 import { Switch, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { FieldHint, FieldLabel, GhostButton, SecondaryButton, TextField } from '../../ui/index.js';
+import { CollapsibleSection, FieldHint, FieldLabel, GhostButton, SecondaryButton, TextField } from '../../ui/index.js';
 import McpServerCard from '../McpServerCard.js';
 import SecretTextField from '../SecretTextField.js';
 
@@ -40,7 +40,20 @@ export default function McpServersSection(props) {
 
   return (
     <>
+      {/* 内置 MCP Server 自己带折叠头（McpServerCard 内），默认收起——见那边的说明。 */}
       <McpServerCard styles={styles} theme={theme} t={t} />
+      {/* 第三方服务器：本卡的主角，**默认展开**（用户来这张卡多半是要加服务器），
+          但仍可单独收起——两块各自折叠，谁也不用划着越过谁。 */}
+      <CollapsibleSection
+        title={t('settings.mcp.thirdParty.title')}
+        icon="link-outline"
+        defaultOpen
+        right={list.length > 0 ? (
+          <Text style={styles.collapseSummary} numberOfLines={1}>
+            {t('settings.mcp.count', { count: list.length })}
+          </Text>
+        ) : null}
+      >
       <FieldHint style={styles.hint}>{t('settings.mcp.subtitle')}</FieldHint>
       {list.length === 0 ? (
         <FieldHint style={styles.hint}>{t('settings.mcp.empty')}</FieldHint>
@@ -120,6 +133,7 @@ export default function McpServersSection(props) {
           onPress={onAddMcpServer}
         />
       </View>
+      </CollapsibleSection>
     </>
   );
 }

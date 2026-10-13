@@ -135,6 +135,10 @@ export const settings = {
   'settings.mcp.riskHint': '安全边界：只读工具直接放行；其余工具每次调用需确认；删除 / 强推 / 管理类操作即使确认也永远禁止。',
   // 反方向：App 自己当 MCP Server，让外部 agent 连进来（Codex / Claude Code 等）。
   'settings.mcp.server.title': '内置 MCP Server',
+  // 折叠头右侧的一行状态（收起时不展开也知道开没开）；两个方向各自可折叠。
+  'settings.mcp.server.off': '已关闭',
+  'settings.mcp.server.unavailableShort': '本构建不可用',
+  'settings.mcp.thirdParty.title': '第三方服务器',
   'settings.mcp.server.subtitle': '让 Codex、Claude Code 等外部 agent 连进 App：读工作区、改文件、跑命令。默认关闭。',
   'settings.mcp.server.unavailable': '本构建不含 MCP 服务器原生模块（需要重新构建 APK）。',
   'settings.mcp.server.startFailed': '启动失败（开关已回滚为关闭）：',
