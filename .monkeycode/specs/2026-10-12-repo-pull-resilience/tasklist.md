@@ -52,6 +52,19 @@ spec: 2026-10-12-repo-pull-resilience ｜ 依据 main（ed4a2b5）源码核验
       isDirtyPullState 硬信号口径、hasMissingGaps 阈值边界（9/10/新增更多）、
       文案占位符 zh/en 联动（translate 渲染无残留 {）、
       守卫先于下载 + manifest 先读后裁决的接线回归（repoImport/workspacePanel 两处旧断言同步改造）。
+- [x] R1-6 **复查补修（同一失败类的第二个入口）**：`useRepoBranch.quickCheckout` 原把 Trees 清单
+      **全量**写进基线（`entries.filter(item => item.type !== 'tree').map(...)`）。基线在
+      `repoPush.diffRemoteLocal` 里的语义是「**曾经物化过**」的证据——全量基线让每个未物化的
+      远程文件满足 `remote ∧ known ∧ ¬local`，被判成「用户删除」：**快速检出后直接点推送 =
+      用 sha:null 条目删掉整仓远端文件**（本地实测：3 文件仓库 remote=[a,b,c]、本地只物化 a、
+      基线=全树 → `removed=[b,c]`）；面板「待同步」同时也把未物化文件报成「删除 N」——与截图
+      同一类误导。修正：基线只写本地已物化清单（`localRepoPaths`，与完整拉取/推送成功路径同口径），
+      未物化文件退回 G1 的 `remoteOnly` 第三态（保持原样、点名、不进 pending）。纯函数契约
+      `repoPush.test.mjs`「全量未物化 → 删除恒空」原本就写明了正确语义，接线与它相悖——本次把接线
+      对齐契约，并把反例（全树基线 → removed 非空）钉成行为测试；AGENTS.md 不变量增 ⑦。
+      残留小口径（如实记录、不阻断）：快速检出后按需物化的文件在「待同步」里会被算成「本地新增」
+      （路径 diff 判定不了「它只是远程副本」）；推送门按 blob sha 复核 → 结果仍是「无待推送」，
+      不会误推。点「标记为已同步」或跑一次完整拉取即回到精确口径。
 
 ### R2 按文件拉取管线 —— 评估先行（一页结论如下，未排实现）
 结论：**建议暂缓实现，zip 路线在 R0+R1 后覆盖当前已知痛点；待真实弱网失败样本再立项。**

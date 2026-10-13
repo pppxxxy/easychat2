@@ -368,8 +368,15 @@ test('C1 快速检出接线：Trees API + 清单落盘/载入 + 树合并（云�
   assert.ok(github.includes('virtualPaths.has(child.path)'), '未物化条目带云朵角标');
   assert.ok(github.includes("t('workspace.github.checkout.truncatedHint')"), '截断如实提示（不假装拿全）');
   assert.ok(
-    branch.includes('const paths = entries.filter(item => item.type'),
-    '清单设为「已同步」基线（与完整拉取同语义）'
+    branch.includes('const paths = localRepoPaths({'),
+    '基线 = 本地已物化清单（与完整拉取同口径）'
+  );
+  // G1 删除安全网（R 系复查修正）：旧接线把清单全量写进基线，等于宣称未物化文件
+  // 「曾经物化过」——下次推送会把它们判成「用户删除」并真删远端（快速检出后点推送
+  // = 删整仓）。行为反例钉在 repoPush.test.mjs 的「全量未物化」用例里。
+  assert.ok(
+    !branch.includes("entries.filter(item => item.type !== 'tree').map(item => item.path)"),
+    '禁止把清单全量写进基线（会让未物化文件在推送时被当删除）'
   );
 });
 

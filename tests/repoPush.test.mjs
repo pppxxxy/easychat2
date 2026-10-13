@@ -448,4 +448,14 @@ test('G1 可见性：diff 报出 remoteOnly 与 knownRemoteCount，且不进 pen
   assert.deepEqual(quick.removed, []);
   assert.equal(quick.remoteOnly.length, 4);
   assert.equal(quick.knownRemoteCount, 0);
+
+  // 反例（R 系复查：useRepoBranch 曾把清单全量写进基线）：knownPaths 含未物化路径时
+  // 它们会被判成「用户删除」——推送会真删远端。这条钉死「快速检出不得这么写基线」。
+  const wrong = diffRemoteLocal({
+    localFiles: [],
+    remoteEntries,
+    knownPaths: ['a.txt', 'gone.txt', 'pic.png', 'big.zip'],
+  });
+  assert.deepEqual(wrong.removed, ['a.txt', 'big.zip', 'gone.txt', 'pic.png'],
+    '把清单全量当基线 → 未物化文件被当删除（这正是必须只写本地清单的原因）');
 });

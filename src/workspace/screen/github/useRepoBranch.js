@@ -4,6 +4,7 @@ import { Alert } from 'react-native';
 import { setRepoSnapshot } from '../../../storage/workspace.js';
 import { readRepoManifest, writeRepoManifest } from '../../repoImport.js';
 import { listBranches, listTree } from '../../github/restApi.js';
+import { localRepoPaths } from '../repoDiff.js';
 
 // 分支与物化域：选中仓库后拉分支列表、载入清单缓存、快速检出（写清单 + 基线）。
 // 从 GithubPanel 原样搬出（行为不变）；仓库态/刷新由面板注入。
@@ -140,9 +141,18 @@ export default function useRepoBranch({
         setCurrent(prev => (prev ? { ...prev, branch } : prev));
         setSubdir(`repos/${current.owner}/${current.repo}/${branch}/`);
       }
-      // 基线 = 清单里的文件（「已同步」语义与完整拉取一致：远程已存在这些文件）。
+      // 基线 = **本地已物化清单**（与完整拉取/推送成功路径同口径）。
+      // 绝不能把清单里的全部路径写进基线：那等于宣称「这些文件曾经物化过」，
+      // 未物化的远程文件会在下次推送时被 repoPush.diffRemoteLocal 判成「用户删除」
+      // 并真的删掉远端（Trees API 的 sha:null 条目）——G1 的删除安全网就此失效
+      //（快速检出后直接点推送 = 删掉整仓）。纯函数契约见 repoPush.test.mjs 的
+      // 「全量未物化 → 删除恒空 + remoteOnly 点名」。
       try {
-        const paths = entries.filter(item => item.type !== 'tree').map(item => item.path);
+        const list = await store.listWorkspaceFiles({ characterId });
+        const paths = localRepoPaths({
+          files: list,
+          prefix: `repos/${current.owner}/${current.repo}/${branch}/`,
+        });
         await setRepoSnapshot(characterId, `${current.owner}/${current.repo}/${branch}`, { paths });
         if (mountedRef.current) setSnapshotPaths(paths);
       } catch (error) {}
