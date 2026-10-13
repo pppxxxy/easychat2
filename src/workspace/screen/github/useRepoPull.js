@@ -1,10 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert } from 'react-native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 import { getRepoSnapshot, setRepoSnapshot } from '../../../storage/workspace.js';
 import { classifyPullGuard, diffRepoSnapshot, localRepoPaths, pullGuardCopy } from '../repoDiff.js';
 import { downloadZip } from '../../github/restApi.js';
+import {
+  attachPullPanel,
+  beginPull,
+  endPull,
+  getPullState,
+  isPullCancelRequested,
+  requestPullCancel,
+  setPullNotice as setControllerNotice,
+  setPullProgress,
+  subscribePull,
+} from './pullController.js';
 import {
   buildPullSkippedPayload,
   buildRepoZipUrl,
@@ -20,12 +31,15 @@ import {
 const PULL_KEEP_AWAKE_TAG = 'easychat2-repo-pull';
 
 // 拉取（重拉远端快照到本地副本）域：进度/ETA/前台提示、覆盖确认、跳过清单。
-// 从 GithubPanel 原样搬出（行为不变）；store/仓库态/刷新由面板注入。
+// store/仓库态/刷新由面板注入。
 // R0/R1（2026-10-12 spec repo-pull-resilience）：
 //   · 传输预算在 restApi.downloadZip（重试 3 次 + body 停滞掐表 + 超时分级）；
 //   · 拉取全程 KeepAwake（进程被杀是残缺主因之一）；
 //   · 守卫裁决序走 classifyPullGuard——manifest 残留（dirtyPull）不再误报
 //     「未推送的改动」，改弹说明性的「重新拉取将修复缺失文件」。
+// R4（Q3 实测修正）：running/进度/取消/提示全部住在**模块级单例** pullController 里——
+//   切标签卸载 GithubPanel 不再丢状态（重挂载即恢复进度），二次点击被单例拦下
+//   （重入守卫不再是会归零的局部 state，杜绝两个写入循环并发写同一个 store）。
 export default function useRepoPull({
   characterId,
   storeRef,
@@ -40,17 +54,18 @@ export default function useRepoPull({
   setSubdir,
   setSnapshotPaths,
 }) {
-  const [pullBusy, setPullBusy] = useState(false);
-  const [pullProgress, setPullProgress] = useState({ done: 0, total: 0 });
-  const [pullNotice, setPullNotice] = useState('');
-  const [pullEta, setPullEta] = useState(0);
+  // R4：面板只订阅控制器（进度/忙碌/提示/ETA 都不再是组件局部 state）。
+  const pullState = useSyncExternalStore(subscribePull, getPullState);
+  const { running: pullBusy, progress: pullProgress, notice: pullNotice, eta: pullEta } = pullState;
   const pullStartRef = useRef(0);
-  const pullCancelRef = useRef(false);
   const [skippedPayload, setSkippedPayload] = useState(null);
   const [skippedOpen, setSkippedOpen] = useState(false);
   // R1-3：manifest 残留态暴露给面板（推送区置灰的数据源）。挂载时读一次；
   // pullSnapshot 内实时刷新（进入时读、成功后清空、写出清单后失败时保留）。
   const [pullManifest, setPullManifest] = useState(null);
+
+  // R4：挂载计数（控制器据此判断「完成时面板在不在场」——不在场就留给下次挂载如实告知）。
+  useEffect(() => attachPullPanel(), []);
 
   // G2：面板（重）挂载时读上次拉取的跳过清单——「跳过 N 个文件（可查看清单）」
   // 在会话之间也保留（agent 同样能用 read_workspace_file 读 .easychat/pull-skipped.json）。
@@ -88,17 +103,20 @@ export default function useRepoPull({
   }), [t]);
 
   const pullSnapshot = useCallback(async () => {
-    if (!current || pullBusy) return;
+    if (!current) return;
     const store = storeRef && storeRef.current;
     if (!store) return;
+    // R4：双写保护在**模块级控制器**里——切标签重挂载后 pullBusy 会归零，旧循环却还在跑；
+    // 这里拒绝第二次启动并如实提示（不再静默 return 让用户以为没反应）。
+    if (!beginPull()) {
+      Alert.alert(t('workspace.github.title'), t('workspace.github.pull.alreadyRunning'));
+      return;
+    }
     const branch = String(pullBranch || current.branch || '').trim() || current.branch;
-    setPullBusy(true);
-    setPullProgress({ done: 0, total: 0 });
-    setPullNotice('');
-    setPullEta(0);
     pullStartRef.current = Date.now();
-    pullCancelRef.current = false;
     let batchOpen = false;
+    let written = 0;
+    let pullResult = 'ok';
     // R0-3：拉取期间保持屏幕常亮——上千文件的写入窗口里 app 被系统杀掉是残缺的
     // 直接根源；activate/deactivate 都绝不挡主流程（失败静默）。
     let keepAwakeOn = false;
@@ -131,7 +149,7 @@ export default function useRepoPull({
             t(copy.key, copy.params),
             'workspace.github.pull.dirtyConfirm'
           );
-          if (!proceed) return;
+          if (!proceed) { pullResult = 'cancelled'; return; }
         } else if (decision.kind === 'overwrite') {
           // (b) 无残留且有增删 → B3 守卫，文案按 added/removed 拆分报告。
           const copy = pullGuardCopy({ decision });
@@ -140,7 +158,7 @@ export default function useRepoPull({
             t(copy.key, copy.params),
             'workspace.github.pull.overwriteConfirm'
           );
-          if (!proceed) return;
+          if (!proceed) { pullResult = 'cancelled'; return; }
         }
         // (c) clean：本地为空（首次拉取）或与基线一致，直接放行。
       } catch (error) {}
@@ -163,11 +181,13 @@ export default function useRepoPull({
       });
       if (files.length === 0) {
         Alert.alert(t('workspace.github.title'), t('workspace.github.pull.noFiles'));
+        pullResult = 'empty';
         return;
       }
       // F4：残留提示（裁决序已据 staleManifest 分流——这里只保留人读的进度说明）。
-      if (staleManifest && mountedRef.current) {
-        setPullNotice(t('workspace.github.pull.resumeNote', { count: staleManifest.files }));
+      // R4：提示住控制器里，卸载重挂后仍能看到「本次在覆盖重写」。
+      if (staleManifest) {
+        setControllerNotice(t('workspace.github.pull.resumeNote', { count: staleManifest.files }));
       }
       if (typeof store.beginBatch === 'function') {
         store.beginBatch(characterId, { path: base });
@@ -185,9 +205,8 @@ export default function useRepoPull({
       if (manifestWritten && mountedRef.current) {
         setPullManifest({ owner: current.owner, repo: current.repo, branch, files: files.length });
       }
-      let written = 0;
       for (let index = 0; index < files.length; index += 1) {
-        if (pullCancelRef.current) {
+        if (isPullCancelRequested()) {
           throw Object.assign(new Error('pull cancelled'), { code: 'PULL_CANCELLED' });
         }
         await store.writeWorkspaceFile({
@@ -197,12 +216,12 @@ export default function useRepoPull({
         });
         written += 1;
         if (index % 5 === 4 || index === files.length - 1) {
-          setPullProgress({ done: written, total: files.length });
           // F4：按已写速率估算剩余——用户要的是「还要等多久」的量级，不追求精确。
           const elapsed = (Date.now() - pullStartRef.current) / 1000;
-          if (written > 0 && elapsed > 0) {
-            setPullEta(Math.max(1, Math.round((elapsed / written) * (files.length - written))));
-          }
+          const eta = written > 0 && elapsed > 0
+            ? Math.max(1, Math.round((elapsed / written) * (files.length - written)))
+            : 0;
+          setPullProgress({ done: written, total: files.length }, eta);
         }
       }
       if (batchOpen) { store.endBatch?.(); batchOpen = false; }
@@ -235,26 +254,36 @@ export default function useRepoPull({
     } catch (caught) {
       if (batchOpen) { store.abortBatch?.(); batchOpen = false; }
       if (caught && caught.code === 'PULL_CANCELLED') {
+        pullResult = 'cancelled';
         Alert.alert(t('workspace.github.title'), t('workspace.github.pull.cancelled'));
       } else {
+        pullResult = 'failed';
         Alert.alert(t('workspace.github.title'), describeError(caught));
       }
     } finally {
       // R0-3：无论成败都解除常亮（deactivate 绝不抛——旁路机制）。
       if (keepAwakeOn) { deactivateKeepAwake(PULL_KEEP_AWAKE_TAG).catch(() => {}); }
-      if (mountedRef.current) {
-        setPullBusy(false);
-        setPullProgress({ done: 0, total: 0 });
-      }
+      // R4：收尾写进控制器——面板此刻在不在场都能如实记录（不在场 → 重挂载后提示
+      // 「上次拉取已在你离开时跑完」，这正是 Q3「失明」与「真死」的分界线）。
+      endPull({ result: pullResult, written });
     }
-  }, [characterId, confirmPullAsk, current, describeError, pullBranch, pullBusy, refreshLocal, storeRef, t, token, setCurrent, setSubdir, setSnapshotPaths]);
+  }, [characterId, confirmPullAsk, current, describeError, pullBranch, refreshLocal, storeRef, t, token, setCurrent, setSubdir, setSnapshotPaths]);
+
+  // R4：取消 = 请求控制器置位（循环到下一个检查点抛出 PULL_CANCELLED）。
+  const pullCancel = useCallback(() => { requestPullCancel(); }, []);
+
+  // R4：拉取在面板不在场时完成（切了标签又切回来）——如实告知，把「失明」与「真死」
+  // 在界面上分开。文案在这里合并进提示行（面板不需要多一条 UI 分支）。
+  const noticeText = pullNotice || (pullState.finishedWhileAway
+    ? t('workspace.github.pull.finishedWhileAway', { count: pullState.finishedWhileAway.written })
+    : '');
 
   return {
     pullBusy,
     pullProgress,
-    pullNotice,
+    pullNotice: noticeText,
     pullEta,
-    pullCancelRef,
+    pullCancel,
     pullManifest,
     skippedPayload,
     skippedOpen,

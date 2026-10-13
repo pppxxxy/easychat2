@@ -142,6 +142,47 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
   assertAdapter(adapter);
   assertRoot(rootUri);
 
+  // —— R5：目录 URI 缓存（**只服务写路径**）——
+  // 病根（实测）：content:// 不是路径，逐段下降 = 每段一次 content-resolver IPC。
+  // 拉取 1066 个文件时，每个文件的父路径（repos/o/r/main/src/... ≈ 9-10 段）都要
+  // 从根重新下降一遍，约 1.2 万次串行 IPC——而 1066 个文件其实只共享约 250 个目录，
+  // 八成定位是重复劳动。缓存后每个文件只剩「查文件 + 写」两次 IPC。
+  //
+  // 为什么**不给读路径**用：listChildren 对失败是「当空目录」（见上），死链缓存会让
+  // 列表/读取静默变空——那比慢严重得多。写路径的失败是显式抛错，可以自愈（见下）。
+  const dirCache = new Map();
+  const dirKey = (characterId, directories) => [sanitizeSandboxId(characterId), ...directories].join('\u0000');
+
+  async function locateDirectoryCached(characterId, directories) {
+    const key = dirKey(characterId, directories);
+    const hit = dirCache.get(key);
+    if (hit) return hit;
+    const uri = await resolveDirectory(adapter, rootUri, [sanitizeSandboxId(characterId), ...directories], true);
+    if (uri) dirCache.set(key, uri);
+    return uri;
+  }
+
+  // 缓存失效（含子孙：父目录 uri 一旦作废，子孙 uri 也跟着作废）。
+  function invalidateDirectory(characterId, directories) {
+    const key = dirKey(characterId, directories);
+    dirCache.delete(key);
+    const prefix = `${key}\u0000`;
+    for (const cached of [...dirCache.keys()]) {
+      if (cached.startsWith(prefix)) dirCache.delete(cached);
+    }
+  }
+
+  // 写路径统一入口：缓存命中即用；一旦失败就假定「用户在文件管理器里删/改过目录」，
+  // 失效重建后**重试一次**（写入本身幂等：同路径同内容），仍失败才把错误交给上层。
+  async function withDirectoryCache(characterId, directories, run) {
+    try {
+      return await run(() => locateDirectoryCached(characterId, directories));
+    } catch (error) {
+      invalidateDirectory(characterId, directories);
+      return run(() => locateDirectoryCached(characterId, directories));
+    }
+  }
+
   async function locateDirectory(characterId, directories, create) {
     return resolveDirectory(adapter, rootUri, [sanitizeSandboxId(characterId), ...directories], create);
   }
@@ -210,34 +251,39 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       const relative = normalizeWorkspacePath(path);
       assertAllowedWorkspaceFile(relative);
       const { name, directories } = splitRelative(relative);
-      const directoryUri = await locateDirectory(characterId, directories, true);
-      let target = await findChild(adapter, directoryUri, name, false);
-      if (!target) {
-        const createdUri = await adapter.createFile(directoryUri, name, TEXT_MIME);
-        target = { uri: createdUri, name };
-      }
       const text = typeof content === 'string'
         ? content
         : String(content === undefined || content === null ? '' : content);
-      await adapter.writeText(target.uri, text);
-      return { path: relative, length: text.length };
+      // R5：目录定位走缓存（命中即免 9-10 次 IPC）；失败时失效重建再试一次。
+      return withDirectoryCache(characterId, directories, async locate => {
+        const directoryUri = await locate();
+        let target = await findChild(adapter, directoryUri, name, false);
+        if (!target) {
+          const createdUri = await adapter.createFile(directoryUri, name, TEXT_MIME);
+          target = { uri: createdUri, name };
+        }
+        await adapter.writeText(target.uri, text);
+        return { path: relative, length: text.length };
+      });
     },
 
     async writeWorkspaceBinaryFile({ characterId, path, base64 } = {}) {
       const relative = normalizeWorkspacePath(path);
       assertAllowedWorkspaceOutputFile(relative);
       const { name, directories } = splitRelative(relative);
-      const directoryUri = await locateDirectory(characterId, directories, true);
-      let target = await findChild(adapter, directoryUri, name, false);
-      if (!target) {
-        const mime = relative.toLowerCase().endsWith('.docx') ? DOCX_MIME : 'application/octet-stream';
-        const createdUri = await adapter.createFile(directoryUri, name, mime);
-        target = { uri: createdUri, name };
-      }
       const payload = String(base64 === undefined || base64 === null ? '' : base64);
-      if (typeof adapter.writeBase64 === 'function') await adapter.writeBase64(target.uri, payload);
-      else await adapter.writeText(target.uri, payload);
-      return { path: relative, base64Length: payload.length };
+      return withDirectoryCache(characterId, directories, async locate => {
+        const directoryUri = await locate();
+        let target = await findChild(adapter, directoryUri, name, false);
+        if (!target) {
+          const mime = relative.toLowerCase().endsWith('.docx') ? DOCX_MIME : 'application/octet-stream';
+          const createdUri = await adapter.createFile(directoryUri, name, mime);
+          target = { uri: createdUri, name };
+        }
+        if (typeof adapter.writeBase64 === 'function') await adapter.writeBase64(target.uri, payload);
+        else await adapter.writeText(target.uri, payload);
+        return { path: relative, base64Length: payload.length };
+      });
     },
 
     // 精确替换：与 legacy 后端同一规则（edit.js），只是读写都走 SAF。
@@ -258,7 +304,12 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
     // resolveDirectory(create=true) 已是幂等（存在则复用），故 created 仅表示「已确保存在」。
     async createWorkspaceDirectory({ characterId, path } = {}) {
       const relative = normalizeWorkspacePath(path);
-      const directoryUri = await locateDirectory(characterId, relative.split('/'), true);
+      // R5：目录本身也进缓存（批量建目录时省掉整条下降链）。
+      const directoryUri = await withDirectoryCache(
+        characterId,
+        relative.split('/'),
+        async locate => locate()
+      );
       return { path: `${relative}/`, created: Boolean(directoryUri) };
     },
 
@@ -301,6 +352,8 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       if (children.length > 0) throw new Error(tActive('error.workspace.dirNotEmpty'));
       if (typeof adapter.deleteDirectory !== 'function') throw new Error(tActive('error.workspace.adapterNoDelete'));
       await adapter.deleteDirectory(dirUri);
+      // R5：缓存里的这条（及其子孙）已作废——不清就会指向一个不存在的目录。
+      invalidateDirectory(characterId, segments);
       return { path: relative, deleted: true };
     },
 
@@ -321,6 +374,9 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       const parentUri = await locateDirectory(characterId, targetParent, true);
       const targetName = target.split('/').slice(-1)[0];
       await adapter.moveDirectory(sourceUri, parentUri, targetName);
+      // R5：源路径作废、目标路径重新下降（旧 uri 两边都不再可信）。
+      invalidateDirectory(characterId, source.split('/'));
+      invalidateDirectory(characterId, target.split('/'));
       return { from: source, to: target, moved: true };
     },
   };

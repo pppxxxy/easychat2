@@ -244,7 +244,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
     pullProgress,
     pullNotice,
     pullEta,
-    pullCancelRef,
+    pullCancel,
     pullManifest,
     skippedPayload,
     skippedOpen,
@@ -514,7 +514,7 @@ export default function GithubPanel({ characterId, storeRef, onHandoff }) {
                     <GhostButton
                       title={t('workspace.github.pull.cancel')}
                       small
-                      onPress={() => { pullCancelRef.current = true; }}
+                      onPress={pullCancel}
                     />
                   ) : null}
                 </View>

@@ -263,6 +263,10 @@ export const workspace = {
   'workspace.github.pull.retryHint': 'Connection dropped or timed out: {retries} automatic retries did not help. Check your network and retry (the zip cannot resume — each retry re-downloads the whole package).',
   'workspace.github.err.rateLimitWait': '(retry in about {seconds}s)',
   'workspace.github.err.repoLimit': 'The repository exceeds the import limits (archive size / entries / uncompressed total / single file). Narrow the scope: pick a smaller repo or directory, or use "Quick checkout" to fetch files on demand.',
+  // R4: the pull lives in a module-level singleton — switching tabs does not stop it,
+  // and a second tap cannot start a concurrent write loop.
+  'workspace.github.pull.alreadyRunning': 'A pull is already running — see the progress above. Switching tabs will not interrupt it.',
+  'workspace.github.pull.finishedWhileAway': 'The previous pull finished while you were away ({count} files written) — the local copy is complete.',
   'workspace.github.checkout.action': 'Quick checkout (1 request for the full tree; ☁ files download on open)',
   'workspace.github.checkout.busy': 'Checking out…',
   'workspace.github.checkout.truncatedHint': 'Listing may be partial (too large for GitHub) — use "Pull snapshot" for the full copy.',
@@ -672,6 +676,11 @@ export const workspace = {
   'workspace.chat.summary.failTitle': 'Undo failed',
   'workspace.chat.tool.history': 'Commit history',
   'workspace.chat.summary.op.delete': 'Delete',
+  // Q1: this panel sits outside the message ScrollView — rendering a whole-repo commit
+  // (1066 files) inline used to squeeze the message area to zero height.
+  'workspace.chat.summary.more': '{count} more file(s) — view all',
+  'workspace.chat.summary.bulkFolded': 'Large change ({count} files) — details folded; tap to view all',
+  'workspace.chat.summary.allTitle': 'All changed files ({count})',
   'workspace.chat.tool.running': 'Running…',
   'workspace.chat.tool.runningElapsed': 'Running {elapsed}',
   'workspace.chat.tool.change': 'Change',

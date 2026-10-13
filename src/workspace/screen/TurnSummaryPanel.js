@@ -13,14 +13,16 @@
 // 逐文件恢复」——工作区里那条回退路径一直都在（fileHistory）。
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { Sheet } from '../../ui/index.js';
 import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import { getWorkspaceSettings } from '../../storage/workspace.js';
 import { resolveGitRunner, shouldRecordFileHistory } from '../native.js';
 import { turnChanges } from '../conversation.js';
+import { summarizeTurnFiles } from './turnSummaryFiles.js';
 
 // git 的改动状态 → 展示用操作名（与工具轨迹的 op 同一套）。
 const OP_BY_STATUS = Object.freeze({ added: 'write', modified: 'edit', deleted: 'delete' });
@@ -39,6 +41,9 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [gitOn, setGitOn] = useState(false);
+  // Q1：明细默认折叠成「前 40 条」（批量提交 0 条），完整清单进 Sheet 的 FlatList。
+  // 没有这层，一次快照拉取就能把消息滚动区挤到 0 高（本面板在 ScrollView 外面）。
+  const [allOpen, setAllOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -130,6 +135,17 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
 
   if (files.length === 0) return null;
 
+  // Q1：面板本体的高度必须有界——它挂在消息 ScrollView 外面，撑高就是「两头都不能滑」。
+  // bulk（>100）时内联 0 条，只在面板里报总数；完整清单走 Sheet 的 FlatList（虚拟化）。
+  const plan = summarizeTurnFiles({ files });
+  const renderRow = item => (
+    <View key={item.path} style={styles.row}>
+      <Text style={styles.op} numberOfLines={1}>{t(OP_KEYS[item.op] || OP_KEYS.edit)}</Text>
+      <Text style={styles.path} numberOfLines={1} ellipsizeMode="middle">{item.path}</Text>
+      {item.count > 1 ? <Text style={styles.count}>{`×${item.count}`}</Text> : null}
+    </View>
+  );
+
   return (
     <View style={styles.panel}>
       <TouchableOpacity
@@ -154,13 +170,36 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
         />
       </TouchableOpacity>
 
-      {collapsed ? null : files.map(item => (
-        <View key={item.path} style={styles.row}>
-          <Text style={styles.op} numberOfLines={1}>{t(OP_KEYS[item.op] || OP_KEYS.edit)}</Text>
-          <Text style={styles.path} numberOfLines={1} ellipsizeMode="middle">{item.path}</Text>
-          {item.count > 1 ? <Text style={styles.count}>{`×${item.count}`}</Text> : null}
-        </View>
-      ))}
+      {collapsed ? null : (
+        <>
+          {plan.shown.length > 0 ? (
+            // 内联明细自带滚动 + maxHeight：即便条数再多也压不垮消息区
+            //（Android 需要 nestedScrollEnabled 才能在内层滚动）。
+            <ScrollView
+              style={styles.rows}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              accessibilityLabel={title}
+            >
+              {plan.shown.map(renderRow)}
+            </ScrollView>
+          ) : null}
+          {plan.hidden > 0 ? (
+            <TouchableOpacity
+              style={styles.more}
+              onPress={() => setAllOpen(true)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
+              <Text style={styles.moreText}>
+                {plan.bulk
+                  ? t('workspace.chat.summary.bulkFolded', { count: plan.total })
+                  : t('workspace.chat.summary.more', { count: plan.hidden })}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </>
+      )}
 
       {collapsed ? null : (gitOn ? (
         <TouchableOpacity style={styles.undo} onPress={undo} activeOpacity={0.8} disabled={busy}>
@@ -172,6 +211,24 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
       ) : (
         <Text style={styles.hint}>{t('workspace.chat.summary.undoHint')}</Text>
       ))}
+
+      {/* 完整清单：FlatList 虚拟化，1066 条也只渲染视口内的行。 */}
+      <Sheet
+        visible={allOpen}
+        onClose={() => setAllOpen(false)}
+        title={t('workspace.chat.summary.allTitle', { count: plan.total })}
+        backdropStyle={styles.sheetBackdrop}
+        cardStyle={styles.sheetCard}
+      >
+        <FlatList
+          data={files}
+          keyExtractor={item => String(item.path)}
+          renderItem={({ item }) => renderRow(item)}
+          style={styles.sheetList}
+          initialNumToRender={20}
+          windowSize={7}
+        />
+      </Sheet>
     </View>
   );
 }
@@ -183,6 +240,18 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center' },
   title: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
+  // Q1：内联明细的高度上限（配合 ScrollView）——面板在消息滚动区外面，
+  // 高度不设界就会把消息区挤成 0 高，而它自己又不滚动。
+  rows: { maxHeight: 240 },
+  more: { marginTop: 6 },
+  moreText: { color: theme.colors.primary, fontSize: fonts.scaled(11.5) },
+  // 底部 Sheet（Sheet 只提供 Modal 外壳，尺寸/定位由调用方给）。
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheetCard: {
+    backgroundColor: theme.colors.surface, borderTopLeftRadius: 14, borderTopRightRadius: 14,
+    paddingHorizontal: 12, paddingBottom: 14, maxHeight: '80%',
+  },
+  sheetList: { maxHeight: 420 },
   row: { flexDirection: 'row', alignItems: 'center', marginTop: 5, gap: 6 },
   op: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), width: 48 },
   path: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(11.5) },

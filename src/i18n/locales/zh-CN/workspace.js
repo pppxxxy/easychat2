@@ -264,6 +264,9 @@ export const workspace = {
   // R0-4：失败文案细分——网络类如实说明「已自动重试 N 次」，限流折算 Retry-After，
   // 仓库超限建议缩小范围（旧版一律「GitHub 操作失败，请检查网络后重试」）。
   'workspace.github.pull.retryHint': '网络中断或超时：已自动重试 {retries} 次仍未成功。请检查网络后重试（弱网下大包容易断流，重试是整包重下）。',
+  // R4：拉取所有权在模块级单例——切标签不会中断它，二次点击也不会并发写。
+  'workspace.github.pull.alreadyRunning': '已经在拉取中——进度见上方；切到别的标签页不会中断它。',
+  'workspace.github.pull.finishedWhileAway': '上次拉取已在你离开时跑完（写入 {count} 个文件），本地副本是完整的。',
   'workspace.github.err.rateLimitWait': '（约 {seconds} 秒后可重试）',
   'workspace.github.err.repoLimit': '仓库超出导入限制（压缩包/条目/解压总量/单文件）。建议缩小范围：换更小的目录仓库，或用「快速检出」按需下载。',
   'workspace.github.checkout.action': '快速检出（1 次请求先出全树；带云朵的文件点开时按需下载）',
@@ -673,6 +676,10 @@ export const workspace = {
   'workspace.chat.summary.failTitle': '撤销失败',
   'workspace.chat.tool.history': '看提交历史',
   'workspace.chat.summary.op.delete': '删除',
+  // Q1：明细折叠——面板挂在消息滚动区外面，裸渲染整仓（1066 文件）会把消息区挤死。
+  'workspace.chat.summary.more': '还有 {count} 个文件（查看全部）',
+  'workspace.chat.summary.bulkFolded': '这次改动较大（{count} 个文件）——明细已折叠，点这里查看全部',
+  'workspace.chat.summary.allTitle': '本次改动全部文件（{count} 个）',
   'workspace.chat.tool.running': '运行中…',
   'workspace.chat.tool.runningElapsed': '已运行 {elapsed}',
   'workspace.chat.tool.change': '改动',
