@@ -75,6 +75,17 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Android project
+        # 插件的 Kotlin 源码由 config plugin 在此注入 android/，必须先 prebuild 才有东西可编。
+        run: npx expo prebuild --platform android --non-interactive --clean
+
+      # ⚠️ 顺序契约：Setup Java（cache: gradle）必须在 prebuild **之后**——android/ 是
+      # gitignored 生成物，checkout 时仓库里没有任何 gradle 文件；setup-java 的缓存解析
+      # 找不到 **/*.gradle* 会直接报错让本 job 失败（初版把这步排在 prebuild 之前，
+      # 自 run 259 引入起每次必红——红叉与代码改动无关）。prebuild 后 gradle 文件就位，缓存才可用。
       - name: Setup Java
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -88,13 +99,6 @@ jobs:
           SDK="$ANDROID_HOME"
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || \
           yes | "$SDK/cmdline-tools/20.0/bin/sdkmanager" --licenses 2>/dev/null || true
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Generate Android project
-        # 插件的 Kotlin 源码由 config plugin 在此注入 android/，必须先 prebuild 才有东西可编。
-        run: npx expo prebuild --platform android --non-interactive --clean
 
       - name: Make Gradle executable
         run: chmod +x android/gradlew
