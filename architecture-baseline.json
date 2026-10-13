@@ -37,19 +37,21 @@
     "src/chat/useChatSend.js 1974 → 1972（2026-10-12，合并 d1012d3/d1012d4/d1012d5，**下调**）：两线各自独立把 permissionRules 改成「钩子规则 + 用户存储规则合并」，合并后统一取 D 线形态（chat/toolApprovalFlow.js 的 readToolPermissionRules —— 它把两组规则的读取与容错收在一处，且 hooks.js 保持存储无关）。接线本身压成单行，`getEffectivePermissionRules` 的导入随之成为未使用并被移除，净减 2 行真实代码。这是收紧方向的调整（棘轮只许收紧的常规出口），阈值仍等于实际值、不留余量。",
     "2026-10-12 合并 m1012m30（大文件拆分第 15-20 刀）后按**实测值**重建 fileLineBaseline：本批把 7 个文件拆到 ≤800，按棘轮协议它们**移出基线**（棘轮的正常出口——门槛是「别再长回去」，不是「永远留在名单里」，与 d1012d1 那次把 App.js/MemoryScreen 移出基线同理）：music/MusicScreen.js 762、books/BookReaderView.js 741、ImageGenScreen.js 772、character/CharacterLibraryScreen.js 771、workspace/WorkspaceSettingsSheet.js 768、CardForgeScreen.js 747、ProactivePanel.js 785。workspace/screen/GithubPanel.js 1618 → 911（仍在阈值之上故留在基线，阈值改为实测值）；CardForgeEditor.js 保持 1073（与 main 一致）。该批拆出的组件/hook（books/Book*Modal、imageGen/ProviderSettingsModal、character/GroupCreateModal 与 useGroupCreation、workspace/screen/github/useRepo*.js、cardForge/useForgeRequests、music/useMusic*、workspace/settingsRows）都是逐字搬运、行为不变。合并且按实测重算，阈值一律等于实际值、不留空转余量。",
     "src/workspace/screen/GithubPanel.js 911 → 921（2026-10-12，R 系拉取健壮性修复 m1012m31）：净增 10 行全是 R1-3 推送防误删的真实接线——pullManifest 解构、pullDirty/gapsWarning 两个 memo（isDirtyPullState/hasMissingGaps）、dirtyNote/gapsNote 提示分支、pushBatch/markSynced/handoff 的 disabled 条件；useRepoPull 声明移到推送域之前是逐字搬移不加行。这些行是真实逻辑（残缺态阻断「把 420 个缺口当删除推到远端」），非凑数。棘轮阈值等于新实测值；下一批拆分刀候选：pushBar 区块外提 github/PushSection.js。",
-    "src/workspace/screen/ChatPanel.js 1765 → 1772（2026-10-13，AS2 confirm_flow 宿主接线）：净增 7 行全是真实逻辑——runAgentTurn options 里 spread confirmFlowHostOptions(characters)（多题确认钩子 + 角色列表源注入）与 handleSend deps 的 characters。接线本体（题卡渲染/桥/结算）都落在子模块（ConfirmFlowSheet/confirmFlowBridge/SessionSidePanels），这 7 行是模型循环与宿主 UI 之间唯一必要的桥点，非凑数。棘轮阈值等于新实测值。"
+    "src/workspace/screen/ChatPanel.js 1765 → 1772（2026-10-13，AS2 confirm_flow 宿主接线）：净增 7 行全是真实逻辑——runAgentTurn options 里 spread confirmFlowHostOptions(characters)（多题确认钩子 + 角色列表源注入）与 handleSend deps 的 characters。接线本体（题卡渲染/桥/结算）都落在子模块（ConfirmFlowSheet/confirmFlowBridge/SessionSidePanels），这 7 行是模型循环与宿主 UI 之间唯一必要的桥点，非凑数。棘轮阈值等于新实测值。",
+    "src/workspace/screen/GithubPanel.js 911 → 744（2026-10-12，六大文件第七刀，m1012m31）：当前仓库树区（树内搜索、逐层下钻、快速检出、分支 chip、拉取进度/跳过清单、新建条目表单）外提为展示组件 screen/github/RepoTreeSection.js（styles/theme/t + 状态与 handler 由面板注入）。GithubPanel 跌破 800，已从行数棘轮移除。",
+    "src/character/CharacterDetailScreen.js 1714 → 1641（2026-10-12，六大文件第二目标第一刀，m1012m31）：面板内三个弹层（导入进度遮罩 + 世界书条目编辑 + 正则脚本编辑）外提为展示组件 character/CharacterEntryModals.js（styles/theme/t 与 state/handler 由主屏注入）。仍 > 800，基线随之下调到实际值。",
+    "src/character/CharacterDetailScreen.js 1641 → 1355（2026-10-12，六大文件第二目标第二刀，m1012m31）：卡片导入/导出/分享关注点外提为 character/useCardTransfer.js（hook）——PNG/JSON 文件导入 importCard、分享码剪贴板导入 importFromClipboard、开场白确认落库 confirmImport、导出 onExport/runExport、分享面板 onShare，及 importing/importStatus/pendingImport/exporting/shareOpen/shareAvatarBytes 状态。fileSystem 由主屏注入（新文件不得直接 import expo-file-system）。仍 > 800，基线随之下调到实际值。"
   ],
   "fileLineBaseline": {
     "src/CardForgeEditor.js": 1073,
     "src/ChatScreen.js": 3163,
     "src/MemoryScreen.js": 803,
     "src/SettingsScreen.js": 2365,
-    "src/character/CharacterDetailScreen.js": 1714,
+    "src/character/CharacterDetailScreen.js": 1355,
     "src/chat/chatStyles.js": 1375,
     "src/chat/useChatSend.js": 1972,
     "src/workspace/screen/ChatPanel.js": 1772,
-    "src/workspace/screen/FilesPanel.js": 1080,
-    "src/workspace/screen/GithubPanel.js": 921
+    "src/workspace/screen/FilesPanel.js": 1080
   },
   "allowedCycles": []
 }

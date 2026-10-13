@@ -222,7 +222,9 @@ test('接线源码断言：文件面板区块顺序 + 套餐接线 + GitHub 工�
   // 快照边界如实声明；拉取链路必须复用 repoImport 的限额与解压（含目录条目修复）。
   // 拉取动作已外提到 github/useRepoPull.js，解压/限额断言读新文件。
   const pull = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoPull.js'), 'utf8');
-  assert.ok(github.includes('workspace.github.pull.hint'), '快照边界文案必须在位');
+  // 快照边界文案已随树区外提到 github/RepoTreeSection.js。
+  const tree = fs.readFileSync(path.resolve('src/workspace/screen/github/RepoTreeSection.js'), 'utf8');
+  assert.ok(tree.includes('workspace.github.pull.hint'), '快照边界文案必须在位');
   assert.ok(pull.includes('extractRepoFiles(') && pull.includes('REPO_IMPORT_LIMITS'), '拉取复用 repoImport 的解压与限额');
 });
 
@@ -361,12 +363,14 @@ test('C1 快速检出接线：Trees API + 清单落盘/载入 + 树合并（云�
   const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
   // 快速检出的动作与清单载入已外提到 github/useRepoBranch.js；树合并仍在面板。
   const branch = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoBranch.js'), 'utf8');
+  // 云朵角标与截断提示已随树区外提到 github/RepoTreeSection.js。
+  const tree = fs.readFileSync(path.resolve('src/workspace/screen/github/RepoTreeSection.js'), 'utf8');
   assert.ok(branch.includes('listTree({'), 'Trees API 接线（1 次请求出全树）');
   assert.ok(branch.includes('writeRepoManifest('), '检出结果落盘缓存');
   assert.ok(branch.includes('readRepoManifest('), '打开仓库时载入清单');
   assert.ok(github.includes('mergeManifestEntries('), '树 = 本地 ∪ 清单');
-  assert.ok(github.includes('virtualPaths.has(child.path)'), '未物化条目带云朵角标');
-  assert.ok(github.includes("t('workspace.github.checkout.truncatedHint')"), '截断如实提示（不假装拿全）');
+  assert.ok(tree.includes('virtualPaths.has(child.path)'), '未物化条目带云朵角标');
+  assert.ok(tree.includes("t('workspace.github.checkout.truncatedHint')"), '截断如实提示（不假装拿全）');
   assert.ok(
     branch.includes('const paths = localRepoPaths({'),
     '基线 = 本地已物化清单（与完整拉取同口径）'
@@ -381,15 +385,16 @@ test('C1 快速检出接线：Trees API + 清单落盘/载入 + 树合并（云�
 });
 
 test('B1/B2/B3 拉取体验接线：分支 chip + 默认分支对齐 + 覆盖守卫（下载之前）', () => {
-  const github = fs.readFileSync(path.resolve('src/workspace/screen/GithubPanel.js'), 'utf8');
   // B1 分支列表拉取与 B2 默认分支对齐已外提到 github/useRepoBranch.js。
   const branch = fs.readFileSync(path.resolve('src/workspace/screen/github/useRepoBranch.js'), 'utf8');
+  // 分支 chip 徽标/失败态/超量提示已随树区外提到 github/RepoTreeSection.js。
+  const tree = fs.readFileSync(path.resolve('src/workspace/screen/github/RepoTreeSection.js'), 'utf8');
   // B1：数据层 listBranches 早已存在，UI 必须真的调用它（之前是裸输入框、手打分支名）
   assert.ok(branch.includes('listBranches({ token, owner, repo })'), '分支列表接线（第一页）');
   assert.ok(branch.includes('listBranches({ token, owner, repo, page: 2 })'), '超过一页时翻第 2 页');
-  assert.ok(github.includes("t('workspace.github.branch.defaultTag')"), '默认分支徽标');
-  assert.ok(github.includes("t('workspace.github.branch.loadError')"), '失败态：一行提示、不阻塞手动输入');
-  assert.ok(github.includes("t('workspace.github.branch.overLimit')"), '超量提示（其余手动输入）');
+  assert.ok(tree.includes("t('workspace.github.branch.defaultTag')"), '默认分支徽标');
+  assert.ok(tree.includes("t('workspace.github.branch.loadError')"), '失败态：一行提示、不阻塞手动输入');
+  assert.ok(tree.includes("t('workspace.github.branch.overLimit')"), '超量提示（其余手动输入）');
   assert.ok(branch.includes('branchSeqRef'), '竞态防护：快速切仓库旧响应不覆盖新列表');
   // B2：初值与该仓库真实默认分支同源（normalizeRepo.defaultBranch），不再硬编码 main
   assert.ok(branch.includes('current.branch || current.defaultBranch'), '初值对齐默认分支');
