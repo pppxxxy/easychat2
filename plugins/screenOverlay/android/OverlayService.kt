@@ -96,9 +96,11 @@ class OverlayService : Service() {
     private var chatMessages: ScrollView? = null
     private var chatInput: EditText? = null
     private var scopeButton: TextView? = null
+    // 消息留档：收起/展开会重建视图，内容不能跟着丢（用户要求切种类、收起重开都保留上下文）。
+    private val chatHistory = mutableListOf<Pair<String, String>>()
     // 键盘处理：面板被输入法顶住时上移（见 applyImeInset）。
-    private var panelContainer: LinearLayout? = null
-    private var baseY = 0
+    // baseY = 可空「拖拽落点」（null = 尚未捕获；用 null 而非 0，见 applyImeInset 说明）。
+    private var baseY: Int? = null
 
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -242,7 +244,9 @@ class OverlayService : Service() {
         params.y = dp(160)
 
         rootView = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        rootView.setOnTouchListener(dragListener)
+        // ⚠️ 拖拽监听挂在 rootView 上会**抢走消息区的滚动**（子 View 的 touch 先到父级
+        // onTouchListener，ScrollView 拿不到拖动）。所以只给「非滚动区」挂：收起态整颗球、
+        // 展开态标题行（见 showCollapsed / showExpanded）。
         windowManager.addView(rootView, params)
         showCollapsed()
     }
@@ -251,6 +255,12 @@ class OverlayService : Service() {
         expanded = false
         statusView = null
         titleView = null
+        // SW3：收起态清掉聊天视图引用（面板已从树上摘除，留着就是悬挂引用——
+        // pushChatMessage 会往一个不在屏幕上的 ScrollView 里塞内容）。
+        // 消息内容本身保留在 chatHistory 里，展开时重建。
+        chatMessages = null
+        chatInput = null
+        scopeButton = null
         rootView.removeAllViews()
         val size = dp(52)
         val icon = circularAppIcon(size)
@@ -277,6 +287,8 @@ class OverlayService : Service() {
             }
         }
         rootView.addView(ball, LinearLayout.LayoutParams(size, size))
+        // 收起态：整颗球都可拖（也能点开）——球不是滚动区，挂这里不抢任何东西。
+        ball.setOnTouchListener(dragListener)
     }
 
     // 悬浮球头像：App 图标圆裁（用户要求别再显示一个「看」字）。
@@ -315,10 +327,12 @@ class OverlayService : Service() {
                 setColor(Color.parseColor("#E62d2d44"))
             }
         }
-        panelContainer = panel
-
         // 标题行：标题 + scope 切换按钮（SW3⑤：工作区 ⇄ 聊天）。
-        val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        // 展开态的拖拽挂在这一行（不是 rootView）——否则会抢走消息区的滚动。
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setOnTouchListener(dragListener)
+        }
         val title = TextView(this).apply {
             text = overlayTitle()
             setTextColor(Color.parseColor("#6c63ff"))
@@ -352,6 +366,8 @@ class OverlayService : Service() {
         }
         chatMessages = messages
         panel.addView(messages)
+        // 收起期间收到的消息在这里补齐（留档见 chatHistory）。
+        renderChatHistory()
 
         // SW3：输入行（EditText + 发送 + 收起）。
         val inputRow = LinearLayout(this).apply {
@@ -420,6 +436,18 @@ class OverlayService : Service() {
     }
 
     private fun appendChatMessage(role: String, text: String) {
+        if (text.isBlank()) return
+        // 先留档（视图可能不存在：收起态收到推送），再画（视图在就同步渲染）。
+        chatHistory.add(role to text)
+        while (chatHistory.size > CHAT_MESSAGE_MAX) {
+            chatHistory.removeAt(0)
+        }
+        renderChatMessage(role, text)
+    }
+
+    // 把一条消息画进消息区（视图不在时静默——留档已在 appendChatMessage 完成，
+    // 展开时 renderChatHistory 会补齐）。
+    private fun renderChatMessage(role: String, text: String) {
         val container = chatMessages ?: return
         if (text.isBlank()) return
         val line = TextView(this).apply {
@@ -436,16 +464,37 @@ class OverlayService : Service() {
         container.post { container.fullScroll(View.FOCUS_DOWN) }
     }
 
+    // 展开时把留档的消息重画一遍（收起态收到的推送不丢）。
+    private fun renderChatHistory() {
+        val container = chatMessages ?: return
+        container.removeAllViews()
+        for ((role, text) in chatHistory) {
+            val line = TextView(this).apply {
+                this.text = (if (role == "user") "我：" else "") + text
+                setTextColor(if (role == "user") Color.parseColor("#c9c9e6") else Color.WHITE)
+                textSize = 12f
+                setPadding(dp(6), dp(4), dp(6), dp(4))
+            }
+            container.addView(line)
+        }
+        container.post { container.fullScroll(View.FOCUS_DOWN) }
+    }
+
     // 输入焦点切换：点输入框要能弹键盘（去掉 FLAG_NOT_FOCUSABLE），失焦再装回去
     //（不装回去的话拖拽与后台点击会被输入框吸走）。
+    //
+    // ⚠️ FLAG_ALT_FOCUSABLE_IM 的语义（别用反）：它是**反转**「本窗口是否需要输入法」——
+    // 在窗口**可获焦点**（NOT_FOCUSABLE 已清）时置上它，等于宣告「本窗口不需要输入法」，
+    // 反而**挡住 IME**；在窗口不可获焦点时置上它，才是「我需要输入法」。
+    // 所以这里聚焦时两个 flag 都要**清**（NOT_FOCUSABLE 清掉才能获焦点，ALT_FOCUSABLE_IM
+    // 清掉才允许 IME）；失焦时只装回 NOT_FOCUSABLE。
     private fun setFocusableForInput(focusable: Boolean) {
         try {
-            if (focusable) {
-                params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-                params.flags = params.flags or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+            params.flags = if (focusable) {
+                params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() and
+                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM.inv()
             } else {
-                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                params.flags = params.flags and WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM.inv()
+                params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             }
             windowManager.updateViewLayout(rootView, params)
         } catch (error: Exception) {
@@ -454,15 +503,13 @@ class OverlayService : Service() {
     }
 
     // 键盘弹起时把面板上移（悬浮窗在屏幕下半部时输入框会被输入法盖住）。
+    // baseY 用**可空**而不是 0 哨兵：拖到顶部时 y 的合法值就是 0，用 0 当「未捕获」
+    // 会让复位错位；拖拽时清空它（下次 inset 重新捕获当前落点）。
     fun applyImeInset(insetBottom: Int) {
         mainHandler.post {
             try {
-                if (baseY == 0) baseY = params.y
-                params.y = if (insetBottom > 0) {
-                    maxOf(0, baseY - insetBottom)
-                } else {
-                    baseY
-                }
+                val anchor = baseY ?: params.y.also { baseY = it }
+                params.y = if (insetBottom > 0) maxOf(0, anchor - insetBottom) else anchor
                 windowManager.updateViewLayout(rootView, params)
             } catch (error: Exception) {
                 Log.w(TAG, "ime inset failed: ${error.message}")
@@ -493,6 +540,8 @@ class OverlayService : Service() {
                 startX = params.x
                 startY = params.y
                 dragged = false
+                // 拖拽落点变了：作废键盘 inset 的基准（下次 inset 重新捕获）。
+                baseY = null
                 true
             }
             MotionEvent.ACTION_MOVE -> {
