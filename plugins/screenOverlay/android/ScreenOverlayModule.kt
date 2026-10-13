@@ -485,7 +485,10 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
          * 走独立事件，不与 capture/captureFailed 混用（那两条是业务语义，这条是诊断）。
          */
         fun recordTrace(stage: String, detail: String) {
-            emit(EVENT_TRACE, Arguments.createMap().apply {
+            // ⚠️ 必须写 OverlayService.EVENT_TRACE：该常量定义在 **OverlayService** 的
+            // companion 里，不是本类的。裸写 EVENT_TRACE 会编译失败（Unresolved reference）
+            // ——这正是 CI 的 Kotlin compile job 抓出来的（本机无 JDK，只有 CI 能编）。
+            emit(OverlayService.EVENT_TRACE, Arguments.createMap().apply {
                 putString("stage", stage)
                 putString("detail", detail)
                 putDouble("at", System.currentTimeMillis().toDouble())

@@ -279,3 +279,49 @@ class A {
 }
 `), []);
 });
+
+test('跨文件 companion 常量必须带类名限定（裸用会 Unresolved reference）', () => {
+  // 真机教训：CI 的 Kotlin compile job 抓出 recordTrace 里裸写了 EVENT_TRACE——
+  // 该常量定义在 **OverlayService** 的 companion 里，不是 ScreenOverlayModule 的。
+  // 本机无 JDK 编不了 Kotlin，所以这类「跨文件裸引用」必须由静态检查顶上
+  // （run 272 的 Kotlin compile 就是因此红的）。
+  const serviceConsts = [...serviceSrc.matchAll(/const val (\w+)/g)].map(m => m[1]);
+  assert.ok(serviceConsts.includes('EVENT_TRACE'), '前置条件：EVENT_TRACE 定义在 OverlayService');
+
+  // Module 侧：除自己的 companion 常量外，不得裸用 OverlayService 的常量。
+  const moduleOwnConsts = new Set(
+    [...moduleSrc.matchAll(/const val (\w+)/g)].map(m => m[1])
+  );
+  const offenders = [];
+  moduleSrc.split('\n').forEach((line, index) => {
+    // 跳过注释行：说明文字里出现常量名是正常的
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+    for (const name of serviceConsts) {
+      if (moduleOwnConsts.has(name)) continue;      // 自己也有同名常量，合法
+      const bare = new RegExp(`(?<![\\w.])${name}\\b`);
+      if (bare.test(line) && !line.includes(`OverlayService.${name}`)) {
+        offenders.push(`ScreenOverlayModule.kt:${index + 1} 裸用 ${name}（应写 OverlayService.${name}）`);
+      }
+    }
+  });
+  assert.deepEqual(offenders, [], `跨文件 companion 常量必须限定类名：\n${offenders.join('\n')}`);
+});
+
+test('反向：OverlayService 引用 Module 的 companion 成员也必须带类名', () => {
+  // 同一类 bug 的反方向：OverlayService 调 Module 的 clearCaptureToken 等，必须限定。
+  const moduleMemberNames = [...moduleSrc.matchAll(/fun (\w+)\(/g)].map(m => m[1]);
+  const offenders = [];
+  serviceSrc.split('\n').forEach((line, index) => {
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+    // 只看跨文件的那几个（本文件自己也有同名函数时跳过——这里 Module 的成员名在
+    // OverlayService 里都不存在同名定义，故直接检查是否有裸调用）
+    for (const name of ['clearCaptureToken', 'hasValidCaptureToken', 'recordTrace', 'emitState']) {
+      if (!moduleMemberNames.includes(name)) continue;
+      const bare = new RegExp(`(?<![\\w.])${name}\\s*\\(`);
+      if (bare.test(line) && !line.includes(`ScreenOverlayModule.${name}`)) {
+        offenders.push(`OverlayService.kt:${index + 1} 裸用 ${name}（应写 ScreenOverlayModule.${name}）`);
+      }
+    }
+  });
+  assert.deepEqual(offenders, [], `跨文件 companion 成员必须限定类名：\n${offenders.join('\n')}`);
+});
