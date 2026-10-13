@@ -143,7 +143,7 @@ export const createScheduleStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderColor: theme.colors.surfaceBorder,
     marginTop: 10,
   },
-  addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), marginLeft: 6 },
+  addButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(14), marginLeft: 6 },
 
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(13), paddingVertical: 6 },
   hint: {
@@ -177,5 +177,5 @@ export const createScheduleStyles = (theme, fonts, tokens) => StyleSheet.create(
     backgroundColor: theme.colors.primary,
   },
   saveButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
-  notice: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), textAlign: 'center', marginTop: 10 },
+  notice: { color: theme.colors.accentText, fontSize: fonts.scaled(13), textAlign: 'center', marginTop: 10 },
 });

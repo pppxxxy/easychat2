@@ -408,7 +408,7 @@ export default function MemoryScreen({ navigation }) {
               activeOpacity={0.7}
               accessibilityLabel={t('memory.a11y.search')}
             >
-              <Ionicons name="search" size={18} color={theme.colors.primarySoft} />
+              <Ionicons name="search" size={18} color={theme.colors.accentText} />
             </TouchableOpacity>
           )}
           {editing ? null : (
@@ -418,7 +418,7 @@ export default function MemoryScreen({ navigation }) {
               activeOpacity={0.7}
               accessibilityLabel={t('chat.bubble.moreA11y')}
             >
-              <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.primarySoft} />
+              <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.accentText} />
             </TouchableOpacity>
           )}
         </View>
@@ -541,7 +541,7 @@ export default function MemoryScreen({ navigation }) {
                     <SessionAvatar uri={threadCharacter.avatarUri} name={threadName} />
                   ) : (
                     <View style={styles.screenThreadAvatar}>
-                      <Ionicons name="desktop-outline" size={20} color={theme.colors.primarySoft} />
+                      <Ionicons name="desktop-outline" size={20} color={theme.colors.accentText} />
                     </View>
                   )}
                   name={threadName}
@@ -601,7 +601,7 @@ export default function MemoryScreen({ navigation }) {
             <Ionicons
               name={allSelected ? 'checkbox' : 'square-outline'}
               size={20}
-              color={theme.colors.primarySoft}
+              color={theme.colors.accentText}
             />
             <Text style={styles.selectAllText}>
               {allSelected ? t('memory.unselectAll') : t('memory.selectAll')}
@@ -695,7 +695,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontWeight: '700',
   },
   emptyThreadsAction: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(12),
     fontWeight: '700',
     marginLeft: 8,
@@ -751,7 +751,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.primaryMuted,
   },
   chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
-  chipTextActive: { color: theme.colors.primarySoft },
+  chipTextActive: { color: theme.colors.accentText },
   editButton: { marginLeft: 12, paddingVertical: 6, paddingHorizontal: 4 },
   editButtonText: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(14), fontWeight: '700' },
   // FlatList 显式接管剩余空间：溢出压力全部由列表吸收，
@@ -787,7 +787,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.surfaceAlt,
   },
   selectAll: { flexDirection: 'row', alignItems: 'center' },
-  selectAllText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
+  selectAllText: { color: theme.colors.accentText, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
   deleteButton: {
     backgroundColor: theme.colors.danger,
     borderRadius: tokens.metrics.buttonRadius,

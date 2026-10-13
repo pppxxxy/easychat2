@@ -198,5 +198,5 @@ const createStyles = (theme, fonts, tokens) => ({
   cardText: { flex: 1, marginRight: 8 },
   cardTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '700' },
   cardDesc: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), marginTop: 3, lineHeight: fonts.scaled(17) },
-  cardSummary: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 4, fontWeight: '600' },
+  cardSummary: { color: theme.colors.accentText, fontSize: fonts.scaled(12), marginTop: 4, fontWeight: '600' },
 });

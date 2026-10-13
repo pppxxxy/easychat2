@@ -83,7 +83,7 @@ function AssistButton({ onPress, label }) {
       accessibilityRole="button"
       accessibilityLabel={t('forge.assist.a11y', { label })}
     >
-      <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
+      <Ionicons name="sparkles-outline" size={12} color={theme.colors.accentText} />
       <Text style={styles.assistButtonText}>{t('forge.assist.button')}</Text>
     </TouchableOpacity>
   );
@@ -567,7 +567,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
               accessibilityRole="button"
               accessibilityLabel={t('forge.preview.a11y')}
             >
-              <Ionicons name="eye-outline" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="eye-outline" size={15} color={theme.colors.accentText} />
               <Text style={styles.previewActionText}>{t('forge.preview.button')}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onClose} hitSlop={8} accessibilityLabel={t('forge.close.a11y')}>
@@ -620,7 +620,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                     accessibilityRole="button"
                     accessibilityLabel={t('forge.imageGen.avatarA11y')}
                   >
-                    <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
+                    <Ionicons name="sparkles-outline" size={12} color={theme.colors.accentText} />
                     <Text style={styles.imageGenText}>{t('forge.imageGen.avatarButton')}</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -662,7 +662,7 @@ export default function CardForgeEditor({ visible, draft, onClose, onSave, onAss
                     accessibilityRole="button"
                     accessibilityLabel={t('forge.imageGen.bgA11y')}
                   >
-                    <Ionicons name="sparkles-outline" size={12} color={theme.colors.primarySoft} />
+                    <Ionicons name="sparkles-outline" size={12} color={theme.colors.accentText} />
                     <Text style={styles.imageGenText}>{t('forge.imageGen.bgButton')}</Text>
                   </TouchableOpacity>
                 ) : null}

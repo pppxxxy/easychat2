@@ -623,7 +623,7 @@ export default function CardForgeScreen() {
               activeOpacity={0.8}
               accessibilityLabel={t('forge.screen.cardA11y')}
             >
-              <Ionicons name="id-card-outline" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="id-card-outline" size={15} color={theme.colors.accentText} />
               <Text style={styles.actionText} numberOfLines={1}>{t('forge.screen.card')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -633,7 +633,7 @@ export default function CardForgeScreen() {
               activeOpacity={0.8}
               accessibilityLabel={t('forge.screen.generateA11y')}
             >
-              <Ionicons name="sparkles-outline" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="sparkles-outline" size={15} color={theme.colors.accentText} />
               <Text style={styles.actionText} numberOfLines={1}>{t('forge.screen.generate')}</Text>
             </TouchableOpacity>
             <TouchableOpacity

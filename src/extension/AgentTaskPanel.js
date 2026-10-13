@@ -479,7 +479,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   addBtnText: { color: theme.colors.primary, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 6 },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginBottom: 12 },
-  link: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginBottom: 16 },
+  link: { color: theme.colors.accentText, fontSize: fonts.scaled(13), marginBottom: 16 },
   saveButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -489,5 +489,5 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(15), fontWeight: '700' },
-  notice: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), textAlign: 'center', marginTop: 10 },
+  notice: { color: theme.colors.accentText, fontSize: fonts.scaled(13), textAlign: 'center', marginTop: 10 },
 });

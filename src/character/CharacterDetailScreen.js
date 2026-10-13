@@ -806,7 +806,7 @@ setWorldInfo(next.worldInfo);
             accessibilityRole="button"
             accessibilityLabel={t('character.detail.back')}
           >
-            <Ionicons name="chevron-back" size={18} color={theme.colors.primarySoft} />
+            <Ionicons name="chevron-back" size={18} color={theme.colors.accentText} />
             <Text style={styles.detailBackText}>{t('character.detail.back')}</Text>
           </TouchableOpacity>
           <Text style={styles.title}>{(character && character.name) || t('common.characterFallback')}</Text>
@@ -907,7 +907,7 @@ setWorldInfo(next.worldInfo);
             disabled={importing || !loaded}
             activeOpacity={0.8}
           >
-            <Ionicons name="download-outline" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="download-outline" size={16} color={theme.colors.accentText} />
             <Text style={styles.importButtonText}>
               {importing ? t('character.detail.import.importing') : t('character.detail.import.button')}
             </Text>
@@ -919,7 +919,7 @@ setWorldInfo(next.worldInfo);
             disabled={importing || !loaded}
             activeOpacity={0.8}
           >
-            <Ionicons name="clipboard-outline" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="clipboard-outline" size={16} color={theme.colors.accentText} />
             <Text style={styles.importButtonText}>{t('character.share.pasteImport')}</Text>
           </TouchableOpacity>
           <Text style={styles.importHint}>{t('character.share.pasteImportHint')}</Text>
@@ -1014,7 +1014,7 @@ setWorldInfo(next.worldInfo);
             </View>
           ))}
           <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
-            <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="add" size={16} color={theme.colors.accentText} />
             <Text style={styles.secondaryButtonText}>{t('character.detail.greeting.add')}</Text>
           </TouchableOpacity>
             </>
@@ -1126,7 +1126,7 @@ setWorldInfo(next.worldInfo);
             {tags.map((tag, index) => (
               <TouchableOpacity key={`${tag}-${index}`} style={styles.tagChip} onPress={() => removeTag(tag)} activeOpacity={0.8}>
                 <Text style={styles.tagChipText}>{tag}</Text>
-                <Ionicons name="close" size={12} color={theme.colors.primarySoft} />
+                <Ionicons name="close" size={12} color={theme.colors.accentText} />
               </TouchableOpacity>
             ))}
           </View>
@@ -1219,7 +1219,7 @@ setWorldInfo(next.worldInfo);
               })
             )}
             <TouchableOpacity style={styles.addEntryButton} onPress={addWorldEntry} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="add" size={16} color={theme.colors.accentText} />
               <Text style={styles.addEntryText}>{t('character.detail.world.add')}</Text>
             </TouchableOpacity>
           </Card>
@@ -1250,7 +1250,7 @@ setWorldInfo(next.worldInfo);
               ))
             )}
             <TouchableOpacity style={styles.addEntryButton} onPress={addRegexScript} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="add" size={16} color={theme.colors.accentText} />
               <Text style={styles.addEntryText}>{t('character.detail.regex.add')}</Text>
             </TouchableOpacity>
           </Card>

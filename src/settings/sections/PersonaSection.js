@@ -51,7 +51,7 @@ export default function PersonaSection(props) {
           />
           <View style={styles.personaActions}>
             <TouchableOpacity style={styles.personaAddChip} onPress={addPersona} activeOpacity={0.8}>
-              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="add" size={15} color={theme.colors.accentText} />
               <Text style={styles.personaAddText}>{t('settings.persona.add')}</Text>
             </TouchableOpacity>
             {personas.length > 1 ? (

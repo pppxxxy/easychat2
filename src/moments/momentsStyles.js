@@ -43,7 +43,7 @@ export const createMomentsStyles = (theme, fonts, tokens) => StyleSheet.create({
   avatarWrap: { marginRight: 10 },
   avatar: { width: 40, height: 40, borderRadius: tokens.radius.pill, backgroundColor: theme.colors.surfaceBorder },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(16), fontWeight: '800' },
+  avatarText: { color: theme.colors.accentText, fontSize: fonts.scaled(16), fontWeight: '800' },
   cardTitleWrap: { flex: 1 },
   cardName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700' },
   cardTime: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
@@ -59,7 +59,7 @@ export const createMomentsStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginTop: 8,
   },
   replyPending: { color: theme.colors.textFaint, fontSize: fonts.scaled(12) },
-  replyCancel: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
+  replyCancel: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700' },
   commentList: {
     marginTop: 10,
     backgroundColor: theme.colors.surfaceAlt,
@@ -92,7 +92,7 @@ export const createMomentsStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   commentSpacer: { flex: 1 },
   commentReplyAction: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(11),
     fontWeight: '700',
     marginLeft: 8,
@@ -111,7 +111,7 @@ export const createMomentsStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-  replyTargetText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), marginRight: 6 },
+  replyTargetText: { color: theme.colors.accentText, fontSize: fonts.scaled(11), marginRight: 6 },
   commentInputRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   commentInput: {
     flex: 1,

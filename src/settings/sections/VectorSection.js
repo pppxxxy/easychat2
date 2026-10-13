@@ -70,7 +70,7 @@ export default function VectorSection(props) {
           />
           <View style={styles.personaActions}>
             <TouchableOpacity style={styles.personaAddChip} onPress={addVectorConfig} activeOpacity={0.8}>
-              <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="add" size={15} color={theme.colors.accentText} />
               <Text style={styles.personaAddText}>{t('settings.vector.add')}</Text>
             </TouchableOpacity>
             {(vectorPayload.configs || []).length > 1 ? (

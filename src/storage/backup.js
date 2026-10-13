@@ -378,13 +378,27 @@ export async function importBackup(payload, mode = 'merge') {
 // plan.error 来自 validateBackupPayload（走 tActive 的用户文案）⇒ 标成 userFacing，
   // 发布构建里也要原样透出，而不是被换成笼统的「备份文件无法恢复」。
   if (!plan.valid) throw userFacingError(plan.error);
+  // ── 纪律：**先读完所有快照，再开始任何写入** ────────────────────────────────
+  // 三个快照（密钥/存储/媒体）全是只读操作，必须全部发生在第一次写之前。
+  //
+  // 为什么：此前 storage/media 快照在**密钥写回之后**、且在下面 try 之外取。于是
+  // snapshotStorageKeys / snapshotMediaFiles 一旦抛错（实测：getInfoAsync 在媒体文件
+  // 不可访问时抛 "[expo-file-system] getInfoAsync failed"），就会出现
+  // **密钥已写进保险箱、数据一个字节没恢复、而且 catch 根本没进去 ⇒ 密钥不回滚**。
+  // 那正是本函数下面注释里点名的错配：界面看着没变，请求却开始 401。
+  // 顺序改成「读全 → 写全」后，快照失败 = 零副作用，不存在需要回滚的中间态。
+  const secretsSnapshot = await snapshotSecrets(plan.secrets || []);
+  const storageKeys = plan.storage
+    .map(item => item.key)
+    .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
+  const storageSnapshot = await snapshotStorageKeys(storageKeys);
+  const mediaSnapshot = await snapshotMediaFiles(plan.media);
   // 先写回密钥：数据里的 secure 引用随后即可解析到明文。单条失败不阻断数据恢复
   // （例如原生安全存储不可用），只记录数量回传。
   //
   // 但**密钥必须能回滚**：数据写入失败时 storage/media 会还原，密钥若不还原，就留下
   // 「数据回滚成原样、保险箱里却是备份包的 key」的错配——用户的 API Key 被悄悄顶掉，
   // 界面看起来没变，请求却开始 401（凭据问题，不是纯可用性问题）。所以写回前先快照旧值。
-  const secretsSnapshot = await snapshotSecrets(plan.secrets || []);
   const writtenSecretIds = [];
   let secretsCount = 0;
   let secretsFailed = 0;
@@ -398,11 +412,6 @@ export async function importBackup(payload, mode = 'merge') {
       recordDiagnostic('secrets', error, `importBackup 密钥写回失败：${item.id}`);
     }
   }
-  const storageKeys = plan.storage
-    .map(item => item.key)
-    .filter(key => key.startsWith(MANAGED_PREFIX) && !key.endsWith(CORRUPT_SUFFIX));
-  const storageSnapshot = await snapshotStorageKeys(storageKeys);
-  const mediaSnapshot = await snapshotMediaFiles(plan.media);
   let opaqueCount = 0;
   try {
     // 覆盖恢复**不做「先删后写」**（原实现在这里 multiRemove(storageKeys)）。

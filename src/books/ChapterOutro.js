@@ -58,14 +58,14 @@ export default function ChapterOutro({ outro }) {
           accessibilityRole="link"
           accessibilityLabel={t('books.notice.openLinkA11y', { name: link.label || link.url })}
         >
-          <Ionicons name="open-outline" size={15} color={theme.colors.primarySoft} />
+          <Ionicons name="open-outline" size={15} color={theme.colors.accentText} />
           <Text style={styles.linkLabel} numberOfLines={1}>{link.label || link.url}</Text>
           <Ionicons name="chevron-forward" size={15} color={theme.colors.textFaint} />
         </TouchableOpacity>
       ) : null}
       {disclaimer ? (
         <View style={styles.disclaimerBox}>
-          <Ionicons name="information-circle-outline" size={15} color={theme.colors.primarySoft} />
+          <Ionicons name="information-circle-outline" size={15} color={theme.colors.accentText} />
           <Text style={styles.disclaimerText}>{disclaimer}</Text>
         </View>
       ) : null}
@@ -95,7 +95,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   bullets: { marginBottom: tokens.spacing.sm },
   bulletRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: tokens.spacing.xs },
   bulletDot: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(13),
     lineHeight: fonts.scaled(20),
     marginRight: tokens.spacing.xs + 2,
@@ -119,7 +119,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   linkLabel: {
     flex: 1,
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(14),
     fontWeight: '700',
     marginLeft: tokens.spacing.sm,

@@ -264,7 +264,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   avatarText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(18), fontWeight: '800' },
   cardHeadText: { flex: 1 },
   cardName: { color: theme.colors.text, fontSize: fonts.scaled(16), fontWeight: '800' },
-  cardTags: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 2 },
+  cardTags: { color: theme.colors.accentText, fontSize: fonts.scaled(12), marginTop: 2 },
   cardCounts: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
   section: { marginTop: tokens.spacing.sm },
   sectionLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginBottom: 2 },
@@ -275,7 +275,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     justifyContent: 'space-between',
   },
   chatTitle: { color: theme.colors.text, fontSize: fonts.scaled(15), fontWeight: '800' },
-  clearText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
+  clearText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700' },
   disabled: { opacity: tokens.opacity.disabled },
   chatHint: {
     color: theme.colors.textFaint,

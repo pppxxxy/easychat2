@@ -62,13 +62,13 @@ export default function ApiServerSection({
       >
         <Text style={styles.apiAddress} numberOfLines={1}>{apiAddress}</Text>
         <View style={styles.apiCopyChip}>
-          <Ionicons name="copy-outline" size={14} color={theme.colors.primarySoft} />
+          <Ionicons name="copy-outline" size={14} color={theme.colors.accentText} />
           <Text style={styles.apiCopyText}>{t('common.copy')}</Text>
         </View>
       </TouchableOpacity>
       <Text style={styles.apiAddressHint}>{t('localModel.api.addressHint')}</Text>
       <TouchableOpacity style={styles.logsButton} onPress={onOpenLogs} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={t('localModel.a11y.viewLogs')}>
-        <Ionicons name="document-text-outline" size={14} color={theme.colors.primarySoft} />
+        <Ionicons name="document-text-outline" size={14} color={theme.colors.accentText} />
         <Text style={styles.logsButtonText}>{t('localModel.viewLogs')}</Text>
       </TouchableOpacity>
     </>

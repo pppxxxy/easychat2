@@ -383,7 +383,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   badgeText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), fontWeight: '700' },
   cleanButton: { marginTop: 12 },
-  doneLine: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginTop: 10, lineHeight: fonts.scaled(18) },
+  doneLine: { color: theme.colors.accentText, fontSize: fonts.scaled(12), marginTop: 10, lineHeight: fonts.scaled(18) },
   healthyLine: { color: theme.colors.primary, fontSize: fonts.scaled(12), marginTop: 10 },
   errorText: {
     color: theme.colors.danger || theme.colors.text,

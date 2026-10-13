@@ -206,7 +206,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
-  chipTextActive: { color: theme.colors.primarySoft },
+  chipTextActive: { color: theme.colors.accentText },
   usageTrack: {
     height: 6,
     borderRadius: 3,

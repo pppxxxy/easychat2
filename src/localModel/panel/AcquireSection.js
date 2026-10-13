@@ -65,7 +65,7 @@ export default function AcquireSection({
               accessibilityRole="button"
               accessibilityLabel={t('localModel.download.search')}
             >
-              <Ionicons name="search" size={14} color={theme.colors.primarySoft} />
+              <Ionicons name="search" size={14} color={theme.colors.accentText} />
               <Text style={styles.searchModelText}>{t('localModel.download.search')}</Text>
             </TouchableOpacity>
           </View>

@@ -346,7 +346,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   importDesc: { color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), marginTop: 2, lineHeight: fonts.scaled(16) },
   section: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 8 },
   groupLabel: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(11.5),
     fontWeight: '700',
     marginTop: 6,

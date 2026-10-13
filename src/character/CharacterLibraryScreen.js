@@ -500,7 +500,7 @@ export default function CharacterLibraryScreen() {
             ) : (
               <View style={styles.characterCardFallback}>
                 <View style={styles.characterCardFallbackDeep} />
-                <Ionicons name="people" size={24} color={theme.colors.primarySoft} />
+                <Ionicons name="people" size={24} color={theme.colors.accentText} />
               </View>
             )}
             <View style={styles.characterCardGroupBadge}>
@@ -645,7 +645,7 @@ export default function CharacterLibraryScreen() {
                 disabled={!loaded}
                 activeOpacity={0.8}
               >
-                <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+                <Ionicons name="add" size={15} color={theme.colors.accentText} />
                 <Text style={styles.pillButtonText}>{t('character.library.new')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -654,7 +654,7 @@ export default function CharacterLibraryScreen() {
                 disabled={!loaded || characters.length < 2}
                 activeOpacity={0.8}
               >
-                <Ionicons name="people" size={15} color={theme.colors.primarySoft} />
+                <Ionicons name="people" size={15} color={theme.colors.accentText} />
                 <Text style={styles.pillButtonText}>{t('common.groupChat')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -663,7 +663,7 @@ export default function CharacterLibraryScreen() {
                 disabled={!loaded}
                 activeOpacity={0.8}
               >
-                <Ionicons name={editMode ? 'close' : 'checkmark-circle-outline'} size={15} color={theme.colors.primarySoft} />
+                <Ionicons name={editMode ? 'close' : 'checkmark-circle-outline'} size={15} color={theme.colors.accentText} />
                 <Text style={styles.pillButtonText}>{editMode ? t('common.done') : t('character.library.select')}</Text>
               </TouchableOpacity>
             </View>
@@ -704,7 +704,7 @@ export default function CharacterLibraryScreen() {
                 <Ionicons
                   name={characterListExpanded ? 'chevron-up' : 'chevron-down'}
                   size={15}
-                  color={theme.colors.primarySoft}
+                  color={theme.colors.accentText}
                 />
                 <Text style={styles.characterListToggleText}>
                   {characterListExpanded
@@ -720,7 +720,7 @@ export default function CharacterLibraryScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={t('character.library.a11y.locate')}
                 >
-                  <Ionicons name="options-outline" size={15} color={theme.colors.primarySoft} />
+                  <Ionicons name="options-outline" size={15} color={theme.colors.accentText} />
                   <Text style={styles.characterListLocateText}>{t('character.library.locate')}</Text>
                 </TouchableOpacity>
               ) : null}

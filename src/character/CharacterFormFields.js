@@ -60,7 +60,7 @@ function useFieldStyles() {
     },
     avatarImage: { width: '100%', height: '100%' },
     avatarPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(22) },
+    avatarPlaceholderText: { color: theme.colors.accentText, fontSize: fonts.scaled(22) },
     bgPreview: {
       width: 96, height: 64, borderRadius: 12,
       backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.surfaceBorder,
@@ -81,7 +81,7 @@ function useFieldStyles() {
       marginTop: 10, paddingVertical: 10, borderRadius: 10,
       borderWidth: 1, borderColor: theme.colors.surfaceBorder, backgroundColor: theme.colors.surface,
     },
-    secondaryButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 6 },
+    secondaryButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), marginLeft: 6 },
     voiceRow: { flexDirection: 'row', flexWrap: 'wrap' },
     voiceChip: {
       borderRadius: 14, borderWidth: 1, borderColor: theme.colors.surfaceBorder,
@@ -97,7 +97,7 @@ function useFieldStyles() {
       borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, marginRight: 8, marginBottom: 8,
       borderWidth: 1, borderColor: theme.colors.surfaceBorder,
     },
-    tagChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginRight: 4 },
+    tagChipText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), marginRight: 4 },
     tagInputRow: { flexDirection: 'row', alignItems: 'center' },
     tagInput: { flex: 1, minHeight: 40 },
     tagAdd: {
@@ -133,7 +133,7 @@ export function Field({ field, draft, patch, styles }) {
           <Ionicons
             name={collapsed ? 'chevron-up' : 'chevron-down'}
             size={18}
-            color={theme.colors.primarySoft}
+            color={theme.colors.accentText}
           />
         </TouchableOpacity>
       ) : (
@@ -216,7 +216,7 @@ export function GreetingList({ draft, styles, addGreeting, updateGreeting, remov
         <Ionicons
           name={collapsed ? 'chevron-up' : 'chevron-down'}
           size={18}
-          color={theme.colors.primarySoft}
+          color={theme.colors.accentText}
         />
       </TouchableOpacity>
       {collapsed ? null : (
@@ -242,7 +242,7 @@ export function GreetingList({ draft, styles, addGreeting, updateGreeting, remov
             </View>
           ))}
           <TouchableOpacity style={styles.secondaryButton} onPress={addGreeting} activeOpacity={0.8}>
-            <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="add" size={16} color={theme.colors.accentText} />
             <Text style={styles.secondaryButtonText}>{t('character.fields.greetings.add')}</Text>
           </TouchableOpacity>
         </>
@@ -299,7 +299,7 @@ export function TagEditor({ draft, styles, tagDraft, setTagDraft, addTag, remove
             activeOpacity={0.8}
           >
             <Text style={styles.tagChipText}>{tag}</Text>
-            <Ionicons name="close" size={12} color={theme.colors.primarySoft} />
+            <Ionicons name="close" size={12} color={theme.colors.accentText} />
           </TouchableOpacity>
         ))}
       </View>

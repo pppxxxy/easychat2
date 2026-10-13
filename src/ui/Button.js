@@ -116,11 +116,11 @@ export function SecondaryButton({
       disabled={isDisabled}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={theme.colors.primarySoft} />
+        <ActivityIndicator size="small" color={theme.colors.accentText} />
       ) : (
         <View style={styles.content}>
           {icon ? (
-            <Ionicons name={icon} size={small ? tokens.iconSize.sm : tokens.iconSize.md} color={theme.colors.primarySoft} />
+            <Ionicons name={icon} size={small ? tokens.iconSize.sm : tokens.iconSize.md} color={theme.colors.accentText} />
           ) : null}
           <Text style={[styles.secondaryText, small && styles.smallText, icon ? styles.textSpaced : null, textStyle]}>{title}</Text>
         </View>
@@ -198,7 +198,7 @@ export function GhostButton({
     >
       <View style={styles.content}>
         {icon ? (
-          <Ionicons name={icon} size={small ? tokens.iconSize.sm : tokens.iconSize.md} color={theme.colors.primarySoft} />
+          <Ionicons name={icon} size={small ? tokens.iconSize.sm : tokens.iconSize.md} color={theme.colors.accentText} />
         ) : null}
         <Text style={[styles.ghostText, small && styles.smallText, icon ? styles.textSpaced : null, textStyle]}>{title}</Text>
       </View>
@@ -250,7 +250,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.primaryMutedAlpha(0.35),
   },
   secondaryText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontWeight: '700',
     fontSize: fonts.scaled(15),
   },
@@ -261,7 +261,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
   },
   ghostText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontWeight: '700',
     fontSize: fonts.scaled(15),
   },

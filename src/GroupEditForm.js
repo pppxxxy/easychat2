@@ -232,7 +232,7 @@ export default function GroupEditForm({ visible, session, members, onClose, onSa
                 {avatarUri ? (
                   <Image source={{ uri: avatarUri }} style={styles.previewImage} />
                 ) : (
-                  <Ionicons name="people" size={22} color={theme.colors.primarySoft} />
+                  <Ionicons name="people" size={22} color={theme.colors.accentText} />
                 )}
               </View>
               <View style={styles.previewActions}>
@@ -371,7 +371,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   pickChipTextActive: { color: theme.colors.primaryContrast },
   pickAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.surfaceAlt },
   pickAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  pickAvatarText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(15) },
+  pickAvatarText: { color: theme.colors.accentText, fontSize: fonts.scaled(15) },
   footer: {
     flexDirection: 'row',
     paddingHorizontal: 16,

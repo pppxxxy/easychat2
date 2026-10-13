@@ -74,7 +74,7 @@ export default function EngineCard({ styles, theme, t, runtime, entries, onUnloa
           accessibilityRole="button"
           accessibilityLabel={t('localModel.engine.logsA11y')}
         >
-          <Ionicons name="document-text-outline" size={13} color={theme.colors.primarySoft} />
+          <Ionicons name="document-text-outline" size={13} color={theme.colors.accentText} />
           <Text style={styles.runButtonText}>{t('localModel.engine.logs')}</Text>
         </TouchableOpacity>
       </View>

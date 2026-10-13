@@ -300,6 +300,16 @@ export const error = {
   'error.backup.entryIncomplete': '备份数据条目缺少内容（既没有数据值，也没有抢救下来的原始数据）',
   'error.backup.keyDuplicated': '备份数据键重复',
   'error.backup.mediaInvalid': '备份媒体路径或内容无效',
+  // 导入流程**分阶段**的错误文案。为什么要分开：此前 readAsStringAsync / JSON.parse /
+  // importBackup 三处的异常都是内部英文错误（且非 userFacing），发布构建里被 BackupPanel 的
+  // userMessage 统一吞成「备份文件无法恢复」——用户「导出后立刻导入」100% 失败却看不出挂在
+  // 哪一环，我们远程也无法定位。现在每一环给出自己的可翻译文案 + 短原因，并写进诊断日志。
+  'error.backup.importReadFailed': '备份文件读取失败：{reason}',
+  'error.backup.importParseFailed': '文件内容不是有效的备份 JSON（可能选错了文件，或保存时损坏）',
+  'error.backup.importInterrupted': '数据恢复中断，已回滚：{reason}',
+  // 恢复本身成功、只是恢复后的界面刷新失败：必须与「导入失败」区分开，
+  // 否则用户会以为数据没恢复（其实已经写盘了）而反复重试。
+  'error.backup.importRefreshFailed': '数据已恢复，但界面刷新失败：{reason}',
   'error.storage.characterLibraryRecovering': '角色库仍在恢复中，请稍后重试。',
   'error.storage.draftMissingCharacterId': '草稿缺少角色 id',
   // 密钥保险箱「读不回」的提示：storage/secretStore.js 的 SECRET_UNAVAILABLE_KEY 标记为真时，

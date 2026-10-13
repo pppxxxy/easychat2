@@ -109,7 +109,7 @@ export default function ModelsSection({
           accessibilityRole="button"
           accessibilityLabel={t('localModel.cleanup.button')}
         >
-          <Ionicons name="trash-bin-outline" size={14} color={theme.colors.primarySoft} />
+          <Ionicons name="trash-bin-outline" size={14} color={theme.colors.accentText} />
           <Text style={styles.searchModelText}>{cleanupBusy ? t('localModel.cleanup.busy') : t('localModel.cleanup.button')}</Text>
         </TouchableOpacity>
       </View>

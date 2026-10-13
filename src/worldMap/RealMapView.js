@@ -503,7 +503,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   placeText: { flex: 1, marginLeft: 8 },
   placeName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
-  placeNameActive: { color: theme.colors.primarySoft },
+  placeNameActive: { color: theme.colors.accentText },
   placeMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 2 },
   placeIcon: { paddingHorizontal: 8, paddingVertical: 8 },
   addButton: {

@@ -101,7 +101,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   title: { color: theme.colors.text, fontSize: fonts.scaled(18), fontWeight: '800' },
   hint: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), lineHeight: fonts.scaled(16), marginBottom: 8 },
   toolbar: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  toolbarText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', marginRight: 18 },
+  toolbarText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), fontWeight: '700', marginRight: 18 },
   dangerText: { color: theme.colors.dangerSoft, fontSize: fonts.scaled(13), fontWeight: '700' },
   content: { paddingBottom: 18 },
   empty: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), textAlign: 'center', marginTop: 20 },

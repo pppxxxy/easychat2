@@ -27,7 +27,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
   },
-  previewActionText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
+  previewActionText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
   hint: {
@@ -49,7 +49,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginBottom: tokens.spacing.xs,
   },
   aigcBadge: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(11),
     fontWeight: '700',
     marginBottom: tokens.spacing.md,
@@ -66,7 +66,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   assistButtonText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(11),
     fontWeight: '700',
     marginLeft: 3,
@@ -194,7 +194,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   imageGenText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(11),
     fontWeight: '700',
     marginLeft: 3,

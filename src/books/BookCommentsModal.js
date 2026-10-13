@@ -78,7 +78,7 @@ export default function BookCommentsModal({
               disabled={chapterGenerateDisabled}
               activeOpacity={0.85}
             >
-              <Ionicons name="book-outline" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="book-outline" size={15} color={theme.colors.accentText} />
               <Text style={[styles.generateText, styles.generateTextChapter]}>
                 {t('books.comments.generateChapter', { character: activeCharacterName })}
               </Text>

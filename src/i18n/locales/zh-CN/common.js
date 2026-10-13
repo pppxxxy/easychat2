@@ -27,6 +27,9 @@ export const common = {
   'common.error.deleteFailed': '删除失败',
   'common.error.storageOrPermission': '请检查存储空间或权限。',
   'common.error.retryLater': '请稍后重试。',
+  // 兜底原因：分阶段错误文案（error.backup.import*）的 {reason} 在拿不到 error.message 时用它。
+  // 不静默留空——留空会让文案变成「备份文件读取失败：」，用户看不出到底怎么了。
+  'common.error.unknown': '未知错误',
   'common.detecting': '检测中...',
   'common.on': '开',
   'common.off': '关',

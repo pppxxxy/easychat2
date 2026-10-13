@@ -354,7 +354,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   rowTextBlock: { flex: 1, marginLeft: 10, marginRight: 8 },
   rowTitle: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
-  rowTitleActive: { color: theme.colors.primarySoft },
+  rowTitleActive: { color: theme.colors.accentText },
   rowMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 3 },
   rowPreview: { color: theme.colors.textMuted, fontSize: fonts.scaled(11), marginTop: 3 },
   deleteButton: { padding: 4 },

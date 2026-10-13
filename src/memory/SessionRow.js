@@ -50,7 +50,7 @@ export function SessionAvatar({ isGroup = false, uri = '', name = '', members = 
     if (list.length === 0) {
       return (
         <View style={[styles.avatar, styles.fallback, boxStyle]}>
-          <Ionicons name="people" size={Math.round(size * 0.38)} color={theme.colors.primarySoft} />
+          <Ionicons name="people" size={Math.round(size * 0.38)} color={theme.colors.accentText} />
         </View>
       );
     }
@@ -156,7 +156,7 @@ export default function SessionRow({
                 <Ionicons
                   name={badge.icon}
                   size={10}
-                  color={theme.colors.primarySoft}
+                  color={theme.colors.accentText}
                   style={styles.badgeIcon}
                 />
               ) : null}
@@ -231,7 +231,7 @@ const createRowStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   badgeIcon: { marginRight: 2 },
   badgeText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(10),
     fontWeight: '700',
   },

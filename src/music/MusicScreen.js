@@ -473,7 +473,7 @@ export default function MusicScreen() {
               onPress={cyclePlayMode}
               accessibilityLabel={t('music.a11y.playMode')}
             >
-              <Ionicons name={PLAY_MODE_META[playMode].icon} size={14} color={theme.colors.primarySoft} />
+              <Ionicons name={PLAY_MODE_META[playMode].icon} size={14} color={theme.colors.accentText} />
               <Text style={styles.modeChipText}>{t(PLAY_MODE_META[playMode].labelKey)}</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -481,7 +481,7 @@ export default function MusicScreen() {
               onPress={cycleRate}
               accessibilityLabel={t('music.a11y.rate')}
             >
-              <Ionicons name="speedometer-outline" size={14} color={theme.colors.primarySoft} />
+              <Ionicons name="speedometer-outline" size={14} color={theme.colors.accentText} />
               <Text style={styles.modeChipText}>{formatMusicRate(rate)}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.markButton} onPress={addTriggerHere} accessibilityLabel={t('music.a11y.markHere')}>

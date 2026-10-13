@@ -19,7 +19,7 @@ export default function EmptyState({
   return (
     <View style={[styles.container, style]}>
       <Animated.View style={[styles.iconBadge, { transform: [{ scale: pulse }] }]}>
-        <Ionicons name={icon} size={32} color={theme.colors.primarySoft} />
+        <Ionicons name={icon} size={32} color={theme.colors.accentText} />
       </Animated.View>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {description ? <Text style={styles.description}>{description}</Text> : null}

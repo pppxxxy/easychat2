@@ -27,6 +27,10 @@ export const common = {
   'common.error.deleteFailed': 'Delete Failed',
   'common.error.storageOrPermission': 'Please check storage space or permissions.',
   'common.error.retryLater': 'Please try again later.',
+  // Fallback for the {reason} slot of the staged import messages (error.backup.import*)
+  // when no error.message is available. Never leave it blank: "Could not read the backup
+  // file: " tells the user nothing.
+  'common.error.unknown': 'unknown error',
   'common.detecting': 'Detecting...',
   'common.on': 'On',
   'common.off': 'Off',

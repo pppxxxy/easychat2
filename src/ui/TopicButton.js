@@ -26,7 +26,7 @@ export default function TopicButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || resolvedLabel}
     >
-      <Ionicons name="help-circle-outline" size={tokens.iconSize.sm} color={theme.colors.primarySoft} />
+      <Ionicons name="help-circle-outline" size={tokens.iconSize.sm} color={theme.colors.accentText} />
       <Text style={styles.text}>{resolvedLabel}</Text>
     </TouchableOpacity>
   );
@@ -43,7 +43,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: tokens.spacing.sm + 2,
   },
   text: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontWeight: '700',
     fontSize: fonts.scaled(12),
     marginLeft: tokens.spacing.xs + 1,

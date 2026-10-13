@@ -61,7 +61,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: 8,
   },
   modeChipText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(11),
     fontWeight: '600',
     marginLeft: 4,

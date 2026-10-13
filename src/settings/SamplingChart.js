@@ -153,7 +153,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     fontSize: fonts.scaled(9),
     marginTop: 4,
   },
-  barLabelActive: { color: theme.colors.primarySoft, fontWeight: '700' },
+  barLabelActive: { color: theme.colors.accentText, fontWeight: '700' },
   caption: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),

@@ -146,9 +146,9 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   chapterRowCurrent: { backgroundColor: theme.colors.surface },
   chapterRowMain: { flex: 1, marginRight: 8 },
   chapterText: { color: theme.colors.text, fontSize: fonts.scaled(14) },
-  chapterTextCurrent: { color: theme.colors.primarySoft, fontWeight: '700' },
+  chapterTextCurrent: { color: theme.colors.accentText, fontWeight: '700' },
   chapterCurrentBadge: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(10),
     fontWeight: '700',
     marginTop: 2,
@@ -185,7 +185,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   generateText: { color: theme.colors.primaryContrast, fontSize: fonts.scaled(13), fontWeight: '600', marginLeft: 6 },
-  generateTextChapter: { color: theme.colors.primarySoft },
+  generateTextChapter: { color: theme.colors.accentText },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',

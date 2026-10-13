@@ -355,7 +355,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   avatarImage: { width: '100%', height: '100%' },
   avatarPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(22) },
+  avatarPlaceholderText: { color: theme.colors.accentText, fontSize: fonts.scaled(22) },
   bgPreview: {
     width: 96,
     height: 64,
@@ -389,7 +389,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     backgroundColor: theme.colors.surface,
   },
-  secondaryButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 6 },
+  secondaryButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), marginLeft: 6 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap' },
   voiceRow: { flexDirection: 'row', flexWrap: 'wrap' },
   voiceChip: {
@@ -420,7 +420,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.surfaceBorder,
   },
-  tagChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginRight: 4 },
+  tagChipText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), marginRight: 4 },
   tagInputRow: { flexDirection: 'row', alignItems: 'center' },
   tagInput: { flex: 1, minHeight: 40 },
   tagAdd: {

@@ -14,7 +14,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
   pageHeader: { marginTop: 4, marginBottom: 14 },
   // 详情页顶部返回入口（角色库 ⇄ 角色详情拆成原生栈之后新增）
   detailBackRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 6, marginBottom: 2 },
-  detailBackText: { color: theme.colors.primarySoft, fontSize: 13, fontWeight: '700', marginLeft: 2 },
+  detailBackText: { color: theme.colors.accentText, fontSize: 13, fontWeight: '700', marginLeft: 2 },
   // 详情页分段控件：横向 chips，沿用设置页 chips 的视觉语言（不引第三方库）。
   segmentRow: {
     flexDirection: 'row',
@@ -47,10 +47,10 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     paddingVertical: 9,
     marginTop: 10,
   },
-  addEntryText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 5 },
+  addEntryText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 5 },
   title: { color: theme.colors.text, fontSize: 24, fontWeight: '800', marginBottom: 6 },
   hint: { color: theme.colors.textFaint, fontSize: 13, lineHeight: 19 },
-  aigcBadge: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', marginTop: 2 },
+  aigcBadge: { color: theme.colors.accentText, fontSize: 12, fontWeight: '700', marginTop: 2 },
   // 页头「当前：名字」pill：卡片上不再用文字角标标当前角色，全名挪到这里。
   currentPill: {
     flexDirection: 'row',
@@ -72,7 +72,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     backgroundColor: theme.colors.primarySoft,
     marginRight: 6,
   },
-  currentPillText: { color: theme.colors.primarySoft, fontSize: 12, fontWeight: '700', flexShrink: 1 },
+  currentPillText: { color: theme.colors.accentText, fontSize: 12, fontWeight: '700', flexShrink: 1 },
 
   // 英文下「新建 / Group Chat / Select」三枚胶囊比中文长得多，一行放不下。
   // 允许换行：标题行留在第一行，动作组整体折到下一行（组内仍可再折），
@@ -148,7 +148,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countBadgeText: { color: theme.colors.primarySoft, fontSize: 11, fontWeight: '700' },
+  countBadgeText: { color: theme.colors.accentText, fontSize: 11, fontWeight: '700' },
 
   label: { color: theme.colors.textMuted, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: 13 },
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 6 },
@@ -200,7 +200,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     backgroundColor: theme.colors.primaryAlpha(0.12),
   },
   characterListToggleText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 5,
@@ -216,7 +216,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     borderColor: theme.colors.surfaceBorder,
   },
   characterListLocateText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 4,
@@ -287,7 +287,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     paddingBottom: 6,
   },
   characterCardTag: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     backgroundColor: theme.colors.primaryAlpha(0.2),
     fontSize: fonts.scaled(10),
     borderRadius: 6,
@@ -308,7 +308,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     marginRight: 8,
     marginBottom: 8,
   },
-  tagChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), marginRight: 4 },
+  tagChipText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), marginRight: 4 },
   tagInputRow: { flexDirection: 'row', alignItems: 'center' },
   greetingRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
   greetingInput: { flex: 1, marginBottom: 0 },
@@ -325,7 +325,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     marginTop: 4,
     marginBottom: 4,
   },
-  secondaryButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6, fontSize: fonts.scaled(13) },
+  secondaryButtonText: { color: theme.colors.accentText, fontWeight: '700', marginLeft: 6, fontSize: fonts.scaled(13) },
   tagInput: { flex: 1, minHeight: 40, marginRight: 8 },
   tagAdd: {
     width: 40,
@@ -403,7 +403,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     alignItems: 'center',
     justifyContent: 'center',
   },
-  importButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 8 },
+  importButtonText: { color: theme.colors.accentText, fontWeight: '700', marginLeft: 8 },
   importHint: { color: theme.colors.textFaint, fontSize: 12, marginTop: 8 },
   topicButton: {
     alignSelf: 'flex-start',
@@ -420,7 +420,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     paddingHorizontal: 12,
     borderRadius: 15,
   },
-  pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 13, marginLeft: 4 },
+  pillButtonText: { color: theme.colors.accentText, fontWeight: '700', fontSize: 13, marginLeft: 4 },
 
   // FlatList numColumns=2 的行容器：两列均分（卡片自身 width:48% + 间距）。
   characterRow: { justifyContent: 'space-between' },
@@ -459,7 +459,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     backgroundColor: theme.colors.primaryAlpha(0.06),
   },
   characterCardFallbackText: {
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: 34,
     fontWeight: '800',
     textShadowColor: theme.colors.primaryAlpha(0.4),
@@ -577,7 +577,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: 22, fontWeight: '800' },
+  avatarPlaceholderText: { color: theme.colors.accentText, fontSize: 22, fontWeight: '800' },
   bgPreview: {
     width: 60,
     height: 60,
@@ -596,10 +596,10 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     borderRadius: 10,
     marginRight: 12,
   },
-  smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: 13 },
+  smallButtonText: { color: theme.colors.accentText, fontWeight: '700', fontSize: 13 },
 
   dataSection: { marginTop: 16 },
-  dataTitle: { color: theme.colors.primarySoft, fontWeight: '800', fontSize: 13, marginBottom: 8 },
+  dataTitle: { color: theme.colors.accentText, fontWeight: '800', fontSize: 13, marginBottom: 8 },
   sectionCard: {
     marginTop: 12,
     backgroundColor: theme.colors.surfaceAlt,
@@ -616,7 +616,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     paddingVertical: 10,
   },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center' },
-  sectionTitle: { color: theme.colors.primarySoft, fontWeight: '800', marginLeft: 8, fontSize: 13 },
+  sectionTitle: { color: theme.colors.accentText, fontWeight: '800', marginLeft: 8, fontSize: 13 },
   sectionBody: { paddingBottom: 10 },
   addButton: {
     flexDirection: 'row',
@@ -629,7 +629,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     justifyContent: 'center',
     marginTop: 4,
   },
-  addButtonText: { color: theme.colors.primarySoft, fontWeight: '700', marginLeft: 6 },
+  addButtonText: { color: theme.colors.accentText, fontWeight: '700', marginLeft: 6 },
 
   tag: {
     backgroundColor: theme.colors.primaryAlpha(0.14),
@@ -643,7 +643,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     maxWidth: '100%',
     flexShrink: 1,
   },
-  tagText: { color: theme.colors.primarySoft, fontSize: 12, lineHeight: 18, fontWeight: '600', flexShrink: 1 },
+  tagText: { color: theme.colors.accentText, fontSize: 12, lineHeight: 18, fontWeight: '600', flexShrink: 1 },
 
   dataField: { marginBottom: 10 },
   dataFieldLabel: { color: theme.colors.textFaint, fontSize: 12, marginBottom: 3 },
@@ -690,7 +690,7 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     borderWidth: 1,
     borderColor: theme.colors.surfaceBorder,
   },
-  cycleButtonText: { color: theme.colors.primarySoft, fontSize: 13, fontWeight: '700' },
+  cycleButtonText: { color: theme.colors.accentText, fontSize: 13, fontWeight: '700' },
   numberRow: { flexDirection: 'row', marginTop: 4 },
   numberField: { flex: 1, marginRight: 10 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
@@ -767,8 +767,8 @@ export const createCharacterStyles = (theme, fonts, tokens) => StyleSheet.create
     backgroundColor: theme.colors.primaryAlpha(0.16),
     marginLeft: 6,
   },
-  overrideBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  overrideBadgeText: { color: theme.colors.accentText, fontSize: fonts.scaled(11), fontWeight: '700' },
   // 失效提示用醒目色：静默显示空白会让用户以为「跟随全局」，而实际配过的东西已没了。
-  overrideWarn: { color: theme.colors.danger || theme.colors.primarySoft, marginTop: 2 },
+  overrideWarn: { color: theme.colors.danger || theme.colors.accentText, marginTop: 2 },
   overrideSubSelect: { marginTop: tokens.spacing.xs + 2 },
 });

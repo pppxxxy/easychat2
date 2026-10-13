@@ -39,7 +39,7 @@ export default function ChapterNotice({ disclaimer, warning, links }) {
     <View>
       {disclaimer ? (
         <View style={styles.disclaimerBox}>
-          <Ionicons name="information-circle-outline" size={15} color={theme.colors.primarySoft} />
+          <Ionicons name="information-circle-outline" size={15} color={theme.colors.accentText} />
           <Text style={styles.disclaimerText}>{disclaimer}</Text>
         </View>
       ) : null}
@@ -58,7 +58,7 @@ export default function ChapterNotice({ disclaimer, warning, links }) {
           accessibilityRole="link"
           accessibilityLabel={t('books.notice.openLinkA11y', { name: link.label || link.url })}
         >
-          <Ionicons name="open-outline" size={15} color={theme.colors.primarySoft} />
+          <Ionicons name="open-outline" size={15} color={theme.colors.accentText} />
           {/* 缺 label 时回退到 url：只渲染 label 会留下一行空白（看着像坏掉的按钮），
               而同组件上面的 Alert 标题（:23）与 ChapterOutro.js:62 都已是 `|| link.url` 口径。 */}
           <Text style={styles.linkLabel} numberOfLines={1}>{link.label || link.url}</Text>
@@ -117,7 +117,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   linkLabel: {
     flex: 1,
-    color: theme.colors.primarySoft,
+    color: theme.colors.accentText,
     fontSize: fonts.scaled(14),
     fontWeight: '700',
     marginLeft: tokens.spacing.sm,

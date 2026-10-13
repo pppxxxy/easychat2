@@ -123,7 +123,7 @@ export default function ModelCard({
             accessibilityRole="button"
             accessibilityLabel={paramsLabel}
           >
-            <Ionicons name="options-outline" size={15} color={theme.colors.primarySoft} />
+            <Ionicons name="options-outline" size={15} color={theme.colors.accentText} />
             <Text style={styles.iconButtonText}>{paramsLabel}</Text>
           </TouchableOpacity>
         ) : null}
@@ -135,7 +135,7 @@ export default function ModelCard({
             accessibilityRole="button"
             accessibilityLabel={t('localModel.card.more')}
           >
-            <Ionicons name="ellipsis-horizontal" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="ellipsis-horizontal" size={16} color={theme.colors.accentText} />
           </TouchableOpacity>
         ) : null}
       </View>

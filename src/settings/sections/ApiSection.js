@@ -138,7 +138,7 @@ export default function ApiSection(props) {
                   onPress={addModel}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+                  <Ionicons name="add" size={15} color={theme.colors.accentText} />
                   <Text style={styles.detectButtonText}>{t('settings.api.addModel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -149,7 +149,7 @@ export default function ApiSection(props) {
                   accessibilityRole="button"
                   accessibilityLabel={t('settings.api.a11ySearchModels')}
                 >
-                  <Ionicons name="search" size={15} color={theme.colors.primarySoft} />
+                  <Ionicons name="search" size={15} color={theme.colors.accentText} />
                   <Text style={styles.detectButtonText}>{t('settings.api.search')}</Text>
                 </TouchableOpacity>
               </View>
@@ -183,7 +183,7 @@ export default function ApiSection(props) {
                           name="options-outline"
                           size={13}
                           color={(active.modelCapabilities && active.modelCapabilities[model])
-                            ? theme.colors.primarySoft
+                            ? theme.colors.accentText
                             : theme.colors.textFaint}
                         />
                       </TouchableOpacity>
@@ -201,7 +201,7 @@ export default function ApiSection(props) {
                 disabled={detectingModels}
                 activeOpacity={0.8}
               >
-                <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
+                <Ionicons name="pulse-outline" size={15} color={theme.colors.accentText} />
                 <Text style={styles.detectButtonText}>
                   {detectingModels ? t('common.detecting') : t('settings.api.detectModels')}
                 </Text>

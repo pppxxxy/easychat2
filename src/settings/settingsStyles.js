@@ -148,7 +148,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     paddingHorizontal: 12,
     borderRadius: 15,
   },
-  pillButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 4 },
+  pillButtonText: { color: theme.colors.accentText, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 4 },
 
   label: { color: theme.colors.text, marginTop: 14, marginBottom: 6, fontWeight: '700', fontSize: fonts.scaled(13) },
   multilineInput: { minHeight: 100, paddingTop: 12 },
@@ -170,7 +170,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     paddingHorizontal: 14,
     borderRadius: 10,
   },
-  detectButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 6 },
+  detectButtonText: { color: theme.colors.accentText, fontWeight: '700', fontSize: fonts.scaled(13), marginLeft: 6 },
   // 模型输入行里的「搜索」按钮：与「添加」并排，稍作间距。
   modelSearchButton: { marginLeft: 8 },
 
@@ -246,7 +246,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  personaAddText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4 },
+  personaAddText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), marginLeft: 4 },
   samplingRight: { flexDirection: 'row', alignItems: 'center' },
   samplingInput: {
     backgroundColor: theme.colors.surface,
@@ -306,7 +306,17 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   },
   formatChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
   formatChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
-  formatChipTextActive: { color: theme.colors.primarySoft },
+  // 激活态文字必须用 text，**不能**用 primarySoft。
+  // 背景是 primaryAlpha(0.25) 的浅着色底，而 primarySoft 是「主色浅档」——深色主题下它是
+  // 亮淡紫（dark 6.18:1，所以历史上从没暴露），但浅底主题下它是浅色：custom 出厂底稿
+  // #cbd5e0 落在 #d2d5d9 上只有 1.01:1，pinkWhite 1.02:1、light 1.34:1 —— 浅字浅底，
+  // 肉眼等于没字（真机表现就是「选项按钮的文字和底色一个颜色」）。
+  // 修法对齐**同一个样式表里的 modelChip**（modelChipActive 用 primaryAlpha(0.25)、
+  // modelChipTextActive 用 text）：保持「浅着色底 + 深字」的选中态外观，只换文字 token。
+  // 为什么不改成「实色 primary 底 + primaryContrast 字」：那样每个主题的对比度都会下降
+  // （实测 dark 6.18→4.32，低于 AA 4.5:1；blue 5.96→4.70），而本方案 10 个主题**全部**
+  // ≥7.52:1 且没有一个主题变差。见 tests/themeContrast.test.mjs 的对比度门禁。
+  formatChipTextActive: { color: theme.colors.text },
 
   // 能力弹层：基础开关 + 自定义参数 + 参数框，内容变长后需要更大高度且内容可滚动
   //（此前 modalSheet 的 maxHeight 70% + 无滚动，内容一多底部按钮会被顶出屏幕）。
@@ -363,7 +373,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     paddingVertical: 12,
   },
   collapseHeaderText: { flex: 1, marginRight: 10 },
-  collapseValue: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
+  collapseValue: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700' },
   presetList: { paddingBottom: 10 },
   presetItem: {
     backgroundColor: theme.colors.surfaceAlt,
@@ -379,7 +389,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderColor: theme.colors.primary,
   },
   presetName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
-  presetNameActive: { color: theme.colors.primarySoft },
+  presetNameActive: { color: theme.colors.accentText },
   presetHint: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),
@@ -425,7 +435,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarPlaceholderText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(20), fontWeight: '800' },
+  avatarPlaceholderText: { color: theme.colors.accentText, fontSize: fonts.scaled(20), fontWeight: '800' },
   imageActions: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   smallButton: {
     backgroundColor: theme.colors.surface,
@@ -436,7 +446,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
     borderRadius: 10,
     marginRight: 12,
   },
-  smallButtonText: { color: theme.colors.primarySoft, fontWeight: '700', fontSize: fonts.scaled(13) },
+  smallButtonText: { color: theme.colors.accentText, fontWeight: '700', fontSize: fonts.scaled(13) },
   // 自动备份：自定义天数输入行与单位。
   autoBackupCustomRow: { flexDirection: 'row', alignItems: 'center', marginTop: tokens.spacing.sm },
   autoBackupDaysInput: { width: 84, textAlign: 'center' },
@@ -477,7 +487,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   },
   modalRowText: { color: theme.colors.textMuted },
   apiKeyLinkRow: { alignItems: 'flex-end', marginTop: 6 },
-  apiKeyLink: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+  apiKeyLink: { color: theme.colors.accentText, fontSize: fonts.scaled(13), fontWeight: '700' },
   vendorEditorNote: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),
@@ -511,7 +521,7 @@ export const createSettingsStyles = (theme, fonts, tokens) => StyleSheet.create(
   },
   vendorName: { color: theme.colors.text, fontSize: fonts.scaled(14), fontWeight: '700', flex: 1, marginRight: 8 },
   vendorNameDisabled: { color: theme.colors.textMuted },
-  vendorCategory: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  vendorCategory: { color: theme.colors.accentText, fontSize: fonts.scaled(11), fontWeight: '700' },
   vendorBaseUrl: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), marginBottom: 3 },
   vendorNote: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18) },
 });

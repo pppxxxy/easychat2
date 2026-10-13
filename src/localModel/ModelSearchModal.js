@@ -30,7 +30,7 @@ function fileBaseName(filePath) {
 
 // 兼容分级的展示色：推荐=主色、难跑=警告、跑不了=危险、未知=弱化。
 function tierColor(theme, tier) {
-  if (tier === 'recommended') return theme.colors.primarySoft;
+  if (tier === 'recommended') return theme.colors.accentText;
   if (tier === 'tight') return theme.colors.star || theme.colors.dangerSoft;
   if (tier === 'incompatible') return theme.colors.dangerSoft;
   return theme.colors.textFaint;
@@ -190,7 +190,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, in
                 accessibilityRole="button"
                 accessibilityLabel={t('localModel.search.backA11y')}
               >
-                <Ionicons name="chevron-back" size={16} color={theme.colors.primarySoft} />
+                <Ionicons name="chevron-back" size={16} color={theme.colors.accentText} />
                 <Text style={styles.backText}>{t('localModel.search.back')}</Text>
               </TouchableOpacity>
               <Text style={styles.repoName} numberOfLines={1}>{activeRepo.repoId}</Text>
@@ -359,7 +359,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginBottom: 8,
   },
   sourceChipActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryAlpha(0.22) },
-  sourceChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700' },
+  sourceChipText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700' },
   sourceChipTextActive: { color: theme.colors.primary },
   searchRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   searchInput: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: theme.colors.surfaceBorder, borderRadius: tokens.radius.md, backgroundColor: theme.colors.surface, color: theme.colors.text, paddingHorizontal: 12, paddingVertical: 9 },
@@ -367,7 +367,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   searchButtonDisabled: { opacity: 0.5 },
   repoHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   backButton: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
-  backText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+  backText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), fontWeight: '700' },
   repoName: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '700' },
   content: { paddingTop: 8, paddingBottom: 18 },
   loading: { marginVertical: 20 },

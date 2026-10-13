@@ -294,6 +294,16 @@ export const error = {
   'error.backup.entryIncomplete': 'A backup data entry has no content (neither a data value nor salvaged raw data).',
   'error.backup.keyDuplicated': 'Duplicate backup data keys.',
   'error.backup.mediaInvalid': 'Invalid backup media path or content.',
+  // Per-stage import messages. They used to be swallowed into the generic
+  // "backup file could not be restored" because readAsStringAsync / JSON.parse / importBackup
+  // all throw non-userFacing internal English errors. Each stage now names itself and carries a
+  // short reason, and the raw error goes to the diagnostics log.
+  'error.backup.importReadFailed': 'Could not read the backup file: {reason}',
+  'error.backup.importParseFailed': 'The file is not valid backup JSON (you may have picked the wrong file, or it was corrupted when saved).',
+  'error.backup.importInterrupted': 'Restore was interrupted and has been rolled back: {reason}',
+  // The restore itself succeeded and only the post-restore UI refresh failed: must stay distinct
+  // from "import failed", otherwise the user thinks no data was restored and retries in a loop.
+  'error.backup.importRefreshFailed': 'Data was restored, but the UI failed to refresh: {reason}',
   'error.storage.characterLibraryRecovering': 'The character library is still being restored. Please try again later.',
   'error.storage.draftMissingCharacterId': 'The draft is missing a character ID.',
   // Same wording as the zh-CN entry: distinguishes "never configured" from "could not be read back"

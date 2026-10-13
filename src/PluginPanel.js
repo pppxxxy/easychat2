@@ -267,7 +267,7 @@ export default function PluginPanel({ visible, onClose }) {
                               accessibilityRole="link"
                               accessibilityLabel={t(link.labelKey)}
                             >
-                              <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
+                              <Ionicons name="open-outline" size={16} color={theme.colors.accentText} />
                               <Text style={styles.keyLinkText}>{t(link.labelKey)}</Text>
                               <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
                             </TouchableOpacity>
@@ -372,7 +372,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
   },
   providerChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
-  providerTextActive: { color: theme.colors.primarySoft },
+  providerTextActive: { color: theme.colors.accentText },
   keyRow: { flexDirection: 'row', alignItems: 'center' },
   keyInput: { flex: 1, minHeight: 40 },
   eyeButton: { paddingHorizontal: 8, paddingVertical: 8 },
@@ -388,7 +388,7 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 8,
   },
-  keyLinkText: { flex: 1, color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 8 },
+  keyLinkText: { flex: 1, color: theme.colors.accentText, fontSize: fonts.scaled(13), fontWeight: '700', marginLeft: 8 },
   saveButton: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,

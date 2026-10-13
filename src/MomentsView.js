@@ -447,7 +447,7 @@ export default function MomentsView({ active = true }) {
                   accessibilityRole="button"
                   accessibilityLabel={t('moments.comment.cancelReplyA11y')}
                 >
-                  <Ionicons name="close" size={13} color={theme.colors.primarySoft} />
+                  <Ionicons name="close" size={13} color={theme.colors.accentText} />
                 </TouchableOpacity>
               </View>
             ) : null}

@@ -13,11 +13,14 @@ const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
 const sourcePath = path.resolve('src/storage/backup.js');
 
-function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], secretValues = {}, failSecretWriteIds = new Set(), packableDirectories = null, multiRemoveCalls = [] }) {
+function loadBackup({ storage, files, failSet = false, failMediaWrite = false, directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [], secretValues = {}, failSecretWriteIds = new Set(), packableDirectories = null, multiRemoveCalls = [], makeDirectoryCalls = [], failGetInfoFor = new Set() }) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
     async getInfoAsync(uri) {
+      // 模拟「媒体文件不可访问」：真机上 getInfoAsync 会抛
+      // "[expo-file-system] getInfoAsync failed for <uri>"，而它发生在快照阶段。
+      if (failGetInfoFor.has(uri)) throw new Error(`[expo-file-system] getInfoAsync failed for ${uri}`);
       return { exists: files.has(uri), isDirectory: false };
     },
     async readAsStringAsync(uri) {
@@ -29,7 +32,11 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
       if (!names) throw new Error('no dir');
       return names;
     },
-    async makeDirectoryAsync() {},
+    // 记录调用：expo-file-system 的 writeAsStringAsync **不会**自动建父目录，
+    // 所以「写回媒体前先 makeDirectoryAsync」是必须被验证的行为，不能是空实现。
+    async makeDirectoryAsync(uri, options) {
+      makeDirectoryCalls.push({ uri, options });
+    },
     async writeAsStringAsync(uri, value) {
       if (failMediaWrite) throw new Error('media write failed');
       files.set(uri, value);
@@ -210,6 +217,53 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
 function payload(storage, media = []) {
   return { schemaVersion: 1, storage, media };
 }
+
+test('importBackup：写回媒体前先建父目录（writeAsStringAsync 不会自动建目录）', async () => {
+  // expo-file-system 的 writeAsStringAsync 在父目录不存在时**直接失败**，
+  // 而备份里的媒体路径是 `avatars/x.jpg` 这种带子目录的相对路径（媒体目录可能被系统清空过）。
+  // 所以写回前必须先 makeDirectoryAsync(parent, { intermediates: true })。
+  // 此前测试桩把 makeDirectoryAsync 写成空实现，这条行为其实**从未被验证**。
+  const storage = new Map();
+  const files = new Map();
+  const makeDirectoryCalls = [];
+  const backup = loadBackup({ storage, files, makeDirectoryCalls });
+  await backup.importBackup(payload([], [
+    { path: 'avatars/c1.jpg', base64: 'AA==' },
+    { path: 'voice/sub/deep.m4a', base64: 'BB==' },
+  ]), 'merge');
+  const created = makeDirectoryCalls.map(call => call.uri);
+  assert.ok(
+    created.includes('file:///doc/avatars/'),
+    `写回 avatars/c1.jpg 前必须建 file:///doc/avatars/，实际建了：${JSON.stringify(created)}`,
+  );
+  assert.ok(
+    created.includes('file:///doc/voice/sub/'),
+    `多级子目录也要建，实际建了：${JSON.stringify(created)}`,
+  );
+  // intermediates 必须为 true：否则多级目录建不出来
+  for (const call of makeDirectoryCalls) {
+    assert.equal(call.options?.intermediates, true, `${call.uri} 未用 intermediates`);
+  }
+  // 目录先于文件写入（顺序断言：建目录必须发生在写文件之前）
+  assert.equal(files.get('file:///doc/avatars/c1.jpg'), 'AA==');
+});
+
+test('importBackup：回滚媒体时同样先建父目录（旧文件被系统清空过也要能还原）', async () => {
+  const storage = new Map();
+  const files = new Map([['file:///doc/voice/old.m4a', 'OLD']]);
+  const makeDirectoryCalls = [];
+  const backup = loadBackup({ storage, files, failMediaWrite: true, makeDirectoryCalls });
+  await assert.rejects(
+    backup.importBackup(payload([], [{ path: 'voice/old.m4a', base64: 'NEW' }]), 'merge'),
+    /media write failed/,
+  );
+  // 回滚把 OLD 写回原路径，同样需要父目录存在
+  assert.ok(
+    makeDirectoryCalls.some(call => call.uri === 'file:///doc/voice/'),
+    `回滚也必须建父目录，实际建了：${JSON.stringify(makeDirectoryCalls.map(c => c.uri))}`,
+  );
+  assert.equal(files.get('file:///doc/voice/old.m4a'), 'OLD');
+});
 
 test('importBackup：恢复媒体文件并保留合并模式已有键', async () => {
   const storage = new Map([['@easychat2_keep', JSON.stringify({ keep: true })]]);
@@ -544,6 +598,38 @@ test('importBackup：回填密钥到安全存储并汇报数量', async () => {
   assert.equal(result.secretsCount, 1);
   assert.equal(secretValues.id1, 'sk-real');
   assert.equal(storage.get('@easychat2_api_configs'), JSON.stringify({ configs: [{ apiKey: 'secure:v1:id1' }] }));
+});
+
+test('importBackup：快照阶段失败 = 零副作用（密钥不得先写进保险箱）', async () => {
+  // 真 bug（本次修复）：storage/media 快照原先在**密钥写回之后**、且在 try 之外取。
+  // 于是 snapshotMediaFiles 抛错（实测 getInfoAsync 对不可访问的媒体文件会抛
+  // "[expo-file-system] getInfoAsync failed"）时，密钥**已经写进保险箱**，而数据一个字节
+  // 没恢复、catch 也没进去 ⇒ 密钥不回滚。用户看到「导入失败」，但 API Key 已被备份包里的
+  // 值悄悄顶掉——界面看着没变，请求却开始 401（正是 backup.js 注释里点名的错配）。
+  //
+  // 修法：三个快照全部前置到任何写入之前（读全 → 写全）。快照失败 = 零副作用。
+  const storage = new Map();
+  const files = new Map();
+  const secretValues = { id1: 'sk-OLD' };
+  const backup = loadBackup({
+    storage,
+    files,
+    secretValues,
+    failGetInfoFor: new Set(['file:///doc/avatars/c1.jpg']),
+  });
+  await assert.rejects(
+    backup.importBackup({
+      schemaVersion: 1,
+      storage: [{ key: '@easychat2_api_configs', value: { configs: [{ apiKey: 'secure:v1:id1' }] } }],
+      media: [{ path: 'avatars/c1.jpg', base64: 'AA==' }],
+      secrets: [{ id: 'id1', value: 'sk-NEW' }],
+    }, 'merge'),
+    /getInfoAsync failed/,
+  );
+  // 核心断言：快照失败时保险箱必须**一个字节都没动**
+  assert.equal(secretValues.id1, 'sk-OLD', '快照失败时密钥不得被提前写回（否则会留下错配的保险箱）');
+  // 数据侧同样零副作用
+  assert.equal(storage.has('@easychat2_api_configs'), false, '快照失败时不得写入任何数据键');
 });
 
 test('importBackup：数据写入失败时，已写回的密钥也要回滚（不留错配的保险箱）', async () => {

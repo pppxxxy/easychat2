@@ -280,7 +280,7 @@ export default function MapPanel() {
             activeOpacity={0.85}
             accessibilityRole="button"
           >
-            <Ionicons name="list-outline" size={15} color={theme.colors.primarySoft} />
+            <Ionicons name="list-outline" size={15} color={theme.colors.accentText} />
             <Text style={styles.viewButtonText}>{listOpen ? t('map.list.collapse') : t('map.list.expand')}</Text>
           </TouchableOpacity>
         ) : null}
@@ -519,7 +519,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 14,
   },
-  viewButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
+  viewButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
   modeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   modeTab: {
     paddingHorizontal: 14,

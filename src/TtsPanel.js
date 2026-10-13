@@ -290,7 +290,7 @@ export default function TtsPanel({ visible, onClose }) {
                 accessibilityRole="link"
                 accessibilityLabel={t('tts.a11y.getApiKey', { name: ttsProviderLabel(t, provider) })}
               >
-                <Ionicons name="open-outline" size={16} color={theme.colors.primarySoft} />
+                <Ionicons name="open-outline" size={16} color={theme.colors.accentText} />
                 <Text style={styles.keyLinkText}>{t('tts.getApiKey')}</Text>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.textFaint} />
               </TouchableOpacity>
@@ -367,7 +367,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   providerChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
   providerText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
-  providerTextActive: { color: theme.colors.primarySoft },
+  providerTextActive: { color: theme.colors.accentText },
   providerChipUnsupported: {
     opacity: tokens.opacity.disabled,
     borderColor: theme.colors.surfaceBorder,
@@ -385,7 +385,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   },
   voiceChipActive: { backgroundColor: theme.colors.primaryAlpha(0.25), borderColor: theme.colors.primary },
   voiceText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700' },
-  voiceTextActive: { color: theme.colors.primarySoft },
+  voiceTextActive: { color: theme.colors.accentText },
   fieldHint: { color: theme.colors.textFaint, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(18), marginTop: 10 },
   keyLink: {
     flexDirection: 'row',
@@ -398,7 +398,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: 12,
     marginTop: 14,
   },
-  keyLinkText: { flex: 1, color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
+  keyLinkText: { flex: 1, color: theme.colors.accentText, fontSize: fonts.scaled(14), fontWeight: '700', marginLeft: 8 },
   saveButton: {
     backgroundColor: theme.colors.primary,
     borderRadius: 12,

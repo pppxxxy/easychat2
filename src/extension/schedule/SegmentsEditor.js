@@ -97,7 +97,7 @@ export default function SegmentsEditor({ segments, onChange, onAdd, onRemove, on
         />
       ))}
       <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8} accessibilityRole="button">
-        <Ionicons name="add" size={18} color={theme.colors.primarySoft} />
+        <Ionicons name="add" size={18} color={theme.colors.accentText} />
         <Text style={styles.addButtonText}>{t('schedule.segments.add')}</Text>
       </TouchableOpacity>
       <Text style={styles.cardHint}>{t('schedule.segments.orderHint')}</Text>

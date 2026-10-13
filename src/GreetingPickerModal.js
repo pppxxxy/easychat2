@@ -145,7 +145,7 @@ export default function GreetingPickerModal({
           </ScrollView>
 
           <TouchableOpacity style={styles.addButton} onPress={addDraft} activeOpacity={0.8}>
-            <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+            <Ionicons name="add" size={16} color={theme.colors.accentText} />
             <Text style={styles.addButtonText}>{t('greetingPicker.add')}</Text>
           </TouchableOpacity>
 
@@ -228,13 +228,13 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   rowGrow: { flex: 1, marginBottom: 6 },
   rowActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.surfaceAlt },
   rowBody: { flex: 1, marginLeft: 8 },
-  rowLabel: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginBottom: 2 },
+  rowLabel: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700', marginBottom: 2 },
   rowText: { color: theme.colors.text, fontSize: fonts.scaled(13) },
   rowTextMuted: { color: theme.colors.textMuted, marginLeft: 8 },
   rowPreview: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17) },
   remove: { paddingLeft: 8, paddingVertical: 10 },
   addButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
-  addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4, fontWeight: '600' },
+  addButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), marginLeft: 4, fontWeight: '600' },
   editLabel: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '700', marginTop: 8, marginBottom: 6 },
   editInput: { minHeight: 96, maxHeight: 160, paddingTop: 10 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },

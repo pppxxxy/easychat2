@@ -140,7 +140,7 @@ export default function ExtensionsSection(props) {
                 disabled={imageGenTesting === activeImageProvider.id}
                 activeOpacity={0.8}
               >
-                <Ionicons name="pulse-outline" size={15} color={theme.colors.primarySoft} />
+                <Ionicons name="pulse-outline" size={15} color={theme.colors.accentText} />
                 <Text style={styles.detectButtonText}>
                   {imageGenTesting === activeImageProvider.id ? t('common.detecting') : t('settings.inlineImage.test')}
                 </Text>

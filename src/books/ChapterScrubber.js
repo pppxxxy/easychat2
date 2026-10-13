@@ -194,7 +194,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  badgeIndex: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  badgeIndex: { color: theme.colors.accentText, fontSize: fonts.scaled(11), fontWeight: '700' },
   badgeTitle: {
     color: theme.colors.text,
     fontSize: fonts.scaled(12),

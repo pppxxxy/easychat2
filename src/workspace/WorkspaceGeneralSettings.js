@@ -89,7 +89,7 @@ export default function WorkspaceGeneralSettings({
                 onPress={() => setTutorialOpen(true)}
                 activeOpacity={0.8}
               >
-                <Ionicons name="school-outline" size={17} color={theme.colors.primarySoft} />
+                <Ionicons name="school-outline" size={17} color={theme.colors.accentText} />
                 <View style={styles.helpTextBlock}>
                   <Text style={styles.helpTitle}>{t('workspace.general.help.action')}</Text>
                   <Text style={styles.hint}>{t('workspace.general.help.hint')}</Text>
@@ -183,7 +183,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   chipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(12), fontWeight: '600' },
-  chipTextActive: { color: theme.colors.primarySoft },
+  chipTextActive: { color: theme.colors.accentText },
   hint: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(11),

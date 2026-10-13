@@ -227,8 +227,8 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderWidth: tokens.border.thin,
     borderColor: theme.colors.surfaceBorder,
   },
-  badgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
-  previewLabel: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginBottom: 4 },
+  badgeText: { color: theme.colors.accentText, fontSize: fonts.scaled(11), fontWeight: '700' },
+  previewLabel: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700', marginBottom: 4 },
   preview: { color: theme.colors.text, fontSize: fonts.scaled(14), lineHeight: fonts.scaled(21), flexShrink: 1 },
   meta: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 6 },
   footer: {

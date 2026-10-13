@@ -75,7 +75,7 @@ export function CollapsibleSection({
           {children}
           {onAdd ? (
             <TouchableOpacity style={styles.addButton} onPress={onAdd} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color={theme.colors.primarySoft} />
+              <Ionicons name="add" size={16} color={theme.colors.accentText} />
               <Text style={styles.addButtonText}>{addLabel}</Text>
             </TouchableOpacity>
           ) : null}
@@ -191,7 +191,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     alignItems: 'center',
     marginRight: 8,
   },
-  countBadgeText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(11), fontWeight: '700' },
+  countBadgeText: { color: theme.colors.accentText, fontSize: fonts.scaled(11), fontWeight: '700' },
   // 折叠区底部的添加按钮（原 editors 版的 onAdd/addLabel）
   addButton: {
     flexDirection: 'row',
@@ -203,7 +203,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     paddingVertical: 8,
     marginTop: 8,
   },
-  addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
+  addButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '700', marginLeft: 4 },
 
   select: {
     borderWidth: tokens.border.thin,

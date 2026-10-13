@@ -95,7 +95,7 @@ export default function OnboardingModal({ visible, onFinish }) {
 
           {chapter.note ? (
             <View style={styles.noteBox}>
-              <Ionicons name="alert-circle-outline" size={15} color={theme.colors.primarySoft} />
+              <Ionicons name="alert-circle-outline" size={15} color={theme.colors.accentText} />
               <Text style={styles.noteText}>{chapter.note}</Text>
             </View>
           ) : null}
@@ -167,7 +167,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: 10,
   },
   title: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(19), fontWeight: '800' },
-  summary: { color: theme.colors.primarySoft, fontSize: fonts.scaled(14), fontWeight: '700', lineHeight: fonts.scaled(20), marginBottom: 8 },
+  summary: { color: theme.colors.accentText, fontSize: fonts.scaled(14), fontWeight: '700', lineHeight: fonts.scaled(20), marginBottom: 8 },
   intro: { color: theme.colors.textMuted, fontSize: fonts.scaled(14), lineHeight: fonts.scaled(22), marginBottom: 14 },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   stepIndex: {
@@ -182,7 +182,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     marginRight: tokens.spacing.sm + 2,
     marginTop: 1,
   },
-  stepIndexText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(12), fontWeight: '800' },
+  stepIndexText: { color: theme.colors.accentText, fontSize: fonts.scaled(12), fontWeight: '800' },
   stepText: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(14), lineHeight: fonts.scaled(21) },
   noteBox: {
     flexDirection: 'row',

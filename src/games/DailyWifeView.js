@@ -229,7 +229,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: theme.colors.primaryAlpha(0.18),
   },
-  avatarFallbackText: { color: theme.colors.primarySoft, fontSize: 56, fontWeight: '800' },
+  avatarFallbackText: { color: theme.colors.accentText, fontSize: 56, fontWeight: '800' },
   dateText: {
     color: theme.colors.textFaint,
     fontSize: fonts.scaled(12),

@@ -185,7 +185,7 @@ export default function AutoBackupSection(props) {
         disabled={autoBackupBusy}
         activeOpacity={0.8}
       >
-        <Ionicons name="cloud-upload-outline" size={16} color={theme.colors.primarySoft} />
+        <Ionicons name="cloud-upload-outline" size={16} color={theme.colors.accentText} />
         <Text style={styles.detectButtonText}>{t('settings.autoBackup.run')}</Text>
       </TouchableOpacity>
       <Text style={styles.fieldHint}>{formatLastBackup(settings.lastBackupAt, t)}</Text>

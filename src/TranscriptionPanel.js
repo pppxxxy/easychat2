@@ -345,7 +345,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   addButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   keyLinkRow: { alignItems: 'flex-end', marginTop: 4 },
   keyLink: { color: theme.colors.primaryMuted, fontSize: fonts.scaled(12), textDecorationLine: 'underline' },
-  addButtonText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), marginLeft: 4, fontWeight: '600' },
+  addButtonText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), marginLeft: 4, fontWeight: '600' },
   vendorRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2, marginBottom: 6 },
   vendorChip: {
     borderRadius: tokens.radius.pill,
@@ -361,7 +361,7 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     borderColor: theme.colors.surfaceBorder,
     backgroundColor: theme.colors.surface,
   },
-  vendorChipText: { color: theme.colors.primarySoft, fontSize: fonts.scaled(13), fontWeight: '700' },
+  vendorChipText: { color: theme.colors.accentText, fontSize: fonts.scaled(13), fontWeight: '700' },
   vendorChipCustomText: { color: theme.colors.textMuted, fontSize: fonts.scaled(13), fontWeight: '600' },
   vendorNote: {
     color: theme.colors.textFaint,

@@ -1605,7 +1605,7 @@ export default function SettingsScreen() {
               activeOpacity={0.8}
               accessibilityLabel={searchOpen ? t('settings.search.a11yClose') : t('settings.search.a11yOpen')}
             >
-              <Ionicons name={searchOpen ? 'close' : 'search'} size={18} color={theme.colors.primarySoft} />
+              <Ionicons name={searchOpen ? 'close' : 'search'} size={18} color={theme.colors.accentText} />
             </TouchableOpacity>
           </View>
           <FieldHint style={styles.hint}>{t('settings.subtitle')}</FieldHint>
@@ -1667,7 +1667,7 @@ export default function SettingsScreen() {
                   disabled={!loaded || apiSaving}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="add" size={15} color={theme.colors.primarySoft} />
+                  <Ionicons name="add" size={15} color={theme.colors.accentText} />
                   <Text style={styles.pillButtonText}>{t('settings.api.add')}</Text>
                 </TouchableOpacity>
               </View>

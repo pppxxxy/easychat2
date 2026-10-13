@@ -707,7 +707,7 @@ export default function WorkspaceSettingsSheet({
                     onPress={() => onToggleSection && onToggleSection(expanded ? '' : row.id)}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name={row.icon} size={17} color={theme.colors.primarySoft} />
+                    <Ionicons name={row.icon} size={17} color={theme.colors.accentText} />
                     <Text style={styles.rowLabel}>{row.label}</Text>
                     <Text style={styles.rowValue} numberOfLines={1}>{row.value}</Text>
                     <Ionicons
@@ -731,7 +731,7 @@ export default function WorkspaceSettingsSheet({
                 activeOpacity={0.8}
                 disabled={row.busy}
               >
-                <Ionicons name={row.icon} size={17} color={theme.colors.primarySoft} />
+                <Ionicons name={row.icon} size={17} color={theme.colors.accentText} />
                 <View style={styles.actionTextBlock}>
                   <Text style={styles.rowLabel}>{row.label}</Text>
                   <Text style={styles.actionHint}>{row.hint}</Text>
