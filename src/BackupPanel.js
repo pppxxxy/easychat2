@@ -68,7 +68,8 @@ function shortReason(error) {
 // 为什么必须在**这里**包：发布构建的 userMessage 只透传 userFacing 错误，而
 // readAsStringAsync / JSON.parse / importBackup 抛的都是内部错误（英文、无标记），
 // 于是全部被吞成「备份文件无法恢复」——用户看不出挂在哪一环（这正是本次要修的）。
-// key 为分阶段文案的词条 key，detail 为原始错误（会写进诊断日志）。
+// key 为分阶段文案的词条 key；error 是原始错误，会经 shortReason 压成短原因塞进 {reason}，
+// 自身也挂在 cause 上便于开发期追溯（诊断日志里已另记完整错误）。
 function stageError(key, error) {
   const wrapped = new Error(tActive(key, { reason: shortReason(error) }));
   wrapped.userFacing = true;
