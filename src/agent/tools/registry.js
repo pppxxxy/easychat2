@@ -314,6 +314,10 @@ export async function runTool(call, ctx = {}) {
         confirm: typeof ctx.confirm === 'function' ? ctx.confirm : null,
         // 透传「问用户」钩子：ask_user 工具经它提选择题（缺失时工具按「问不到 = 不执行」）。
         ask: typeof ctx.ask === 'function' ? ctx.ask : null,
+        // AS2：confirm_flow 的多题确认钩子与宿主选项源（角色列表等长清单由宿主注入，
+        // agent 只写 source 名——防模型编造角色 id）。缺失时工具按「问不到 = 不执行」拒绝。
+        confirmFlow: typeof ctx.confirmFlow === 'function' ? ctx.confirmFlow : null,
+        choices: typeof ctx.choices === 'function' ? ctx.choices : null,
       })),
       timeoutPromise,
       abortPromise,

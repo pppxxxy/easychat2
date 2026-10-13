@@ -16,6 +16,7 @@ import { books } from './en/books.js';
 import { character } from './en/character.js';
 import { chat } from './en/chat.js';
 import { common } from './en/common.js';
+import { confirmFlow } from './en/confirmFlow.js';
 import { dailyWife } from './en/dailyWife.js';
 import { diagnostics } from './en/diagnostics.js';
 import { diary } from './en/diary.js';
@@ -59,6 +60,7 @@ export const en = {
   ...character,
   ...chat,
   ...common,
+  ...confirmFlow,
   ...dailyWife,
   ...diagnostics,
   ...diary,

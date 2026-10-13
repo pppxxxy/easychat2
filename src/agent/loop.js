@@ -122,6 +122,10 @@ export async function runAgentTurn(messages, options = {}) {
     : null;
   // ask_user：宿主注入「问用户」钩子（提选择题、等回答）；不注入 = 工具不可用。
   const onAskUser = typeof options.onAskUser === 'function' ? options.onAskUser : null;
+  // AS2：confirm_flow 的多题确认钩子（宿主注入；不注入 = 工具按「问不到 = 不执行」拒绝）。
+  // choices 是配套的宿主选项源（list 题只写 source 名，真实选项由它注入）。
+  const onConfirmFlow = typeof options.onConfirmFlow === 'function' ? options.onConfirmFlow : null;
+  const choicesSource = typeof options.choices === 'function' ? options.choices : null;
   // D4-1：结果增强钩子（宿主注入；不注入 = 不增强，行为与旧版一致）。
   const onToolResult = typeof options.onToolResult === 'function' ? options.onToolResult : null;
   // O1：超限结果落盘钩子（宿主注入：写工作区 + 返回 { path }；不注入 = 退回头尾保留）。
@@ -289,6 +293,8 @@ export async function runAgentTurn(messages, options = {}) {
             ...(onToolApproval ? { confirm: onToolApproval } : {}),
             ...(permissionRules ? { permissionRules } : {}),
             ...(onAskUser ? { ask: onAskUser } : {}),
+            ...(onConfirmFlow ? { confirmFlow: onConfirmFlow } : {}),
+            ...(choicesSource ? { choices: choicesSource } : {}),
             ...(onToolResult ? { onToolResult } : {}),
           });
         } catch (error) {

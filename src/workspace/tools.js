@@ -20,6 +20,7 @@ import { SEARCH_TOOL_DEFINITION } from './toolDefs/searchTool.js';
 import { LIST_SYMBOLS_TOOL_DEFINITION } from './toolDefs/symbolsTool.js';
 import { FIND_REFERENCES_TOOL_DEFINITION } from './toolDefs/referencesTool.js';
 import { ASK_USER_TOOL_DEFINITION } from './toolDefs/askUserTool.js';
+import { CONFIRM_FLOW_TOOL_DEFINITION } from './toolDefs/confirmFlowTool.js';
 import { SKILL_TOOL_DEFINITION } from './toolDefs/skillTool.js';
 import { PLAN_TOOL_DEFINITION } from './toolDefs/planTool.js';
 import { MATERIALIZE_TOOL_DEFINITION } from './toolDefs/materializeTool.js';
@@ -51,6 +52,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   LIST_SYMBOLS_TOOL_DEFINITION,
   FIND_REFERENCES_TOOL_DEFINITION,
   ASK_USER_TOOL_DEFINITION,
+  // AS2：多题确认（「其他」可为列表/预填编辑/自由输入）——ask_user 的重型搭档。
+  CONFIRM_FLOW_TOOL_DEFINITION,
   SKILL_TOOL_DEFINITION,
   PLAN_TOOL_DEFINITION,
   MATERIALIZE_TOOL_DEFINITION,

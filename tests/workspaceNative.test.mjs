@@ -34,6 +34,7 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
+    'confirm_flow',
     'skill',
     'update_plan',
     'materialize_repo',
@@ -52,11 +53,11 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'import_extension',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 22);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 23);
   // 只读模式只放开只读工具（含子代理/工作流）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
+    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
   );
 });
 
@@ -125,6 +126,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
+    'confirm_flow',
     'skill',
     'update_plan',
     'materialize_repo',
@@ -211,6 +213,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
+    'confirm_flow',
     'skill',
     'update_plan',
     'materialize_repo',

@@ -76,7 +76,7 @@ const EXEC_TOOLS = [
 
 // 永不暴露：需要「当场问用户」的工具。MCP 会话里没有那个用户，问了也没人答
 // （registry 对这类工具的行为是「问不到 = 不执行」，列出来只会误导 agent）。
-const HIDDEN_TOOLS = ['ask_user'];
+const HIDDEN_TOOLS = ['ask_user', 'confirm_flow'];
 
 export const MCP_TOOL_TIERS = Object.freeze(
   Object.fromEntries([

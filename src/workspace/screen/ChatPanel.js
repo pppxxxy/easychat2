@@ -66,6 +66,9 @@ import { extractToolTrace } from '../../chat/toolTrace.js';
 // P2-1：消息检索（就地过滤会话行）——判定全在纯函数 chat/messageSearch.js。
 import { searchChatMessages } from '../../chat/messageSearch.js';
 import { promptUserChoice } from '../../chat/askUserPrompt.js';
+// AS2：confirm_flow 多题确认——请求进模块级桥（confirmFlowBridge），卡组由
+// SessionSidePanels 订阅渲染（ChatPanel 顶格，装配落在子模块）。
+import { confirmFlowHostOptions } from './confirmFlowBridge.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
@@ -1314,6 +1317,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           cancelLabel: t('common.cancel'),
           alert: (...a) => Alert.alert(...a),
         }),
+        // AS2：confirm_flow 多题确认——桥住在模块级（confirmFlowBridge），面板订阅渲染；
+        // 这里只把「请求」接进来。choices('characters') 给 list 题注入真实角色列表，
+        // 防模型编造角色名（agent 只写 source 名）。
+        ...confirmFlowHostOptions(characters),
         // D4-1：结果增强钩子——hooks.json 的 on_tool_result（按工具名精确匹配，
         // 往成功结果尾部追加提醒）。每次调用直读（本轮内 agent 改了钩子立即生效）；
         // registry 侧兜底：错误结果不增强、钩子抛错按原结果返回。
@@ -1413,7 +1420,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
         }).catch(() => {});
       }
     }
-  }, [activeChatId, attachments, characterId, characterName, compactWorkspaceNow, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
+  }, [activeChatId, attachments, characterId, characterName, characters, compactWorkspaceNow, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 
   // I1：运行中不再禁用发送——有文字就可用（发送按钮 → steering 入队）；附件在
   // 运行时由 handleSend 明确拒绝（补充指令是纯文本语义）。

@@ -89,6 +89,7 @@ test('档位表：只读档不含任何写/执行类工具，执行档覆盖最�
   // 注册表把 run_subagent/run_team/run_workflow 声明成 readOnly（read 模式下也放行），
   // 对外暴露时必须按后果重新分档——这条就是防止有人「顺手照抄 readOnly」。
   assert.equal(tierForTool('ask_user'), 'hidden', '需要当场问用户的工具不暴露');
+  assert.equal(tierForTool('confirm_flow'), 'hidden', '多题确认同样需要当场有人答题（AS2）');
 });
 
 test('档位默认值：只开只读', () => {
@@ -108,6 +109,7 @@ test('暴露过滤：聊天内工具、转发来的第三方 MCP 工具、未分
   assert.equal(isExposableTool({ name: 'github_search_code' }), false, '内置 GitHub 工具不进');
   assert.equal(isExposableTool({ name: 'notes__search' }), false, '第三方 MCP 工具不进');
   assert.equal(isExposableTool({ name: 'ask_user' }), false, '需要问用户的工具不进');
+  assert.equal(isExposableTool({ name: 'confirm_flow' }), false, '多题确认不进（AS2）');
   assert.equal(isExposableTool({ name: 'made_up_tool' }), false, '未分档工具不进');
 
   const definitions = [

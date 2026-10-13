@@ -20,6 +20,7 @@ import { books } from './zh-CN/books.js';
 import { character } from './zh-CN/character.js';
 import { chat } from './zh-CN/chat.js';
 import { common } from './zh-CN/common.js';
+import { confirmFlow } from './zh-CN/confirmFlow.js';
 import { dailyWife } from './zh-CN/dailyWife.js';
 import { diagnostics } from './zh-CN/diagnostics.js';
 import { diary } from './zh-CN/diary.js';
@@ -63,6 +64,7 @@ export const zhCN = {
   ...character,
   ...chat,
   ...common,
+  ...confirmFlow,
   ...dailyWife,
   ...diagnostics,
   ...diary,
