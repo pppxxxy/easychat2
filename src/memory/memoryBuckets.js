@@ -58,6 +58,20 @@ export function splitScreenThreads(threads) {
   return { active, empty };
 }
 
+// SW1：按 scope 把屏幕对话分两组（聊天 / 工作区），供记忆界面分组展示。
+// 组内保持原顺序（threads.js 已按 updatedAt 倒序）；未知 scope 归聊天组
+// （与 normalizeThreadScope 同口径——旧数据不丢、不错组）。
+export function groupScreenThreadsByScope(threads, { chatScope = 'chat', workspaceScope = 'workspace' } = {}) {
+  const chat = [];
+  const workspace = [];
+  (Array.isArray(threads) ? threads : []).forEach(thread => {
+    if (!thread || !thread.id) return;
+    if (thread.scope === workspaceScope) workspace.push(thread);
+    else chat.push(thread);
+  });
+  return { chat, workspace, chatScope, workspaceScope };
+}
+
 // 行内预览：最后一条 entry 的文本。
 export function screenThreadPreview(thread) {
   const entries = thread && Array.isArray(thread.entries) ? thread.entries : [];

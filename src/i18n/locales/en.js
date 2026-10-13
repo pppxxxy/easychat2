@@ -49,6 +49,7 @@ import { tutorial } from './en/tutorial.js';
 import { ui } from './en/ui.js';
 import { vectorProvider } from './en/vectorProvider.js';
 import { workspace } from './en/workspace.js';
+import { workspaceWatch } from './en/workspaceWatch.js';
 import { world } from './en/world.js';
 export const en = {
   ...apiPreset,
@@ -93,6 +94,7 @@ export const en = {
   ...ui,
   ...vectorProvider,
   ...workspace,
+  ...workspaceWatch,
   ...world,
 };
 

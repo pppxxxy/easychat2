@@ -33,6 +33,7 @@ import GithubPanel from './GithubPanel.js';
 import TerminalPanel from './TerminalPanel.js';
 import WorkspaceSettingsPanel from './WorkspaceSettingsPanel.js';
 import GitHistoryPanel from './GitHistoryPanel.js';
+import ScreenWatchPanel from './ScreenWatchPanel.js';
 
 // 左栏宽度。**样式与两栏宽度解算共用同一个常量**——两处各写一个数，迟早会对不上
 //（改了样式忘了改解算，两栏之和就不再等于可用宽度）。
@@ -46,6 +47,8 @@ const DOMAIN_KEYS = [
   { id: 'github', icon: 'logo-github', labelKey: 'workspace.screen.rail.github' },
   { id: 'terminal', icon: 'terminal-outline', labelKey: 'workspace.screen.rail.terminal' },
   { id: 'history', icon: 'time-outline', labelKey: 'workspace.screen.rail.history' },
+  // SW1：看屏幕（工作区版）。与历史同属「回看」性质，排在它之后、设置之前。
+  { id: 'watch', icon: 'desktop-outline', labelKey: 'workspace.screen.rail.watch' },
   { id: 'settings', icon: 'settings-outline', labelKey: 'workspace.screen.rail.settings' },
 ];
 
@@ -68,6 +71,9 @@ const DOMAIN_PANELS = {
   ),
   terminal: props => <TerminalPanel characterId={props.characterId} />,
   history: props => <GitHistoryPanel characterId={props.characterId} />,
+  // SW1：看屏幕（工作区版）——悬浮窗状态 + 工作区 scope 线程。
+  // 不传 characterId：SW1 面板不消费它（SW2 接 agent 管线时再加）。
+  watch: () => <ScreenWatchPanel />,
   settings: props => <WorkspaceSettingsPanel characterId={props.characterId} />,
 };
 

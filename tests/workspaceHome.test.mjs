@@ -144,13 +144,16 @@ test('入口接线：设置页只挂一个工作区单屏，四领域面板由�
   // 按 id 取渲染器（此前是 5 个 `id === 'x'` 分支与 DOMAIN_KEYS 各写一份清单）。
   const domainKeys = [...SCREEN.matchAll(/\{ id: '(\w+)', icon:/g)].map(m => m[1]);
   const tableText = (/const DOMAIN_PANELS = \{([\s\S]*?)\n\};/.exec(SCREEN) || ['', ''])[1];
-  const panelKeys = [...tableText.matchAll(/^ {2}(\w+): props =>/gm)].map(m => m[1]);
+  // 渲染器形态有两种合法写法：`key: props => <X .../>`（需要 props）与
+  // `key: () => <X />`（面板不消费任何 props，如 SW1 的看屏幕面板——声明未使用的
+  // 形参会被 no-unused-vars 拒绝）。断言只关心「键存在且一一对应」。
+  const panelKeys = [...tableText.matchAll(/^ {2}(\w+):\s*(?:props\s*|\(\s*\)\s*)?=>/gm)].map(m => m[1]);
   assert.deepEqual(
     panelKeys.sort(),
     domainKeys.filter(id => id !== 'chat').sort(),
     'DOMAIN_PANELS 必须与 DOMAIN_KEYS 一一对应（chat 除外）——否则左栏能点开一个空白面板',
   );
-  for (const component of ['FilesPanel', 'GithubPanel', 'TerminalPanel', 'GitHistoryPanel', 'WorkspaceSettingsPanel']) {
+  for (const component of ['FilesPanel', 'GithubPanel', 'TerminalPanel', 'GitHistoryPanel', 'ScreenWatchPanel', 'WorkspaceSettingsPanel']) {
     assert.ok(tableText.includes(`<${component}`), `${component} 必须由领域表渲染（而不是散在别处）`);
   }
 
@@ -229,6 +232,15 @@ test('新增文案中英齐备', () => {
     'workspace.screen.rail.files',
     'workspace.screen.rail.github',
     'workspace.screen.rail.settings',
+    // SW1：看屏幕（工作区版）面板词条——域文件独立，缺任一条界面会显示原始键名。
+    'workspace.screen.rail.watch',
+    'workspace.watch.title',
+    'workspace.watch.statusOn',
+    'workspace.watch.statusOff',
+    'workspace.watch.open',
+    'workspace.watch.close',
+    'workspace.watch.threads',
+    'workspace.watch.empty',
   ];
   for (const key of keys) {
     assert.ok(ZH.includes(`'${key}'`), `zh-CN 缺 ${key}`);

@@ -5,7 +5,12 @@
 // 记忆界面（MemoryScreen）读取本模块做展示与删除——即用户要求的「管理与记忆界面互通」。
 // 条目里的 imageUri 指向截图文件（与 comments.js 同源），仅用于回看定位。
 //
-// 结构：[{ id, characterId, characterName, createdAt, updatedAt,
+// SW1（2026-10-13）：线程分**两类**——scope='chat'（跟聊天角色，默认、旧数据无字段
+// 即此类）与 scope='workspace'（跟工作区助手）。同一角色/助手在两类里各有一条活跃
+// 线程：续用判据必须**同时**匹配 characterId 与 scope，否则「工作区看屏幕」会把
+// 聊天角色的线程接走（用户会看到两个场景的上下文串在一起）。
+//
+// 结构：[{ id, scope, characterId, characterName, createdAt, updatedAt,
 //          entries: [{ id, role: 'user' | 'character', text, imageUri, at }] }]
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,6 +22,16 @@ export const THREAD_IDLE_MS = 30 * 60 * 1000;
 export const THREAD_ENTRY_MAX = 60;
 export const THREAD_MAX = 50;
 const ENTRY_TEXT_MAX = 2000;
+
+// SW1：线程所属场景。'chat' 是历史默认（旧数据无 scope 字段一律归此类）。
+export const THREAD_SCOPES = Object.freeze(['chat', 'workspace']);
+export const THREAD_SCOPE_CHAT = 'chat';
+export const THREAD_SCOPE_WORKSPACE = 'workspace';
+
+// 归一 scope：非法/缺失 → 'chat'（旧数据与坏数据都落在聊天类，不会丢线程）。
+export function normalizeThreadScope(raw) {
+  return THREAD_SCOPES.includes(raw) ? raw : THREAD_SCOPE_CHAT;
+}
 
 // 直接沿用聊天的 role 命名：这些条目要原样作为 historyMessages 交给 buildRequestMessages。
 export const THREAD_ROLE_USER = 'user';
@@ -55,6 +70,8 @@ export function normalizeThread(raw) {
   const updatedAt = Math.floor(Number(source.updatedAt)) || createdAt;
   return {
     id: String(source.id || ''),
+    // SW1：旧数据无 scope 字段 → 'chat'（归一而非丢弃）。
+    scope: normalizeThreadScope(source.scope),
     characterId: String(source.characterId || ''),
     characterName: String(source.characterName || '').trim(),
     createdAt,
@@ -101,15 +118,22 @@ export function getScreenWatchThreads() {
   });
 }
 
-// 取当前活跃对话（同角色且未超空闲阈值）；没有则新建。返回 { thread, created }。
-export function getOrCreateActiveThread(characterId, characterName = '', now = Date.now()) {
+// 取当前活跃对话（同角色 + 同 scope 且未超空闲阈值）；没有则新建。返回 { thread, created }。
+// SW1：scope 参与续用判据——'chat'（默认）与 'workspace' 各有一条独立活跃线程，
+// 否则两个场景的上下文会串在一起（工作区下命令却接上了聊天角色的截图对话）。
+// 签名向后兼容：scope 是第 4 个可选参数，旧调用点（只传 characterId/characterName/now）
+// 行为逐字不变（scope 缺省 = 'chat'）。
+export function getOrCreateActiveThread(characterId, characterName = '', now = Date.now(), scope = THREAD_SCOPE_CHAT) {
   return threadsMutation.enqueue(async () => {
     const targetId = String(characterId || '');
     if (!targetId) throw new Error('screen-watch-thread-invalid-character');
+    const targetScope = normalizeThreadScope(scope);
     const result = await readThreadsStatus();
     if (result.status === 'corrupt') throw new Error('screen-watch-threads-read-failed');
     const active = result.list.find(item => (
-      item.characterId === targetId && now - item.updatedAt <= THREAD_IDLE_MS
+      item.characterId === targetId
+      && item.scope === targetScope
+      && now - item.updatedAt <= THREAD_IDLE_MS
     ));
     if (active) {
       // 角色改名后同步展示名（历史条目不动）。
@@ -125,6 +149,7 @@ export function getOrCreateActiveThread(characterId, characterName = '', now = D
     }
     const thread = normalizeThread({
       id: makeId('swthread', now),
+      scope: targetScope,
       characterId: targetId,
       characterName: String(characterName || '').trim(),
       createdAt: now,
