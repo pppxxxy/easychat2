@@ -594,4 +594,10 @@ export const settings = {
   'settings.vector.alert.testFailed.title': '连接失败',
   'settings.vector.alert.testFailed.body': '请检查地址、密钥与模型。',
   'settings.sampling.hint': '开启的项才会随请求发送，未开启时使用服务端默认。',
+  // 采样分布预览（8 根柱子 = 8 个候选词，高度 = 概率）。
+  'settings.sampling.chart.sharp': '分布尖锐（低温）',
+  'settings.sampling.chart.flat': '分布平缓（高温）',
+  'settings.sampling.chart.neutral': '原始分布（温度 1）',
+  'settings.sampling.chart.keptK': 'top-k 保留 {count} 根',
+  'settings.sampling.chart.selectedP': 'top-p 圈定 {count} 根',
 };

@@ -593,4 +593,10 @@ export const settings = {
   'settings.vector.alert.testFailed.title': 'Connection failed',
   'settings.vector.alert.testFailed.body': 'Check the address, key and model.',
   'settings.sampling.hint': 'Only enabled fields are sent with requests; the rest use server defaults.',
+  // Sampling distribution preview (8 bars = 8 candidate tokens, height = probability).
+  'settings.sampling.chart.sharp': 'Sharp distribution (low temperature)',
+  'settings.sampling.chart.flat': 'Flat distribution (high temperature)',
+  'settings.sampling.chart.neutral': 'Original distribution (temperature 1)',
+  'settings.sampling.chart.keptK': 'top-k keeps {count} bars',
+  'settings.sampling.chart.selectedP': 'top-p selects {count} bars',
 };

@@ -8,6 +8,7 @@ import { Alert, Switch, Text, View } from 'react-native';
 
 import { SAMPLING_FIELDS, getSamplingSettings, saveSamplingSettings } from '../storage/settings.js';
 import { Card, CollapsibleSection, TextField } from '../ui/index.js';
+import SamplingChart from './SamplingChart.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { createSettingsStyles } from './settingsStyles.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -135,7 +136,25 @@ export default function SamplingCard({ open, onToggle, flash, onLayout } = {}) {
           );
         })}
         <Text style={styles.fieldHint}>{t('settings.sampling.hint')}</Text>
+        {/* 采样分布预览：8 根柱子 = 8 个候选词，高度 = 概率。随 temperature /
+            topK / topP 实时变化（口径见 samplingDistribution.js：温度 → top-k → top-p
+            三级筛，与真实采样管线同序）。 */}
+        <SamplingChart
+          temperature={fieldValue(sampling, 'temperature', 1)}
+          topK={fieldValue(sampling, 'topK', 0)}
+          topP={fieldValue(sampling, 'topP', 1)}
+          t={t}
+        />
       </CollapsibleSection>
     </Card>
   );
+}
+
+// 取某个采样字段的当前值（未启用/未填时回落默认）——图表按**生效值**绘制，
+// 关掉开关时字段不参与真实采样，但图仍按默认值展示「不调参长什么样」。
+function fieldValue(sampling, name, fallback) {
+  const field = sampling && sampling[name];
+  const value = field && field.value;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
