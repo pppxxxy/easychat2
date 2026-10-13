@@ -105,8 +105,18 @@ test('跨应用截屏兜底：屏幕静止时用最近帧交付，不空等超�
   assert.ok(service.includes('mainHandler.postDelayed(captureFallback, CAPTURE_FALLBACK_DELAY_MS)'),
     '请求后必须有兜底定时器');
   assert.ok(service.includes('private fun deliverFallbackFrame()'), '兜底交付存在');
-  assert.ok(/val bitmap = stale \?: bitmapFromCachedFrame\(\)/.test(service),
-    '优先请求期间收到的旧帧，其次最近缓存像素');
+  // 兜底顺序：先用手上已解码的旧帧（pendingStaleBitmap），没有再退回「最近一帧」缓存。
+  // FIX-4 把解码挪到工作线程后，这两条不再是同一个 `?:` 表达式，而是先后两个分支——
+  // 断言按**分支顺序**钉住语义（旧帧分支必须出现在缓存解码之前）。
+  const fallback = service.slice(
+    service.indexOf('private fun deliverFallbackFrame()'),
+    service.indexOf('private fun cacheFrameBytes(')
+  );
+  const staleBranch = fallback.indexOf('if (stale != null)');
+  const cachedBranch = fallback.indexOf('bitmapFromCachedFrame()');
+  assert.ok(staleBranch !== -1, '兜底必须优先使用请求期间收到的旧帧');
+  assert.ok(cachedBranch !== -1, '没有旧帧时要退回最近缓存像素');
+  assert.ok(staleBranch < cachedBranch, '旧帧分支必须先于缓存分支（否则会拿到更旧的画面）');
   assert.ok(service.includes('private fun cacheFrameBytes(image: Image)'), '持续维护「最近一帧」缓存');
   assert.ok(service.includes('cacheFrameBytes(image)'), '每次帧回调都更新缓存（内部节流）');
   assert.ok(service.includes('else if (pendingStaleBitmap == null)'), '请求期间的旧帧保留为兜底候选');

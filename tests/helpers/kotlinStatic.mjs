@@ -178,6 +178,40 @@ export function checkUniqueDeclarations(source, keywords) {
   return errors;
 }
 
+// 同一类内不得重复声明同名函数——Kotlin 会直接编译失败（redeclaration）。
+//
+// 为什么需要这条：大括号平衡只能抓「括号写坏了」，抓不到「同一个函数被写了两遍」。
+// 而重复声明在**编辑过程中极容易发生**：改动一个大函数时新写了一份实现，旧的那份
+// 忘了删（本轮 FIX-4 把采集搬到工作线程时就真的踩到了——bitmapFromCachedFrame 出现了
+// 两次，而 braceBalance 依旧平衡、JS 测试也全绿，只有真机编译才会炸）。
+// 沙箱没有编译器，所以必须由静态检查顶上。
+//
+// 判据：把同一文件里 `fun <name>(` 的简单名收集起来，出现多次即报错。
+// 局限（有意保守）：按**文件**粒度而非类粒度。同一文件里两个不同类各有一个同名
+// 私有函数会被误报——本项目原生代码每个文件只有一个主类，故可接受；真有这种需求时
+// 再升级成按 class 作用域切分。
+export function checkDuplicateFunctions(source) {
+  const errors = [];
+  const seen = new Map();
+  const re = /^[ \t]*(?:@\w+[^\n]*\n[ \t]*)*(?:(?:private|public|internal|protected|override|suspend|inline|operator|open|final|abstract|tailrec|external|lateinit|const)\s+)*fun\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)\s*\(/gm;
+  let match;
+  while ((match = re.exec(source))) {
+    const name = match[1];
+    const line = source.slice(0, match.index).split('\n').length;
+    if (seen.has(name)) {
+      errors.push({
+        name,
+        line,
+        firstLine: seen.get(name),
+        message: `函数 ${name} 在同一个文件里声明了两次（第 ${seen.get(name)} 行与第 ${line} 行）——Kotlin 会编译失败`,
+      });
+    } else {
+      seen.set(name, line);
+    }
+  }
+  return errors;
+}
+
 // 未使用导入（启发式）：取导入的末段简单名，检查它在**去掉导入行与注释后**的
 // 正文里是否出现过。适用于本项目的原生模块（导入都是类型/函数简单名引用）。
 //

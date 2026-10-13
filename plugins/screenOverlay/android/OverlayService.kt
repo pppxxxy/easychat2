@@ -19,6 +19,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
@@ -55,6 +56,8 @@ class OverlayService : Service() {
         const val EVENT_CAPTURE_FAILED = "ScreenOverlay:onCaptureFailed"
         const val EVENT_REQUEST_CAPTURE = "ScreenOverlay:onRequestCapture"
         const val EVENT_STATE = "ScreenOverlay:onState"
+        // FIX-4：采集链路打点（{ stage, detail, at }）→ JS 写诊断日志。
+        const val EVENT_TRACE = "ScreenOverlay:onTrace"
         // SW3：悬浮窗 mini 聊天——用户在悬浮窗里发话（原生 → JS）。
         // payload: { text, scope }；scope 决定 JS 侧走聊天管线还是工作区 agent 管线。
         const val EVENT_CHAT_SEND = "ScreenOverlay:onChatSend"
@@ -69,6 +72,9 @@ class OverlayService : Service() {
         // 兜底交付等待：屏幕静止时不产生新帧（跨应用看静态画面最常见的失败），
         // 等到这个时长就用请求期间收到的旧帧 / 最近缓存帧交付，而不是让 JS 干等超时。
         private const val CAPTURE_FALLBACK_DELAY_MS = 700L
+        // 硬超时上限：无论哪条路径卡死，到点必回报失败并复位状态文字。
+        // 比 JS 侧的 6s 略短，让「原生先认输」而不是让界面先超时（原生的原因码更准）。
+        private const val CAPTURE_HARD_TIMEOUT_MS = 5000L
         // 「最近一帧」缓存节流：屏幕持续变化时最多每 500ms 拷一份像素，
         // 避免看视频时每帧都做一次全屏内存拷贝。
         private const val FRAME_CACHE_INTERVAL_NANOS = 500_000_000L
@@ -122,12 +128,32 @@ class OverlayService : Service() {
     private var height = 0
     private var density = 0
 
+    // ---- 采集工作线程 ----
+    //
+    // 为什么必须有：JPEG 压缩与全屏 bitmap 拷贝（imageToBitmap / bitmapFromCachedFrame）
+    // 原本全在主线程。1080×2400 一张的解码+压缩是几百毫秒起，这段时间主线程被占满：
+    //   · 触摸事件消费超时 → input dispatching ANR → 系统杀进程（用户看到「卡死+闪退」）；
+    //   · **所有失败兜底也挂在主线程 Handler 上**（captureFallback / 超时复位），主线程一卡
+    //     它们全部失灵 ⇒ 界面永远停在「正在看…」——这正是「app 外截屏一直等」的真凶。
+    // 所以重活全部搬到这里；主线程只留状态位读写、setStatusText、emit。
+    private var workerThread: HandlerThread? = null
+    private var workerHandler: Handler? = null
+    // 硬超时：跑在**工作线程**上，所以主线程被冻结/卡死时它仍能到点触发（JS 侧的 6s 超时
+    // 在 JS 线程，native 冻结时也未必准时）。到点必回报 + 复位状态文字。
+    private val captureTimeout = Runnable { onCaptureTimeout() }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         isRunning = true
+        // 采集工作线程：所有重活（解码/压缩/落盘）都在这里，主线程不再被几百毫秒的
+        // JPEG 压缩堵住（那是 ANR 与「兜底全失灵」的根因，见 workerThread 处说明）。
+        val thread = HandlerThread("capture-worker")
+        thread.start()
+        workerThread = thread
+        workerHandler = Handler(thread.looper)
         startForegroundCompat()
         windowManager = getSystemService(WindowManager::class.java)
         createOverlayView()
@@ -146,6 +172,15 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         releaseCapture()
+        // 服务销毁 = 授权凭据已失效：必须同步清掉 Module 侧的缓存，否则「关掉后再开启」
+        // 会带着失效 token 启动（Android 14 上 SecurityException / IllegalStateException
+        // 连环闪退，见 ScreenOverlayModule 的 token 生命周期说明）。
+        ScreenOverlayModule.clearCaptureToken()
+        // 工作线程收尾：先清队列（避免退出的瞬间还在跑压缩），再 quitSafely。
+        workerHandler?.removeCallbacksAndMessages(null)
+        workerThread?.quitSafely()
+        workerHandler = null
+        workerThread = null
         try {
             if (::rootView.isInitialized) windowManager.removeView(rootView)
         } catch (error: Exception) {}
@@ -157,6 +192,17 @@ class OverlayService : Service() {
 
     // ---------- 前台通知 ----------
 
+    /**
+     * 起前台服务。**绝不裸崩**——这是连环闪退的第一道闸。
+     *
+     * Android 14（API 34）起，以 FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION 启动前台服务时，
+     * 系统要求**当下存在有效的投屏授权**；token 失效/被拒时抛 SecurityException，服务直接崩进程
+     * （用户看到「开启悬浮窗 → 闪退」）。
+     *
+     * 降级策略：带 mediaProjection 类型失败 → 退回**不带类型**的普通前台服务再试一次
+     * （悬浮窗本身与通知照常可用，只是采集起不来）；再失败则 stopSelf 收口，
+     * 由 JS 侧报「启动失败」，而不是把进程带走。
+     */
     private fun startForegroundCompat() {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -187,9 +233,42 @@ class OverlayService : Service() {
         if (pending != null) builder.setContentIntent(pending)
         val notification = builder.build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        } else {
+            // 纵深防御：只有**当下确实持有有效授权凭据**时，才以前台服务的 mediaProjection
+            // 类型启动。Android 14 对「带该类型但没有有效授权」直接抛 SecurityException，
+            // 而这是可以从源头避免的——先问 Module 的进程级 token，没有再退化到普通前台服务。
+            // （Module 现在会在 stopOverlay / invalidate / 本服务 onDestroy 三处清空 token，
+            //  所以这里的判断是可信的；ON 时仍保留 catch 兜住系统侧的其它拒绝原因。）
+            if (ScreenOverlayModule.hasValidCaptureToken()) {
+                try {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+                    return
+                } catch (error: Exception) {
+                    // 授权失效是预期路径（用户关掉又开、锁屏后系统回收），不是异常崩溃点。
+                    Log.w(TAG, "startForeground(mediaProjection) failed, falling back: ${error.message}")
+                    ScreenOverlayModule.recordTrace("fgs-fallback", error.message ?: "SecurityException")
+                }
+            } else {
+                // 没有有效凭据：不发 mediaProjection 类型（那必然被拒）。采集随后由
+                // onStartCommand → setupProjection 单独把关：拿不到投影就 emitCaptureFailed，
+                // 由 JS 引导用户重新授权，而不是在起服务这一步崩掉。
+                ScreenOverlayModule.recordTrace("fgs-no-token", "skip mediaProjection type")
+            }
+        }
+        try {
+            // 降级：不带类型的前台服务。
+            //
+            // ⚠️ 诚实说明：Android 14 起，不带类型调用时会**回退使用 manifest 声明的类型**
+            // （本服务声明的是 mediaProjection），所以这一次大概率会以同样的原因再抛一次。
+            // 它的真实价值不是「降级成功」，而是**把异常关在闸里**：下面还有一层 catch，
+            // 最终走 stopSelf + JS 报错，而不是让 SecurityException 冒到顶层把进程带走。
+            // 原生侧无法自行修好授权（只有 JS 重新弹窗才能拿到新 token），所以这里不假装能救，
+            // 只保证「崩」变成「明确失败」。
             startForeground(NOTIFICATION_ID, notification)
+        } catch (error: Exception) {
+            Log.w(TAG, "startForeground fallback failed: ${error.message}")
+            ScreenOverlayModule.recordTrace("fgs-failed", error.message ?: "unknown")
+            // 前台服务起不来：收口退出，让 JS 报「启动失败」，绝不崩进程。
+            stopSelf()
         }
     }
 
@@ -497,8 +576,17 @@ class OverlayService : Service() {
                 params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             }
             windowManager.updateViewLayout(rootView, params)
+            // FIX-4 第 5 条：键盘/焦点问题（「小窗以外滑不动」「下命令时卡死」里的 window 层级
+            // 部分）远程无法定死是哪一行，只能靠现场数据。这里把每次焦点切换后的实际 flags
+            // 写进诊断日志——真机复现时能直接看到触屏不可获焦期间 flags 到底是什么值。
+            ScreenOverlayModule.recordTrace(
+                if (focusable) "focus-on" else "focus-off",
+                "flags=0x${Integer.toHexString(params.flags)}"
+            )
         } catch (error: Exception) {
             Log.w(TAG, "focus flag update failed: ${error.message}")
+            // 失败也要留痕：焦点没切成功会导致键盘弹不出来或点击被吸走，属于同一类现场。
+            ScreenOverlayModule.recordTrace("focus-failed", error.message ?: "unknown")
         }
     }
 
@@ -511,8 +599,11 @@ class OverlayService : Service() {
                 val anchor = baseY ?: params.y.also { baseY = it }
                 params.y = if (insetBottom > 0) maxOf(0, anchor - insetBottom) else anchor
                 windowManager.updateViewLayout(rootView, params)
+                // 键盘开合是 window 层级故障的高发时刻：记下 inset 与落点，便于真机回归定位。
+                ScreenOverlayModule.recordTrace("ime-inset", "inset=$insetBottom y=${params.y}")
             } catch (error: Exception) {
                 Log.w(TAG, "ime inset failed: ${error.message}")
+                ScreenOverlayModule.recordTrace("ime-inset-failed", error.message ?: "unknown")
             }
         }
     }
@@ -636,11 +727,18 @@ class OverlayService : Service() {
         pendingStaleBitmap?.recycle()
         pendingStaleBitmap = null
         setStatusText("正在看…")
+        ScreenOverlayModule.recordTrace("capture-request", "start")
         // 兜底交付：屏幕完全静止（在别的应用里停着不动）时既不产生新帧、重挂载也
         // 可能只吐回旧帧，没有兜底就只能等 JS 侧 6s 超时报失败——用户看到的现象是
         // 「只有 App 内（画面一直在动）能截到，App 外永远失败」。
         mainHandler.removeCallbacks(captureFallback)
         mainHandler.postDelayed(captureFallback, CAPTURE_FALLBACK_DELAY_MS)
+        // 硬超时挂**工作线程**：主线程被卡住/被 ROM 冻结时，兜底定时器会一起失灵，
+        // 这个仍然到点触发（见 onCaptureTimeout）。
+        workerHandler?.let { handler ->
+            handler.removeCallbacks(captureTimeout)
+            handler.postDelayed(captureTimeout, CAPTURE_HARD_TIMEOUT_MS)
+        }
         // 静态画面可能不产生新帧：强制刷新一次 surface 以触发 ImageReader 回调。
         try {
             virtualDisplay?.setSurface(null)
@@ -649,17 +747,32 @@ class OverlayService : Service() {
     }
 
     // 兜底交付：优先请求期间收到的旧帧，其次最近缓存的像素（屏幕没变过时两者
-    // 都等于当前画面）；都没有才报失败。新鲜帧先到时会取消本回调。
+    // 都等于当前画面）；都没有才报失败。跑在主线程（只做判定），解码/落盘交给工作线程。
     private fun deliverFallbackFrame() {
         if (!captureRequested) return
         captureRequested = false
+        workerHandler?.removeCallbacks(captureTimeout)
         val stale = pendingStaleBitmap
         pendingStaleBitmap = null
-        val bitmap = stale ?: bitmapFromCachedFrame()
-        if (bitmap != null) {
-            saveAndEmit(bitmap)
-        } else {
+        if (stale != null) {
+            // 旧帧已经是解码好的位图：直接移交工作线程压缩落盘。
+            val handler = workerHandler
+            if (handler != null) handler.post { saveAndEmit(stale) } else stale.recycle()
+            return
+        }
+        // 没有解码好的旧帧：用缓存像素在工作线程解码 + 落盘（解码也是重活）。
+        val handler = workerHandler
+        if (handler == null) {
             emitCaptureFailed("no-frame")
+            return
+        }
+        handler.post {
+            val bitmap = bitmapFromCachedFrame()
+            if (bitmap != null) {
+                saveAndEmit(bitmap)
+            } else {
+                mainHandler.post { emitCaptureFailed("no-frame") }
+            }
         }
     }
 
@@ -707,11 +820,26 @@ class OverlayService : Service() {
     private fun emitCaptureFailed(reason: String) {
         captureRequested = false
         mainHandler.removeCallbacks(captureFallback)
+        workerHandler?.removeCallbacks(captureTimeout)
         pendingStaleBitmap?.recycle()
         pendingStaleBitmap = null
+        // 失败也要复位状态文字：否则小窗永远停在「正在看…」，用户以为卡死（真机 bug）。
+        setStatusText("")
+        ScreenOverlayModule.recordTrace("capture-failed", reason)
         ScreenOverlayModule.emit(EVENT_CAPTURE_FAILED, Arguments.createMap().apply {
             putString("reason", reason)
         })
+    }
+
+    // 硬超时（跑在**工作线程**，主线程被冻结也照样到点）：无论哪条路径卡死，
+    // 到点必回报 + 复位状态文字。JS 侧另有 6s 超时，但 native 被冻结时 JS 定时器
+    // 同样不准，所以两道都要有。
+    private fun onCaptureTimeout() {
+        if (!captureRequested) return
+        Log.w(TAG, "capture hard timeout")
+        mainHandler.post {
+            if (captureRequested) emitCaptureFailed("timeout")
+        }
     }
 
     // ---------- 屏幕采集 ----------
@@ -721,7 +849,21 @@ class OverlayService : Service() {
             emitCaptureFailed("no-manager")
             return
         }
-        val mp = manager.getMediaProjection(resultCode, data) ?: run {
+        // **整段 try-catch**：getMediaProjection 对失效 token（对应的 projection 已被 stop）
+        // 在 Android 14 上抛 IllegalStateException。旧代码没有捕获 ⇒ 直接崩进程，
+        // 用户看到「关掉再开 → 闪退」。这里一律转成可处置的失败回报，绝不裸崩。
+        val mp = try {
+            manager.getMediaProjection(resultCode, data)
+        } catch (error: Exception) {
+            Log.w(TAG, "getMediaProjection failed: ${error.message}")
+            // token 已失效：清掉 Module 侧缓存，下次必须重新授权（否则会反复撞同一处）。
+            ScreenOverlayModule.clearCaptureToken()
+            ScreenOverlayModule.recordTrace("projection-invalid", error.message ?: "IllegalStateException")
+            emitCaptureFailed("projection-invalid")
+            return
+        }
+        if (mp == null) {
+            ScreenOverlayModule.clearCaptureToken()
             emitCaptureFailed("projection-denied")
             return
         }
@@ -742,45 +884,17 @@ class OverlayService : Service() {
         density = metrics.densityDpi
         val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
         reader.setOnImageAvailableListener({ available ->
+            // ⚠️ 本回调跑在**主线程**（下面的 mainHandler），所以这里只做「取帧 + 移交」，
+            // 绝不做解码/压缩/落盘——那三件事几百毫秒起，会把主线程连同全部兜底一起堵死。
             val image = try {
                 available.acquireLatestImage()
             } catch (error: Exception) {
                 null
             }
             if (image != null) {
-                try {
-                    // 每次回调都维护「最近一帧」缓存（内部节流）：屏幕静止后不再有新帧，
-                    // 这份拷贝就是当前画面，兜底交付时用它。
-                    cacheFrameBytes(image)
-                    if (captureRequested) {
-                        // 优先本次请求之后产生的帧（Image.timestamp 与 System.nanoTime 同源）：
-                        // 重挂载 Surface 可能先吐出旧帧，直接采用会拿到过期画面。
-                        // timestamp 不可靠（<= 0）的机型跳过校验，避免误杀导致永久截不到。
-                        val fresh = image.timestamp <= 0L
-                            || image.timestamp >= captureRequestedAtNanos - FRAME_FRESHNESS_SLACK_NANOS
-                        if (fresh) {
-                            captureRequested = false
-                            mainHandler.removeCallbacks(captureFallback)
-                            pendingStaleBitmap?.recycle()
-                            pendingStaleBitmap = null
-                            val bitmap = imageToBitmap(image)
-                            if (bitmap != null) {
-                                saveAndEmit(bitmap)
-                            } else {
-                                emitCaptureFailed("decode-failed")
-                            }
-                        } else if (pendingStaleBitmap == null) {
-                            // 旧帧不丢：屏幕没变时它就是当前画面，作为兜底候选留给
-                            // deliverFallbackFrame；此后若有新鲜帧到达，它会被作废。
-                            pendingStaleBitmap = imageToBitmap(image)
-                        }
-                    }
-                } catch (error: Exception) {
-                    Log.w(TAG, "capture frame failed: ${error.message}")
-                    emitCaptureFailed("frame-error")
-                } finally {
-                    image.close()
-                }
+                // 像素必须在 image 存活期内拷出来（image.close() 后 buffer 失效），
+                // 但拷贝本身很快（纯内存），且解码推迟到工作线程。
+                handleFrameOnMain(image)
             }
         }, mainHandler)
         imageReader = reader
@@ -796,20 +910,135 @@ class OverlayService : Service() {
         )
     }
 
-    private fun imageToBitmap(image: Image): Bitmap? {
-        val plane = image.planes.firstOrNull() ?: return null
-        val buffer = plane.buffer
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
-        val rowPadding = rowStride - pixelStride * width
-        val padded = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888)
-        padded.copyPixelsFromBuffer(buffer)
-        val cropped = Bitmap.createBitmap(padded, 0, 0, width, height)
-        if (cropped !== padded) padded.recycle()
-        return cropped
+    /**
+     * 主线程上的帧处理：**只做状态判定 + 把像素移交工作线程**。
+     *
+     * 关键：`Image` 的 buffer 在 `image.close()` 之后即失效，所以必须在关闭前把像素
+     * 拷成 ByteArray（纯内存拷贝，微秒级），再交给工作线程去解码成 Bitmap 并压缩落盘。
+     */
+    private fun handleFrameOnMain(image: Image) {
+        try {
+            // 每次回调都维护「最近一帧」缓存（内部节流）：屏幕静止后不再有新帧，
+            // 这份拷贝就是当前画面，兜底交付时用它。
+            cacheFrameBytes(image)
+            if (!captureRequested) return
+            // 优先本次请求之后产生的帧（Image.timestamp 与 System.nanoTime 同源）：
+            // 重挂载 Surface 可能先吐出旧帧，直接采用会拿到过期画面。
+            // timestamp 不可靠（<= 0）的机型跳过校验，避免误杀导致永久截不到。
+            val fresh = image.timestamp <= 0L
+                || image.timestamp >= captureRequestedAtNanos - FRAME_FRESHNESS_SLACK_NANOS
+            if (fresh) {
+                // 先抢下这次请求（置 false 并撤掉兜底），后续解码在工作线程完成。
+                captureRequested = false
+                mainHandler.removeCallbacks(captureFallback)
+                workerHandler?.removeCallbacks(captureTimeout)
+                pendingStaleBitmap?.recycle()
+                pendingStaleBitmap = null
+                val copy = copyPlane(image)
+                if (copy == null) {
+                    emitCaptureFailed("decode-failed")
+                } else {
+                    decodeAndEmit(copy)
+                }
+            } else if (pendingStaleBitmap == null) {
+                // 旧帧不丢：屏幕没变时它就是当前画面，作为兜底候选留给
+                // deliverFallbackFrame；此后若有新鲜帧到达，它会被作废。
+                // 旧帧也要解码，同样挪到工作线程。
+                val copy = copyPlane(image)
+                if (copy != null) decodeStale(copy)
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "capture frame failed: ${error.message}")
+            emitCaptureFailed("frame-error")
+        } finally {
+            image.close()
+        }
     }
 
+    // ---- 像素拷贝（主线程，微秒级）与解码（工作线程，几百毫秒级）----
+
+    // 帧像素快照：必须在 image.close() 之前调用（close 后 buffer 失效）。
+    // 只做内存拷贝，不解码——解码是重活，交给工作线程。
+    private class PlaneCopy(
+        val bytes: ByteArray,
+        val pixelStride: Int,
+        val rowStride: Int,
+        val width: Int,
+        val height: Int
+    )
+
+    private fun copyPlane(image: Image): PlaneCopy? {
+        val plane = image.planes.firstOrNull() ?: return null
+        val buffer = plane.buffer
+        val bytes = ByteArray(buffer.remaining())
+        if (bytes.isEmpty()) return null
+        buffer.duplicate().get(bytes)
+        return PlaneCopy(bytes, plane.pixelStride, plane.rowStride, width, height)
+    }
+
+    // 拷贝 → Bitmap：与 bitmapFromCachedFrame 同一套行距裁剪逻辑（含 rowPadding）。
+    // **纯计算**，可在工作线程调用。
+    private fun decodePlane(copy: PlaneCopy): Bitmap? {
+        if (copy.width <= 0 || copy.height <= 0) return null
+        if (copy.pixelStride <= 0 || copy.rowStride <= 0) return null
+        val rowPadding = copy.rowStride - copy.pixelStride * copy.width
+        if (rowPadding < 0) return null
+        val paddedWidth = copy.width + rowPadding / copy.pixelStride
+        // ARGB_8888 每像素 4 字节：拷贝字节数不足就直接放弃（宁可不交帧也不越界崩）。
+        if (paddedWidth * copy.height * 4 > copy.bytes.size) return null
+        return try {
+            val padded = Bitmap.createBitmap(paddedWidth, copy.height, Bitmap.Config.ARGB_8888)
+            padded.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(copy.bytes))
+            val cropped = Bitmap.createBitmap(padded, 0, 0, copy.width, copy.height)
+            if (cropped !== padded) padded.recycle()
+            cropped
+        } catch (error: Exception) {
+            Log.w(TAG, "frame decode failed: ${error.message}")
+            null
+        }
+    }
+
+    // 新鲜帧：在工作线程解码 + 压缩落盘 + 回报。decodeAndEmit 的名字保留「解码并交付」语义。
+    private fun decodeAndEmit(copy: PlaneCopy) {
+        val handler = workerHandler
+        if (handler == null) {
+            // 工作线程已退出（服务正在销毁）：直接放弃这一帧，不阻塞主线程。
+            return
+        }
+        handler.post {
+            val bitmap = decodePlane(copy)
+            if (bitmap != null) {
+                saveAndEmit(bitmap)
+            } else {
+                // 解码失败发生在工作线程：emit 本身是线程安全的（走 RN 事件通道）。
+                mainHandler.post { emitCaptureFailed("decode-failed") }
+            }
+        }
+    }
+
+    // 旧帧：在工作线程解码成兜底候选位图（供 deliverFallbackFrame 使用）。
+    private fun decodeStale(copy: PlaneCopy) {
+        val handler = workerHandler ?: return
+        handler.post {
+            val bitmap = decodePlane(copy)
+            if (bitmap != null) {
+                // pendingStaleBitmap 只在主线程读写（与 recycle 竞争会崩），所以回主线程落位。
+                mainHandler.post {
+                    if (pendingStaleBitmap == null && captureRequested) {
+                        pendingStaleBitmap = bitmap
+                    } else {
+                        // 已经有更新鲜的候选 / 请求已结束：这份多余，就地回收。
+                        bitmap.recycle()
+                    }
+                }
+            }
+        }
+    }
+
+    // 交付一帧：**跑在工作线程**（解码 + JPEG 压缩 + 落盘都是重活，不能占主线程）。
+    // emit 走 RN 事件通道，本身线程安全；bitmap 在本函数内回收，不跨线程共享。
     private fun saveAndEmit(bitmap: Bitmap) {
+        val startedAt = System.currentTimeMillis()
         try {
             val dir = File(filesDir, "screen-watch")
             if (!dir.exists()) dir.mkdirs()
@@ -817,11 +1046,12 @@ class OverlayService : Service() {
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
             }
+            ScreenOverlayModule.recordTrace("capture-saved", "${System.currentTimeMillis() - startedAt}ms")
             val map = Arguments.createMap().apply { putString("path", "file://${file.absolutePath}") }
             ScreenOverlayModule.emit(EVENT_CAPTURE, map)
         } catch (error: Exception) {
             Log.w(TAG, "save frame failed: ${error.message}")
-            emitCaptureFailed("save-failed")
+            mainHandler.post { emitCaptureFailed("save-failed") }
         } finally {
             bitmap.recycle()
         }
@@ -830,6 +1060,7 @@ class OverlayService : Service() {
     private fun releaseCapture() {
         captureRequested = false
         mainHandler.removeCallbacks(captureFallback)
+        workerHandler?.removeCallbacks(captureTimeout)
         pendingStaleBitmap?.recycle()
         pendingStaleBitmap = null
         lastFrameCopy = null

@@ -10,6 +10,8 @@ export const workspaceWatch = {
   'workspace.watch.close': '关闭悬浮窗',
   'workspace.watch.unsupported': '当前构建不支持悬浮窗看屏幕（需要重新打包安装）。',
   'workspace.watch.permissionDenied': '需要悬浮窗权限才能开启：请在系统设置里允许本应用显示在其他应用上层。',
+  // FIX-3：投屏授权失败与「悬浮窗权限不足」是两回事，混在一句里会让用户去改错的地方。
+  'workspace.watch.capturePermissionRequired': '需要在系统弹窗里允许录屏才能开启：请再点一次「开启悬浮窗」并在弹窗中确认。',
   'workspace.watch.startFailed': '悬浮窗启动失败，请重试。',
   'workspace.watch.threads': '工作区看屏幕对话',
   'workspace.watch.empty': '还没有工作区的看屏幕对话。开启悬浮窗后对着屏幕说话，这里会出现记录。',

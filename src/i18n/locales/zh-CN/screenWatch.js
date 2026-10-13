@@ -49,6 +49,13 @@ export const screenWatch = {
   'screenWatch.overlay.privacy': '开启后屏幕画面（含其他应用内容）会发送给所选的识图模型；关闭或锁屏即停止采集。',
   'screenWatch.overlay.captureFailed': '没能抓到画面，请重试。',
   'screenWatch.overlay.captureFailed.permission': '屏幕录制授权已失效：请关闭悬浮窗后重新开启，并在系统弹窗里允许录屏。',
+  // 分原因码文案（FIX-4）：笼统的「请重试」对这两种情况没用——一种要等，一种要改系统设置。
+  'screenWatch.overlay.captureFailed.noFrame': '这次没取到画面（屏幕可能完全静止）。请让画面动一下再试。',
+  'screenWatch.overlay.captureFailed.timeout': '取画面超时了。若反复出现，请在系统设置里允许本应用后台运行（关闭电池优化），再重试。',
+  // 后台冻结引导（FIX-4 第 4 条）：只在「超时且未放行后台运行」时弹一次。
+  'screenWatch.battery.title': '建议允许后台运行',
+  'screenWatch.battery.body': '刚才取画面超时，常见原因是系统冻结了本应用的后台进程（荣耀/华为等机型较激进）。请在系统设置里允许本应用后台运行、关闭对它的电池优化，然后重试。',
+  'screenWatch.battery.open': '去设置',
   'screenWatch.overlay.permission.title': '需要悬浮窗权限',
   'screenWatch.overlay.permission.body': '请在系统设置里允许本应用显示在其他应用上层，然后回来再次开启。',
   'screenWatch.overlay.capturePerm.title': '需要屏幕捕获授权',

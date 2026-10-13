@@ -5,6 +5,9 @@ export const OVERLAY_EVENT_CAPTURE = 'ScreenOverlay:onCapture';
 export const OVERLAY_EVENT_CAPTURE_FAILED = 'ScreenOverlay:onCaptureFailed';
 export const OVERLAY_EVENT_REQUEST_CAPTURE = 'ScreenOverlay:onRequestCapture';
 export const OVERLAY_EVENT_STATE = 'ScreenOverlay:onState';
+// FIX-4：采集链路打点（{ stage, detail, at }）。走独立事件而不是复用 capture/captureFailed：
+// 那两条是业务语义，这条纯粹是诊断（写入诊断日志，DiagnosticsModal 可见）。
+export const OVERLAY_EVENT_TRACE = 'ScreenOverlay:onTrace';
 // SW3：悬浮窗 mini 聊天——用户在悬浮窗里发了话（原生 → JS）。
 // payload: { text, scope }；scope 决定 JS 侧走聊天角色管线还是工作区 agent 管线。
 export const OVERLAY_EVENT_CHAT_SEND = 'ScreenOverlay:onChatSend';
@@ -70,6 +73,58 @@ export function parseCaptureEvent(payload) {
 // 原生采集失败：{ reason }。reason 用于区分处置方式（授权失效 vs 一般失败），缺省按未知。
 export function parseCaptureFailedEvent(payload) {
   return { reason: String((payload && payload.reason) || 'unknown') };
+}
+
+// 采集链路打点：{ stage, detail, at }。stage 为空视为无效（打点没有阶段名就没有诊断价值）。
+export function parseTraceEvent(payload) {
+  const stage = String((payload && payload.stage) || '').trim();
+  if (!stage) return null;
+  return {
+    stage,
+    detail: String((payload && payload.detail) || '').trim(),
+    at: Number(payload && payload.at) || Date.now(),
+  };
+}
+
+// 采集失败原因码 → 人话。**必须区分原因**：用户看到的「没能抓到画面，请重试」对
+// 「授权失效」这种需要用户去重开悬浮窗的情况毫无帮助（他只会反复重试）。
+// 未知码回落到通用文案（不把内部码当文案丢给用户）。
+export const CAPTURE_FAILURE_KEYS = Object.freeze({
+  'no-projection': 'screenWatch.overlay.captureFailed.permission',
+  'projection-denied': 'screenWatch.overlay.captureFailed.permission',
+  'projection-invalid': 'screenWatch.overlay.captureFailed.permission',
+  'no-frame': 'screenWatch.overlay.captureFailed.noFrame',
+  'no-manager': 'screenWatch.overlay.captureFailed.permission',
+  timeout: 'screenWatch.overlay.captureFailed.timeout',
+});
+
+export function captureFailureKey(reason) {
+  return CAPTURE_FAILURE_KEYS[String(reason || '')] || 'screenWatch.overlay.captureFailed';
+}
+
+// 启动失败原因码 → 提示文案的两个键（title/body）。
+//
+// 为什么做成纯函数：这个映射要同时被扩展页与设置页使用，而两处此前各写了一套 if/else，
+// 已经漂移（设置页只说「启动失败」，扩展页会分别提示悬浮窗权限/投屏授权）。抽成一处
+// 既能被 Node 直测，也保证两个入口说同样的话。
+//
+// `null` 表示「只弹一个通用提示、没有专门的标题」（UNSUPPORTED / START_FAILED 两档
+// 复用现成文案，避免为一个罕见分支新增词条）。
+export const START_FAILURE_ALERTS = Object.freeze({
+  unsupported: { titleKey: null, bodyKey: 'screenWatch.overlay.unsupported' },
+  'overlay-permission': {
+    titleKey: 'screenWatch.overlay.permission.title',
+    bodyKey: 'screenWatch.overlay.permission.body',
+  },
+  'capture-permission': {
+    titleKey: 'screenWatch.overlay.capturePerm.title',
+    bodyKey: 'screenWatch.overlay.capturePerm.body',
+  },
+  'start-failed': { titleKey: null, bodyKey: 'screenWatch.overlay.startFailed' },
+});
+
+export function overlayStartFailureAlert(reason) {
+  return START_FAILURE_ALERTS[String(reason || '')] || START_FAILURE_ALERTS['start-failed'];
 }
 
 // 服务启停：{ active }。缺字段按 false 处理。

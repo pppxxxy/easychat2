@@ -31,10 +31,10 @@ import { useTheme } from '../../theme/ThemeContext.js';
 import { useTranslation } from '../../i18n/I18nContext.js';
 import {
   canDrawOverlays,
+  ensurePermissionThenStart,
   isOverlayActive,
   isOverlaySupported,
-  requestOverlayPermission,
-  startOverlay,
+  OVERLAY_START_RESULT,
   stopOverlay,
 } from '../../screenWatch/overlay.js';
 import {
@@ -121,18 +121,18 @@ export default function ScreenWatchPanel({ storeRef }) {
         await stopOverlay();
         setActive(false);
       } else {
-        // 权限缺失先要权限（与 ScreenWatchScreen 同一条链路），拿到再开。
-        if (!permitted) {
-          const granted = await requestOverlayPermission();
-          setPermitted(Boolean(granted));
-          if (!granted) {
-            setNote(t('workspace.watch.permissionDenied'));
-            return;
-          }
-        }
-        const started = await startOverlay();
-        if (started === false) {
-          setNote(t('workspace.watch.startFailed'));
+        // FIX-3：两个入口统一走 ensurePermissionThenStart，不再各自为政。
+        // 调用方据此给出具体原因码和可处置的提示（授权失效/未开启等）。
+        const result = await ensurePermissionThenStart();
+        if (!result.ok) {
+          // 失败原因分档 → 对应的文案键（i18n 词条待补）。
+          const reasonKey = {
+            [OVERLAY_START_RESULT.UNSUPPORTED]: 'workspace.watch.unsupported',
+            [OVERLAY_START_RESULT.OVERLAY_PERMISSION]: 'workspace.watch.permissionDenied',
+            [OVERLAY_START_RESULT.CAPTURE_PERMISSION]: 'workspace.watch.capturePermissionRequired',
+            [OVERLAY_START_RESULT.START_FAILED]: 'workspace.watch.startFailed',
+          }[result.reason] || 'workspace.watch.startFailed';
+          setNote(t(reasonKey));
           return;
         }
         setActive(true);

@@ -10,6 +10,9 @@ export const workspaceWatch = {
   'workspace.watch.close': 'Turn off floating window',
   'workspace.watch.unsupported': 'This build has no floating-window screen watch (rebuild the APK).',
   'workspace.watch.permissionDenied': 'Overlay permission is required: allow this app to display over other apps in system settings.',
+  // FIX-3: a missing screen-capture grant is a different problem from a missing overlay
+  // permission; lumping them together sends the user to fix the wrong setting.
+  'workspace.watch.capturePermissionRequired': 'Screen recording must be allowed in the system dialog: tap "Turn on floating window" again and confirm the prompt.',
   'workspace.watch.startFailed': 'Failed to start the floating window. Try again.',
   'workspace.watch.threads': 'Workspace watch conversations',
   'workspace.watch.empty': 'No workspace watch conversations yet. Turn on the floating window and talk to your screen — records show up here.',

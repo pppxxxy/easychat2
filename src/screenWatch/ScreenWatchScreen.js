@@ -36,18 +36,20 @@ import {
   addChatSendListener,
   addRequestCaptureListener,
   addStateListener,
-  canDrawOverlays,
+  addTraceListener,
   captureOverlayFrame,
+  ensurePermissionThenStart,
+  isIgnoringBatteryOptimizations,
   isOverlayActive,
   isOverlaySupported,
+  openBatteryOptimizationSettings,
   pushOverlayChatMessage,
-  requestCapturePermission,
-  requestOverlayPermission,
   setOverlayCharacterName,
-  startOverlay,
   stopOverlay,
   updateOverlayText,
 } from './overlay.js';
+// 纯映射从 overlayEvents.js 取：那一层零 RN 依赖、可 Node 直测（overlay.js 会碰原生模块）。
+import { captureFailureKey, overlayStartFailureAlert } from './overlayEvents.js';
 import { resolveScreenWatchCapabilities, useScreenWatchComments } from './useScreenWatchComments.js';
 import { THREAD_IDLE_MS, THREAD_SCOPE_WORKSPACE, appendThreadEntry, getOrCreateActiveThread, getScreenWatchThreads } from './threads.js';
 import { runWorkspaceWatchTurn } from './workspaceWatchTurn.js';
@@ -138,6 +140,27 @@ export default function ScreenWatchScreen() {
     return text.length > 160 ? `${text.slice(0, 160)}…` : text;
   }, [lastErrorRef, t]);
 
+  // 后台冻结引导（FIX-4 第 4 条）：超时且系统尚未放行后台运行时，提示一次。
+  // 「只提示一次」存在 ref 里而非持久化：重启后如果又超时，再提醒一次是合理的
+  //（用户可能只是忘了改）；同一次运行内不反复打扰。
+  const batteryGuidanceShownRef = useRef(false);
+  const maybeOfferBatteryGuidance = useCallback(async () => {
+    if (batteryGuidanceShownRef.current) return;
+    if (await isIgnoringBatteryOptimizations()) return;
+    batteryGuidanceShownRef.current = true;
+    Alert.alert(
+      t('screenWatch.battery.title'),
+      t('screenWatch.battery.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('screenWatch.battery.open'),
+          onPress: () => { openBatteryOptimizationSettings().catch(() => {}); },
+        },
+      ]
+    );
+  }, [t]);
+
   // 用户在小窗点「截屏」：识图门控 → 单帧/帧序列 → 生成评论 → 回写小窗文案。
   const handleOverlayRequestCapture = useCallback(async () => {
     if (overlayBusyRef.current || generating) return;
@@ -164,13 +187,13 @@ export default function ScreenWatchScreen() {
       if (uris.length === 0) {
         const reason = captureErrorRef.current;
         captureErrorRef.current = '';
-        // 授权被拒/投影已死要告诉用户怎么恢复；其余失败给通用提示。
-        const needsPermission = reason === 'no-projection' || reason === 'projection-denied';
-        await updateOverlayText(
-          needsPermission
-            ? t('screenWatch.overlay.captureFailed.permission')
-            : t('screenWatch.overlay.captureFailed')
-        );
+        // FIX-4：按**原因码**给不同文案。此前只把 no-projection/projection-denied 归为一类，
+        // 其余（含 timeout / no-frame / projection-invalid）一律「没能抓到画面，请重试」——
+        // 对「授权已失效」或「系统冻结了后台」这两种需要用户动手的情况毫无帮助，用户只会反复重试。
+        await updateOverlayText(t(captureFailureKey(reason)));
+        // 超时是 ROM 后台冻结的典型征兆（线程化之后仍然超时，基本只剩这一个解释）：
+        // 此时给一次性引导，指路去关掉电池优化。不是每次超时都弹——用户点了「知道了」就不再烦他。
+        if (reason === 'timeout') await maybeOfferBatteryGuidance();
         return;
       }
       const commentText = await generate(frames > 1 ? { imageUris: uris } : { imageUri: uris[0] });
@@ -184,7 +207,7 @@ export default function ScreenWatchScreen() {
       overlayBusyRef.current = false;
       setOverlayBusy(false);
     }
-  }, [generating, generate, overlayErrorText, waitForCapture, t]);
+  }, [generating, generate, overlayErrorText, waitForCapture, maybeOfferBatteryGuidance, t]);
 
   const overlayRequestHandlerRef = useRef(handleOverlayRequestCapture);
   overlayRequestHandlerRef.current = handleOverlayRequestCapture;
@@ -247,10 +270,13 @@ export default function ScreenWatchScreen() {
     });
     const offRequest = addRequestCaptureListener(() => { overlayRequestHandlerRef.current(); });
     const offState = addStateListener(({ active }) => setOverlayActive(active));
+    // FIX-4：采集链路打点 → 诊断日志（addTraceListener 内部已写，这里无需额外处理；
+    // 订阅本身保证即使无人关心也会落盘，便于「一直等」类故障事后定位卡在哪一环）。
+    const offTrace = addTraceListener();
     // SW3：悬浮窗里发来的话——按 scope 走对应管线（聊天角色 / 工作区 agent），
     // 结果经 pushOverlayChatMessage 推回悬浮窗渲染（原生只做嘴和眼）。
     const offChat = addChatSendListener(payload => { overlayChatHandlerRef.current(payload); });
-    return () => { offCapture(); offFailed(); offRequest(); offState(); offChat(); };
+    return () => { offCapture(); offFailed(); offRequest(); offState(); offTrace(); offChat(); };
   }, [overlaySupported, settleCapture]);
 
   // 小窗标题跟随当前角色（用户要求顶部显示角色名，而不是固定的「看屏幕」）。
@@ -263,26 +289,26 @@ export default function ScreenWatchScreen() {
     setOverlayCharacterName(overlayCharacterName);
   }, [overlaySupported, overlayActive, overlayCharacterName]);
 
+  // ---- 悬浮窗统一启动链（FIX-3）----
+  //
+  // 背景：两个入口的授权逻辑**不一致**。扩展页一直走「悬浮窗→投屏授权→启动」，而设置页直接调
+  // startOverlay → 必然失败。现在统一到 ensurePermissionThenStart，不再各自为政。
   const handleOpenOverlay = useCallback(async () => {
     if (overlayBusyRef.current) return;
     overlayBusyRef.current = true;
     setOverlayBusy(true);
     try {
-      if (!(await canDrawOverlays())) {
-        await requestOverlayPermission();
-        Alert.alert(t('screenWatch.overlay.permission.title'), t('screenWatch.overlay.permission.body'));
+      const result = await ensurePermissionThenStart();
+      if (!result.ok) {
+        // 失败档位 → 文案（映射抽到 overlayEvents，两入口共用同一份，见那里的说明）。
+        const alertCopy = overlayStartFailureAlert(result.reason);
+        Alert.alert(
+          alertCopy.titleKey ? t(alertCopy.titleKey) : t('screenWatch.overlay.startFailed'),
+          t(alertCopy.bodyKey)
+        );
         return;
       }
-      if (!(await requestCapturePermission())) {
-        Alert.alert(t('screenWatch.overlay.capturePerm.title'), t('screenWatch.overlay.capturePerm.body'));
-        return;
-      }
-      const started = await startOverlay();
-      if (started) {
-        setOverlayActive(true);
-      } else {
-        Alert.alert(t('screenWatch.overlay.startFailed'), t('screenWatch.overlay.startFailed'));
-      }
+      setOverlayActive(true);
     } finally {
       overlayBusyRef.current = false;
       setOverlayBusy(false);

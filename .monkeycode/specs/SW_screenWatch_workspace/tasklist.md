@@ -1,8 +1,9 @@
-# SW：一起看屏幕·工作区版（任务书 SW1-SW3 落地记录）
+# SW：一起看屏幕·工作区版（任务书 SW1-SW4 落地记录）
 
 > 依据：origin/main 6e093e0 的源码核验（screenWatch 全套 / WorkspaceScreen DOMAIN_PANELS /
 > workspace agent 管线 tools.js + agentToolSetup）。用户额外要求：**悬浮窗内做 mini 聊天**
 > （原任务书建议「不自嵌聊天 UI」，用户明确否决：要随手点开就下命令、说完收起）。
+> SW4 来自真机反馈（挂死 / 连环闪退 / ANR），任务书 FIX-3 + FIX-4。
 
 ## 交付状态
 
@@ -11,6 +12,7 @@
 | SW1 | 线程分 scope + 工作区左栏「看屏幕」面板 | ✅ 已完成（995798d6） |
 | SW2 | 会话接工作区 agent 管线 + 命令确认 | ✅ 已完成（4fadadee） |
 | SW3 | 悬浮窗 mini 聊天（原生） | ✅ 已完成（1e25e9f9 + d7c7292c 自查修 4 bug） |
+| SW4 | 投屏 token 生命周期 + 采集管线线程化 + 打点 | ✅ 已完成（Kotlin 未编译，见下） |
 
 ## SW1：线程分类 + 左栏入口（纯 JS）
 
@@ -88,7 +90,106 @@
 - [ ] 聊天 scope：截屏问答仍正常。
 - [ ] 后台约束：app 进程被杀 = 会话断（现状同款限制），文案需注明「加白名单/关电池优化可缓解」。
 
+## SW4：投屏 token 生命周期 + 采集管线线程化（FIX-3 / FIX-4）
+
+> 来源：真机反馈三个问题——①App 外截屏永停「正在看…」；②连环闪退；
+> ③下命令卡死/闪退。复现序列：「扩展页开启 → 关掉 → 回设置页再点」。
+
+### FIX-3：投屏授权 token 生命周期 + 双入口统一
+
+**根因（三处咬合，全是实锤）**：
+
+1. **token 只写不清**：`resultCode/resultData` 是**一次性**授权凭据，对应的 projection
+   一 stop 就永久失效。旧代码里它只被写入、从不作废，于是「关掉再开」会带着失效 token
+   启动服务。
+2. **onCreate 无条件以 mediaProjection 类型 startForeground**：Android 14 要求该类型
+   必须有**正在进行的有效授权**，旧 token 不满足 → `SecurityException`（第一次闪退）。
+3. **`getMediaProjection` 无 try-catch**：失效 token 抛 `IllegalStateException`
+   （第二次闪退，进程重启后的状态恢复路径再撞一次）。
+
+**改法**：
+
+- token 上移到 **companion object（进程级）**：只有进程级存储，`OverlayService.onDestroy`
+  才够得着它；三个调用点统一清理——`stopOverlay`（用户关闭）/ `invalidate`（热重载）/
+  服务 `onDestroy`（系统回收、锁屏、被抢占）。
+- `setupProjection` 整段 try-catch：失效 → `clearCaptureToken()` + 回报
+  `projection-invalid`，绝不裸崩。
+- `startForegroundCompat`：**只在确实持有有效凭据时**才声明 mediaProjection 类型
+  （从源头避开被拒）；仍保留 try-catch + 降级重试 + 最终 `stopSelf` 收口。
+  诚实说明：不带类型时 Android 14 会回落用 manifest 声明的类型，所以降级大概率同样失败
+  ——它的价值是**把异常关在闸里**（崩 → 明确失败），不是「救活采集」。
+- **双入口统一**：新增 `ensurePermissionThenStart()`（overlay.js），
+  悬浮窗权限 → 投屏授权 → 启动。`startOverlay` 在原生侧也内建了「无 token 先弹授权」，
+  所以设置页直点不再必然失败（这正是「设置界面直接点显示失败」的设计缺口）。
+- **幂等**：原生 `requestCapturePermissionInternal` 用回调队列排队复用同一次弹窗；
+  JS 侧 `startChainInFlight` 复用进行中的链路。连点不会叠出两个系统授权框。
+
+**自查修掉的 2 个真问题**（都是自己写的代码）：
+
+1. `ensurePermissionThenStart` 最初把 in-flight 清理写在 async 函数体的 `finally` 里——
+   同步提前返回的分支（无原生模块）会**先**把标记清成 null、随后赋值又把一个已结算的
+   promise 钉上去，导致之后所有调用永远拿到旧结果、再也不真正启动。改为 `chain.then(clear)`。
+2. 链路里最初调 `startOverlay()`（那个包装把一切异常吞成 `false`）——原生的真实失败会被
+   误报成「投屏授权」档，界面把用户指去重新授权，而授权根本不是问题。改为直调原生并让
+   异常穿透到 catch，才能区分「权限没给」与「启动真失败」。
+
+### FIX-4：采集管线线程化 + 全程打点
+
+**根因**：JPEG 压缩与全屏像素拷贝（`imageToBitmap` / `bitmapFromCachedFrame`）全在主线程
+（1080×2400 一张几百毫秒起），而**所有失败兜底也挂在主线程 Handler 上**——主线程一堵，
+截屏的全部失败路径（含超时回报）一起失灵，UI 永停「正在看…」。国产 ROM 冻结后台进程时
+整个主线程暂停，表现完全一致。
+
+**改法**：
+
+- 新建单线程 `HandlerThread("capture-worker")`：解码、JPEG 压缩、写盘全移入。
+  `onImageAvailable`（主线程）只做 `acquireLatestImage` + `copyPlane`（纯内存拷贝，
+  微秒级，且**必须在 `image.close()` 之前**）+ 移交工作线程。
+- **硬超时挂工作线程**（`CAPTURE_HARD_TIMEOUT_MS = 5s`）：主线程被冻结也能到点回报
+  ——这是「一直等」的直接解药。到点 `emitCaptureFailed("timeout")`。
+- `emitCaptureFailed` 统一**复位状态文字**（`setStatusText("")`），界面不再永停。
+- **全程打点**：`recordTrace` 走 `EVENT_TRACE` → JS `addTraceListener` → 诊断日志
+  （DiagnosticsModal 可见）。阶段：`capture-request` / `capture-saved`(带耗时) /
+  `capture-failed`(带原因码) / `fgs-fallback` / `fgs-no-token` / `focus-on|off` /
+  `ime-inset`。焦点与键盘也打点——问题③的 window 层级部分远程无法定死，靠现场数据。
+- **原因码分档文案**：`captureFailureKey`（no-frame / timeout 各有专属文案）。笼统的
+  「请重试」对「授权失效」与「系统冻结」都没用。
+- **后台冻结引导**：`timeout` 且系统未放行后台运行时弹一次性引导
+  （`isIgnoringBatteryOptimizations` + 跳电池优化设置）。
+
+**自查修掉的真问题**：`bitmapFromCachedFrame` 一度**出现两次实现**（新写一份、旧的忘删）
+——Kotlin 直接编译失败，而大括号平衡与全部 JS 测试都是绿的。据此在
+`tests/helpers/kotlinStatic.mjs` 补了 `checkDuplicateFunctions`：沙箱没有编译器，
+这类 redeclaration 必须由静态检查顶上。
+
+### 测试
+
+- `tests/screenOverlayLifecycle.test.mjs` 18 条：FIX-3 的 token 三处清理 / try-catch /
+  前台服务降级与「只在有凭据时声明类型」/ 幂等 / 双入口统一；FIX-4 的线程化 / 硬超时挂
+  worker / 失败复位 / 阶段打点齐全 / 打点事件名两侧一致 / 电池优化查询容错；
+  以及大括号平衡 + **重复函数声明**（含检测器自检）。
+- `tests/screenOverlayFailureKeys.test.mjs` 11 条：原因码→文案、启动失败档位、打点解析。
+- `tests/screenOverlayStartChain.test.mjs` 9 条：真实 `overlay.js` + 打桩原生模块，
+  覆盖权限顺序、并发只走一次、结束/失败后标记释放（钉住上面自查修掉的那个陷阱）、
+  原生抛错如实归为 start-failed。
+
+### 真机验证清单（本环境做不了，必须做）
+
+- [ ] **原序列复现**：设置页直点（应弹授权 → 成功，不再「启动失败」）。
+- [ ] 扩展页开启 → 关掉 → 回设置页再点（应重新弹授权，**不闪退**）。
+- [ ] 进程完全重启后首次开启正常。
+- [ ] **Android 14 真机必测**（SecurityException 只在 14+ 触发）。
+- [ ] 荣耀真机：App 外静态画面（银行停留页）连截 3 次全通。
+- [ ] 下命令（含截屏+识图）期间拖动悬浮窗不卡顿、其他区域可滑动。
+- [ ] 连续下命令 5 次无 ANR 无闪退。
+- [ ] 若仍偶发挂死：看诊断日志的 `capture-request`→`capture-saved` 断点，
+      断在哪一环即锁定 ROM 冻结（走电池优化引导）。
+- [ ] 键盘弹起/收起时小窗文字区是否复位（`ime-inset` 打点已埋好）。
+- [ ] R6 的键盘/焦点用例全量回归。
+
 ## 明确不做
 
 - 悬浮窗内不渲染 AS2 的完整题卡（原生只画是/否/其他三按钮的简化形态）；复杂确认回 App 面板。
 - 悬浮窗场景不执行破坏性操作（见上「确认策略」）。
+- FIX-4 未改 window 层级本身（问题③的「小窗以外滑不动」）：远程无法定死是哪一行，
+  本批只做打点 + 回归，等真机日志。

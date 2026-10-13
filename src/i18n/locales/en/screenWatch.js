@@ -49,6 +49,15 @@ export const screenWatch = {
   'screenWatch.overlay.privacy': 'While on, on-screen content (including other apps) is sent to the vision model. Closing it or locking the screen stops capture.',
   'screenWatch.overlay.captureFailed': 'Could not grab a frame. Please retry.',
   'screenWatch.overlay.captureFailed.permission': 'Screen recording grant expired. Close the floating window, reopen it, and allow screen capture in the system dialog.',
+  // Per-reason messages (FIX-4): a generic "please retry" is useless for these two —
+  // one needs the user to wait for motion, the other needs a system setting change.
+  'screenWatch.overlay.captureFailed.noFrame': 'No frame was captured this time (the screen may be completely static). Make something move on screen, then retry.',
+  'screenWatch.overlay.captureFailed.timeout': 'Timed out capturing the screen. If this keeps happening, allow this app to run in the background (disable battery optimization) and retry.',
+  // Background-freeze guidance (FIX-4 item 4): shown once, only on timeout while the app
+  // is still subject to battery optimization.
+  'screenWatch.battery.title': 'Allow background running',
+  'screenWatch.battery.body': 'Capturing just timed out, which usually means the system froze this app\'s background process (aggressive on Honor/Huawei devices). Allow this app to run in the background and disable battery optimization for it, then retry.',
+  'screenWatch.battery.open': 'Open settings',
   'screenWatch.overlay.permission.title': 'Overlay permission needed',
   'screenWatch.overlay.permission.body': 'Allow this app to display over other apps in system settings, then come back and turn it on again.',
   'screenWatch.overlay.capturePerm.title': 'Screen capture grant needed',
