@@ -27,8 +27,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.facebook.react.bridge.Arguments
 import java.io.File
@@ -53,6 +55,12 @@ class OverlayService : Service() {
         const val EVENT_CAPTURE_FAILED = "ScreenOverlay:onCaptureFailed"
         const val EVENT_REQUEST_CAPTURE = "ScreenOverlay:onRequestCapture"
         const val EVENT_STATE = "ScreenOverlay:onState"
+        // SW3：悬浮窗 mini 聊天——用户在悬浮窗里发话（原生 → JS）。
+        // payload: { text, scope }；scope 决定 JS 侧走聊天管线还是工作区 agent 管线。
+        const val EVENT_CHAT_SEND = "ScreenOverlay:onChatSend"
+        // SW3：mini 聊天的两个作用域（与 JS 侧 overlayEvents.OVERLAY_CHAT_SCOPES 同值）。
+        const val SCOPE_CHAT = "chat"
+        const val SCOPE_WORKSPACE = "workspace"
         private const val TAG = "ScreenOverlay"
         private const val NOTIFICATION_ID = 0x5C02
         private const val CHANNEL_ID = "screen_overlay"
@@ -64,6 +72,8 @@ class OverlayService : Service() {
         // 「最近一帧」缓存节流：屏幕持续变化时最多每 500ms 拷一份像素，
         // 避免看视频时每帧都做一次全屏内存拷贝。
         private const val FRAME_CACHE_INTERVAL_NANOS = 500_000_000L
+        // SW3：mini 聊天消息区上限（超出滚动裁剪，防长会话把悬浮窗撑爆）。
+        private const val CHAT_MESSAGE_MAX = 50
 
         @Volatile var instance: OverlayService? = null
             private set
@@ -79,6 +89,16 @@ class OverlayService : Service() {
     private var characterName: String = ""
     private var expanded = false
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // ---- SW3：mini 聊天状态 ----
+    // scope 决定 JS 侧走哪条管线（聊天角色 / 工作区 agent）；切换只改 scope，不清消息。
+    private var chatScope = SCOPE_WORKSPACE
+    private var chatMessages: ScrollView? = null
+    private var chatInput: EditText? = null
+    private var scopeButton: TextView? = null
+    // 键盘处理：面板被输入法顶住时上移（见 applyImeInset）。
+    private var panelContainer: LinearLayout? = null
+    private var baseY = 0
 
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -295,14 +315,23 @@ class OverlayService : Service() {
                 setColor(Color.parseColor("#E62d2d44"))
             }
         }
+        panelContainer = panel
+
+        // 标题行：标题 + scope 切换按钮（SW3⑤：工作区 ⇄ 聊天）。
+        val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val title = TextView(this).apply {
             text = overlayTitle()
             setTextColor(Color.parseColor("#6c63ff"))
             textSize = 13f
-            maxWidth = dp(212)
+            maxWidth = dp(150)
         }
-        panel.addView(title)
+        titleRow.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         titleView = title
+        val scopeBtn = button(scopeLabel()) { toggleChatScope() }
+        scopeButton = scopeBtn
+        titleRow.addView(scopeBtn)
+        panel.addView(titleRow)
+
         val status = TextView(this).apply {
             text = "点「截屏」让角色看看现在的屏幕"
             setTextColor(Color.WHITE)
@@ -313,6 +342,42 @@ class OverlayService : Service() {
         panel.addView(status)
         statusView = status
 
+        // SW3：消息区（ScrollView + 动态文本行，上限 CHAT_MESSAGE_MAX 条）。
+        val messages = ScrollView(this).apply {
+            // 悬浮窗内滚动：容器高度固定，内容超出由 ScrollView 自己滚。
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(140)
+            )
+        }
+        chatMessages = messages
+        panel.addView(messages)
+
+        // SW3：输入行（EditText + 发送 + 收起）。
+        val inputRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        val input = EditText(this).apply {
+            hint = "说点什么…"
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#8a8aa8"))
+            textSize = 12f
+            maxLines = 3
+            background = GradientDrawable().apply {
+                cornerRadius = dp(9).toFloat()
+                setColor(Color.parseColor("#3a3a5a"))
+            }
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        chatInput = input
+        // SW3 键盘坑：悬浮窗默认挂 FLAG_NOT_FOCUSABLE（可拖拽、不抢焦点）——点输入框前
+        // 必须动态去掉它才能弹输入法，失焦再装回去（不装回去拖拽与后台点击会被输入框吸走）。
+        input.setOnFocusChangeListener { _, hasFocus -> setFocusableForInput(hasFocus) }
+        inputRow.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        inputRow.addView(button("发送") { sendChatFromInput() })
+        panel.addView(inputRow)
+
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(button("截屏") { requestCaptureFromButton() })
         actions.addView(button("说话") { openAppForTalk() })
@@ -321,6 +386,88 @@ class OverlayService : Service() {
         panel.addView(actions)
 
         rootView.addView(panel, LinearLayout.LayoutParams(dp(236), LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    // ---- SW3：mini 聊天 ----
+
+    // scope 按钮文案：显示**当前**作用域（点一下切到另一个）。
+    private fun scopeLabel(): String =
+        if (chatScope == SCOPE_WORKSPACE) "工作区" else "聊天"
+
+    private fun toggleChatScope() {
+        chatScope = if (chatScope == SCOPE_WORKSPACE) SCOPE_CHAT else SCOPE_WORKSPACE
+        scopeButton?.text = scopeLabel()
+        // 切换只改 scope、不清消息（用户要求：切种类不该丢上下文）。
+    }
+
+    // 用户在悬浮窗里发了话：交给 JS（LLM/工具/确认全在 JS 侧），原生只做嘴和眼。
+    private fun sendChatFromInput() {
+        val text = chatInput?.text?.toString()?.trim().orEmpty()
+        if (text.isEmpty()) return
+        chatInput?.setText("")
+        appendChatMessage("user", text)
+        ScreenOverlayModule.emit(EVENT_CHAT_SEND, Arguments.createMap().apply {
+            putString("text", text)
+            putString("scope", chatScope)
+        })
+    }
+
+    // JS 推回一条消息（回复或确认题卡）→ 渲染成气泡/按钮组。
+    fun pushChatMessage(role: String?, text: String?) {
+        mainHandler.post {
+            appendChatMessage(if (role == "user") "user" else "assistant", text.orEmpty())
+        }
+    }
+
+    private fun appendChatMessage(role: String, text: String) {
+        val container = chatMessages ?: return
+        if (text.isBlank()) return
+        val line = TextView(this).apply {
+            this.text = (if (role == "user") "我：" else "") + text
+            setTextColor(if (role == "user") Color.parseColor("#c9c9e6") else Color.WHITE)
+            textSize = 12f
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+        }
+        container.addView(line)
+        // 上限裁剪：只留最近 CHAT_MESSAGE_MAX 条（长会话不把悬浮窗撑爆）。
+        while (container.childCount > CHAT_MESSAGE_MAX) {
+            container.removeViewAt(0)
+        }
+        container.post { container.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    // 输入焦点切换：点输入框要能弹键盘（去掉 FLAG_NOT_FOCUSABLE），失焦再装回去
+    //（不装回去的话拖拽与后台点击会被输入框吸走）。
+    private fun setFocusableForInput(focusable: Boolean) {
+        try {
+            if (focusable) {
+                params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                params.flags = params.flags or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+            } else {
+                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                params.flags = params.flags and WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM.inv()
+            }
+            windowManager.updateViewLayout(rootView, params)
+        } catch (error: Exception) {
+            Log.w(TAG, "focus flag update failed: ${error.message}")
+        }
+    }
+
+    // 键盘弹起时把面板上移（悬浮窗在屏幕下半部时输入框会被输入法盖住）。
+    fun applyImeInset(insetBottom: Int) {
+        mainHandler.post {
+            try {
+                if (baseY == 0) baseY = params.y
+                params.y = if (insetBottom > 0) {
+                    maxOf(0, baseY - insetBottom)
+                } else {
+                    baseY
+                }
+                windowManager.updateViewLayout(rootView, params)
+            } catch (error: Exception) {
+                Log.w(TAG, "ime inset failed: ${error.message}")
+            }
+        }
     }
 
     private fun button(label: String, onClick: () -> Unit): TextView {

@@ -8,10 +8,12 @@ import { DeviceEventEmitter, NativeModules } from 'react-native';
 import {
   OVERLAY_EVENT_CAPTURE,
   OVERLAY_EVENT_CAPTURE_FAILED,
+  OVERLAY_EVENT_CHAT_SEND,
   OVERLAY_EVENT_REQUEST_CAPTURE,
   OVERLAY_EVENT_STATE,
   parseCaptureEvent,
   parseCaptureFailedEvent,
+  parseChatSendEvent,
   parseStateEvent,
 } from './overlayEvents.js';
 
@@ -115,6 +117,34 @@ export async function setOverlayCharacterName(name) {
   }
 }
 
+// SW3：把一条消息推给悬浮窗渲染（原生只做嘴和眼，LLM/工具/确认都在 JS 侧）。
+// payload 由 buildChatPushPayload 归一（role + text + 可选 confirm 题卡）。
+// 老构建没有这个方法时静默返回 false——悬浮窗仍可用（只是不显示这条回复）。
+export async function pushOverlayChatMessage(payload) {
+  const module = nativeModule();
+  if (!module || typeof module.pushChatMessage !== 'function') return false;
+  const safe = payload && typeof payload === 'object' ? payload : {};
+  try {
+    return !!(await module.pushChatMessage(
+      String(safe.role || 'assistant'),
+      String(safe.text || '')
+    ));
+  } catch (error) {
+    return false;
+  }
+}
+
+// SW3：键盘遮挡时上移面板（0 = 收起）。失败静默（面板位置不致命）。
+export async function setOverlayImeInset(insetBottom) {
+  const module = nativeModule();
+  if (!module || typeof module.setImeInset !== 'function') return false;
+  try {
+    return !!(await module.setImeInset(Number(insetBottom) || 0));
+  } catch (error) {
+    return false;
+  }
+}
+
 // ---- 无障碍权限链路 ----
 //
 // 现状如实说明：跨应用截屏走 MediaProjection（**逐会话授权**，每次开启悬浮窗都要
@@ -178,6 +208,16 @@ export function addRequestCaptureListener(handler) {
 export function addStateListener(handler) {
   const subscription = DeviceEventEmitter.addListener(OVERLAY_EVENT_STATE, payload => {
     if (typeof handler === 'function') handler(parseStateEvent(payload));
+  });
+  return () => subscription.remove();
+}
+
+// SW3：悬浮窗里用户发来的话（{ text, scope }）——scope 决定走哪条管线。
+// 空文本由 parseChatSendEvent 挡掉（不把空消息送进模型）。
+export function addChatSendListener(handler) {
+  const subscription = DeviceEventEmitter.addListener(OVERLAY_EVENT_CHAT_SEND, payload => {
+    const parsed = parseChatSendEvent(payload);
+    if (parsed && typeof handler === 'function') handler(parsed);
   });
   return () => subscription.remove();
 }

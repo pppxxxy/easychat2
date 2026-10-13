@@ -206,6 +206,37 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     }
 
     /**
+     * SW3：把一条消息推给悬浮窗渲染（JS → 原生）。
+     *
+     * 架构定死：**原生只做嘴和眼**——LLM 调用、工具执行、确认流全在 JS 后台跑，
+     * 这里只负责把结果画出来。role: 'user' | 'assistant'；text 为空时静默忽略
+     *（不画空气泡）。
+     */
+    @ReactMethod
+    fun pushChatMessage(role: String?, text: String?, promise: Promise) {
+        try {
+            OverlayService.instance?.pushChatMessage(role, text)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_CHAT", e.message, e)
+        }
+    }
+
+    /**
+     * SW3：输入法遮挡时上移面板（insetBottom = 键盘高度，0 = 收起）。
+     * 部分 ROM 对 overlay 窗口的输入法行为不一致，调用失败静默（面板位置不致命）。
+     */
+    @ReactMethod
+    fun setImeInset(insetBottom: Double, promise: Promise) {
+        try {
+            OverlayService.instance?.applyImeInset(insetBottom.toInt())
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_IME", e.message, e)
+        }
+    }
+
+    /**
      * 无障碍服务是否已开启。只读查询，不申请任何权限、不产生副作用。
      *
      * 两条判据取**或**：

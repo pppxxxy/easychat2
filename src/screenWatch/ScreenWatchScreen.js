@@ -33,12 +33,14 @@ import { captureAppScreen } from './capture.js';
 import {
   addCaptureFailedListener,
   addCaptureListener,
+  addChatSendListener,
   addRequestCaptureListener,
   addStateListener,
   canDrawOverlays,
   captureOverlayFrame,
   isOverlayActive,
   isOverlaySupported,
+  pushOverlayChatMessage,
   requestCapturePermission,
   requestOverlayPermission,
   setOverlayCharacterName,
@@ -47,7 +49,9 @@ import {
   updateOverlayText,
 } from './overlay.js';
 import { resolveScreenWatchCapabilities, useScreenWatchComments } from './useScreenWatchComments.js';
-import { THREAD_IDLE_MS, getScreenWatchThreads } from './threads.js';
+import { THREAD_IDLE_MS, THREAD_SCOPE_WORKSPACE, appendThreadEntry, getOrCreateActiveThread, getScreenWatchThreads } from './threads.js';
+import { runWorkspaceWatchTurn } from './workspaceWatchTurn.js';
+import { runHeadlessAgent } from '../workspace/headlessAgent.js';
 
 // 视频观屏（模型声明视频能力时）以周期帧序列近似「连续看」。
 const OVERLAY_VIDEO_FRAMES = 4;
@@ -184,6 +188,54 @@ export default function ScreenWatchScreen() {
 
   const overlayRequestHandlerRef = useRef(handleOverlayRequestCapture);
   overlayRequestHandlerRef.current = handleOverlayRequestCapture;
+  // SW3：悬浮窗聊天串行化（同一时刻只跑一条，避免连点叠加请求）。
+  const overlayChatBusyRef = useRef(false);
+
+  // SW3：悬浮窗里用户发来的话——按 scope 分流：
+  //   · 'chat'      → 聊天角色管线（generate，与面板里说话同一条）；
+  //   · 'workspace' → 工作区 agent 管线（runWorkspaceWatchTurn，带工具与确认）。
+  // 两条都把回复经 pushOverlayChatMessage 推回悬浮窗（原生只做嘴和眼）。
+  const handleOverlayChatSend = useCallback(async ({ text, scope }) => {
+    if (overlayChatBusyRef.current) return;
+    overlayChatBusyRef.current = true;
+    try {
+      if (scope === 'workspace') {
+        const threadState = await getOrCreateActiveThread('workspace', t('workspace.watch.assistantName'), Date.now(), THREAD_SCOPE_WORKSPACE)
+          .catch(() => null);
+        const result = await runWorkspaceWatchTurn({
+          userText: text,
+          thread: threadState ? threadState.thread : null,
+          mode: 'read',
+          runAgent: payload => runHeadlessAgent(payload),
+          // 悬浮窗场景**不弹全屏 Alert**（会盖住用户正在看的画面）——这里给「拒绝」语义：
+          // 破坏性操作在悬浮窗里一律不执行，用户想动手就到 App 面板里做（面板有确认卡）。
+          confirm: async () => false,
+          appendEntry: appendThreadEntry,
+          t,
+        });
+        await pushOverlayChatMessage({
+          role: 'assistant',
+          text: result.ok ? result.text : (result.error || t('screenWatch.comments.failed')),
+        });
+      } else {
+        const reply = await generate({ userText: text });
+        await pushOverlayChatMessage({
+          role: 'assistant',
+          text: reply || overlayErrorText(),
+        });
+      }
+    } catch (error) {
+      await pushOverlayChatMessage({
+        role: 'assistant',
+        text: overlayErrorText(error),
+      }).catch(() => {});
+    } finally {
+      overlayChatBusyRef.current = false;
+    }
+  }, [generate, overlayErrorText, t]);
+
+  const overlayChatHandlerRef = useRef(handleOverlayChatSend);
+  overlayChatHandlerRef.current = handleOverlayChatSend;
 
   useEffect(() => {
     if (!overlaySupported) return undefined;
@@ -195,7 +247,10 @@ export default function ScreenWatchScreen() {
     });
     const offRequest = addRequestCaptureListener(() => { overlayRequestHandlerRef.current(); });
     const offState = addStateListener(({ active }) => setOverlayActive(active));
-    return () => { offCapture(); offFailed(); offRequest(); offState(); };
+    // SW3：悬浮窗里发来的话——按 scope 走对应管线（聊天角色 / 工作区 agent），
+    // 结果经 pushOverlayChatMessage 推回悬浮窗渲染（原生只做嘴和眼）。
+    const offChat = addChatSendListener(payload => { overlayChatHandlerRef.current(payload); });
+    return () => { offCapture(); offFailed(); offRequest(); offState(); offChat(); };
   }, [overlaySupported, settleCapture]);
 
   // 小窗标题跟随当前角色（用户要求顶部显示角色名，而不是固定的「看屏幕」）。
