@@ -32,6 +32,12 @@ export const screenWatch = {
   'screenWatch.quoteFailed.body': '没能打开该角色的会话，请稍后重试。',
   'screenWatch.error.noCharacter': '请先选择一位一起看屏幕的角色',
   'screenWatch.error.noVision': '当前模型不支持识图，无法看屏幕',
+  // SW2：工作区看屏幕会话（走 agent 管线，带工具与确认）。
+  'screenWatch.error.agentUnavailable': '工作区助手暂时不可用，无法处理这条指令。',
+  'screenWatch.workspace.confirmTitle': '工作区助手要执行操作',
+  'screenWatch.workspace.confirmBody': '{name}\n\n{args}',
+  'screenWatch.workspace.confirmOk': '允许',
+  'screenWatch.workspace.confirmCancel': '拒绝',
   'screenWatch.comments.failed': '评论生成失败，请检查 API 配置后重试。',
   'screenWatch.overlay.title': '悬浮窗看屏幕',
   'screenWatch.overlay.description': '开启后会在屏幕上显示一个悬浮球，点它可抓取当前任何应用的画面，让角色边看边聊。',

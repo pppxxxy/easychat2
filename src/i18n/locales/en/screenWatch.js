@@ -32,6 +32,12 @@ export const screenWatch = {
   'screenWatch.quoteFailed.body': 'Could not open this character\'s session. Please retry later.',
   'screenWatch.error.noCharacter': 'Please pick a character to peek at your screen with',
   'screenWatch.error.noVision': 'The current model does not support vision, so Screen peek is unavailable',
+  // SW2: workspace watch turn (runs on the agent pipeline with tools and confirmation).
+  'screenWatch.error.agentUnavailable': 'The workspace assistant is unavailable, so this command cannot run.',
+  'screenWatch.workspace.confirmTitle': 'Workspace assistant wants to run',
+  'screenWatch.workspace.confirmBody': '{name}\n\n{args}',
+  'screenWatch.workspace.confirmOk': 'Allow',
+  'screenWatch.workspace.confirmCancel': 'Deny',
   'screenWatch.comments.failed': 'Could not generate the comment. Check your API settings and retry.',
   'screenWatch.overlay.title': 'Floating window',
   'screenWatch.overlay.description': 'Once on, a floating ball appears on screen. Tap it to grab whatever app is showing so your character can watch and chat.',

@@ -15,8 +15,16 @@
 // - SW2/SW3 完成后，本面板的「开始会话」会经 pullController 同款的模块级控制器
 //   驱动悬浮窗 mini 聊天（原生只做嘴和眼）。
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../../theme/ThemeContext.js';
@@ -29,12 +37,26 @@ import {
   startOverlay,
   stopOverlay,
 } from '../../screenWatch/overlay.js';
-import { getScreenWatchThreads, THREAD_SCOPE_WORKSPACE } from '../../screenWatch/threads.js';
+import {
+  appendThreadEntry,
+  getOrCreateActiveThread,
+  getScreenWatchThreads,
+  THREAD_SCOPE_WORKSPACE,
+} from '../../screenWatch/threads.js';
 import { screenThreadPreview } from '../../memory/memoryBuckets.js';
+import { readImageDataUri } from '../../chat/attachments.js';
+import { approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
+import { readHookPermissionRules } from '../../workspace/hooks.js';
+import { runWorkspaceWatchTurn } from '../../screenWatch/workspaceWatchTurn.js';
+import { runHeadlessAgent } from '../../workspace/headlessAgent.js';
 
-// SW1 只做线程分类与入口，面板自身不消费 characterId（SW2 接工作区 agent 管线时才需要，
-// 届时再从 props 取）——现在不声明它，避免 no-unused-vars。
-export default function ScreenWatchPanel() {
+// SW2：工作区看屏幕会话的**模式**。看屏幕的典型用途是「看着屏幕问/让它动手」，
+// 默认 read（只读工具直接跑，写工具根本不在工具表里——最安全）；用户显式切 write
+// 才会带写工具，且每次破坏性调用都经 approveToolCall 确认。
+const WATCH_MODES = ['read', 'write'];
+
+// SW1 只做线程分类与入口；SW2 起接工作区 agent 管线（storeRef 用于权限规则与线程落库）。
+export default function ScreenWatchPanel({ storeRef }) {
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
@@ -45,6 +67,21 @@ export default function ScreenWatchPanel() {
   const [threads, setThreads] = useState([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  // SW2：指令输入 + 当前会话（工作区 scope）+ 本轮运行状态。
+  const [command, setCommand] = useState('');
+  const [thread, setThread] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [reply, setReply] = useState('');
+  const [mode, setMode] = useState('read');
+  const abortRef = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
 
   // 状态与线程列表一起刷新：悬浮窗状态来自原生，线程来自存储。
   const refresh = useCallback(async () => {
@@ -110,6 +147,72 @@ export default function ScreenWatchPanel() {
 
   const unsupported = !supported;
 
+  // SW2：跑一轮工作区看屏幕会话——接 agent 管线（工具集 + 权限门控），
+  // 破坏性操作经 approveToolCall 弹确认（无确认 = 拒绝，绝不放行）。
+  const submitCommand = useCallback(async () => {
+    const said = String(command || '').trim();
+    if (!said || running) return;
+    setRunning(true);
+    setNote('');
+    setReply('');
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      // 工作区 scope 的活跃线程（与聊天线程隔离；30 分钟空闲后自动开新的）。
+      const created = await getOrCreateActiveThread('workspace', t('workspace.watch.assistantName'), Date.now(), THREAD_SCOPE_WORKSPACE)
+        .catch(() => null);
+      const activeThread = created ? created.thread : thread;
+      if (mountedRef.current) setThread(activeThread);
+      const result = await runWorkspaceWatchTurn({
+        userText: said,
+        thread: activeThread,
+        mode,
+        signal: controller.signal,
+        runAgent: payload => runHeadlessAgent({
+          ...payload,
+          allowWrite: mode === 'write',
+        }),
+        // 破坏性操作确认：复用工作区聊天的审批流（规则求值 + 三选项框 + 记住选择）。
+        confirm: call => approveToolCall({
+          name: call && call.name,
+          args: call && call.args,
+          t,
+          signal: controller.signal,
+        }),
+        // 权限规则（hooks.json + 用户存储）：与工作区聊天同一条合并入口——
+        // 不接这条，写工具上的手写 deny 在看屏幕会话里会变成死键（P0-2）。
+        permissionRules: async () => readToolPermissionRules(
+          await readHookPermissionRules(storeRef && storeRef.current, 'workspace')
+        ),
+        readFrame: readImageDataUri,
+        appendEntry: appendThreadEntry,
+        onToolEvent: event => {
+          if (!mountedRef.current || !event) return;
+          if (event.phase === 'start' && event.name) {
+            setNote(t('workspace.watch.toolRunning', { name: event.name }));
+          }
+        },
+        t,
+      });
+      if (!mountedRef.current) return;
+      if (result.ok) {
+        setReply(result.text);
+        setCommand('');
+      } else if (result.error) {
+        setNote(result.error);
+      }
+      await refresh();
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      if (mountedRef.current) setRunning(false);
+    }
+  }, [command, mode, refresh, running, t, thread]);
+
+  const stopCommand = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort();
+    setRunning(false);
+  }, []);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.body}>
       <Text style={styles.title}>{t('workspace.watch.title')}</Text>
@@ -142,6 +245,58 @@ export default function ScreenWatchPanel() {
         </TouchableOpacity>
         {note ? <Text style={styles.note}>{note}</Text> : null}
       </View>
+
+      {/* ② SW2：给工作区助手下命令（走 agent 管线，带工具与确认）。 */}
+      <Text style={styles.sectionTitle}>{t('workspace.watch.command')}</Text>
+      <View style={styles.modeRow}>
+        {WATCH_MODES.map(item => (
+          <TouchableOpacity
+            key={item}
+            style={[styles.modeChip, mode === item && styles.modeChipActive]}
+            onPress={() => setMode(item)}
+            disabled={running}
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === item }}
+          >
+            <Text style={[styles.modeChipText, mode === item && styles.modeChipTextActive]}>
+              {item === 'read' ? t('workspace.watch.modeRead') : t('workspace.watch.modeWrite')}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <TextInput
+        style={styles.input}
+        value={command}
+        onChangeText={setCommand}
+        placeholder={t('workspace.watch.commandPlaceholder')}
+        placeholderTextColor={theme.colors.textFaint}
+        multiline
+        editable={!running}
+      />
+      <View style={styles.commandRow}>
+        <TouchableOpacity
+          style={[styles.send, (!command.trim() || running) && styles.actionDisabled]}
+          onPress={submitCommand}
+          disabled={!command.trim() || running}
+          accessibilityRole="button"
+        >
+          {running
+            ? <ActivityIndicator size="small" color={theme.colors.primaryContrast} />
+            : <Ionicons name="send" size={15} color={theme.colors.primaryContrast} />}
+          <Text style={styles.actionText}>{running ? t('workspace.watch.running') : t('workspace.watch.send')}</Text>
+        </TouchableOpacity>
+        {running ? (
+          <TouchableOpacity style={styles.stop} onPress={stopCommand} accessibilityRole="button">
+            <Text style={styles.stopText}>{t('workspace.watch.stop')}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {reply ? (
+        <View style={styles.replyCard}>
+          <Text style={styles.replyText} selectable>{reply}</Text>
+        </View>
+      ) : null}
+      <Text style={styles.footnote}>{t('workspace.watch.writeHint')}</Text>
 
       {/* ② 工作区线程列表（scope='workspace'）：与聊天线程分开，不串上下文。 */}
       <Text style={styles.sectionTitle}>{t('workspace.watch.threads')}</Text>
@@ -211,5 +366,34 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   threadName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
   threadPreview: { color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), marginTop: 2 },
   threadCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
+  // SW2：指令区（模式 chips + 输入框 + 发送/停止 + 回复卡）。
+  modeRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  modeChip: {
+    paddingHorizontal: 12, paddingVertical: 5, borderRadius: tokens.radius.pill,
+    borderWidth: tokens.border.thin, borderColor: theme.colors.surfaceBorder,
+  },
+  modeChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  modeChipText: { color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), fontWeight: '600' },
+  modeChipTextActive: { color: theme.colors.primaryContrast },
+  input: {
+    marginTop: 8, minHeight: 56, paddingHorizontal: 10, paddingVertical: 8,
+    borderRadius: tokens.radius.sm, borderWidth: tokens.border.thin,
+    borderColor: theme.colors.surfaceBorder, backgroundColor: theme.colors.surface,
+    color: theme.colors.text, fontSize: fonts.scaled(13),
+  },
+  commandRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  send: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: tokens.radius.sm,
+    backgroundColor: theme.colors.primary,
+  },
+  stop: { paddingHorizontal: 10, paddingVertical: 8 },
+  stopText: { color: theme.colors.danger, fontSize: fonts.scaled(12.5), fontWeight: '600' },
+  replyCard: {
+    marginTop: 10, padding: 10, borderRadius: tokens.radius.md,
+    backgroundColor: theme.colors.surface, borderWidth: tokens.border.thin,
+    borderColor: theme.colors.primaryMutedAlpha(0.4),
+  },
+  replyText: { color: theme.colors.text, fontSize: fonts.scaled(12.5), lineHeight: fonts.scaled(18) },
   footnote: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), marginTop: 18, lineHeight: fonts.scaled(16) },
 });

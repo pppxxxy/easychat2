@@ -71,9 +71,10 @@ const DOMAIN_PANELS = {
   ),
   terminal: props => <TerminalPanel characterId={props.characterId} />,
   history: props => <GitHistoryPanel characterId={props.characterId} />,
-  // SW1：看屏幕（工作区版）——悬浮窗状态 + 工作区 scope 线程。
-  // 不传 characterId：SW1 面板不消费它（SW2 接 agent 管线时再加）。
-  watch: () => <ScreenWatchPanel />,
+  // SW1/SW2：看屏幕（工作区版）——悬浮窗状态 + 工作区 scope 线程 + 给助手下命令。
+  // 传 storeRef：SW2 的权限规则（hooks.json）与线程落库都要真 store——
+  // 传 null 会让 hooks 的 deny 规则静默失效（readHookPermissionRules 对空 store 返回 []）。
+  watch: props => <ScreenWatchPanel storeRef={props.storeRef} />,
   settings: props => <WorkspaceSettingsPanel characterId={props.characterId} />,
 };
 

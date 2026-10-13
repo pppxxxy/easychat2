@@ -15,7 +15,18 @@ export const workspaceWatch = {
   'workspace.watch.empty': 'No workspace watch conversations yet. Turn on the floating window and talk to your screen — records show up here.',
   'workspace.watch.emptyPreview': '(no content yet)',
   'workspace.watch.readFailed': 'Could not read watch conversations (data may be corrupt); the stored value was left untouched.',
-  'workspace.watch.sw2Note': 'Note: conversations still run on the chat-character pipeline; wiring them to the workspace agent pipeline (tools and permission gates) lands in a later version.',
+  'workspace.watch.sw2Note': 'Note: conversations now run on the workspace agent pipeline (tools and permission gates); the in-overlay mini chat lands in a later version.',
+  // SW2: give the workspace assistant commands (agent pipeline with tools + confirmation).
+  'workspace.watch.assistantName': 'Workspace assistant',
+  'workspace.watch.command': 'Command the workspace assistant',
+  'workspace.watch.commandPlaceholder': 'e.g. what is this error / update the README',
+  'workspace.watch.send': 'Send',
+  'workspace.watch.running': 'Running…',
+  'workspace.watch.stop': 'Stop',
+  'workspace.watch.toolRunning': 'Calling {name}…',
+  'workspace.watch.modeRead': 'Read-only',
+  'workspace.watch.modeWrite': 'Writable',
+  'workspace.watch.writeHint': 'In "Writable" mode every destructive step (write file / run command / commit) asks for confirmation first, so you can allow or deny each one.',
 };
 
 export default workspaceWatch;

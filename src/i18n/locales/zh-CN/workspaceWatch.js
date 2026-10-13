@@ -15,7 +15,18 @@ export const workspaceWatch = {
   'workspace.watch.empty': '还没有工作区的看屏幕对话。开启悬浮窗后对着屏幕说话，这里会出现记录。',
   'workspace.watch.emptyPreview': '（暂无内容）',
   'workspace.watch.readFailed': '看屏幕对话读取失败（数据可能损坏），已保留原值。',
-  'workspace.watch.sw2Note': '说明：当前会话仍由聊天角色管线驱动；接入工作区 agent 管线（工具集与权限门控）在后续版本。',
+  'workspace.watch.sw2Note': '说明：会话已接工作区 agent 管线（工具集与权限门控）；悬浮窗内的 mini 聊天在后续版本。',
+  // SW2：给工作区助手下命令（走 agent 管线，带工具与确认）。
+  'workspace.watch.assistantName': '工作区助手',
+  'workspace.watch.command': '给工作区助手下命令',
+  'workspace.watch.commandPlaceholder': '例如：看看这个报错是什么 / 把 README 改一下',
+  'workspace.watch.send': '发送',
+  'workspace.watch.running': '执行中…',
+  'workspace.watch.stop': '停止',
+  'workspace.watch.toolRunning': '正在调用 {name}…',
+  'workspace.watch.modeRead': '只读',
+  'workspace.watch.modeWrite': '可改',
+  'workspace.watch.writeHint': '「可改」模式下，破坏性操作（写文件 / 跑命令 / 提交）执行前都会弹确认，你可以逐条允许或拒绝。',
 };
 
 export default workspaceWatch;
