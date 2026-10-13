@@ -165,3 +165,22 @@ spec: 2026-10-12-repo-pull-resilience ｜ 依据 main（ed4a2b5）源码核验
       npm test 全绿；spec 状态与裁决记在本文件。
 - [x] 明确不做（沿用报告）：unzipSync 异步化（1-3s 可忍）、下载多路分片（codeload 无 Range）、
       拉取期间禁止切标签（治标不治本——正确形态是失明可恢复，已按此实现）。
+
+## R6 Sheet 内滚动列表被 dismiss 背景锁死（2026-10-13，R3 自己引入的回归）—— 已完成
+- [x] 复现与根因核验（origin/main 6e093e0）：Sheet 'dismiss' 模式的背景 Pressable 是卡片
+      （及其中 FlatList）的祖先；Android 上 Pressable 认领 responder 且拒绝让渡 → 列表滚不动、
+      轻点误关（更深层的 TouchableOpacity 能赢手势，所以「点击正常、拖动全灭」）。
+- [x] 修法取任务书的方案 2（一步到位，非 static 救急）：sheetLayout.js 新增纯函数
+      `resolveSheetDismissArea`（只有 dismiss 语义才谈得上 above）；Sheet 新增
+      `dismissArea="above"`——View(flex:1) 纵排 [上方空白条 Pressable(onClose), 卡片]，
+      卡片不再是 dismiss 背景的后代；点上方空白仍可关闭。默认 'wrap' 路径逐字节不变
+      （16 个既有居中弹窗零影响，chatA11y/chatExportUi 回归全绿）。
+- [x] TurnSummaryPanel 的「全部文件」Sheet 改用 `dismissArea="above"` +
+      FlatList `keyboardShouldPersistTaps="handled"`。
+- [x] 防复发：Sheet.js 头部注释写明结构纪律（滚动列表不得为 dismiss 背景 Pressable 的后代）；
+      uiSheet.test.mjs 钉纯函数全取值 + above 分支结构 + 卡片单一构造点（两条路径共用，
+      模态标记不因分支漏配）+ 接线判据。
+- [x] 真机验证（待办，本环境无设备）：开「全部文件」上下滑动应顺畅、点列表区不误关、
+      点卡片上方空白关闭、× 关闭正常。
+- [ ] Q2（拉取跳过 20 个二进制）：裁决**不改**——纯文本沙盒设计使然，全部是应用图标/引导图，
+      无损（远端完好、永不进推送面）、云构建兜底；为 20 张图扩二进制写安全面是负收益。

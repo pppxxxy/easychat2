@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { resolveSheetBackdrop, resolveSheetHeaderKind, SHEET_BACKDROP_MODES } from '../src/ui/sheetLayout.js';
+import { resolveSheetBackdrop, resolveSheetDismissArea, resolveSheetHeaderKind, SHEET_BACKDROP_MODES } from '../src/ui/sheetLayout.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => readFileSync(path.join(HERE, '..', rel), 'utf8');
@@ -83,4 +83,47 @@ test('Sheet 复用共享 SheetHeader，且头部三态接线齐备', () => {
   assert.ok(SHEET_CODE.includes("headerKind === 'custom'"), 'header 路径渲染自定义节点');
   assert.ok(SHEET_CODE.includes('<SheetHeader title={title} onClose={onClose} onBack={onBack} closeLabel={closeLabel} />'));
   assert.ok(SHEET_CODE.includes('{children}'), '内容透传');
+});
+
+// —— R6（2026-10-13 实测回归）：dismiss 背景 Pressable 的后代里，Android 上原生
+// 列表收不到触摸流（滚不动、轻点误关）。结构决策抽成纯函数钉行为，组件钉结构。
+
+test('R6 resolveSheetDismissArea：只有 dismiss 语义才谈得上 above', () => {
+  assert.equal(resolveSheetDismissArea({ backdrop: { dismissOnPress: true }, dismissArea: 'above' }), 'above');
+  assert.equal(resolveSheetDismissArea({ backdrop: { dismissOnPress: true } }), 'wrap', '缺省 = 旧结构');
+  assert.equal(resolveSheetDismissArea({ backdrop: { dismissOnPress: true }, dismissArea: 'wrap' }), 'wrap');
+  assert.equal(resolveSheetDismissArea({ backdrop: { dismissOnPress: true }, dismissArea: 'nope' }), 'wrap', '非法取值回落旧结构');
+  assert.equal(resolveSheetDismissArea({ backdrop: { dismissOnPress: false }, dismissArea: 'above' }), 'wrap',
+    'static/keyboard 没有关闭手势，above 无意义');
+  assert.equal(resolveSheetDismissArea({}), 'wrap', '坏输入不抛');
+  assert.equal(resolveSheetDismissArea(), 'wrap');
+});
+
+test('R6 结构：above 分支里卡片不是 dismiss Pressable 的后代', () => {
+  // above 分支：View(backdropStyle) 纵排 [Pressable(flex:1, onClose), card]——
+  // 关闭手势只落在卡片上方的空白条上。
+  const aboveBranch = SHEET_CODE.slice(SHEET_CODE.indexOf("if (area === 'above')"), SHEET_CODE.indexOf('return (\n    <Modal', SHEET_CODE.indexOf("if (area === 'above')")));
+  assert.ok(aboveBranch.length > 20, '存在 above 分支');
+  assert.ok(aboveBranch.includes('<View style={backdropStyle}>'), 'above 分支背景是纯 View（不认领手势）');
+  assert.ok(aboveBranch.includes('onPress={onClose}'), '上方空白条承担关闭');
+  assert.ok(aboveBranch.includes('{card}'), '卡片与空白条是兄弟（不是 Pressable 后代）');
+  assert.equal(aboveBranch.includes('<Backdrop'), false, 'above 分支不得把卡片包回 dismiss 背景');
+  // 旧结构（wrap）路径原样保留——16 个既有弹窗的行为逐字节不变。
+  assert.ok(SHEET_CODE.includes('<Backdrop'), '默认仍是背景包卡片');
+});
+
+test('R6 结构：模态标记在两条路径共用的卡片上（不得因分支漏一份）', () => {
+  // 卡片只构造一次（const card），两种结构共用——上面的 openTag 判据已钉标记；
+  // 这里钉「card 被两条路径渲染」这个接线本身。
+  assert.ok(SHEET_CODE.includes('const card = ('), '卡片单一构造点');
+  const uses = (SHEET_CODE.match(/\{card\}/g) || []).length;
+  assert.equal(uses, 2, 'above 与 wrap 两条路径各渲染一次同一个 card');
+});
+
+test('R6 接线：回合小结的「全部文件」Sheet 用 above + 列表不吞点击', () => {
+  const panel = read('src/workspace/screen/TurnSummaryPanel.js');
+  assert.ok(panel.includes('dismissArea="above"'), '底部列表 Sheet 走 above 结构');
+  assert.ok(panel.includes('keyboardShouldPersistTaps="handled"'), '列表内点行不先收键盘');
+  // 防复发判据：该 Sheet 不得退回 dismiss 默认 + 列表嵌在背景里的旧写法。
+  assert.equal(/<Sheet[^>]*backdropMode="dismiss"/.test(panel), false, '不得显式退回 dismiss 包裹');
 });

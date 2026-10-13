@@ -31,3 +31,23 @@ export function resolveSheetHeaderKind({ header, title } = {}) {
   if (typeof title === 'string' && title.length > 0) return 'standard';
   return 'none';
 }
+
+// —— R6：dismiss 手势的落点（结构决策，纯函数可单测）——
+//
+// 背景层是 Pressable 时，Android 上它认领 responder 且拒绝让渡（RN 手势协商的
+// 已知行为）：卡片作为它的**后代**，内部的原生 ScrollView/FlatList 收不到触摸流——
+// 列表滚不动、轻点还会直接关掉弹窗。卡片里的可点元素（TouchableOpacity，树更深）
+// 反而能赢手势，所以表现为「点击正常、拖动全灭」。
+//
+// 两种结构：
+//   'wrap'   —— 旧结构（默认）：背景 Pressable 包住卡片。居中卡片类弹窗没有滚动
+//               需求，维持原样（16 个既有弹窗逐字节不变，不碰它们）。
+//   'above'  —— 底部面板用：View(flex:1) 纵排 [点上方空白关闭的 Pressable, 卡片]，
+//               **卡片不再是 dismiss 背景的后代**——列表滚动恢复，点卡片上方空白
+//               仍可关闭（点卡片内空白不误关）。
+// 判据：只有 dismiss 语义（backdrop.dismissOnPress）才谈得上 above；static/keyboard
+// 本来就没有关闭手势，一律 'wrap'。
+export function resolveSheetDismissArea({ backdrop, dismissArea } = {}) {
+  if (!(backdrop && backdrop.dismissOnPress === true)) return 'wrap';
+  return dismissArea === 'above' ? 'above' : 'wrap';
+}

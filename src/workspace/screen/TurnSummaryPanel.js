@@ -212,11 +212,15 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
         <Text style={styles.hint}>{t('workspace.chat.summary.undoHint')}</Text>
       ))}
 
-      {/* 完整清单：FlatList 虚拟化，1066 条也只渲染视口内的行。 */}
+      {/* 完整清单：FlatList 虚拟化，1066 条也只渲染视口内的行。
+          R6：dismissArea="above"——卡片不能当 dismiss 背景 Pressable 的后代，
+          否则 Android 上列表滚不动、轻点还会误关（见 Sheet.js 的结构纪律）；
+          点卡片上方空白仍可关闭。keyboardShouldPersistTaps：列表里点行不先收键盘。 */}
       <Sheet
         visible={allOpen}
         onClose={() => setAllOpen(false)}
         title={t('workspace.chat.summary.allTitle', { count: plan.total })}
+        dismissArea="above"
         backdropStyle={styles.sheetBackdrop}
         cardStyle={styles.sheetCard}
       >
@@ -225,6 +229,7 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
           keyExtractor={item => String(item.path)}
           renderItem={({ item }) => renderRow(item)}
           style={styles.sheetList}
+          keyboardShouldPersistTaps="handled"
           initialNumToRender={20}
           windowSize={7}
         />
