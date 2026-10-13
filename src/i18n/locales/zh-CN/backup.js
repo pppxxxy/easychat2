@@ -7,6 +7,14 @@ export const backup = {
   'backup.progress.starting': '写入备份文件',
   'backup.progress.ratio': '处理中...',
   'backup.progress.done': '处理中',
+  // 导入侧分片读取的进度。
+  //
+  // ⚠️ 为什么单独给两条、不复用 backup.progress.writing*：那几条的文案是硬写的短语
+  // （「打包媒体文件」「生成备份文件」），**不插值 {label}/{done}/{total}**——复用会让
+  // 读取阶段显示「打包媒体文件」，牛头不对马嘴。这里如实带上已读/总量。
+  'backup.phase.reading': '读取备份文件',
+  'backup.progress.readingRatio': '读取备份文件 {done}/{total} MB',
+  'backup.progress.readingDone': '已读取 {done} MB',
   'backup.summary': '{keys} 个数据键与 {media} 个媒体文件（{size}MB）',
   'backup.summaryWithSecrets': '{keys} 个数据键、{media} 个媒体文件与 {secrets} 条密钥（{size}MB）',
   'backup.export.section': '导出范围',

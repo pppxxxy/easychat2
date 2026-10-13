@@ -12,6 +12,7 @@ import {
   normalizeAutoBackupSettings,
   selectStaleAutoBackups,
 } from './autoBackupPolicy.js';
+import { readBackupText } from '../storage/backupRead.js';
 
 // 应用私有目标子目录（相对 documentDirectory）：与手动导出的包分开，
 // 淘汰旧备份时只清这里，绝不误删用户手动导出的 easychat2-backup-*.json。
@@ -35,17 +36,22 @@ async function defaultDeps() {
     getSettings: store.getAutoBackupSettings,
     recordLastBackupAt: store.recordAutoBackupAt,
     fileSystem: legacyFs,
+    nextFs,
     adapter: saf.createExpoSafAdapter(nextFs),
   });
 }
 
 // 把「导出 + 应用私有文件操作 + SAF 操作 + 记录时间」装配成一组依赖，供 runAutoBackup 使用。
 // 也可在测试里用假实现替换（不传 fileSystem/adapter）。
+//
+// nextFs（新版 expo-file-system）用于大文件分片读；测试/老构建可不传，
+// 此时 readBackupText 会退回 legacy 的尺寸查询 + 小文件直读。
 export function createAutoBackupDeps({
   exportBackup,
   getSettings,
   recordLastBackupAt,
   fileSystem = null,
+  nextFs = null,
   adapter = null,
 }) {
   const appDir = resolveAutoBackupAppDirectory(fileSystem);
@@ -55,7 +61,15 @@ export function createAutoBackupDeps({
     exportBackup,
     appDirectory: () => appDir,
     async readTextFile(uri) {
-      return String(await fileSystem.readAsStringAsync(uri));
+      // SAF 导出要把刚落盘的整包读出来再写进用户选的文件夹，所以这里同样是「整读一个大文件」。
+      // 旧实现是无参数 `readAsStringAsync`：83MB 的包会直接 OOM（自动备份在 SAF 模式下自己失败，
+      // 而错误同样被 Expo 兼容层吞成通用文案）。改走 backupRead 的尺寸预检 + 分片读。
+      const read = await readBackupText({
+        uri,
+        legacyFs: fileSystem,
+        nextFs,
+      });
+      return read.text;
     },
     async deleteFile(uri) {
       await fileSystem.deleteAsync(uri, { idempotent: true });

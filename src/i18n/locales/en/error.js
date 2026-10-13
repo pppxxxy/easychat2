@@ -300,6 +300,11 @@ export const error = {
   // short reason, and the raw error goes to the diagnostics log.
   'error.backup.importReadFailed': 'Could not read the backup file: {reason}',
   'error.backup.importParseFailed': 'The file is not valid backup JSON (you may have picked the wrong file, or it was corrupted when saved).',
+  // Read pre-checks (FIX-5R): "file is gone" and "package is too large" need completely
+  // different handling — the first means pick another file, the second means wait for the
+  // streaming importer. They must not share one generic "read failed" message.
+  'error.backup.importFileMissing': 'The backup file is unreadable or was moved: pick it again (if it came from "Share", make sure it was saved to this device).',
+  'error.backup.importTooLarge': 'This backup is {mb}MB, over the current {limit}MB import limit. This version cannot import a package this large; use a smaller backup (e.g. Quick export keeps only characters and chats), or wait for the streaming importer in a later version.',
   'error.backup.importInterrupted': 'Restore was interrupted and has been rolled back: {reason}',
   // The restore itself succeeded and only the post-restore UI refresh failed: must stay distinct
   // from "import failed", otherwise the user thinks no data was restored and retries in a loop.

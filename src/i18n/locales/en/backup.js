@@ -7,6 +7,12 @@ export const backup = {
   'backup.progress.starting': 'Starting',
   'backup.progress.ratio': 'Ratio',
   'backup.progress.done': 'Done',
+  // Import-side chunked-read progress. Deliberately NOT reusing backup.progress.writing*:
+  // those are hardcoded phrases and do not interpolate {done}/{total}, so the read phase
+  // would show "Writing Ratio" — see the zh-CN note.
+  'backup.phase.reading': 'Reading backup file',
+  'backup.progress.readingRatio': 'Reading backup file {done}/{total} MB',
+  'backup.progress.readingDone': 'Read {done} MB',
   'backup.summary': '{keys} data keys and {media} media files ({size}MB)',
   'backup.summaryWithSecrets': '{keys} data keys, {media} media files and {secrets} secrets ({size}MB)',
   'backup.export.section': 'Export scope',

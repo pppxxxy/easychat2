@@ -306,6 +306,10 @@ export const error = {
   // 哪一环，我们远程也无法定位。现在每一环给出自己的可翻译文案 + 短原因，并写进诊断日志。
   'error.backup.importReadFailed': '备份文件读取失败：{reason}',
   'error.backup.importParseFailed': '文件内容不是有效的备份 JSON（可能选错了文件，或保存时损坏）',
+  // 读取前置检查（FIX-5R）：文件不在了 vs 包太大，是两种完全不同的处置方式，
+  // 不能共用一句「读取失败」——前者要重新选文件，后者只能等二期或减小数据量。
+  'error.backup.importFileMissing': '备份文件不可读或已被移动：请重新选择文件（若它来自「分享」，请确认保存到了本机）。',
+  'error.backup.importTooLarge': '备份包 {mb}MB 超过当前可恢复上限 {limit}MB。本版暂不能导入这么大的包；请改用更小的备份（如「快速导出」只含角色与聊天），或等后续版本的流式导入。',
   'error.backup.importInterrupted': '数据恢复中断，已回滚：{reason}',
   // 恢复本身成功、只是恢复后的界面刷新失败：必须与「导入失败」区分开，
   // 否则用户会以为数据没恢复（其实已经写盘了）而反复重试。

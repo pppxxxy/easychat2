@@ -228,9 +228,27 @@ export function filterPendingMessages(value) {
 // namespace（= 顶层存储键）：只参与对象形态密钥字段的**域限定**（见 isSecretObjectFieldName）——
 // 同名 key 在不同存储域里的密钥语义不同，不带域会误清或漏清。
 export function sanitizeAndFilterBackupValue(value, key = '', options = {}, namespace = '') {
+  return sanitizeAndFilterNode(
+    value,
+    key,
+    options.keepSecrets === true,
+    options.inPlace === true,
+    namespace
+  );
+}
+
+// 实际递归。抽出来是为了让「就地改写」与「返回新对象」两条路径共用同一套判定，
+// 不会出现两份漂移的脱敏规则。
+//
+// inPlace=true（仅导入侧使用）：**就地改写**已拥有的对象树，不再整棵深拷贝。
+//
+// 为什么导入侧可以就地改：payload 是 planBackupImport 里刚 JSON.parse 出来的局部对象，
+// 没有任何其它所有者（不像导出侧的值可能被别处引用）。而深拷贝对 83MB 级的包意味着
+// **峰值直接多一整份对象树** —— 导入失败的真机现场里，这一份很可能就是压垮内存的那一下。
+// 语义与返回新对象完全等价，只是不额外分配。
+function sanitizeAndFilterNode(value, key, keepSecrets, inPlace, namespace) {
   // keepSecrets=true：备份明确要携带密钥（含 secure 引用），保留原值交给安全存储侧处理；
   // 默认 false 时按历史行为剥离密钥字段与 secure 引用，作为导入侧的兜底防线。
-  const keepSecrets = options.keepSecrets === true;
   if (!keepSecrets && isSecretFieldName(key)) return '';
   // 对象形态的密钥字段（headers 里的 Authorization 等）：D 系审查补上的第二条泄漏路径。
   // 同样只在非 keepSecrets 时清空——「导出时明确包含密钥」是用户在界面上的显式选择。
@@ -240,14 +258,32 @@ export function sanitizeAndFilterBackupValue(value, key = '', options = {}, name
     return value;
   }
   if (Array.isArray(value)) {
+    if (inPlace) {
+      // 原地过滤 + 原地递归：写指针永远 <= 读指针，读过的元素不会再被需要。
+      let write = 0;
+      for (let read = 0; read < value.length; read += 1) {
+        const item = value[read];
+        if (item && item.pending === true) continue;
+        value[write] = sanitizeAndFilterNode(item, '', keepSecrets, inPlace, namespace);
+        write += 1;
+      }
+      value.length = write;
+      return value;
+    }
     return value
       .filter(item => !item || item.pending !== true)
-      .map(item => sanitizeAndFilterBackupValue(item, '', options, namespace));
+      .map(item => sanitizeAndFilterNode(item, '', keepSecrets, inPlace, namespace));
   }
   if (value && typeof value === 'object') {
+    if (inPlace) {
+      for (const childKey of Object.keys(value)) {
+        value[childKey] = sanitizeAndFilterNode(value[childKey], childKey, keepSecrets, inPlace, namespace);
+      }
+      return value;
+    }
     const result = {};
     Object.entries(value).forEach(([childKey, childValue]) => {
-      result[childKey] = sanitizeAndFilterBackupValue(childValue, childKey, options, namespace);
+      result[childKey] = sanitizeAndFilterNode(childValue, childKey, keepSecrets, inPlace, namespace);
     });
     return result;
   }
@@ -372,10 +408,13 @@ export function planBackupImport(payload, mode = 'merge') {
     // 导入是独立于导出的防线：即便备份来自旧版本或被手工构造，也在此剥离密钥字段
     // 并丢弃 pending 占位消息，避免绕过「pending 不落盘」与密钥保险箱约束。
     // opaqueRaw 条目无结构化值可清理，原样透传（恢复侧原样写回）。
+    //
+    // `inPlace: true`：payload 是本函数调用方刚 JSON.parse 出来的局部对象，无共享所有者，
+    // 就地改写即可——省掉整棵数据图的深拷贝（大包时那是一整份额外峰值，见 sanitizeAndFilterNode）。
     storage: payload.storage.map(item => (
       isOpaqueRawEntry(item)
         ? { key: item.key, opaqueRaw: item.opaqueRaw }
-: { key: item.key, value: sanitizeBackupStorageValue(item.key, item.value, { keepSecrets }) }
+: { key: item.key, value: sanitizeBackupStorageValue(item.key, item.value, { keepSecrets, inPlace: true }) }
     )),
     media: payload.media,
     secrets,

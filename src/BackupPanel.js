@@ -13,11 +13,16 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+// 新版 File API：它走 JSI（`File.size` 直读文件长度、`FileHandle.readBytes` 走
+// RandomAccessFile），**不经过 Java 堆的双份拷贝**，也不再被 Expo 兼容层包掉真实错误。
+// 导入大包的分片读就靠它（legacy 的 position/length 只对 Base64 生效，见 backupRead.js）。
+import * as NextFileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { exportBackup, importBackup } from './storage/backup.js';
 import { validateBackupPayload } from './storage/dataBackup.js';
+import { readBackupText } from './storage/backupRead.js';
 import { recordDiagnostic } from './storage/diagnostics.js';
 // 分阶段错误文案用 tActive 而不是 hook 里的 t：这两个包装函数是模块级的，拿不到 hook。
 // 与 storage/backup.js 的 userFacingError 同一口径（那边也用 tActive），
@@ -31,6 +36,8 @@ const PHASE_LABEL_KEYS = {
   media: 'backup.phase.media',
   packing: 'backup.phase.packing',
   writing: 'backup.phase.writing',
+  // 导入侧：分片读取的进度（大包要读好几秒，没有进度用户会以为卡死）。
+  reading: 'backup.phase.reading',
 };
 
 // 失败/抢救键名在弹窗里的呈现：去掉 @easychat2_ 前缀降低视觉噪音，
@@ -80,7 +87,18 @@ function stageError(key, error) {
 function progressText(progress, t) {
   if (!progress) return t('backup.progress.busy');
   const label = t(PHASE_LABEL_KEYS[progress.phase] || 'backup.phase.busy');
-  // 写盘阶段的 done/total 是字节数，按 MB 展示更可读。
+  // 读取阶段：done/total 是**字节数**，用专属文案（带 MB 与总量）。
+  // 不复用 writing 那两条——它们是硬写短语、不插值，会把「读取」显示成「打包媒体文件」。
+  if (progress.phase === 'reading') {
+    const mb = value => (Number(value || 0) / 1024 / 1024).toFixed(1);
+    if (progress.total > 0 && progress.total !== progress.done) {
+      return t('backup.progress.readingRatio', { done: mb(progress.done), total: mb(progress.total) });
+    }
+    return progress.done > 0
+      ? t('backup.progress.readingDone', { done: mb(progress.done) })
+      : t('backup.phase.reading');
+  }
+  // 写盘阶段的 done/total 也是字节数，按 MB 展示更可读。
   if (progress.phase === 'writing') {
     const mb = value => (Number(value || 0) / 1024 / 1024).toFixed(1);
     if (progress.total > 0 && progress.total !== progress.done) {
@@ -189,17 +207,28 @@ export default function BackupPanel({ visible, onClose, onImported }) {
     setBusy(true);
     try {
       // ── 阶段 1：取文件 + 读内容。两者都要给出原因：
-      // getDocumentAsync 带 copyToCacheDirectory（会把文件复制到缓存目录，磁盘满/无权限时抛错），
-      // readAsStringAsync 则可能因文件被移动、URI 失效而失败。用户看到的必须是「哪一环 + 什么原因」。
+      // getDocumentAsync 带 copyToCacheDirectory（会把文件复制到缓存目录，磁盘满/无权限时抛错）；
+      // 读取走 backupRead（尺寸预检 + 小文件单发 / 大文件分片），不再是无参数单发整读
+      // —— 后者在 Android 上要把整个包读进 Java 堆，83MB 就会 OOM（真机实锤，见 backupRead.js 头注）。
       let raw;
       try {
         const picked = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
         // 取消不是错误：正常返回，不弹任何提示（放在 try 内也不会被 catch 命中）。
         if (picked.canceled || !picked.assets?.[0]?.uri) return;
-        raw = await FileSystem.readAsStringAsync(picked.assets[0].uri);
+        const read = await readBackupText({
+          uri: picked.assets[0].uri,
+          legacyFs: FileSystem,
+          nextFs: NextFileSystem,
+          onProgress: progress => setProgress({ phase: 'reading', done: progress.bytes, total: progress.total }),
+        });
+        raw = read.text;
+        setProgress(null);
       } catch (error) {
-        recordDiagnostic('storage', error, 'backup-import-read');
-        throw stageError('error.backup.importReadFailed', error);
+        // backupRead 抛的已经是 userFacing 的用户文案（文件不存在/超限/读取失败），直接透出。
+        if (!(error && error.userFacing)) {
+          recordDiagnostic('storage', error, 'backup-import-read');
+        }
+        throw (error && error.userFacing) ? error : stageError('error.backup.importReadFailed', error);
       }
       // ── 阶段 2：解析 JSON。选错文件是最常见的用户操作失误，文案要点明 ──
       let payload;
@@ -208,6 +237,10 @@ export default function BackupPanel({ visible, onClose, onImported }) {
       } catch (error) {
         recordDiagnostic('storage', error, 'backup-import-parse');
         throw stageError('error.backup.importParseFailed', error);
+      } finally {
+        // 文本与解析结果同时常驻 = 白白多占一份（大包就是几十 MB）。
+        // 解析一结束（无论成败）立刻释放引用，让 GC 能回收这整段字符串。
+        raw = null;
       }
       const validation = validateBackupPayload(payload);
       if (!validation.valid) {
