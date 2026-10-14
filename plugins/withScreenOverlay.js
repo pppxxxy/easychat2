@@ -1,5 +1,6 @@
 const {
   withAndroidManifest,
+  withAppBuildGradle,
   withDangerousMod,
 } = require('@expo/config-plugins');
 const fs = require('fs');
@@ -173,6 +174,23 @@ function withManifest(config) {
   });
 }
 
+// M2 大脑搬家：OverlayBrain.kt 的 apiKey 存 EncryptedSharedPreferences（AES256-GCM，
+// Keystore 托管），需要 androidx.security 依赖。
+// 版本与 withProactiveMessage.js 完全一致 + `includes` 判重：两个插件同时启用时
+// 只会注入一条，不会冲突。
+function withGradle(config) {
+  return withAppBuildGradle(config, cfg => {
+    if (cfg.modResults.language === 'groovy' &&
+        !cfg.modResults.contents.includes('androidx.security:security-crypto')) {
+      cfg.modResults.contents = cfg.modResults.contents.replace(
+        /dependencies\s*\{/,
+        deps => `${deps}\n    implementation("androidx.security:security-crypto:1.1.0-alpha06")`
+      );
+    }
+    return cfg;
+  });
+}
+
 function withSources(config) {
   return withDangerousMod(config, [
     'android',
@@ -218,6 +236,7 @@ function withSources(config) {
 
 module.exports = function withScreenOverlay(config) {
   config = withManifest(config);
+  config = withGradle(config);
   config = withSources(config);
   return config;
 };

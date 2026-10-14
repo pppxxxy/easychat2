@@ -191,6 +191,29 @@ class OverlayBrain private constructor(context: Context) {
         )
     }
 
+    /** 写入加密存储；成功返回 true，加密不可用或抛错返回 false（调用方降级明文）。 */
+    private fun writeSecretApiKey(value: String): Boolean {
+        val encrypted = secretPrefs ?: return false
+        return try {
+            encrypted.edit().putString(KEY_API_KEY, value).apply()
+            true
+        } catch (error: Exception) {
+            Log.w(TAG, "apiKey 写入加密存储失败，降级明文", error)
+            false
+        }
+    }
+
+    /** 读取加密存储中的 apiKey；无值/不可用/抛错返回 null（调用方回退明文区）。 */
+    private fun readSecretApiKey(): String? {
+        val encrypted = secretPrefs ?: return null
+        return try {
+            encrypted.getString(KEY_API_KEY, null)
+        } catch (error: Exception) {
+            Log.w(TAG, "apiKey 读取加密存储失败，回退明文", error)
+            null
+        }
+    }
+
     // ---------- 会话历史（JSONL） ----------
 
     private fun historyFile(): File = File(appContext.filesDir, "screen-watch/overlay-thread.jsonl")
