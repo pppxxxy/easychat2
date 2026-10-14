@@ -90,6 +90,11 @@ class OverlayService : Service() {
         // BRAIN = 悬浮窗按钮 → 原生直发大脑（不经 JS）。
         private const val CAPTURE_TARGET_JS = "js"
         private const val CAPTURE_TARGET_BRAIN = "brain"
+        // FIX-SW5 P2-6：给大脑的图长边上限与 JPEG 质量。
+        // 1600px/q75 对「读屏并聊两句」足够（文字仍清晰可认），
+        // 而全分辨率（如 1440×3200）的 base64 是它的 4~5 倍。
+        private const val BRAIN_IMAGE_MAX_EDGE = 1600
+        private const val BRAIN_IMAGE_QUALITY = 75
         // 「需要授权」通知的两类文案（同一个 PendingIntent，见 notifyPermissionNeeded）。
         private const val PERM_CAPTURE = "capture"
         private const val PERM_MIC = "mic"
@@ -176,6 +181,11 @@ class OverlayService : Service() {
         super.onCreate()
         instance = this
         isRunning = true
+        // FIX-SW5 P1-4：崩溃取证。服务可能在**没有 RN 实例**时被拉起（悬浮窗的主场景），
+        // 所以这里也要装一次（与模块 init 里那次幂等，先到的生效）。
+        try {
+            ScreenOverlayModule.installCrashGuard(this)
+        } catch (error: Throwable) {}
         // 采集工作线程：所有重活（解码/压缩/落盘）都在这里，主线程不再被几百毫秒的
         // JPEG 压缩堵住（那是 ANR 与「兜底全失灵」的根因，见 workerThread 处说明）。
         val thread = HandlerThread("capture-worker")
@@ -784,7 +794,25 @@ class OverlayService : Service() {
                 cornerRadius = dp(9).toFloat()
                 setColor(Color.parseColor("#3a3a5a"))
             }
-            setOnClickListener { onClick() }
+            // FIX-SW5 P0-3：点击总闸。一处改动护住**全部**按钮（截屏/发送/说话/收起/关闭）。
+            //
+            // 为什么需要：按钮点击跑在主线程，未捕获异常直接杀进程——用户看到的就是
+            // 「点截屏就闪退」。FIX-SW5 的根因（streamOnce 同步段裸奔）已在 P0-1 堵住，
+            // 但按钮是**所有**交互的入口，这里再兜一层：任何残余异常都退化成一条提示，
+            // 而不是一次闪退。
+            //
+            // catch Throwable：OOM 这类 Error 也要接住（Exception 拦不住），
+            // 悬浮窗是常驻场景，崩一次的代价远大于「这一次没做成」。
+            setOnClickListener {
+                try {
+                    onClick()
+                } catch (error: Throwable) {
+                    Log.e(TAG, "overlay action '$label' failed", error)
+                    try {
+                        setStatusText("出错了，请重试")
+                    } catch (inner: Throwable) {}
+                }
+            }
         }
     }
 
@@ -1393,6 +1421,23 @@ class OverlayService : Service() {
         val target = captureTarget
         captureTarget = CAPTURE_TARGET_JS
         try {
+            // FIX-SW5 P2-6：给大脑的帧**降采样 + 内存内编码**，不落盘。
+            //
+            // 为什么（不只是省流量）：全分辨率截屏（高端机 2MB+ JPEG）的 base64
+            // 在「读文件 → 拼 data URI → JSON 序列化」中会产生 4~5 份副本，
+            // 是 FIX-SW5 的次嫌死因（OOM 属 Error，早先的 catch(Exception) 拦不住）。
+            // 现在链路是：bitmap →（缩放）→ ByteArrayOutputStream → base64，
+            // 少了「写盘 + 读盘」两份全尺寸副本，且顺带不再往 screen-watch/ 堆临时文件。
+            if (target == CAPTURE_TARGET_BRAIN) {
+                val encoded = encodeForBrain(bitmap)
+                if (encoded == null) {
+                    mainHandler.post { emitCaptureFailed("encode-failed") }
+                } else {
+                    ScreenOverlayModule.recordTrace("capture-scaled", "b64=${encoded.length}")
+                    deliverFrameToBrain(encoded)
+                }
+                return
+            }
             val dir = File(filesDir, "screen-watch")
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, "sw-${System.currentTimeMillis().toString(36)}.jpg")
@@ -1400,17 +1445,50 @@ class OverlayService : Service() {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
             }
             ScreenOverlayModule.recordTrace("capture-saved", "${System.currentTimeMillis() - startedAt}ms")
-            if (target == CAPTURE_TARGET_BRAIN) {
-                deliverFrameToBrain(file)
-            } else {
-                val map = Arguments.createMap().apply { putString("path", "file://${file.absolutePath}") }
-                ScreenOverlayModule.emit(EVENT_CAPTURE, map)
-            }
-        } catch (error: Exception) {
+            val map = Arguments.createMap().apply { putString("path", "file://${file.absolutePath}") }
+            ScreenOverlayModule.emit(EVENT_CAPTURE, map)
+        } catch (error: Throwable) {
+            // catch Throwable：OOM 也要接住——悬浮窗常驻，崩一次的代价远大于这一帧没交成。
             Log.w(TAG, "save frame failed: ${error.message}")
             mainHandler.post { emitCaptureFailed("save-failed") }
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    /**
+     * FIX-SW5 P2-6：把帧压成给大脑的 base64（长边 ≤ [BRAIN_IMAGE_MAX_EDGE]、质量 [BRAIN_IMAGE_QUALITY]）。
+     *
+     * 三重收益：OOM 风险（少几份全尺寸副本）、上行流量、首字延迟。
+     * 缩放只做**缩小**：小图不放大（放大只会更糊且更大）。
+     * 返回 null = 编码失败，调用方按失败处理（不静默丢帧）。
+     */
+    private fun encodeForBrain(bitmap: Bitmap): String? {
+        var scaled: Bitmap? = null
+        return try {
+            val longest = maxOf(bitmap.width, bitmap.height)
+            val target = if (longest > BRAIN_IMAGE_MAX_EDGE) {
+                val ratio = BRAIN_IMAGE_MAX_EDGE.toFloat() / longest
+                val width = (bitmap.width * ratio).roundToInt().coerceAtLeast(1)
+                val height = (bitmap.height * ratio).roundToInt().coerceAtLeast(1)
+                Bitmap.createScaledBitmap(bitmap, width, height, true).also { scaled = it }
+            } else {
+                bitmap
+            }
+            val out = java.io.ByteArrayOutputStream()
+            target.compress(Bitmap.CompressFormat.JPEG, BRAIN_IMAGE_QUALITY, out)
+            android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+        } catch (error: Throwable) {
+            Log.w(TAG, "encode for brain failed: ${error.message}")
+            null
+        } finally {
+            // 只回收**本函数新建的**缩放位图；原图由 saveAndEmit 的 finally 回收
+            //（这里若把原图也回收了，saveAndEmit 会再回收一次 → recycled bitmap 崩溃）。
+            if (scaled != null && scaled !== bitmap) {
+                try {
+                    scaled.recycle()
+                } catch (error: Throwable) {}
+            }
         }
     }
 
@@ -1421,19 +1499,9 @@ class OverlayService : Service() {
      * 「气泡显示『[已附屏幕截图 HH:mm:ss]』」一致。
      * 模型不识图时**不发图**，气泡如实提示（设计 3.2），不静默丢弃。
      */
-    private fun deliverFrameToBrain(file: File) {
+    private fun deliverFrameToBrain(base64: String) {
         val brain = OverlayBrain.get(this)
         val stamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-        val base64 = try {
-            android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
-        } catch (error: Exception) {
-            Log.w(TAG, "read frame for brain failed: ${error.message}")
-            null
-        }
-        if (base64 == null) {
-            mainHandler.post { appendChatMessage("assistant", "（截屏读取失败，请重试）") }
-            return
-        }
         // 气泡先记「已附截图」：这是用户能看到的、真实发生的事（图确实随请求发出）。
         mainHandler.post {
             appendChatMessage("assistant", "[已附屏幕截图 $stamp]")

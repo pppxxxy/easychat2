@@ -3,6 +3,7 @@ package com.pppxxxy.easychat2.screenoverlay
 import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -20,7 +21,11 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.io.File
 import java.lang.ref.WeakReference
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 看屏幕悬浮窗的 RN 桥：
@@ -38,6 +43,8 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
 
     init {
         contextRef = WeakReference(reactContext)
+        // FIX-SW5 P1-4：尽量早装（本模块随 RN 启动创建），幂等。
+        installCrashGuard(reactContext)
     }
 
     override fun getName() = "ScreenOverlay"
@@ -454,6 +461,51 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
         private const val REQUEST_POST_NOTIFICATIONS = 0x5C03
         private const val TAG = "ScreenOverlay"
         @Volatile private var contextRef: WeakReference<ReactApplicationContext>? = null
+
+        /**
+         * FIX-SW5 P1-4：进程级崩溃取证——**进程死也要留下遗书**。
+         *
+         * 为什么需要：FIX-SW5 的根因是靠「诊断日志停在 brain-request」反推出来的
+         * （三起闪退时间线一致、无 first-byte/done/fail）。推理链成立，但代价是
+         * 一轮真机测试 + 一次人工推演。若还有残余死法（不同机型/不同死点），
+         * 我们希望**下一轮直接拿到堆栈**，而不是再推一次。
+         *
+         * 做法：在 RN 默认处理器**之前**挂一层，把堆栈写进 app 私有目录，然后
+         * 委托原处理器——保留 RN 原有的崩溃行为（不吞异常、不改 Crashlytics 之类
+         * 的既有链路），只是多写一份现场。
+         *
+         * 为什么 catch Throwable 且全程吞掉：崩溃处理器里再抛异常会让进程以更糟的
+         * 方式死掉（甚至死循环）。它是取证代码，绝不能成为新的故障源。
+         */
+        fun installCrashGuard(context: Context) {
+            if (crashGuardInstalled) return
+            crashGuardInstalled = true
+            try {
+                val previous = Thread.getDefaultUncaughtExceptionHandler()
+                Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                    try {
+                        val dir = File(context.filesDir, "screen-watch").apply { mkdirs() }
+                        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                        File(dir, "crash-$stamp.txt").writeText(
+                            "thread=${thread.name}\n" + Log.getStackTraceString(throwable),
+                            Charsets.UTF_8
+                        )
+                        // 只留最近 3 份：取证文件不该在用户手机上无限积累。
+                        dir.listFiles { f -> f.name.startsWith("crash-") }
+                            ?.sortedByDescending { it.name }
+                            ?.drop(3)
+                            ?.forEach { it.delete() }
+                    } catch (error: Throwable) {
+                        // 取证失败绝不改变崩溃行为。
+                    }
+                    previous?.uncaughtException(thread, throwable)
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "install crash guard failed: ${error.message}")
+            }
+        }
+
+        @Volatile private var crashGuardInstalled = false
 
         // 授权等待队列与 in-flight 标记：**进程级**（M1.3）。
         // 结果由 OverlayPermissionActivity 投递——它和 Module 是不同对象、不同线程，

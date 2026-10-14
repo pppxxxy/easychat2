@@ -7,6 +7,10 @@ export const screenWatch = {
   'screenWatch.capture.reading': 'TA正在看…',
   'screenWatch.capture.failed.title': '截屏失败',
   'screenWatch.capture.failed.body': '没能完成截屏，请重试。',
+  // FIX-SW5 P1-5：截屏成功但**生成评论**失败是另一回事，不能复用上面那条
+  //（原实现把它也报成「没能完成截屏」，把排查方向带偏）。
+  'screenWatch.generate.failed.title': '生成回复失败',
+  'screenWatch.generate.failed.body': '截图成功，但请求回复时出错了，请重试。',
   'screenWatch.characterLabel': '一起看屏幕的角色',
   'screenWatch.limits': '截图只包含本应用的画面（截屏时这个面板也会入镜），需要模型支持识图；点这个按钮即可验证当前模型能不能读图。跨应用看屏幕请用上方的悬浮窗。',
   'screenWatch.empty.title': '还没有一起看屏幕',

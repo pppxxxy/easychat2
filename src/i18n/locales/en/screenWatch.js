@@ -7,6 +7,10 @@ export const screenWatch = {
   'screenWatch.capture.reading': 'They are looking...',
   'screenWatch.capture.failed.title': 'Capture failed',
   'screenWatch.capture.failed.body': 'Could not capture the screen. Please retry.',
+  // FIX-SW5 P1-5: a successful capture whose *reply generation* failed is a
+  // different failure; reusing the line above misdirects debugging.
+  'screenWatch.generate.failed.title': 'Reply failed',
+  'screenWatch.generate.failed.body': 'The capture worked, but the reply request failed. Please retry.',
   'screenWatch.characterLabel': 'Looking with',
   'screenWatch.limits': 'The capture only covers this app (this panel itself is in frame) and requires a vision-capable model; tap the button to verify the current model can actually read an image. For cross-app screen viewing, use the floating window above.',
   'screenWatch.empty.title': 'No screen peeks yet',

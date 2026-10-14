@@ -10,6 +10,7 @@ import { getActiveApiConfig, capabilitiesForModel, getActiveModel } from '../sto
 import { getActiveLocale } from '../i18n/index.js';
 import { resolveCharacterTranscription } from '../character/runtimeConfig.js';
 import { getTtsSettings } from '../storage/settings/tts.js';
+import { normalizeProtocolUrl } from '../apiProtocols/urls.js';
 
 function nativeModule() {
   return NativeModules.ScreenOverlay || null;
@@ -70,12 +71,34 @@ export async function buildOverlayConfigSnapshot({ character = null } = {}) {
     } catch (error) {
       // 读不到 TTS 设置就不播报（默认关闭），不影响其它配置。
     }
+    // FIX-SW5 P0-2：把**最终端点 URL** 算好写进快照，原生零路径逻辑。
+    //
+    // 为什么必须由 JS 算（这是「app 内正常、悬浮窗必死」的根因）：
+    // JS 侧的 normalizeProtocolUrl 会 trim 空白 + 按后缀智能补全
+    //（已带 /chat/completions → 原样；结尾 /v1 → 补 /chat/completions；
+    //  其余 → 补 /v1/chat/completions），并把 query 原样回拼。
+    // 原生此前只有 `baseUrl.trimEnd('/') + "/chat/completions"` —— 既不 trim 空白、
+    // 也不补 /v1。于是同一份配置：app 内聊天正常，悬浮窗要么 URL 畸形让 OkHttp 抛
+    // IllegalArgumentException（进程死），要么拼成 /chat/completions 而 404。
+    // 现在原生用这个成品，口径只有一处（单一事实源）。
+    const protocol = String(config.protocol || 'openai');
+    let endpointUrl = '';
+    if (protocol === 'openai') {
+      try {
+        endpointUrl = String(normalizeProtocolUrl('openai', config.baseUrl) || '');
+      } catch (error) {
+        // 归一失败就留空 → 原生回落到朴素拼接（并在地址无效时给出可读提示），
+        // 不能因为这一步失败让整个快照写不出去。
+        endpointUrl = '';
+      }
+    }
     return JSON.stringify({
       endpoint: {
         baseUrl: String(config.baseUrl || ''),
+        url: endpointUrl,
         apiKey: String(config.apiKey || ''),
         model: String(model || ''),
-        protocol: String(config.protocol || 'openai'),
+        protocol,
         fallbacks: Array.isArray(config.fallbackModels)
           ? config.fallbackModels.map(item => String(item || '')).filter(Boolean)
           : [],

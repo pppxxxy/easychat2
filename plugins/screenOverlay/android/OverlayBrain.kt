@@ -7,6 +7,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -51,6 +52,15 @@ class OverlayBrain private constructor(context: Context) {
     /** 配置快照（由 JS 在保存/切换时经 writeOverlayConfig 写入）。 */
     data class Config(
         val baseUrl: String,
+        // FIX-SW5 P0-2：JS 侧算好的**最终端点 URL**（含 /v1 补全与 query 回拼）。
+        //
+        // 为什么必须由 JS 算：JS 侧有一整套 normalizeProtocolUrl（trim 空白 +
+        // 按后缀智能补 /v1/chat/completions + query 原样回拼），而原生此前只做
+        // `baseUrl.trimEnd('/') + "/chat/completions"` —— 两套口径。
+        // 同一份配置 app 内聊天正常、悬浮窗必死/404，正是这个漂移的直接后果
+        //（设计文档风险表第一条「两处各写一份必然漂移」的现世报）。
+        // 现在原生**零路径逻辑**：用 JS 给的成品，缺省时才回落到朴素拼接（兼容旧快照）。
+        val endpointUrl: String,
         val apiKey: String,
         val model: String,
         val fallbacks: List<String>,
@@ -160,6 +170,7 @@ class OverlayBrain private constructor(context: Context) {
         } ?: return false
         prefs.edit()
             .putString(KEY_BASE_URL, config.baseUrl)
+            .putString(KEY_ENDPOINT_URL, config.endpointUrl)
             .putString(KEY_MODEL, config.model)
             .putString(KEY_PROTOCOL, config.protocol)
             .putString(KEY_FALLBACKS, config.fallbacks.joinToString("\u0001"))
@@ -209,6 +220,8 @@ class OverlayBrain private constructor(context: Context) {
         val key = readSecretApiKey() ?: prefs.getString(KEY_API_KEY, "") ?: ""
         return Config(
             baseUrl = baseUrl,
+            // 缺省 "" → streamOnce 回落到朴素拼接（兼容 FIX-SW5 之前写入的旧快照）。
+            endpointUrl = prefs.getString(KEY_ENDPOINT_URL, "") ?: "",
             apiKey = key,
             model = model,
             fallbacks = (prefs.getString(KEY_FALLBACKS, "") ?: "")
@@ -239,6 +252,8 @@ class OverlayBrain private constructor(context: Context) {
         }
         return Config(
             baseUrl = endpoint.optString("baseUrl").trim(),
+            // FIX-SW5 P0-2：JS 侧算好的成品端点。旧快照没有这个字段 → 空串 → 回落拼接。
+            endpointUrl = endpoint.optString("url", "").trim(),
             apiKey = endpoint.optString("apiKey"),
             model = endpoint.optString("model").trim(),
             fallbacks = fallbacks,
@@ -535,14 +550,45 @@ class OverlayBrain private constructor(context: Context) {
         val startedAt = System.currentTimeMillis()
         var firstByteAt = 0L
         ScreenOverlayModule.recordTrace("brain-request", "model=$model vision=${imageBase64 != null}")
-        val body = buildRequestBody(config, model, userText, imageBase64)
-        val request = Request.Builder()
-            .url(config.baseUrl.trimEnd('/') + "/chat/completions")
-            .header("Authorization", "Bearer " + config.apiKey)
-            .header("Content-Type", "application/json")
-            .post(body.toRequestBody(JSON_MEDIA))
-            .build()
-        client.newCall(request).enqueue(object : Callback {
+
+        // ⚠️ FIX-SW5 P0：这一段**必须整体包在 try 里**（catch Throwable）。
+        //
+        // 真机证据（用户诊断日志，三起闪退时间线一字不差）：
+        //   capture-saved 20~29ms（截屏健康）→ brain-request → 此后**一条日志都没有**，
+        //   没有 first-byte / done / fail，连 fallback 的第二次 brain-request 都没有，
+        //   约 0.1~0.5 秒后进程死。网络请求（哪怕连接失败）不可能这么快出回调，
+        //   所以死亡发生在 **enqueue 之前的同步代码**里。
+        // 而调用方是按钮点击（主线程）与采集工作线程——未捕获异常直接杀进程。
+        //
+        // 为什么 catch **Throwable** 而不是 Exception：OOM 是 Error 不是 Exception，
+        // 而「带全分辨率截屏 base64 拼 JSON」恰恰可能 OOM。聊天气泡场景下，
+        // 宁可接住降级成一条失败气泡，也绝不能让进程死。
+        val composedUrl = config.endpointUrl.ifBlank {
+            config.baseUrl.trim().trimEnd('/') + "/chat/completions"
+        }
+        // 用 HttpUrl 先解析再交给 Request.Builder：畸形 URL（无 scheme/空 host/坏端口）
+        // 会让 .url(String) 抛 IllegalArgumentException。先解析就能把「地址无效」
+        // 变成一条可读的气泡提示，而不是一次闪退。
+        val httpUrl = composedUrl.toHttpUrlOrNull()
+        if (httpUrl == null) {
+            ScreenOverlayModule.recordTrace("brain-fail", "url-invalid: ${composedUrl.take(120)}")
+            inFlight.set(false)
+            state = State.IDLE
+            onFail("接口地址无效（检查是否缺 https:// 前缀）")
+            return
+        }
+        try {
+            val body = buildRequestBody(config, model, userText, imageBase64)
+            // 取证位：这条出现在日志里 = buildRequestBody 活着，死在 url/enqueue；
+            // 不出现 = 死在 buildRequestBody（含 OOM）。
+            ScreenOverlayModule.recordTrace("brain-body", "bytes=${body.length} history=${history.size}")
+            val request = Request.Builder()
+                .url(httpUrl)
+                .header("Authorization", "Bearer " + config.apiKey)
+                .header("Content-Type", "application/json")
+                .post(body.toRequestBody(JSON_MEDIA))
+                .build()
+            client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 Log.w(TAG, "stream failed: ${error.message}")
                 ScreenOverlayModule.recordTrace(
@@ -639,7 +685,19 @@ class OverlayBrain private constructor(context: Context) {
                     onDone(reply)
                 }
             }
-        })
+            })
+        } catch (error: Throwable) {
+            // FIX-SW5 P0：整段请求构造的兜底。走到这里说明是**同步**阶段的失败
+            //（拼 body / 建 Request / enqueue 本身），而不是网络回调里的失败。
+            // 宁可降级成一条气泡，也绝不让未捕获异常杀掉进程。
+            ScreenOverlayModule.recordTrace(
+                "brain-fail",
+                "build ${error.javaClass.simpleName}: ${error.message?.take(120)}"
+            )
+            inFlight.set(false)
+            state = State.IDLE
+            onFail("请求构建失败：${error.message ?: error.javaClass.simpleName}")
+        }
     }
 
     /** 组 OpenAI 兼容请求体：system + 最近 HISTORY_MAX 轮 + 本轮用户（可含图片 part）。 */
@@ -678,6 +736,8 @@ class OverlayBrain private constructor(context: Context) {
         private const val PREFS = "screen_overlay_brain_prefs"
         private const val SECRET_PREFS = "screen_overlay_brain_secrets"
         private const val KEY_BASE_URL = "base_url"
+        // FIX-SW5 P0-2：JS 算好的最终端点 URL（原生零路径逻辑）。
+        private const val KEY_ENDPOINT_URL = "endpoint_url"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_MODEL = "model"
         private const val KEY_PROTOCOL = "protocol"

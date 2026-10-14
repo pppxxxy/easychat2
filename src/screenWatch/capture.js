@@ -42,6 +42,42 @@ export function screenWatchDirectory(documentDirectory = null) {
   return `${base || ''}${SCREEN_WATCH_DIR_NAME}/`;
 }
 
+// FIX-SW5 P1-4：进程级崩溃现场（原生 installCrashGuard 写入 screen-watch/crash-*.txt）。
+// 读后**即删**：只报一次，否则每次打开 app 都会把同一次崩溃重复塞进诊断日志。
+//
+// 目录一致性：原生写的是 `context.filesDir/screen-watch`，而 expo-file-system 的
+// documentDirectory 在 Android 上就是 `filesDir`，故两边同一目录（与 M2.5 的
+// overlay-thread.jsonl 同理）。
+const CRASH_FILE_PATTERN = /^crash-\d{8}-\d{6}\.txt$/;
+
+/** 取出尚未上报的崩溃现场（按时间顺序，最多 MAX 份），并删除已读文件。 */
+export async function takeCrashReports(max = 3) {
+  const base = screenWatchDirectory();
+  let names = [];
+  try {
+    names = await FileSystem.readDirectoryAsync(base);
+  } catch (error) {
+    return [];   // 从没用过悬浮窗 → 目录不存在，不是错误
+  }
+  const targets = (names || [])
+    .map(item => String(item))
+    .filter(name => CRASH_FILE_PATTERN.test(name))
+    .sort()
+    .slice(-max);
+  const reports = [];
+  for (const name of targets) {
+    try {
+      const text = await FileSystem.readAsStringAsync(`${base}${name}`);
+      reports.push({ name, text: String(text || '') });
+    } catch (error) {
+      // 读不出来也删掉：留着一个读不了的文件只会每轮重试。
+    }
+    // 读完即删（无论成败）：诊断日志只该看到**一次**。
+    await FileSystem.deleteAsync(`${base}${name}`, { idempotent: true }).catch(() => {});
+  }
+  return reports;
+}
+
 // 滚动清扫：只保留最近 keepNewest 张截图，防止长期使用撑大应用目录。
 export async function sweepScreenWatchFiles({ keepNewest = SWEEP_KEEP } = {}) {
   try {

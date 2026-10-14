@@ -30,6 +30,7 @@ import { useTranslation } from '../i18n/I18nContext.js';
 import AccessibilityCard from './AccessibilityCard.js';
 import FrameRecognitionCard from './FrameRecognitionCard.js';
 import { captureAppScreen } from './capture.js';
+import { reportCaptureFailure, reportOverlayCrashReports } from './screenWatchDiagnostics.js';
 import {
   addCaptureFailedListener,
   addCaptureListener,
@@ -129,6 +130,17 @@ export default function ScreenWatchScreen() {
     })();
     return () => { cancelled = true; };
   }, [overlaySupported]);
+
+  // FIX-SW5 P1-4：把上一次进程死亡的第一现场送进诊断日志。
+  // 读取 / 上报 / 删除都在 screenWatchDiagnostics（读完即删 → 只报一次）。
+  // 挂在这里而不是 App 启动：诊断是这一页的能力，不该让全局启动路径依赖它。
+  useEffect(() => {
+    let cancelled = false;
+    reportOverlayCrashReports().then(count => {
+      if (cancelled || !count) return;
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // 小窗回写文案：优先真实原因（悬浮窗在面板外，看不到面板里的错误横幅），
   // 过长则截断——小窗状态区只有一两行的显示空间。
@@ -329,26 +341,39 @@ export default function ScreenWatchScreen() {
   }, []);
 
   // 截屏并立即请求评论；截图先存本地，重试复用同一张（评论针对的是同一画面）。
+  //
+  // FIX-SW5 P1-5：**两段必须分开 try**——原实现包在一个 try 里，生成失败也报
+  // 「没能完成截屏」，把排查方向带偏（与 CI 那次 workflow/job 同名是同一类错误）。
+  // 上报细节（脱敏、兼容字符串抛出、诊断日志）见 screenWatchDiagnostics。
   const handleCapture = useCallback(async () => {
     if (capturing || generating) return;
     setCapturing(true);
     try {
-      const { uri } = await captureAppScreen();
-      await generate({ imageUri: uri });
-    } catch (error) {
-      // 带上原始错误：只显示「没能完成截屏」时，无法判断是原生模块缺失、
-      // 权限问题还是写盘失败（截图链路跨越 view-shot / 文件系统两层）。
-      const detail = maskSecrets(String((error && error.message) || '')).trim();
-      Alert.alert(
-        t('screenWatch.capture.failed.title'),
-        detail
-          ? `${t('screenWatch.capture.failed.body')}\n\n${detail}`
-          : t('screenWatch.capture.failed.body')
-      );
+      let uri;
+      try {
+        ({ uri } = await captureAppScreen());
+      } catch (error) {
+        reportCaptureFailure({
+          stage: 'capture', kind: 'storage', error, context: 'view-shot',
+          title: t('screenWatch.capture.failed.title'),
+          body: t('screenWatch.capture.failed.body'),
+        });
+        return;
+      }
+      try {
+        await generate({ imageUri: uri });
+      } catch (error) {
+        reportCaptureFailure({
+          stage: 'generate', kind: 'api', error, context: 'generate',
+          title: t('screenWatch.generate.failed.title'),
+          body: t('screenWatch.generate.failed.body'),
+        });
+      }
     } finally {
+      // 唯一的复位点：两段谁失败都不会漏掉（把它放进内层 catch 很容易漏一处）。
       setCapturing(false);
     }
-  }, [capturing, generating, generate]);
+  }, [capturing, generating, generate, t, reportCaptureFailure]);
 
   // 当前对话（只读展示）：不在展示路径上创建对话，创建只发生在真正生成时。
   const reloadThread = useCallback(async () => {

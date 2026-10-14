@@ -141,6 +141,14 @@ test('识图测试：改名 + 失败暴露真实原因（不再一律甩「检�
     '真实原因取自原始错误消息（含脱敏），不能只显示固定文案');
 
   assert.ok(screenSrc.includes('overlayErrorText'), '小窗失败回写带原因');
-  assert.ok(/const detail = maskSecrets\(String\(\(error && error\.message\) \|\| ''\)\)/.test(screenSrc),
-    '截屏失败 Alert 带截屏链路的原始错误');
+  // FIX-SW5 P1-5：失败上报搬进 screenWatchDiagnostics（ScreenWatchScreen 已贴 800 行
+  // 棘轮，按仓库纪律拆文件而不是抬上限），断言随之指向新位置。
+  // 语义不变且更严：detail 必须**同时**接受 Error 与字符串抛出——
+  // 原实现写 `error.message`，error 为字符串时它是 undefined，弹窗里连原因都没有。
+  const diagSrc = read('src/screenWatch/screenWatchDiagnostics.js');
+  assert.ok(/String\(\(error && error\.message\) \|\| error \|\| ''\)/.test(diagSrc),
+    '截屏/生成失败 Alert 必须带原始错误，且兼容字符串抛出');
+  assert.ok(diagSrc.includes('maskSecrets'), '失败原因必须先脱敏');
+  assert.ok(diagSrc.includes('recordDiagnostic'), '失败必须同时进诊断日志');
+  assert.ok(screenSrc.includes('reportCaptureFailure'), '屏幕侧调用该上报入口');
 });

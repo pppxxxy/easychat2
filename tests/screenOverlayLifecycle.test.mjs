@@ -490,8 +490,158 @@ test('M4.4：原生大脑链路打点（request / first-byte / done / fail）', 
     'first-byte 只在首个增量记一次');
 });
 
-test('M4.1：TTS 只做系统引擎，且录音时暂停播报', () => {
-  const tts = kotlinSource('OverlayTts.kt');
+// ---------- FIX-SW5：闪退根因（进程级裸奔） ----------
+
+test('FIX-SW5 P0-1：streamOnce 的同步段必须整体有守卫（catch Throwable）', () => {
+  const brain = kotlinSource('OverlayBrain.kt');
+  const code = brain.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+  // 真机证据：三起闪退都停在 brain-request 之后、任何回调之前，
+  // 说明死在「拼 body / 建 Request / enqueue」这段**同步**代码里。
+  // 这段（含 buildRequestBody 与 Request.Builder）必须在 try 里。
+  assert.match(code, /brain-request[\s\S]{0,2600}?try \{[\s\S]{0,400}?buildRequestBody\(/,
+    'brain-request 之后、buildRequestBody 之前必须进入 try');
+  assert.match(code, /catch \(error: Throwable\)[\s\S]{0,400}?brain-fail/,
+    '必须有 catch Throwable 的兜底并打 brain-fail');
+  // 必须 catch Throwable 而不是 Exception：OOM 是 Error，Exception 拦不住，
+  // 而「全分辨率截屏 base64 拼 JSON」正是可能 OOM 的地方。
+  assert.equal(/catch \(error: Exception\)[\s\S]{0,200}?build /.test(code), false,
+    '同步段兜底不得只 catch Exception（OOM 会漏过去）');
+  // 取证位：brain-body 出现在日志里 = 死在 url/enqueue；不出现 = 死在 buildRequestBody
+  assert.ok(code.includes('brain-body'), '必须有 brain-body 取证打点');
+});
+
+test('FIX-SW5 P0-2：端点 URL 由 JS 算好（原生零路径逻辑）', () => {
+  const brain = kotlinSource('OverlayBrain.kt');
+  const code = brain.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+  // 原生必须优先用快照给的成品 URL，缺省才回落朴素拼接（兼容旧快照）
+  assert.ok(brain.includes('endpointUrl'), 'Config 必须有 endpointUrl');
+  assert.match(code, /endpointUrl\.ifBlank \{[\s\S]{0,200}?baseUrl\.trim\(\)/,
+    '缺省回落时必须先 trim（原生此前不 trim，两端口径漂移的根因之一）');
+  // 必须先解析成 HttpUrl 再交给 Request.Builder：畸形 URL 会让 .url(String) 抛
+  // IllegalArgumentException（未捕获 → 进程死）。先解析就能降级成一条可读提示。
+  assert.ok(code.includes('toHttpUrlOrNull'), '必须先用 toHttpUrlOrNull 解析');
+  // 必须**正面**断言 .url() 收到的是解析后的 httpUrl。
+  // （第一版写的是「不得含 .url(config.」——那是反面断言，改成 .url(composedUrl)
+  //  一样能通过，等于放过回归。注入验证时被抓出来了。）
+  assert.match(code, /Request\.Builder\(\)[\s\S]{0,300}?\.url\(httpUrl\)/,
+    '.url() 必须接收解析后的 httpUrl，而不是原始字符串');
+  assert.equal(/\.url\((?!httpUrl\))/.test(code), false,
+    '.url() 不得接收除 httpUrl 之外的参数（畸形字符串会让它抛 IllegalArgumentException）');
+  // 地址无效要走 onFail 收口（降级提示），而不是抛出去
+  assert.match(code, /if \(httpUrl == null\)[\s\S]{0,400}?url-invalid[\s\S]{0,300}?onFail\(/,
+    'URL 无效必须打 url-invalid 并走 onFail');
+
+  // JS 侧：快照里写出成品 url，且复用既有的归一函数（不自己再写一份路径逻辑）
+  const js = fs.readFileSync(path.resolve('src/screenWatch/overlayConfig.js'), 'utf8');
+  assert.ok(js.includes('normalizeProtocolUrl'), '必须复用 normalizeProtocolUrl');
+  assert.match(js, /url: endpointUrl/, '快照 endpoint 必须含 url 字段');
+  assert.match(js, /protocol === 'openai'/, '只有 openai 协议才归一（其余原生本就不支持）');
+});
+
+test('FIX-SW5 P0-3：按钮点击总闸（护住全部按钮）', () => {
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  // button() 是全部按钮的唯一构造点 → 在它里面包一层就护住了截屏/发送/说话/收起/关闭
+  assert.match(serviceCode, /private fun button\(label: String, onClick: \(\) -> Unit\)[\s\S]{0,1400}?try \{[\s\S]{0,200}?onClick\(\)/,
+    'button 的点击回调必须包在 try 里');
+  assert.match(serviceCode, /setOnClickListener \{[\s\S]{0,700}?catch \(error: Throwable\)/,
+    '点击兜底必须 catch Throwable（OOM 也要接住）');
+  // 所有按钮都必须经由 button() 构造（否则总闸就漏了）。
+  // 事实核对：全文件 setOnClickListener 只应有 **1** 处，就在 button() 里
+  //（输入框用的是 setOnFocusChangeListener，不是这个 API——我第一版按 2 处写，是错的）。
+  const clicks = [...serviceSrc.matchAll(/setOnClickListener/g)];
+  assert.equal(clicks.length, 1,
+    'setOnClickListener 只应出现在 button() 这一处；新增按钮必须走 button() 才能被总闸护住。'
+    + `实际 ${clicks.length} 处`);
+  // 唯一那处必须在 button() 函数体内
+  const buttonStart = serviceSrc.indexOf('private fun button(label: String');
+  assert.ok(buttonStart >= 0 && clicks[0].index > buttonStart,
+    'setOnClickListener 必须在 button() 内部');
+});
+
+test('FIX-SW5 P1-4：崩溃取证（进程死也要留下遗书）', () => {
+  const module = kotlinSource('ScreenOverlayModule.kt');
+  assert.ok(module.includes('installCrashGuard'), '必须有 installCrashGuard');
+  // 必须委托原处理器：取证不能改变 RN/既有崩溃链路的行为。
+  // 窗口要足够宽——中间隔着整个 try/catch 取证体（实测约 990 字符）。
+  assert.match(module, /getDefaultUncaughtExceptionHandler\(\)[\s\S]{0,1500}?previous\?\.uncaughtException/,
+    '必须取到原处理器并委托给它');
+  // 幂等：模块 init 与服务 onCreate 都会调，重复安装会套多层
+  assert.ok(module.includes('crashGuardInstalled'), '必须幂等（避免套多层处理器）');
+  // 服务侧也要装：悬浮窗主场景下 RN 实例可能根本不存在
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.match(serviceCode, /override fun onCreate\(\)[\s\S]{0,600}?installCrashGuard/,
+    '服务 onCreate 也要装（没有 RN 实例时的唯一机会）');
+  // JS 侧必须读取并**删除**（只报一次）。
+  // ⚠️ 断言必须**限定在 takeCrashReports 函数体内**：capture.js 里
+  // captureAppScreen 也有一处 deleteAsync(idempotent)，按整文件匹配会匹配到
+  // 那个无关调用，从而在「崩溃现场读完不删」时仍然通过（注入验证时被抓出来）。
+  const capture = fs.readFileSync(path.resolve('src/screenWatch/capture.js'), 'utf8');
+  assert.ok(capture.includes('takeCrashReports'), '必须有读取崩溃现场的入口');
+  const takerStart = capture.indexOf('export async function takeCrashReports');
+  assert.ok(takerStart >= 0, 'takeCrashReports 应存在');
+  // 函数体：从函数头到下一个顶层 export / 文件末尾
+  const rest = capture.slice(takerStart);
+  const nextExport = rest.indexOf('\nexport ', 1);
+  const takerBody = nextExport > 0 ? rest.slice(0, nextExport) : rest;
+  assert.match(takerBody, /deleteAsync\([\s\S]{0,160}?idempotent/,
+    'takeCrashReports 读完必须删除（否则每次开 app 都重复上报同一次崩溃）');
+
+  // 读到的现场必须真的进诊断日志（上报逻辑在 screenWatchDiagnostics）
+  const diag = fs.readFileSync(path.resolve('src/screenWatch/screenWatchDiagnostics.js'), 'utf8');
+  assert.match(diag, /recordDiagnostic\([\s\S]{0,260}?crash/i,
+    '崩溃现场必须进诊断日志');
+  const screen = fs.readFileSync(path.resolve('src/screenWatch/ScreenWatchScreen.js'), 'utf8');
+  assert.match(screen, /reportOverlayCrashReports\(\)/,
+    '看屏幕页挂载时必须触发崩溃现场上报');
+});
+
+test('FIX-SW5 P1-5：识图测试两段分开报错（不得把生成失败谎报成截屏失败）', () => {
+  const screen = fs.readFileSync(path.resolve('src/screenWatch/ScreenWatchScreen.js'), 'utf8');
+  const code = screen.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+  // 截屏与生成必须各自 try：共用一个是本次要修的 bug（失败信息指错环节）
+  assert.match(code, /captureAppScreen\(\)[\s\S]{0,300}?catch[\s\S]{0,700}?generate\(\{ imageUri/,
+    '两段必须分开，截屏失败后不再进入生成段');
+  assert.ok(code.includes('screenWatch.generate.failed.title'),
+    '生成失败必须有自己的文案（不能复用截屏失败）');
+  // detail 必须同时接受 Error 与字符串：error 为字符串时 .message 是 undefined，
+  // 原实现因此弹窗里连原因都没有（用户截图正是这个现象）。
+  // 上报逻辑在 screenWatchDiagnostics（拆文件以满足 800 行棘轮）。
+  const diag = fs.readFileSync(path.resolve('src/screenWatch/screenWatchDiagnostics.js'), 'utf8');
+  assert.match(diag, /error && error\.message\) \|\| error \|\| ''/,
+    'detail 必须兼容字符串抛出（否则 detail 为空）');
+  // 两段各自的上报必须「弹窗 + 诊断日志」成对出现（共用同一个入口函数）
+  assert.equal([...code.matchAll(/reportCaptureFailure\(\{/g)].length, 2,
+    '截屏段与生成段必须各自调用上报入口');
+  // 两份语言包都要有新词条
+  for (const locale of ['zh-CN', 'en']) {
+    const dict = fs.readFileSync(path.resolve(`src/i18n/locales/${locale}/screenWatch.js`), 'utf8');
+    assert.ok(dict.includes("'screenWatch.generate.failed.title'"), `${locale} 缺 title`);
+    assert.ok(dict.includes("'screenWatch.generate.failed.body'"), `${locale} 缺 body`);
+  }
+});
+
+test('FIX-SW5 P2-6：给大脑的帧必须降采样，且不落盘', () => {
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.ok(serviceCode.includes('encodeForBrain'), '必须有降采样+编码');
+  assert.match(serviceCode, /BRAIN_IMAGE_MAX_EDGE = 1600/, '长边上限 1600');
+  assert.match(serviceCode, /BRAIN_IMAGE_QUALITY = 75/, 'JPEG 质量 75');
+  // 只缩不放：小图放大只会更糊更大
+  assert.match(serviceCode, /if \(longest > BRAIN_IMAGE_MAX_EDGE\)/, '只缩不放');
+  // 大脑路径不得再落盘（少了写盘+读盘两份全尺寸副本，也不再堆临时文件）
+  assert.match(serviceCode, /CAPTURE_TARGET_BRAIN\)[\s\S]{0,900}?encodeForBrain\(bitmap\)[\s\S]{0,900}?return/,
+    '大脑路径应在编码后直接返回，不再写文件');
+  // 缩放位图必须回收，且**不能**回收原图（原图由 saveAndEmit 回收 →
+  // 重复回收会直接崩 recycled bitmap）
+  assert.match(serviceCode, /scaled !== bitmap/, '必须防止重复回收原图');
+});
+
+test('M4.1：TTS 只做系统引擎，且录音时暂停播报', () => {  const tts = kotlinSource('OverlayTts.kt');
   // 诚实边界：云端 TTS 的 provider 声明表在 JS 侧（560+ 行），原生不复刻。
   assert.ok(tts.includes('TextToSpeech'), '用系统 TTS 引擎');
   // 只看**代码**：文件顶部正解释着「为什么不在原生复刻云端 TTS」，
