@@ -144,13 +144,30 @@ test('Kotlin：消息留档（收起/展开重建视图不丢上下文）', () =
   assert.equal(service.includes('panelContainer'), false, '不得留只写不读的死字段');
 });
 
-test('Kotlin：架构边界——原生不碰业务逻辑（只 emit 事件，不发请求）', () => {
+test('Kotlin：架构边界——OverlayService 本体不做业务；OverlayBrain 是 M2 的有意例外', () => {
   const service = read('plugins/screenOverlay/android/OverlayService.kt');
-  // 原生只把用户输入交给 JS；LLM/工具/确认都在 JS 侧
-  assert.match(service, /ScreenOverlayModule\.emit\(EVENT_CHAT_SEND/, '用户输入经事件交给 JS');
-  for (const forbidden of ['sendChatMessage', 'runAgentTurn', 'confirm_flow', 'fetch(']) {
-    assert.equal(service.includes(forbidden), false, `原生不得直接做业务（发现 ${forbidden}）`);
+  // M2 大脑搬家后：OverlayService 本体仍是「UI + 事件壳」，LLM 调用全在 OverlayBrain.kt。
+  // 旧断言「原生不得做业务」在 M2 被有意推翻（设计文档 §二），但边界仍要钉住：
+  // 网络调用只允许出现在 OverlayBrain.kt，OverlayService 本体不得染指。
+  const serviceCode = service.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  for (const forbidden of ['sendChatMessage', 'runAgentTurn', 'confirm_flow', 'fetch(', 'OkHttpClient', 'createScreenCaptureIntent']) {
+    assert.equal(serviceCode.includes(forbidden), false, `OverlayService 本体不得做业务（发现 ${forbidden}）`);
   }
+  // 大脑在独立文件里（不与 UI/服务混在一个类）
+  const brain = read('plugins/screenOverlay/android/OverlayBrain.kt');
+  const brainCode = brain.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.ok(brainCode.includes('OkHttpClient'), 'OverlayBrain 直连 LLM（设计文档 3.2）');
+  assert.ok(brainCode.includes('chat/completions'), '走 OpenAI 兼容流式端点');
+  assert.ok(brainCode.includes('"stream"'), '流式（SSE）');
+  // 无配置时回退 JS 管线（无快照 = 用户还没打开过 App，此时原生无凭据可用）
+  assert.match(service, /hasConfig\(\)[\s\S]{0,200}?EVENT_CHAT_SEND/, '无配置时回退 JS 管线');
+  // 配置快照由 JS 喂给原生（M2 安全前提：apiKey 走加密，不是明文 json）
+  const configWriter = read('src/screenWatch/overlayConfig.js');
+  assert.ok(configWriter.includes('writeOverlayConfig'), 'JS 侧有配置快照写入器');
 });
 
 test('Kotlin：模块方法齐备且失败不崩（promise.reject 有 catch）', () => {

@@ -499,15 +499,63 @@ class OverlayService : Service() {
     }
 
     // 用户在悬浮窗里发了话：交给 JS（LLM/工具/确认全在 JS 侧），原生只做嘴和眼。
+    // 用户在悬浮窗里发了话（M2 大脑搬家）：
+    //   · 有配置快照 → **原生直连**（不依赖 JS 存活；这正是本次重设计的核心目的）；
+    //   · 无快照 → 回退旧的 JS 管线（app 在前台时仍可用；无快照说明用户还没打开过 App）。
+    // 两条路径互斥，不会出现两条回复。
     private fun sendChatFromInput() {
         val text = chatInput?.text?.toString()?.trim().orEmpty()
         if (text.isEmpty()) return
         chatInput?.setText("")
         appendChatMessage("user", text)
+        val brain = OverlayBrain.get(this)
+        if (brain.hasConfig()) {
+            sendViaBrain(text)
+            return
+        }
+        // 无配置快照：回退 JS 管线（与 M2 之前行为一致，app 在前台时可用）。
         ScreenOverlayModule.emit(EVENT_CHAT_SEND, Arguments.createMap().apply {
             putString("text", text)
             putString("scope", chatScope)
         })
+    }
+
+    /** 原生大脑直连：流式增量直接刷进最后一个 assistant 气泡（不经过 JS）。 */
+    private fun sendViaBrain(text: String) {
+        val brain = OverlayBrain.get(this)
+        if (brain.isBusy) {
+            appendChatMessage("assistant", "上一条还在回复，稍等一下")
+            return
+        }
+        beginAssistantStreaming()
+        val accepted = brain.send(
+            userText = text,
+            onDelta = { accumulated -> mainHandler.post { updateLastAssistantMessage(accumulated) } },
+            onDone = { reply -> mainHandler.post { updateLastAssistantMessage(reply) } },
+            onError = { message -> mainHandler.post { updateLastAssistantMessage("（" + message + "）") } },
+        )
+        if (!accepted) {
+            // 理论上 isBusy 已挡住；兜底：把占位气泡改回提示，不吞用户输入。
+            updateLastAssistantMessage("（未能发送，请重试）")
+        }
+    }
+
+    /** 流式回复：先占一个 assistant 气泡，增量到达时往里填（见 updateLastAssistantMessage）。 */
+    private fun beginAssistantStreaming() {
+        chatHistory.add("assistant" to "")
+        val container = chatMessages ?: return
+        container.addView(makeChatLine("assistant", "…"))
+        container.post { container.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    /** 流式增量：更新内存留档里的最后一条 assistant + 重画气泡最后一行。 */
+    private fun updateLastAssistantMessage(text: String) {
+        val index = chatHistory.indexOfLast { it.first == "assistant" }
+        if (index >= 0) chatHistory[index] = "assistant" to text
+        val container = chatMessages ?: return
+        val last = container.getChildAt(container.childCount - 1) as? TextView
+        last?.text = text
+        container.post { container.fullScroll(View.FOCUS_DOWN) }
     }
 
     // JS 推回一条消息（回复或确认题卡）→ 渲染成气泡/按钮组。
@@ -532,18 +580,22 @@ class OverlayService : Service() {
     private fun renderChatMessage(role: String, text: String) {
         val container = chatMessages ?: return
         if (text.isBlank()) return
-        val line = TextView(this).apply {
-            this.text = (if (role == "user") "我：" else "") + text
-            setTextColor(if (role == "user") Color.parseColor("#c9c9e6") else Color.WHITE)
-            textSize = 12f
-            setPadding(dp(6), dp(4), dp(6), dp(4))
-        }
-        container.addView(line)
+        container.addView(makeChatLine(role, text))
         // 上限裁剪：只留最近 CHAT_MESSAGE_MAX 条（长会话不把悬浮窗撑爆）。
         while (container.childCount > CHAT_MESSAGE_MAX) {
             container.removeViewAt(0)
         }
         container.post { container.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    // 聊天行的统一样式（渲染与流式更新共用，改样式只动这一处）。
+    private fun makeChatLine(role: String, text: String): TextView {
+        return TextView(this).apply {
+            this.text = (if (role == "user") "我：" else "") + text
+            setTextColor(if (role == "user") Color.parseColor("#c9c9e6") else Color.WHITE)
+            textSize = 12f
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+        }
     }
 
     // 展开时把留档的消息重画一遍（收起态收到的推送不丢）。

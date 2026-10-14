@@ -59,18 +59,24 @@ test('投屏被系统停止（onStop）必须整体收口：stopSelf 走 onDestr
     'onStop 里不得只调 releaseCapture()：那会留下孤儿悬浮窗与前台服务');
 });
 
-test('JS 实例销毁（invalidate）必须停掉 OverlayService，不留孤儿前台服务', () => {
+test('M2：invalidate() **不再**停 OverlayService——大脑在原生，悬浮窗要比 JS 活得久', () => {
+  // M2 的直接冲突点（用户拍板按此改）：旧架构「大脑在 JS」时，JS 死了脑子也该死，
+  // invalidate() 停服务是正确清理；新架构里大脑搬到了原生（OverlayBrain），
+  // 在这里停服务 = 把刚搬家的大脑又绑回 RN 生命周期，等于白搬。
+  // 停服务只剩两条显式路径：悬浮窗「关闭」按钮 / 投影 onStop → stopSelf → onDestroy。
+  //
+  // ⚠️ 断言只看**代码**：invalidate 下方的注释正解释着「为什么不再停服务」，里面会
+  // 合法出现 stopService / clearCaptureToken 这两个词，按整段匹配是自相矛盾的门禁。
   const module_ = kotlinSource('ScreenOverlayModule.kt');
-  // ⚠️ M1.3 起本模块不再实现 ActivityEventListener（授权改由独立 Activity 承接），
-  // 所以**不能**再用 'override fun onActivityResult' 当切片终点——那会变成
-  // slice(start, -1)，断言形同虚设。改用 invalidate 之后第一个 @ReactMethod 作界。
-  const end = module_.indexOf('@ReactMethod', module_.indexOf('override fun invalidate()'));
-  const invalidate = module_.slice(module_.indexOf('override fun invalidate()'), end);
-  assert.ok(invalidate.length > 0, '必须能定位到 invalidate()');
-  assert.ok(
-    invalidate.includes('reactContext.stopService(Intent(reactContext, OverlayService::class.java))'),
-    'invalidate() 必须停服务：RN 0.81 只回调 invalidate()、不再回调 onCatalystInstanceDestroy()',
-  );
+  const invalidate = module_.slice(module_.indexOf('override fun invalidate()'), module_.indexOf('@ReactMethod'));
+  const invalidateCode = invalidate.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.ok(invalidateCode.includes('super.invalidate()'), '必须能定位到 invalidate() 函数体');
+  assert.equal(invalidateCode.includes('stopService'), false,
+    'invalidate() 不得再停服务：JS 死后悬浮窗必须继续工作（M2 核心目的）');
+  assert.equal(invalidateCode.includes('clearCaptureToken'), false,
+    'invalidate() 也不得清 capture token：凭据跟着服务走（onDestroy 已清）');
 });
 
 test('Android 13+ 启动悬浮窗时必须请求运行时通知权限', () => {

@@ -49,19 +49,25 @@ test('FIX-3：授权 token 是**进程级**存储（服务侧才够得着，能�
   assert.ok(moduleSrc.includes('fun hasValidCaptureToken()'), '必须提供 hasValidCaptureToken');
 });
 
-test('FIX-3：三处都必须清空 token（stopOverlay / invalidate / 服务 onDestroy）', () => {
+test('FIX-3：三处都必须清空 token（stopOverlay / 服务 onDestroy）——invalidate 例外', () => {
   // stopOverlay：用户主动关闭
   const stopBlock = moduleSrc.slice(moduleSrc.indexOf('fun stopOverlay('));
   assert.ok(stopBlock.slice(0, 600).includes('clearCaptureToken()'),
     'stopOverlay 必须清空 token（否则「关掉再开」复用失效 token ⇒ 闪退）');
-  // invalidate：热重载/退出
-  const invalidateBlock = moduleSrc.slice(moduleSrc.indexOf('override fun invalidate()'));
-  assert.ok(invalidateBlock.slice(0, 1200).includes('clearCaptureToken()'),
-    'invalidate 必须清空 token（热重载后不该复用旧凭据）');
   // 服务 onDestroy：系统回收/锁屏/被抢占
   const destroyBlock = serviceSrc.slice(serviceSrc.indexOf('override fun onDestroy()'));
   assert.ok(destroyBlock.slice(0, 900).includes('ScreenOverlayModule.clearCaptureToken()'),
     '服务 onDestroy 必须清空 token（这是「关掉后 token 还活着」的唯一收口点）');
+  // ⚠️ M2 起 invalidate() **不再**清 token（也不再停服务）：大脑搬到了原生，
+  // JS 死亡后悬浮窗必须继续工作，凭据跟着服务走。这条从「三处」改为「两处」
+  // 是 M2 的有意修改（用户拍板），不是漏改——被 M2 门禁反向钉住。
+  const invalidateCode = moduleSrc
+    .slice(moduleSrc.indexOf('override fun invalidate()'), moduleSrc.indexOf('@ReactMethod'))
+    .split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.equal(invalidateCode.includes('clearCaptureToken'), false,
+    'invalidate() 不得清 token（M2：凭据跟着服务走，不跟 JS 实例走）');
 });
 
 test('FIX-3：投影被系统停止（onStop）走 stopSelf，由 onDestroy 统一收口并清 token', () => {

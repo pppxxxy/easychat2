@@ -43,15 +43,20 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     override fun getName() = "ScreenOverlay"
 
     override fun invalidate() {
-        // JS 实例销毁（热重载/退出）时不能留下孤儿前台服务 + 悬浮窗。
-        // RN 0.81 只回调 invalidate()、不再回调 onCatalystInstanceDestroy()（与
-        // ShellExecutorModule 同一个坑）。stopService 走 OverlayService.onDestroy
-        // 统一释放采集、悬浮窗与前台通知；服务未在运行时是安全空操作。
-        try {
-            reactContext.stopService(Intent(reactContext, OverlayService::class.java))
-        } catch (error: Exception) {}
-        // 授权凭据随 JS 实例一起作废：热重载后新的 Module 实例不该复用一个可能已失效的 token。
-        clearCaptureToken()
+        // ⚠️ M2 起**不再**在这里 stopService / 清 token——这是本次重设计与旧架构的
+        // 直接冲突点，由用户拍板按此改：
+        //
+        // 旧架构（大脑在 JS）：JS 实例销毁 ⇒ 脑子死了 ⇒ 悬浮窗留着只会空转，
+        //   所以「不留孤儿前台服务」是正确的清理。
+        // 新架构（大脑在原生 OverlayBrain）：JS 死亡/热重载后悬浮窗必须**继续**工作
+        //   ——这正是本次重设计的核心目的（设计文档 §二「完全不依赖 RN JS 存活」）。
+        //   在这里停服务 = 把刚搬家的大脑又绑回 RN 生命周期，等于白搬。
+        //
+        // 停服务只剩两条明确路径（都由用户或系统显式触发）：
+        //   · 悬浮窗「关闭」按钮 → stopOverlay() → stopService；
+        //   · 投影被系统停止（锁屏/系统回收）→ onStop() → stopSelf() → onDestroy()。
+        // clearCaptureToken 同理移除：凭据跟着**服务**走（onDestroy 已清），不跟 JS 实例走
+        // ——服务还在跑时投影可能仍然有效，在这里清掉会平白让悬浮窗失去采集能力。
         super.invalidate()
     }
 
@@ -272,6 +277,37 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("ERR_OVERLAY_IME", e.message, e)
+        }
+    }
+
+    /**
+     * 写入悬浮窗的配置快照（M2 大脑搬家）。
+     *
+     * JS 在「保存 API 配置 / 切换模型 / 切换角色 / 看屏幕页打开」时调用，把大脑需要的
+     * 全部配置一次性喂给原生。JSON 里**包含** apiKey——但原生会把它抽到
+     * EncryptedSharedPreferences，落盘文件里**不会有**明文密钥（与本仓库
+     * proactiveMessage/ProactiveCore.kt 的既有安全做法一致）。
+     *
+     * @param json 设计文档 3.1 的快照结构（endpoint/capabilities/persona/asr/tts/locale）
+     */
+    @ReactMethod
+    fun writeOverlayConfig(json: String?, promise: Promise) {
+        try {
+            val ok = OverlayBrain.get(reactContext).saveConfig(json ?: "")
+            recordTrace("overlay-config", if (ok) "saved" else "parse-failed")
+            promise.resolve(ok)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_CONFIG", e.message, e)
+        }
+    }
+
+    /** 悬浮窗的大脑是否已有可用配置（JS 据此决定悬浮窗聊天走原生还是回退 JS 管线）。 */
+    @ReactMethod
+    fun hasOverlayBrainConfig(promise: Promise) {
+        try {
+            promise.resolve(OverlayBrain.get(reactContext).hasConfig())
+        } catch (e: Exception) {
+            promise.resolve(false)
         }
     }
 
