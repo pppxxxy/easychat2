@@ -9,6 +9,7 @@ import { NativeModules } from 'react-native';
 import { getActiveApiConfig, capabilitiesForModel, getActiveModel } from '../storage/apiConfigs.js';
 import { getActiveLocale } from '../i18n/index.js';
 import { resolveCharacterTranscription } from '../character/runtimeConfig.js';
+import { getTtsSettings } from '../storage/settings/tts.js';
 
 function nativeModule() {
   return NativeModules.ScreenOverlay || null;
@@ -59,6 +60,16 @@ export async function buildOverlayConfigSnapshot({ character = null } = {}) {
     } catch (error) {
       // ASR 解析失败不影响大脑配置：原生会退回系统识别。
     }
+    // M4.1 嘴巴：播报开关。原生只实现**系统 TTS**——云端合成的请求体声明表
+    //（src/tts/providers.js，560+ 行）不在原生复刻，否则两处必然漂移。
+    // 所以这里只下发「是否播报」，不下发云端凭据。
+    let ttsEnabled = false;
+    try {
+      const tts = await getTtsSettings();
+      ttsEnabled = tts && tts.autoBroadcast === true;
+    } catch (error) {
+      // 读不到 TTS 设置就不播报（默认关闭），不影响其它配置。
+    }
     return JSON.stringify({
       endpoint: {
         baseUrl: String(config.baseUrl || ''),
@@ -79,6 +90,7 @@ export async function buildOverlayConfigSnapshot({ character = null } = {}) {
         systemPrompt: rolePersona(character),
       },
       asr,
+      tts: { enabled: ttsEnabled },
       locale: getActiveLocale(),
     });
   } catch (error) {

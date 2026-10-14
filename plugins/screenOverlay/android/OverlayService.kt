@@ -93,6 +93,13 @@ class OverlayService : Service() {
         // 「需要授权」通知的两类文案（同一个 PendingIntent，见 notifyPermissionNeeded）。
         private const val PERM_CAPTURE = "capture"
         private const val PERM_MIC = "mic"
+        // M4.2 通知栏快捷动作的 action 名（必须互不相同，否则 PendingIntent 会互相覆盖）。
+        const val ACTION_CAPTURE = "com.pppxxxy.easychat2.screenoverlay.CAPTURE"
+        const val ACTION_HIDE = "com.pppxxxy.easychat2.screenoverlay.HIDE"
+        const val ACTION_QUIT = "com.pppxxxy.easychat2.screenoverlay.QUIT"
+        private const val ACTION_REQUEST_CODE_CAPTURE = 0x5C21
+        private const val ACTION_REQUEST_CODE_HIDE = 0x5C22
+        private const val ACTION_REQUEST_CODE_QUIT = 0x5C23
 
         @Volatile var instance: OverlayService? = null
             private set
@@ -118,6 +125,8 @@ class OverlayService : Service() {
     // M3 耳朵：「说话」按钮（录音时文案切成「停止」）与在跑的录音器。
     private var talkButton: TextView? = null
     private var overlayRecorder: OverlayRecorder? = null
+    // M4.1 嘴巴：系统 TTS 播报（懒创建——没有播报需求时不占资源）。
+    private var overlayTts: OverlayTts? = null
     // 消息留档：收起/展开会重建视图，内容不能跟着丢（用户要求切种类、收起重开都保留上下文）。
     private val chatHistory = mutableListOf<Pair<String, String>>()
     // 键盘处理：面板被输入法顶住时上移（见 applyImeInset）。
@@ -180,6 +189,23 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // M4.2：通知栏快捷动作（系统经 PendingIntent.getService 送达）。
+        // 必须先判 action：这些 Intent 不带投屏凭据，不能落进下面的 setupProjection。
+        when (intent?.action) {
+            ACTION_CAPTURE -> {
+                captureForBrain()
+                return START_NOT_STICKY
+            }
+            ACTION_HIDE -> {
+                mainHandler.post { showCollapsed() }
+                return START_NOT_STICKY
+            }
+            ACTION_QUIT -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            else -> {}
+        }
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
         @Suppress("DEPRECATION")
         val resultData = intent?.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
@@ -196,6 +222,11 @@ class OverlayService : Service() {
             overlayRecorder?.cancel()
         } catch (error: Exception) {}
         overlayRecorder = null
+        // M4.1：释放 TTS 引擎（不释放会漏一个系统服务绑定）。
+        try {
+            overlayTts?.shutdown()
+        } catch (error: Exception) {}
+        overlayTts = null
         // 服务销毁 = 授权凭据已失效：必须同步清掉 Module 侧的缓存，否则「关掉后再开启」
         // 会带着失效 token 启动（Android 14 上 SecurityException / IllegalStateException
         // 连环闪退，见 ScreenOverlayModule 的 token 生命周期说明）。
@@ -215,6 +246,34 @@ class OverlayService : Service() {
     }
 
     // ---------- 前台通知 ----------
+
+    /**
+     * M4.2：给常驻通知加三个快捷动作。
+     *
+     * 全部走 `PendingIntent.getService`（把动作 Intent 发给本服务），
+     * 而不是 getActivity —— 系统代发、不经本进程主线程，
+     * 与「悬浮窗永不 startActivity」的架构约束一致（M1 消灭的 ANR 路径）。
+     */
+    private fun addNotificationActions(builder: Notification.Builder) {
+        // 动作 Intent 必须带 action 且各不相同：PendingIntent 的去重按
+        // (requestCode, Intent) 的 filterEquals 判定，action 相同会互相覆盖
+        //（用户点「截屏」结果执行了「退出」这类事故）。
+        val actions = listOf(
+            Triple(ACTION_CAPTURE, "截屏", ACTION_REQUEST_CODE_CAPTURE),
+            Triple(ACTION_HIDE, "隐藏窗", ACTION_REQUEST_CODE_HIDE),
+            Triple(ACTION_QUIT, "退出", ACTION_REQUEST_CODE_QUIT),
+        )
+        actions.forEach { (action, label, code) ->
+            try {
+                val intent = Intent(this, OverlayService::class.java).setAction(action)
+                val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                val pi = PendingIntent.getService(this, code, intent, flags)
+                builder.addAction(android.R.drawable.ic_menu_view, label, pi)
+            } catch (error: Exception) {
+                Log.w(TAG, "add notification action $label failed: ${error.message}")
+            }
+        }
+    }
 
     /**
      * 起前台服务。**绝不裸崩**——这是连环闪退的第一道闸。
@@ -255,6 +314,11 @@ class OverlayService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)
         if (pending != null) builder.setContentIntent(pending)
+        // M4.2 通知栏快捷操作：截屏 / 隐藏窗 / 退出。
+        // 为什么值得做：悬浮窗的主场景是「用户在看别的 app」，此时通知栏是**唯一**
+        // 不必把悬浮窗拖出来就能操作的入口。三个动作都用 PendingIntent.getService
+        // （系统代发、不经本进程主线程），与「永不 startActivity」的架构约束一致。
+        addNotificationActions(builder)
         val notification = builder.build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // 纵深防御：只有**当下确实持有有效授权凭据**时，才以前台服务的 mediaProjection
@@ -559,7 +623,13 @@ class OverlayService : Service() {
         val accepted = brain.send(
             userText = text,
             onDelta = { accumulated -> mainHandler.post { updateLastAssistantMessage(accumulated) } },
-            onDone = { reply -> mainHandler.post { updateLastAssistantMessage(reply) } },
+            onDone = { reply ->
+                mainHandler.post {
+                    updateLastAssistantMessage(reply)
+                    // M4.1：回复完成后按开关播报（系统 TTS；云端 TTS 只在 app 内可用）。
+                    maybeSpeak(reply)
+                }
+            },
             onError = { message -> mainHandler.post { updateLastAssistantMessage("（" + message + "）") } },
         )
         if (!accepted) {
@@ -827,6 +897,9 @@ class OverlayService : Service() {
         val created = OverlayRecorder().apply {
             dirProvider = { File(filesDir, "screen-watch") }
         }
+        // M4.1：录音前先停掉正在播的 TTS —— 否则麦克风会把播报本身录进去
+        //（回声/自问自答）。设计文档 3.3 明确要求「说话期间若 TTS 在播报，先暂停」。
+        overlayTts?.stop()
         if (!created.start()) {
             // 启动失败（设备占用/不支持 16kHz）：如实说，不静默失败（设计 3.3）。
             appendChatMessage("assistant", "（语音识别不可用，请用文字输入）")
@@ -879,6 +952,24 @@ class OverlayService : Service() {
     private fun updateTalkButton(recording: Boolean) {
         mainHandler.post {
             talkButton?.text = if (recording) "停止" else "说话"
+        }
+    }
+
+    /**
+     * M4.1：按快照里的开关播报回复（系统 TTS）。
+     *
+     * 引擎不可用时**在气泡里如实提示**（部分 ROM 没有中文 TTS 引擎），
+     * 不静默失败——否则用户会以为「开关没生效」。
+     */
+    private fun maybeSpeak(text: String) {
+        val config = OverlayBrain.get(this).loadConfig() ?: return
+        if (!config.ttsEnabled) return
+        val content = text.trim()
+        if (content.isEmpty()) return
+        val tts = overlayTts ?: OverlayTts(this).also { overlayTts = it }
+        val started = tts.speak(content, null)
+        if (!started) {
+            appendChatMessage("assistant", "（系统语音播报不可用）")
         }
     }
 
@@ -1352,7 +1443,12 @@ class OverlayService : Service() {
             userText = "看看我的屏幕，说点什么。",
             imageBase64 = base64,
             onDelta = { accumulated -> mainHandler.post { updateLastAssistantMessage(accumulated) } },
-            onDone = { reply -> mainHandler.post { updateLastAssistantMessage(reply) } },
+            onDone = { reply ->
+                mainHandler.post {
+                    updateLastAssistantMessage(reply)
+                    maybeSpeak(reply)
+                }
+            },
             onError = { message -> mainHandler.post { updateLastAssistantMessage("（$message）") } },
         )
         if (!accepted) {

@@ -422,6 +422,83 @@ test('M3 耳朵：麦克风权限走通知而非 startActivity（M1 铁律）', 
     '缺麦克风权限时发「授权麦克风」通知');
 });
 
+// ---------- M4 锦上添花 ----------
+
+test('M4.2：通知栏三个快捷动作，且都走 PendingIntent.getService', () => {
+  // 为什么值得做：悬浮窗的主场景是「用户在看别的 app」，此时通知栏是**唯一**
+  // 不必把悬浮窗拖出来就能操作的入口。
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.ok(serviceCode.includes('addNotificationActions'), '通知里加了动作');
+  for (const action of ['ACTION_CAPTURE', 'ACTION_HIDE', 'ACTION_QUIT']) {
+    assert.ok(serviceCode.includes(action), `缺少动作 ${action}`);
+  }
+  // 必须 getService（系统代发、不经主线程）——getActivity 会破坏 M1 的铁律
+  assert.ok(serviceCode.includes('PendingIntent.getService'), '动作用 getService');
+  assert.equal(/addNotificationActions[\s\S]{0,900}?PendingIntent\.getActivity/.test(serviceCode), false,
+    '通知动作不得用 getActivity（会重新引入 startActivity 类问题）');
+  // 三个 action 常量必须**互不相同**：PendingIntent 按 (requestCode, Intent).filterEquals
+  // 去重，action 相同会互相覆盖（点「截屏」结果执行了「退出」）。
+  const declared = [...serviceSrc.matchAll(/const val (ACTION_\w+) = "([^"]+)"/g)]
+    .map(m => m[2]);
+  assert.equal(declared.length, 3, '应有三个 action 常量');
+  assert.equal(new Set(declared).size, 3, '三个 action 必须互不相同');
+  // onStartCommand 必须优先分发动作：这些 Intent 不带投屏凭据，
+  // 落进 setupProjection 会当成「无 token」而误报失败。
+  assert.match(serviceCode, /override fun onStartCommand[\s\S]{0,700}?ACTION_CAPTURE/,
+    'onStartCommand 必须先判 action');
+});
+
+test('M4.3：JSONL 满 500 行滚动归档，且归档不丢历史', () => {
+  const brain = kotlinSource('OverlayBrain.kt');
+  assert.ok(brain.includes('ROTATE_LINE_THRESHOLD'), '有归档阈值');
+  assert.match(brain, /ROTATE_LINE_THRESHOLD = 500/, '阈值与设计文档 3.7 一致（500 行）');
+  assert.ok(brain.includes('rotateIfNeeded'), '有归档实现');
+  assert.match(brain, /private fun appendTurnToDisk[\s\S]{0,400}?rotateIfNeeded\(\)/,
+    '写入前先判归档');
+  // 分片命名必须与 JS 读入器的模式一致，否则 app 内看不到归档掉的历史
+  const jsLog = fs.readFileSync(path.resolve('src/screenWatch/overlayThreadParse.js'), 'utf8');
+  assert.ok(jsLog.includes('overlay-thread(-\\d+)?\\.jsonl'), 'JS 读入器按分片模式匹配');
+  assert.ok(brain.includes('overlay-thread-${existing + 1}.jsonl'), '原生写出的分片名同构');
+  // 先写分片再清当前文件：中途失败宁可重复（读入器按 id 去重）也不能丢
+  assert.match(brain, /target\.writeText[\s\S]{0,300}?file\.writeText\(""/,
+    '必须先写分片再清空当前文件（丢失不可逆，重复可去重）');
+});
+
+test('M4.4：原生大脑链路打点（request / first-byte / done / fail）', () => {
+  const brain = kotlinSource('OverlayBrain.kt');
+  for (const stage of ['brain-request', 'brain-first-byte', 'brain-done', 'brain-fail']) {
+    assert.ok(brain.includes(stage), `缺少打点 ${stage}`);
+  }
+  // 打点走既有诊断通道（与 M1 采集打点同一个 EVENT_TRACE → JS 诊断日志）
+  assert.ok(brain.includes('ScreenOverlayModule.recordTrace'), '走既有诊断通道');
+  // first-byte 必须真的只在**首个**增量时记一次
+  assert.match(brain, /if \(firstByteAt == 0L\)[\s\S]{0,300}?brain-first-byte/,
+    'first-byte 只在首个增量记一次');
+});
+
+test('M4.1：TTS 只做系统引擎，且录音时暂停播报', () => {
+  const tts = kotlinSource('OverlayTts.kt');
+  // 诚实边界：云端 TTS 的 provider 声明表在 JS 侧（560+ 行），原生不复刻。
+  assert.ok(tts.includes('TextToSpeech'), '用系统 TTS 引擎');
+  // 只看**代码**：文件顶部正解释着「为什么不在原生复刻云端 TTS」，
+  // 里面会合法提到 apiKey / providers.js，按整文件匹配是自相矛盾的门禁。
+  const ttsCode = tts.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.equal(/providers\.js|apiKey|Authorization/.test(ttsCode), false,
+    '原生不得复刻云端 TTS 的鉴权/声明表（两处必然漂移）');
+  // 引擎不可用要如实说，不静默失败
+  assert.ok(serviceSrc.includes('系统语音播报不可用'), '引擎不可用时如实提示');
+  // 录音前必须停播报：否则麦克风把自己的播报录进去（回声/自问自答）
+  assert.match(serviceSrc, /toggleRecording\(\)[\s\S]{0,1400}?overlayTts\?\.stop\(\)/,
+    '开始录音前必须先停播报');
+  // 服务销毁要释放引擎（否则漏一个系统服务绑定）
+  assert.match(serviceSrc, /override fun onDestroy\(\)[\s\S]{0,500}?overlayTts\?\.shutdown\(\)/,
+    'onDestroy 必须释放 TTS 引擎');
+});
+
 // ---------- 结构完整性 ----------
 
 test('Kotlin 源仍保持大括号平衡（沙箱无法编译，防编辑遗留重复片段）', () => {
@@ -463,6 +540,35 @@ class A {
     override fun onDestroy() {}
 }
 `), []);
+
+  // ⚠️ 不误报**重载**：同名但参数表不同是合法的 Kotlin，而且框架里很常见。
+  // M4 实现 TTS 时真实遇到：UtteranceProgressListener 的两个 onError 都必须实现
+  //（`onError(String)` 是 abstract 的，`onError(String, Int)` 是 API 21+ 的新形态）。
+  // 旧版检测器只比简单名，会把它误报成重复声明——逼人删掉其中一个，
+  // 反而把能编译的代码改成编译不过的。这条用例专门钉住这个回归。
+  assert.deepEqual(checkDuplicateFunctions(`
+class A {
+    override fun onError(utteranceId: String?) {}
+    override fun onError(utteranceId: String?, errorCode: Int) {}
+}
+`), [], '同名不同参数（重载）不得误报');
+
+  // 参数表空白差异不算不同签名（它们是同一个声明）
+  const spaced = checkDuplicateFunctions(`
+class A {
+    fun foo(a:Int) {}
+    fun foo(a: Int) {}
+}
+`);
+  assert.equal(spaced.length, 1, '参数表只是空白不同 → 仍视为同一签名（真重复）');
+
+  // 嵌套括号与字符串里的括号不能截断参数表
+  assert.deepEqual(checkDuplicateFunctions(`
+class A {
+    fun foo(a: Int = bar(1), b: String = ")") {}
+    fun baz() {}
+}
+`), [], '嵌套/字符串括号不得导致误判');
 });
 
 test('跨文件 companion 常量必须带类名限定（裸用会 Unresolved reference）', () => {

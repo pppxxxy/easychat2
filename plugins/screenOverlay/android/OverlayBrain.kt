@@ -64,6 +64,18 @@ class OverlayBrain private constructor(context: Context) {
         val asrBaseUrl: String = "",
         val asrApiKey: String = "",
         val asrModel: String = "",
+        // M4.1 嘴巴：TTS 播报开关（随同一份快照下发）。
+        //
+        // **诚实边界**：原生只实现**系统 TTS**（Android 内置 TextToSpeech 引擎），
+        // 不实现云端 TTS。原因是云端合成需要各家服务商的请求体声明表
+        //（JS 侧 src/tts/providers.js 有 560+ 行的完整表：鉴权方式、字段路径、
+        // hex/base64/binary 三种响应形态、火山/讯飞/腾讯各自的签名规则），
+        // 在原生复刻那张表必然与 JS 侧漂移——那是「两处各写一份」的典型反例。
+        // 因此：云端 TTS 只在 app 内可用；悬浮窗（app 不在前台时）用系统引擎播报。
+        // 这与设计文档「原生只做 OpenAI 兼容一种协议、纯对话一种场景」的取舍同构。
+        val ttsEnabled: Boolean = false,
+        val ttsVoice: String = "",
+        val ttsSpeed: Float = 1.0f,
     ) {
         /** 设计文档 3.2：原生只实现 OpenAI 兼容协议，其余一律引导回 App。 */
         val protocolSupported: Boolean get() = protocol == "openai"
@@ -158,6 +170,7 @@ class OverlayBrain private constructor(context: Context) {
             .putString(KEY_ASR_PROVIDER, config.asrProvider)
             .putString(KEY_ASR_BASE_URL, config.asrBaseUrl)
             .putString(KEY_ASR_MODEL, config.asrModel)
+            .putString(KEY_TTS_ENABLED, if (config.ttsEnabled) "1" else "0")
             .apply()
         // apiKey：优先加密存储；写成功后删掉明文（迁移清理，与 ProactiveCore 同款）。
         if (writeSecretApiKey(config.apiKey)) {
@@ -205,6 +218,8 @@ class OverlayBrain private constructor(context: Context) {
             personaName = prefs.getString(KEY_PERSONA_NAME, "") ?: "",
             systemPrompt = prefs.getString(KEY_SYSTEM_PROMPT, "") ?: "",
             locale = prefs.getString(KEY_LOCALE, "zh-CN") ?: "zh-CN",
+            // M4.1 嘴巴：播报开关（原生只实现系统 TTS，见 Config 注释）。
+            ttsEnabled = prefs.getString(KEY_TTS_ENABLED, "0") == "1",
         )
     }
 
@@ -237,6 +252,7 @@ class OverlayBrain private constructor(context: Context) {
             asrBaseUrl = asr.optString("baseUrl", ""),
             asrApiKey = asr.optString("apiKey", ""),
             asrModel = asr.optString("model", ""),
+            ttsEnabled = root.optJSONObject("tts")?.optBoolean("enabled", false) ?: false,
         )
     }
 
@@ -289,11 +305,53 @@ class OverlayBrain private constructor(context: Context) {
 
     private fun historyFile(): File = File(appContext.filesDir, "screen-watch/overlay-thread.jsonl")
 
+    /** 归档分片：overlay-thread-1.jsonl、overlay-thread-2.jsonl…（与 JS 侧读入器同名模式）。 */
+    private fun historyDir(): File = File(appContext.filesDir, "screen-watch")
+
+    /**
+     * 写满就滚动归档（M4.3，设计 3.7 尾部）。
+     *
+     * 为什么必须归档：这是**追加型**文件，悬浮窗长期使用会无限增长；而每次发送前都要
+     * 整份读回来（文件=唯一事实源），行数无上限会让读取与内存同步变慢。
+     *
+     * 判据用**行数**而不是字节：读入器按行解析，行数才对应它的成本。
+     * 归档后当前文件清空、旧内容留在 `overlay-thread-<n>.jsonl` ——
+     * JS 侧的读入器已按 `overlay-thread(-\d+)?\.jsonl` 匹配并全部分片合并，
+     * 所以归档对「app 内能看到完整对话」是透明的（不会丢历史）。
+     */
+    private fun rotateIfNeeded() {
+        try {
+            val file = historyFile()
+            if (!file.exists()) return
+            val lines = file.readLines()
+            if (lines.size < ROTATE_LINE_THRESHOLD) return
+            // 分片号取「已有分片的最大值 + 1」：不用时间戳，保证按文件名排序即时间顺序
+            //（JS 读入器就是按名字排序后再按 ms 归并的）。
+            val existing = historyDir().listFiles()
+                ?.mapNotNull { it.name.matchResult(ROTATE_PATTERN) }
+                ?.maxOrNull() ?: 0
+            val target = File(historyDir(), "overlay-thread-${existing + 1}.jsonl")
+            // 先写分片再清空当前文件：中途失败时宁可重复（读入器按 id 去重）
+            // 也不能丢（丢失是不可逆的）。
+            target.writeText(lines.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+            file.writeText("", Charsets.UTF_8)
+            ScreenOverlayModule.recordTrace("thread-rotated", "lines=${lines.size} -> ${target.name}")
+        } catch (error: Exception) {
+            Log.w(TAG, "rotate thread log failed: ${error.message}")
+        }
+    }
+
+    /** 从 `overlay-thread-3.jsonl` 里取出 3；不匹配返回 null。 */
+    private fun String.matchResult(pattern: Regex): Int? =
+        pattern.matchEntire(this)?.groupValues?.getOrNull(1)?.toIntOrNull()
+
     /** JSONL 一行一条；图片另存同目录文件、这里只记文件名。 */
     private fun appendTurnToDisk(turn: Turn) {
         try {
             val file = historyFile()
             file.parentFile?.mkdirs()
+            // M4.3：写入前先看是否该归档（读一次行数，成本远低于它带来的好处）。
+            rotateIfNeeded()
             val now = System.currentTimeMillis()
             val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date(now))
             val entry = JSONObject()
@@ -457,6 +515,12 @@ class OverlayBrain private constructor(context: Context) {
         onRetry: () -> Unit,
         onFail: (String) -> Unit,
     ) {
+        // M4.4：原生大脑的链路打点（stage: request / first-byte / done / fail）。
+        // 与 M1 的采集打点同一通道（OverlayService.EVENT_TRACE → JS 诊断日志），
+        // 于是「悬浮窗聊天没反应」也能像「截屏一直等」那样事后定位卡在哪一环。
+        val startedAt = System.currentTimeMillis()
+        var firstByteAt = 0L
+        ScreenOverlayModule.recordTrace("brain-request", "model=$model vision=${imageBase64 != null}")
         val body = buildRequestBody(config, model, userText, imageBase64)
         val request = Request.Builder()
             .url(config.baseUrl.trimEnd('/') + "/chat/completions")
@@ -467,6 +531,10 @@ class OverlayBrain private constructor(context: Context) {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 Log.w(TAG, "stream failed: ${error.message}")
+                ScreenOverlayModule.recordTrace(
+                    "brain-fail",
+                    "network ${System.currentTimeMillis() - startedAt}ms ${error.javaClass.simpleName}"
+                )
                 onRetry()
             }
 
@@ -475,8 +543,13 @@ class OverlayBrain private constructor(context: Context) {
                     if (!resp.isSuccessful) {
                         // 429/5xx 换下一个模型重试；4xx（密钥/模型名错误）不重试——
                         // 重试只会得到同样的拒绝，还多烧一次配额。
-                        if (resp.code == 429 || resp.code >= 500) onRetry()
-                        else onFail("请求失败（HTTP ${resp.code}），请检查密钥或模型名")
+                        if (resp.code == 429 || resp.code >= 500) {
+                            ScreenOverlayModule.recordTrace("brain-fail", "http ${resp.code} retry")
+                            onRetry()
+                        } else {
+                            ScreenOverlayModule.recordTrace("brain-fail", "http ${resp.code} fatal")
+                            onFail("请求失败（HTTP ${resp.code}），请检查密钥或模型名")
+                        }
                         return
                     }
                     val source = try {
@@ -485,6 +558,7 @@ class OverlayBrain private constructor(context: Context) {
                         null
                     }
                     if (source == null) {
+                        ScreenOverlayModule.recordTrace("brain-fail", "no-body")
                         onRetry()
                         return
                     }
@@ -504,6 +578,13 @@ class OverlayBrain private constructor(context: Context) {
                                 ""   // 心跳/注释行解析失败跳过，不让一脏行毁掉整条回复
                             }
                             if (delta.isNotEmpty()) {
+                                if (firstByteAt == 0L) {
+                                    firstByteAt = System.currentTimeMillis()
+                                    ScreenOverlayModule.recordTrace(
+                                        "brain-first-byte",
+                                        "${firstByteAt - startedAt}ms model=$model"
+                                    )
+                                }
                                 full.append(delta)
                                 onDelta(full.toString())
                             }
@@ -513,19 +594,29 @@ class OverlayBrain private constructor(context: Context) {
                         // 已经吐出去的增量不撤回；把已收到的部分当完整回复交付，
                         // 免得用户因为断流而一无所有。
                         if (full.isNotEmpty()) {
+                            ScreenOverlayModule.recordTrace(
+                                "brain-done",
+                                "partial ${System.currentTimeMillis() - startedAt}ms chars=${full.length}"
+                            )
                             appendTurnToDisk(Turn("assistant", full.toString()))
                             history.add(Turn("assistant", full.toString()))
                             onDone(full.toString())
                         } else {
+                            ScreenOverlayModule.recordTrace("brain-fail", "stream-read ${error.javaClass.simpleName}")
                             onRetry()
                         }
                         return
                     }
                     val reply = full.toString().trim()
                     if (reply.isEmpty()) {
+                        ScreenOverlayModule.recordTrace("brain-fail", "empty-reply")
                         onFail("模型返回了空回复")
                         return
                     }
+                    ScreenOverlayModule.recordTrace(
+                        "brain-done",
+                        "${System.currentTimeMillis() - startedAt}ms first=${if (firstByteAt == 0L) -1 else firstByteAt - startedAt}ms chars=${reply.length}"
+                    )
                     appendTurnToDisk(Turn("assistant", reply))
                     history.add(Turn("assistant", reply))
                     while (history.size > HISTORY_DISK_MAX) history.removeAt(0)
@@ -586,10 +677,16 @@ class OverlayBrain private constructor(context: Context) {
         private const val KEY_ASR_BASE_URL = "asr_base_url"
         private const val KEY_ASR_MODEL = "asr_model"
         private const val KEY_ASR_API_KEY = "asr_api_key"
+        // M4.1 嘴巴：系统 TTS 播报开关。
+        private const val KEY_TTS_ENABLED = "tts_enabled"
         // 请求里带的历史轮数（设计文档 3.2：截断至最近 12 轮）。
         private const val HISTORY_MAX = 12
-        // 内存/JSONL 里保留的轮数上限（防长会话把内存撑爆；归档滚动是 M4）。
+        // 内存/JSONL 里保留的轮数上限（防长会话把内存撑爆）。
         private const val HISTORY_DISK_MAX = 200
+        // M4.3 归档阈值：当前分片超过这么多行就滚动切到 overlay-thread-<n>.jsonl。
+        // 取 500 与设计文档 3.7 的「超过 500 行滚动切分」一致。
+        private const val ROTATE_LINE_THRESHOLD = 500
+        private val ROTATE_PATTERN = Regex("""overlay-thread-(\d+)\.jsonl""")
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
         @Volatile private var instance: OverlayBrain? = null
