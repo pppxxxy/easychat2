@@ -2,7 +2,7 @@
 // 可见页只渲染分到本页的行（页首行锚文本用于字号变化后的重新定位）；
 // 左右 30% 点按翻页，中间点按呼出/收起控制条；页脚显示进度与章题。
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import {
   ActivityIndicator,
@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
@@ -77,7 +78,18 @@ function changeFontSize(current, delta) {
 
 export default function BookReaderView({ item, content, onBack }) {
   const { theme, fonts, tokens } = useTheme();
-  const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
+  // 设备安全区底部 inset：只影响「正文让开多少」，取值见 bookReaderStyles 的 resolveBottomInset。
+  //
+  // 这里刻意读 **context**（useContext(SafeAreaInsetsContext)）而不是 `useSafeAreaInsets()`：
+  // 后者在 Provider 缺失时**直接 throw**（安全区包 v5 的实现：insets == null 就抛
+  // NO_INSETS_ERROR）。阅读器是可能被单独挂载/测试渲染的组件，为一个底边距把整页炸掉不值得，
+  // 所以缺失时按 0 处理（退化成那个小常数，行为与改造前一致）。
+  const insets = useContext(SafeAreaInsetsContext);
+  const safeAreaBottom = (insets && Number(insets.bottom)) || 0;
+  const styles = useMemo(
+    () => createStyles(theme, fonts, tokens, safeAreaBottom),
+    [theme, fonts, tokens, safeAreaBottom]
+  );
   const navigation = useNavigation();
   const { t } = useTranslation();
   const { characters, activeId, ensureCharacterSession, setPendingQuote } = useApp();
@@ -681,13 +693,24 @@ export default function BookReaderView({ item, content, onBack }) {
       </View>
 
       {showControls ? (
-        <View style={styles.bottomBar}>
-          <Text style={styles.progressText}>
-            {percent}%{currentBlock && currentBlock.title ? ` · ${currentBlock.title}` : ''}
-            {paged && reader.pageCount > 0
-              ? ` · ${t('books.reader.progress.blockPage', { page: reader.pageIndex + 1, total: reader.pageCount })}`
-              : ''}
-          </Text>
+        // FIX-6：提示行是**浮层**，正文铺满到它下面，所以它必须让触摸穿透
+        //（pointerEvents='none'）——否则点在提示行那一块收不起来，而中键收起正是主交互。
+        //
+        // 单行不折 + **只截断章名**：整行 numberOfLines=1 会把「本段 16/19」也截掉，
+        // 而那是分页模式唯一的位置信息。这里拆成三段——进度%与页码都是定长短串（永不截断），
+        // 只有章名长度无界（flexShrink:1 + 自身截断）。两端的关键信息永远在，变长的部分让位。
+        <View style={styles.bottomBar} pointerEvents="none">
+          <Text style={styles.progressText} numberOfLines={1}>{`${percent}%`}</Text>
+          {currentBlock && currentBlock.title ? (
+            <Text style={styles.progressTitle} numberOfLines={1} ellipsizeMode="tail">
+              {` · ${currentBlock.title}`}
+            </Text>
+          ) : null}
+          {paged && reader.pageCount > 0 ? (
+            <Text style={styles.progressText} numberOfLines={1}>
+              {` · ${t('books.reader.progress.blockPage', { page: reader.pageIndex + 1, total: reader.pageCount })}`}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 

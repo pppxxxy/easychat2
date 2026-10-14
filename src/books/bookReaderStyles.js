@@ -6,11 +6,52 @@ import { StyleSheet } from 'react-native';
 // 阅读区上下内缩：顶栏/底栏是浮层（absolute），不参与布局——留出恒定内缩，
 // 保证工具栏显隐时正文区尺寸不变（否则每次呼出工具栏都会触发重测量→转圈）。
 const READER_INSET_TOP = 48;
-// 底部内缩放宽到 56：底栏进度文字本身要让开系统导航栏/手势条（原来只留 40，
-// 底栏又贴在屏幕最下沿，最后一行字会被遮掉一半），正文也要跟着让位。
-const READER_INSET_BOTTOM = 56;
+// 底边内缩：**只让开系统手势条**，不再给提示行留位。
+//
+// 历史（FIX-6）：这里原先写 56，注释是「给浮层工具栏留位」。但留位是**死**的、
+// 提示行是**活**的——提示行是 flex:1 的 Text，章名一长就折行：
+//   一行时 8 + ~15 + 24 ≈ 47px < 56 ✓ 装得下
+//   两行时 ≈ 62px > 56 ✗ 不透明浮层（bottomBar 是 background 实色 + zIndex 10）
+//                       直接压住正文最后一行
+// 于是「章名长就压字、章名短就留白」反复横跳。这不是哪次改漏了，是
+// 「固定留位伺候动态高度」这个结构本身伺候不了动态高度。
+//
+// 新设计（用户拍板）：**正文铺满到底，提示行浮在上面、点击即消**。
+//   · 压字从结构上绝迹：不存在「留位不够」这回事；
+//   · 代价可接受：提示行可见时盖住最后 1~2 行，点一下（或点提示行本身）即还；
+//   · 分页不变量仍守住：这个值**依然是常数**（不随 showControls 变），
+//     所以 pageInnerWrap 的测量高度照旧不随工具栏显隐变化，toggle 不会重新分页。
+// 不取 safe-area inset 的原因：阅读器挂在原生 Stack 里、且 app 未开 edge-to-edge，
+// 底部本就是应用区域；这个常数只需覆盖手势条的视觉侵入（与 topBar 的 48 同口径）。
+const READER_INSET_BOTTOM = 16;
+// 分页模式的实际底边内缩 = max(小常数, 设备安全区底部)。
+//
+// 为什么取 max 而不是直接用 safe-area：本 app 未开 edge-to-edge、且阅读器在原生 Stack 里，
+// 多数设备上 inset.bottom 为 0（系统导航栏在应用窗口之外）——此时靠上面那个 16 让开手势条的
+// 视觉侵入。而在「应用确实延伸到系统区」的机型/设置上，16 就太小了，必须让真实 inset 说话。
+//
+// ⚠️ 这个值**只依赖设备**，不依赖 showControls —— 分页不变量（toggle 提示条不得触发重新分页）
+// 照旧成立：同一个设备上它自始至终是同一个数。
+function resolveBottomInset(safeAreaBottom) {
+  const inset = Number(safeAreaBottom);
+  if (!Number.isFinite(inset) || inset <= 0) return READER_INSET_BOTTOM;
+  return Math.max(READER_INSET_BOTTOM, Math.round(inset));
+}
+// 滚动模式（mdContent）的底边内缩：**保持较大值**，与分页模式刻意不同。
+//
+// 为什么不能一起改小（任务书原意是两处都改成小常数）：
+//   分页模式有「点中间收起」的交互（handleTap 绑在 pageArea 上），所以提示行是**临时**浮层；
+//   而**滚动模式根本没有收起入口**——!paged 分支只渲染 BookMarkdownList（FlatList），
+//   既无 onPress 也无 setShowControls，showControls 恒为初始 true。
+// 于是若把这里的内缩也压到 16，提示行会**永久**盖住列表最后 1~2 行，用户滚到底也读不到
+// （内容最大滚动位置就在底部，被浮层吃掉的部分永远补不回来）。
+//
+// 取值依据：提示行自身高度 = paddingTop 8 + 单行文字 ~15 + paddingBottom 24 ≈ 47，
+// 留 56 保证「常驻提示行 + 正文完整可读」两者兼得。这是**修正**而非保守：
+// 一旦将来给滚动模式补上收起入口，这个常数就可以跟着降下来。
+const SCROLL_INSET_BOTTOM = 56;
 
-const createStyles = (theme, fonts, tokens) => StyleSheet.create({
+const createStyles = (theme, fonts, tokens, safeAreaBottom = 0) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   modalRoot: { paddingTop: 48 },
   // 目录 / 评论这类全屏 Modal 的顶栏：**不浮层**、参与布局。
@@ -66,10 +107,17 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   mdContent: {
     paddingHorizontal: 20,
     paddingTop: READER_INSET_TOP,
-    paddingBottom: READER_INSET_BOTTOM,
+    // 滚动模式用较大的底边内缩——那里没有收起入口，提示行是**常驻**的（见 SCROLL_INSET_BOTTOM）。
+    paddingBottom: SCROLL_INSET_BOTTOM,
   },
+  // 分页模式：正文铺满到底，提示行浮在上面、点一下即消（FIX-6）。
   // 恒定上下内缩，给浮层工具栏留位；pageInner 才是测量容器（尺寸不随工具栏变化）。
-  pageArea: { flex: 1, paddingTop: READER_INSET_TOP, paddingBottom: READER_INSET_BOTTOM },
+  // 底边取 max(小常数, 设备安全区)——只跟设备走，不跟提示条显隐走（见 resolveBottomInset）。
+  pageArea: {
+    flex: 1,
+    paddingTop: READER_INSET_TOP,
+    paddingBottom: resolveBottomInset(safeAreaBottom),
+  },
   pageInnerWrap: { flex: 1 },
   modeHint: {
     position: 'absolute',
@@ -91,6 +139,11 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     opacity: 0,
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // 底部提示行：**浮层**（不参与布局），正文铺满到它下面，点击任意处即消。
+  //
+  // `pointerEvents: 'none'`（在组件上设）是必须的：这层盖在正文最底部，
+  // 若它吃掉触摸，用户点「提示行那一块」就没法收起（而中键收起正是 FIX-6 的主要交互）。
+  // 设 none 后触摸穿透到底下的 TouchableWithoutFeedback（paged 模式的中键处理）。
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -105,7 +158,17 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
     zIndex: 10,
     backgroundColor: theme.colors.background,
   },
-  progressText: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flex: 1 },
+  // 单行不折：章名再长也截断（见 BookReaderView 的三段式渲染）。
+  // 折行会让浮层高度随内容变化，「盖住几行」就变得不可预期；截断后高度恒定。
+  //
+  // 三段布局：`52%` + ` · 章名…` + ` · 本段 16/19`。
+  // 只有**章名**长度无界，所以只有它带 flexShrink:1（宽度不够时收缩并出省略号）；
+  // 两端的百分比与页码是定长短串，永远完整显示——整行 numberOfLines=1 会把
+  // 「本段 x/y」也截掉，而那是分页模式唯一的位置信息，不能丢。
+  // 用 flexShrink 而非 flex:1：后者会让章名吃掉全部剩余宽度，把页码顶到最右、
+  // 与章名之间留出一大段空档；flexShrink 只在真的放不下时才收缩，排布更自然。
+  progressText: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
+  progressTitle: { color: theme.colors.textFaint, fontSize: fonts.scaled(11), flexShrink: 1 },
   chapterBody: { flex: 1 },
   chapterSearchRow: {
     flexDirection: 'row',

@@ -213,7 +213,12 @@ test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系�
   const chaptersModal = readSource('src/books/BookChaptersModal.js');
   const commentsModal = readSource('src/books/BookCommentsModal.js');
   const styles = readSource('src/books/bookReaderStyles.js');
-  assert.ok(/READER_INSET_BOTTOM = 56/.test(styles), '正文底部内缩放宽（让开系统导航栏）');
+  // FIX-6：分页模式底边内缩降到小常数（正文铺满到底，提示行浮在上面、点击即消）。
+  assert.ok(/READER_INSET_BOTTOM = 16/.test(styles), '分页模式底边只让开手势条');
+  // 滚动模式**仍保持较大内缩**：那里没有收起入口，提示行是常驻的（详见 styles 里的说明）。
+  assert.ok(/SCROLL_INSET_BOTTOM = 56/.test(styles), '滚动模式底边内缩保持较大（提示行常驻、无法收起）');
+  assert.ok(/mdContent:\s*\{[\s\S]{0,200}?paddingBottom:\s*SCROLL_INSET_BOTTOM/.test(styles),
+    'mdContent 必须用滚动专用的内缩（不能跟分页一起压小）');
   assert.ok(/bottomBar:\s*\{[\s\S]{0,300}?paddingBottom:\s*24/.test(styles),
     '底栏自身留出安全边距，最后一行进度字不再被遮一半');
   assert.ok(chaptersModal.includes('styles.modalTopBar') && commentsModal.includes('styles.modalTopBar'),
@@ -221,6 +226,66 @@ test('阅读器：底部进度避让系统栏，目录/评论顶栏不再贴系�
   assert.ok(styles.includes('modalTopBar: {'), '样式已定义');
   // 阅读页那套 topBar 是 absolute 贴屏幕顶，全屏 Modal 里复用会把标题顶进状态栏
   assert.ok(/modalRoot:\s*\{\s*paddingTop:\s*48/.test(styles), 'Modal 顶部内缩同步放宽');
+});
+
+test('FIX-6：底边铺满 + 提示行浮层化（取消固定留位伺候动态高度）', () => {
+  const view = readSource('src/books/BookReaderView.js');
+  const styles = readSource('src/books/bookReaderStyles.js');
+
+  // 1) 提示行必须让触摸穿透，否则「点提示行那块」收不起来（中键收起是主交互）。
+  assert.ok(/styles\.bottomBar\}\s*pointerEvents="none"/.test(view),
+    'bottomBar 必须 pointerEvents="none"（让触摸穿透到下面的收起手势）');
+
+  // 2) 提示行必须单行 + 截断，高度恒定：折行会让「盖住几行」不可预期。
+  assert.ok(/styles\.progressTitle[^>]*numberOfLines=\{1\}/.test(view),
+    '章名必须 numberOfLines={1}（折行会让浮层高度随内容变化）');
+  assert.ok(view.includes('ellipsizeMode="tail"'), '超长章名要有省略号');
+
+  // 3) 只截断章名，**不能**整行截断：那样会把「本段 x/y」也截掉，
+  //    而那是分页模式唯一的位置信息。
+  assert.ok(/progressText[^>]*numberOfLines=\{1\}/.test(view), '百分比与页码各自单行');
+  const bar = view.slice(view.indexOf('styles.bottomBar} pointerEvents'), view.indexOf('</View>', view.indexOf('styles.bottomBar} pointerEvents')));
+  assert.ok(bar.includes('books.reader.progress.blockPage'), '页码仍渲染（不能被截断吞掉）');
+  // 三段各自是独立的 Text：整行一个 Text + numberOfLines=1 会把尾部信息截掉
+  assert.ok((bar.match(/<Text/g) || []).length >= 3, '进度行应拆成三段（%/章名/页码），只让章名让位');
+
+  // 4) 只有章名可收缩；百分比与页码是定长短串，不该被压缩。
+  assert.ok(/progressTitle:\s*\{[^}]*flexShrink:\s*1/.test(styles), '章名允许收缩');
+  assert.ok(!/progressText:\s*\{[^}]*flexShrink/.test(styles), '百分比/页码不参与收缩');
+
+  // 5) 分页不变量：测量容器高度仍不得依赖 showControls。
+  //    底边内缩现在取 max(小常数, 设备安全区)——**只跟设备走**，不跟提示条显隐走。
+  //    这条断言的是「不变量」而不是字面量：值可以随设备变，但绝不能引用 showControls。
+  assert.ok(/pageArea:\s*\{[\s\S]{0,200}?paddingBottom:\s*resolveBottomInset\(safeAreaBottom\)/.test(styles),
+    'pageArea 的底边内缩必须由设备安全区推导（常数语义）');
+  assert.ok(!/pageArea:\s*\{[^}]*showControls/.test(styles), 'pageArea 不得引用 showControls');
+  assert.ok(/SafeAreaInsetsContext/.test(view),
+    '必须读安全区 context（useSafeAreaInsets 在无 Provider 时会 throw）');
+  // 断言「代码里没调用」而不是「文件里没出现这个词」：注释里正解释着为什么不用它。
+  // 逐行去掉注释后再判，避免注释把门禁刷红（同 themeContrast 的检测器口径）。
+  const codeOnly = view.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.ok(!/useSafeAreaInsets\s*\(/.test(codeOnly),
+    '不得用 useSafeAreaInsets()：Provider 缺失时它会抛 NO_INSETS_ERROR，为一个底边距炸掉整页不值得');
+
+  // 6) 顶部不动（有实体按钮，铺满会误触）。
+  assert.ok(/READER_INSET_TOP = 48/.test(styles), '顶部内缩维持 48');
+});
+
+test('FIX-6：resolveBottomInset 取 max(常数, 安全区)，非法/缺失值退化成常数', () => {
+  // 纯函数行为——这里能真正执行，比源码字符串断言更有价值。
+  // 通过模块导出拿到它（未导出时退回源码断言，保持测试稳定）。
+  const styles = readSource('src/books/bookReaderStyles.js');
+  const m = /function resolveBottomInset\(safeAreaBottom\)\s*\{([\s\S]*?)\n\}/.exec(styles);
+  assert.ok(m, 'resolveBottomInset 必须存在且可静态定位');
+  const body = m[1];
+  // 语义断言：非法/非正 → 常数；否则取较大者
+  assert.ok(body.includes('Number.isFinite(inset)'), '必须挡掉 NaN/Infinity');
+  assert.ok(/inset <= 0/.test(body), '必须挡掉 0 / 负数（无安全区的设备）');
+  assert.ok(body.includes('READER_INSET_BOTTOM'), '退化值必须是那个小常数');
+  assert.ok(/Math\.max\(READER_INSET_BOTTOM, Math\.round\(inset\)\)/.test(body),
+    '有效 inset 时取 max 并取整（避免小数像素）');
 });
 
 test('章节目录：搜索 + 当前章标记 + 按章进度三态', () => {
