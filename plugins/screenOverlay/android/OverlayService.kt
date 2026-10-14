@@ -67,6 +67,9 @@ class OverlayService : Service() {
         private const val TAG = "ScreenOverlay"
         private const val NOTIFICATION_ID = 0x5C02
         private const val CHANNEL_ID = "screen_overlay"
+        // 「重新授权截屏」通知：与前台常驻通知分开 ID，autoCancel + 替换语义（不堆叠）。
+        private const val REAUTH_NOTIFICATION_ID = 0x5C04
+        private const val REAUTH_REQUEST_CODE = 0x5C05
         // 帧新鲜度校验的时序余量：请求与首帧落地之间有抖动，留 50ms 避免误杀合法帧。
         private const val FRAME_FRESHNESS_SLACK_NANOS = 50_000_000L
         // 兜底交付等待：屏幕静止时不产生新帧（跨应用看静态画面最常见的失败），
@@ -838,9 +841,69 @@ class OverlayService : Service() {
         // 失败也要复位状态文字：否则小窗永远停在「正在看…」，用户以为卡死（真机 bug）。
         setStatusText("")
         ScreenOverlayModule.recordTrace("capture-failed", reason)
+        // 凭据失效类失败：app 大概率不在前台（悬浮窗的主场景），没有 JS 可用来引导。
+        // 通知是唯一合规通道——用户点它即可在 app 外完成重授权（M1 验收项）。
+        if (reason == "no-projection" || reason == "projection-invalid" || reason == "projection-denied") {
+            notifyReauthNeeded()
+        }
         ScreenOverlayModule.emit(EVENT_CAPTURE_FAILED, Arguments.createMap().apply {
             putString("reason", reason)
         })
+    }
+
+    /**
+     * 「点此重新授权截屏」通知：PendingIntent 直接拉起授权 Activity（M1.3）。
+     *
+     * 为什么用通知而不是把主 Activity 拉起来：M1 已物理移除悬浮窗的 startActivity
+     * 路径（那是 ANR 源头），而通知的 PendingIntent 由**系统**代为启动，不经本进程
+     * 主线程，是悬浮窗与外界交互的唯一合规通道。
+     *
+     * 同一个 notificationId：连续失败时是**替换**而不是堆叠，不会刷屏。
+     */
+    private fun notifyReauthNeeded() {
+        try {
+            val manager = getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && manager?.getNotificationChannel(CHANNEL_ID) == null) {
+                return  // 通道还没建（onCreate 之前），不硬发
+            }
+            val intent = Intent(this, OverlayPermissionActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val pending = PendingIntent.getActivity(
+                this, REAUTH_REQUEST_CODE, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+            builder.setContentTitle("重新授权截屏")
+                .setContentText("点此重新授权，悬浮窗即可继续看屏幕")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+            manager?.notify(REAUTH_NOTIFICATION_ID, builder.build())
+        } catch (error: Exception) {
+            Log.w(TAG, "reauth notification failed: ${error.message}")
+        }
+    }
+
+    /**
+     * 重新授权后把新凭据接到**正在运行**的服务上（M1.3）。
+     *
+     * app 在后台完成重授权时没有 RN/JS 可用，只能由授权 Activity 直接调进来。
+     * 常见场景：锁屏/系统回收导致旧 projection 失效 → 用户点截屏失败 → 点通知重授权
+     * → 凭据更新 → 这里重建投影 → 用户再点截屏就能用了。
+     */
+    fun attachProjection(resultCode: Int, data: Intent?) {
+        if (data == null) return
+        mainHandler.post {
+            // 已有有效投影就不重复建（重复建会泄露一个 VirtualDisplay）。
+            if (projection != null) return@post
+            setupProjection(resultCode, data)
+        }
     }
 
     // 硬超时（跑在**工作线程**，主线程被冻结也照样到点）：无论哪条路径卡死，

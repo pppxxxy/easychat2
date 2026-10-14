@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -14,7 +13,6 @@ import android.text.TextUtils
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -30,22 +28,21 @@ import java.lang.ref.WeakReference
  * - 启停 OverlayService（前台服务 + WindowManager 覆盖窗）
  * - 把服务的采集/状态事件转给 JS（DeviceEventEmitter）
  * 事件名见 OverlayService.companion。
+ *
+ * ⚠️ M1.3（2026-10-14）起**不再是 ActivityEventListener**：投屏授权改由独立的
+ * OverlayPermissionActivity 承接（见该文件顶部说明）。旧实现绑在 RN 主 Activity 上，
+ * app 不在前台时走不了；重新授权还会把主 Activity 拉到前台，正是 M1 消灭的 ANR 路径。
  */
 class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext), ActivityEventListener {
+    ReactContextBaseJavaModule(reactContext) {
 
     init {
-        reactContext.addActivityEventListener(this)
         contextRef = WeakReference(reactContext)
     }
 
     override fun getName() = "ScreenOverlay"
 
     override fun invalidate() {
-        try {
-            reactContext.removeActivityEventListener(this)
-        } catch (error: Exception) {}
-        if (contextRef?.get() === reactContext) contextRef = null
         // JS 实例销毁（热重载/退出）时不能留下孤儿前台服务 + 悬浮窗。
         // RN 0.81 只回调 invalidate()、不再回调 onCatalystInstanceDestroy()（与
         // ShellExecutorModule 同一个坑）。stopService 走 OverlayService.onDestroy
@@ -60,29 +57,11 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
 
     // 等待授权结果的回调队列：**幂等**——弹窗期间再点按钮只是排队，不会叠出第二个弹窗
     //（叠窗会让用户看到连续两个系统授权框，且第二个的结果会覆盖第一个）。
-    private val capturePermissionWaiters = mutableListOf<(Boolean) -> Unit>()
-    private var capturePermissionInFlight = false
-
-    private fun flushCapturePermissionWaiters(granted: Boolean) {
-        capturePermissionInFlight = false
-        val waiters = capturePermissionWaiters.toList()
-        capturePermissionWaiters.clear()
-        waiters.forEach { it(granted) }
-    }
-
-    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != REQUEST_CAPTURE_PERMISSION) return
-        val granted = resultCode == Activity.RESULT_OK && data != null
-        if (granted) {
-            setCaptureToken(resultCode, data)
-        } else {
-            // 用户拒绝/取消：清掉可能存在的旧 token，避免「拒绝后仍用旧 token 启动」。
-            clearCaptureToken()
-        }
-        flushCapturePermissionWaiters(granted)
-    }
-
-    override fun onNewIntent(intent: Intent) {}
+    //
+    // ⚠️ M1.3 起这两个状态搬进 **companion object（进程级）**，与 token 同级：
+    // 结果不再由本 Module 的 onActivityResult 投递，而是由 OverlayPermissionActivity
+    // 直接调 onCapturePermissionResult。Activity 与 Module 是两个对象、两个线程，
+    // 队列放在实例上 Activity 就够不着——那正是旧设计「必须有 RN 实例才能授权」的病根。
 
     @ReactMethod
     fun canDrawOverlays(promise: Promise) {
@@ -121,37 +100,36 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
      *   - 弹窗进行中：把回调排进队列，复用同一次授权结果，**绝不叠第二个弹窗**。
      */
     private fun requestCapturePermissionInternal(onResult: (Boolean) -> Unit) {
-        // RN 0.81：ReactContextBaseJavaModule.getCurrentActivity() 已改为（过时的）Kotlin
-        // 函数，裸 currentActivity 不再合成属性；改用 ReactApplicationContext 的 Java getter。
-        val activity = reactContext.currentActivity
-        if (activity == null) {
-            onResult(false)
-            return
-        }
         if (hasValidCaptureToken()) {
+            // 已有有效 token：立即成功，不弹窗（幂等语义的第一条）。
             onResult(true)
             return
         }
-        if (capturePermissionInFlight) {
+        synchronized(capturePermissionLock) {
+            if (capturePermissionInFlight) {
+                // 弹窗进行中：排队复用同一次结果，**绝不叠第二个弹窗**。
+                capturePermissionWaiters.add(onResult)
+                return
+            }
+            capturePermissionInFlight = true
             capturePermissionWaiters.add(onResult)
-            return
         }
-        val mpm = try {
-            reactContext.getSystemService(MediaProjectionManager::class.java)
-        } catch (e: Exception) {
-            null
-        }
-        if (mpm == null) {
-            onResult(false)
-            return
-        }
-        capturePermissionInFlight = true
-        capturePermissionWaiters.add(onResult)
+        // 用**独立 Activity** 承接授权（M1.3）。旧实现是
+        // reactContext.currentActivity.startActivityForResult(...)，它要求 RN 主 Activity
+        // 在场且可用——app 在后台（悬浮窗的主场景）时直接失败；重新授权还会把主 Activity
+        // 拉到前台 → 主线程被 Activity 启动 + RN 恢复堵住 → ANR（M1 消灭的那条路径）。
+        //
+        // 目标 Activity 在清单里是 exported=false + 独立 taskAffinity + 透明主题，
+        // 因此这里既不需要也不使用 currentActivity。FLAG_ACTIVITY_NEW_TASK 是从
+        // Application context 起 Activity 的硬性要求。
         try {
-            activity.startActivityForResult(mpm.createScreenCaptureIntent(), REQUEST_CAPTURE_PERMISSION)
+            val intent = Intent(reactContext, OverlayPermissionActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactContext.startActivity(intent)
         } catch (e: Exception) {
-            Log.w(TAG, "capture permission dialog failed: ${e.message}")
-            // 弹窗都没起来：把所有排队者按「拒绝」结算，不能让他们永远挂着。
+            Log.w(TAG, "capture permission activity failed to start: ${e.message}")
+            // 起不来：把所有排队者按「拒绝」结算，不能让他们永远挂着。
             flushCapturePermissionWaiters(false)
         }
     }
@@ -417,10 +395,58 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     }
 
     companion object {
-        private const val REQUEST_CAPTURE_PERMISSION = 0x5C01
+        // 注：REQUEST_CAPTURE_PERMISSION 已随 ActivityEventListener 一起删除（M1.3）——
+        // 授权结果现在由 OverlayPermissionActivity 用**它自己的** requestCode 接收，
+        // 再经 onCapturePermissionResult 投递进来，不再经过 ReactContext 的 Activity 事件。
         private const val REQUEST_POST_NOTIFICATIONS = 0x5C03
         private const val TAG = "ScreenOverlay"
         @Volatile private var contextRef: WeakReference<ReactApplicationContext>? = null
+
+        // 授权等待队列与 in-flight 标记：**进程级**（M1.3）。
+        // 结果由 OverlayPermissionActivity 投递——它和 Module 是不同对象、不同线程，
+        // 队列放在实例上 Activity 就够不着。锁保护「入队 / 结算」两步，避免
+        // 「结算途中又有新请求进来」被漏掉或重复弹窗。
+        private val capturePermissionLock = Any()
+        private val capturePermissionWaiters = mutableListOf<(Boolean) -> Unit>()
+        @Volatile private var capturePermissionInFlight = false
+
+        private fun flushCapturePermissionWaiters(granted: Boolean) {
+            val waiters: List<(Boolean) -> Unit>
+            synchronized(capturePermissionLock) {
+                capturePermissionInFlight = false
+                waiters = capturePermissionWaiters.toList()
+                capturePermissionWaiters.clear()
+            }
+            waiters.forEach { it(granted) }
+        }
+
+        /**
+         * 投屏授权结果入口，供 [OverlayPermissionActivity] 调用。
+         *
+         * 契约：
+         *  - resultCode == RESULT_OK 且 data 非空 → 记下凭据（进程级 token）并唤醒所有等待者；
+         *  - 否则视为拒绝/取消 → **清空旧 token**（避免「拒绝后仍拿旧 token 启动」，
+         *    那是 Android 14 上 SecurityException / IllegalStateException 连环闪退的起点）；
+         *  - failure 非空表示弹窗都没起来（部分 ROM 后台禁止起系统界面），同样按拒绝结算。
+         *
+         * 为什么必须是静态入口：授权 Activity 不持有 Module 实例（它可能在 RN 未启动时
+         * 就存在——这正是本设计的目的）。凭据与队列都放在 companion，两者本就同源。
+         */
+        @JvmStatic
+        fun onCapturePermissionResult(resultCode: Int, data: Intent?, failure: String? = null) {
+            val granted = failure == null && resultCode == Activity.RESULT_OK && data != null
+            if (granted) {
+                setCaptureToken(resultCode, data)
+                recordTrace("permission-granted", "via OverlayPermissionActivity")
+            } else {
+                clearCaptureToken()
+                recordTrace("permission-denied", failure ?: "resultCode=$resultCode")
+            }
+            flushCapturePermissionWaiters(granted)
+            // 服务还开着但没有投影（token 失效/被回收后的重授权）：把新凭据直接交给它
+            // 重建采集。app 在后台时没有 RN/JS 可用，这条是悬浮窗恢复工作的唯一路径。
+            if (granted) OverlayService.instance?.attachProjection(resultCode, data)
+        }
 
         // ---- 投屏授权凭据：**进程级**，不是 Module 实例级 ----
         //

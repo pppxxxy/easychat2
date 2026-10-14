@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { readKotlinFiles, checkBraceBalance, checkDuplicateFunctions } from './helpers/kotlinStatic.mjs';
+import withScreenOverlayPlugin from '../plugins/withScreenOverlay.js';
 
 const KOTLIN_DIR = path.resolve('plugins/screenOverlay/android');
 const files = readKotlinFiles(KOTLIN_DIR);
@@ -26,6 +27,11 @@ const kotlinSource = name => {
   assert.ok(found, `找不到 ${name}`);
   return found.source;
 };
+
+// M1.3 门禁用的清单构造与常量（与 screenOverlayPlugin.test.mjs 同源，不重复实现）
+const { applyComponents, PERMISSION_ACTIVITY_NAME, PERMISSION_ACTIVITY_THEME, PERMISSION_ACTIVITY_AFFINITY } =
+  withScreenOverlayPlugin.__testables;
+const minimalManifest = () => ({ application: [{ $: { 'android:name': '.MainApplication' } }] });
 
 const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
 const serviceSrc = kotlinSource('OverlayService.kt');
@@ -302,6 +308,50 @@ test('M1：越过悬浮窗的合规对外通道仍只有通知 PendingIntent', (
   assert.ok(serviceSrc.includes('PendingIntent.getActivity'), '前台通知仍走 PendingIntent');
   assert.equal(/PendingIntent\.getActivity[\s\S]{0,200}?startActivity/.test(serviceSrc), false,
     'PendingIntent 不得退化成直接 startActivity');
+});
+
+// ---------- M1.3 授权路径独立化 ----------
+
+test('M1.3：存在独立的授权 Activity，且授权不再依赖 RN 主 Activity', () => {
+  const activitySrc = kotlinSource('OverlayPermissionActivity.kt');
+  assert.ok(activitySrc.includes('createScreenCaptureIntent()'), '必须弹系统授权框');
+  assert.ok(activitySrc.includes('onActivityResult'), '必须承接授权结果');
+  // 结果必须交给进程级凭据与等待队列（不能只存局部变量就丢）
+  assert.ok(activitySrc.includes('ScreenOverlayModule.onCapturePermissionResult'),
+    '授权结果必须经进程级入口投递');
+
+  // 模块里不得再有「currentActivity + startActivityForResult」的旧授权路径
+  const moduleCode = moduleSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.equal(/currentActivity\s*\n?\s*\.?startActivityForResult|currentActivity\?*\.startActivityForResult/.test(moduleCode),
+    false, '模块不得再用 currentActivity 承接授权（app 后台时走不了）');
+  assert.ok(moduleCode.includes('OverlayPermissionActivity::class.java'),
+    '模块必须启动独立授权 Activity');
+
+  // 模块不再实现 ActivityEventListener（授权结果由 Activity 直接投递到 companion）。
+  // ⚠️ 断言只看**代码**（moduleCode 已在上面剥过注释）：文件顶部的 KDoc 正解释着
+  // 「为什么不再是 ActivityEventListener」，按整文件匹配会把说明文字判成违规
+  //（门禁空转的经典成因，本批第一次跑就踩到）。
+  assert.equal(moduleCode.includes('ActivityEventListener'), false,
+    'M1.3 起模块不再需要 ActivityEventListener（该导入应一并移除）');
+  assert.ok(moduleCode.includes('fun onCapturePermissionResult('), '进程级结果入口存在');
+
+  // 幂等语义保留（排队复用同一次弹窗，绝不叠窗）
+  assert.ok(moduleSrc.includes('capturePermissionWaiters'), '排队队列存在');
+  assert.ok(moduleSrc.includes('capturePermissionInFlight'), 'in-flight 标记存在');
+});
+
+test('M1.3：授权 Activity 在清单里注册（透明主题、不导出、独立 taskAffinity）', () => {
+  const app = applyComponents(minimalManifest()).application[0];
+  const activity = app.activity.find(a => a.$['android:name'] === PERMISSION_ACTIVITY_NAME);
+  assert.ok(activity, '未注册 OverlayPermissionActivity');
+  assert.equal(activity.$['android:exported'], 'false', '只允许本应用拉起');
+  assert.equal(activity.$['android:theme'], PERMISSION_ACTIVITY_THEME, '必须透明主题');
+  assert.equal(activity.$['android:taskAffinity'], PERMISSION_ACTIVITY_AFFINITY, '独立 taskAffinity');
+  const again = applyComponents({ application: [app] }).application[0];
+  assert.equal(again.activity.filter(a => a.$['android:name'] === PERMISSION_ACTIVITY_NAME).length, 1,
+    '重复 applyComponents 不得重复注册');
 });
 
 // ---------- 结构完整性 ----------

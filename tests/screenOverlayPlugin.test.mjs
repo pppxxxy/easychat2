@@ -61,7 +61,11 @@ test('投屏被系统停止（onStop）必须整体收口：stopSelf 走 onDestr
 
 test('JS 实例销毁（invalidate）必须停掉 OverlayService，不留孤儿前台服务', () => {
   const module_ = kotlinSource('ScreenOverlayModule.kt');
-  const invalidate = module_.slice(module_.indexOf('override fun invalidate()'), module_.indexOf('override fun onActivityResult'));
+  // ⚠️ M1.3 起本模块不再实现 ActivityEventListener（授权改由独立 Activity 承接），
+  // 所以**不能**再用 'override fun onActivityResult' 当切片终点——那会变成
+  // slice(start, -1)，断言形同虚设。改用 invalidate 之后第一个 @ReactMethod 作界。
+  const end = module_.indexOf('@ReactMethod', module_.indexOf('override fun invalidate()'));
+  const invalidate = module_.slice(module_.indexOf('override fun invalidate()'), end);
   assert.ok(invalidate.length > 0, '必须能定位到 invalidate()');
   assert.ok(
     invalidate.includes('reactContext.stopService(Intent(reactContext, OverlayService::class.java))'),
@@ -236,8 +240,14 @@ test('无障碍桥：模块暴露状态查询与跳转系统设置，且不接�
   assert.ok(module_.includes('ScreenAccessibilityService::class.java.name'),
     '状态查询要按 ComponentName 精确比对，不能用 contains 裸匹配');
   assert.ok(module_.includes('TextUtils.SimpleStringSplitter'), '按系统格式切分已启用列表');
-  // 采集路径不许被无障碍改写：MediaProjection 相关调用必须原样保留。
-  assert.ok(module_.includes('mpm.createScreenCaptureIntent()'), 'MediaProjection 授权路径保持原样');
+  // 采集路径不许被无障碍改写：MediaProjection 授权仍走系统授权框，
+  // 但 M1.3 起由**独立的 OverlayPermissionActivity** 承接（不再在本模块里）。
+  const activityKotlin = kotlinSource('OverlayPermissionActivity.kt');
+  assert.ok(activityKotlin.includes('createScreenCaptureIntent()'),
+    'MediaProjection 授权路径必须保留（已迁到 OverlayPermissionActivity）');
+  assert.ok(activityKotlin.includes('ScreenOverlayModule.setCaptureToken') ||
+    activityKotlin.includes('ScreenOverlayModule.onCapturePermissionResult'),
+    '授权结果必须交给进程级凭据与等待队列');
   // 判据用「调用形态」`takeScreenshot(` 且先剥注释：注释里说明「为什么没接入」
   // 会合法地提到这个名字。
   assert.equal(/takeScreenshot\s*\(/.test(stripKotlinComments(module_)), false,

@@ -24,6 +24,15 @@ const PERMISSIONS = [
 
 const SERVICE_NAME = '.screenoverlay.OverlayService';
 
+// 投屏授权的**独立透明 Activity**（M1.3，见 plugins/screenOverlay/android/OverlayPermissionActivity.kt）。
+// 旧实现把 createScreenCaptureIntent 的 startActivityForResult 绑在 RN 主 Activity 上：
+// app 在后台（悬浮窗主场景）时走不了，重新授权还会把主 Activity 拉到前台 → ANR。
+// 该 Activity 无界面，故用透明主题；独立 taskAffinity 让它在「最近任务」里不与主
+// Activity 归并（否则用户会看到一个空白应用卡片）。exported=false：只允许本应用内部拉起。
+const PERMISSION_ACTIVITY_NAME = '.screenoverlay.OverlayPermissionActivity';
+const PERMISSION_ACTIVITY_THEME = '@android:style/Theme.Translucent.NoTitleBar';
+const PERMISSION_ACTIVITY_AFFINITY = `${PACKAGE_ID}.overlaypermission`;
+
 // 无障碍服务（声明式骨架，见 plugins/screenOverlay/android/ScreenAccessibilityService.kt）。
 // 它只用于「无障碍是否已开启」状态查询 + 给用户一条更省事的授权路径，
 // **不接管屏幕采集**（采集仍走 OverlayService 的 MediaProjection）。
@@ -84,6 +93,26 @@ function applyComponents(manifest) {
           },
         },
       ],
+    });
+  }
+  // 授权透明 Activity（M1.3）：声明式接线，幂等。
+  app.activity = app.activity || [];
+  const activityNames = new Set(app.activity.map(a => a.$ && a.$['android:name']));
+  if (!activityNames.has(PERMISSION_ACTIVITY_NAME)) {
+    app.activity.push({
+      $: {
+        'android:name': PERMISSION_ACTIVITY_NAME,
+        'android:exported': 'false',
+        // 透明主题：本 Activity 不画任何界面，只负责弹系统授权框，之后立刻 finish()。
+        // 用非透明主题会在授权框出现前闪一下白屏/黑屏。
+        'android:theme': PERMISSION_ACTIVITY_THEME,
+        // 独立 taskAffinity：不与主 Activity 归并，避免「最近任务」里多出一张空白卡片。
+        'android:taskAffinity': PERMISSION_ACTIVITY_AFFINITY,
+        // 屏幕方向/键盘变化不该重建它（重建会中断正在进行的授权），故自己处理配置变更。
+        'android:configChanges': 'orientation|screenSize|keyboardHidden',
+        // 不需要在最近任务里留下记录（它是纯工具页）。
+        'android:excludeFromRecents': 'true',
+      },
     });
   }
   return manifest;
@@ -200,6 +229,9 @@ module.exports.__testables = {
   ACCESSIBILITY_SERVICE_NAME,
   ACCESSIBILITY_CONFIG_RES,
   ACCESSIBILITY_DESCRIPTION_RES,
+  PERMISSION_ACTIVITY_NAME,
+  PERMISSION_ACTIVITY_THEME,
+  PERMISSION_ACTIVITY_AFFINITY,
   applyPermissions,
   applyComponents,
   applyMainApplicationPatch,
