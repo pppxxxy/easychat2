@@ -17,6 +17,7 @@ import CharacterStack from './src/character/CharacterStack.js';
 import MemoryScreen from './src/MemoryScreen.js';
 import ExtensionScreen from './src/ExtensionScreen.js';
 import SettingsScreen from './src/SettingsScreen.js';
+import { writeOverlayConfigSnapshot } from './src/screenWatch/overlayConfig.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
@@ -530,6 +531,30 @@ function ProactiveMessageBridge({ navigationReady }) {
   return null;
 }
 
+// M2 大脑搬家（M2.5）：把悬浮窗原生大脑要用的配置快照喂给它（endpoint / 能力 / 人设 / locale）。
+//
+// 挂点刻意选「启动 + 回到前台 + 切换角色」，而**不是**逐个保存入口：
+// 保存 API 配置、切模型、切角色分散在设置页 / 聊天页 / 工作区面板三处，
+// 逐个挂钩属于「调用方纪律」——新增一个入口就漏一处（本仓库反复踩过这类坑）。
+// 回到前台统一刷一次，任何变更都被覆盖；原生大脑在**发送时**才读快照，所以不要求实时。
+function OverlayConfigBridge() {
+  const { characters, activeId, loaded } = useApp();
+  useEffect(() => {
+    if (!loaded) return undefined;
+    const character = (characters || []).find(item => item.id === activeId) || null;
+    const push = () => { writeOverlayConfigSnapshot({ character }).catch(() => {}); };
+    push();
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener('change', next => {
+      const cameToForeground = previous !== 'active' && next === 'active';
+      previous = next;
+      if (cameToForeground) push();
+    });
+    return () => subscription.remove();
+  }, [loaded, characters, activeId]);
+  return null;
+}
+
 function TabBarIcon({ routeName, color, focused, palette }) {
   const [outline, filled] = TAB_ICONS[routeName] || ['ellipse-outline', 'ellipse'];
   const scale = useTabIconScale(focused);
@@ -664,6 +689,7 @@ export default function App() {
                 {startupReady ? <DownloadQueueStartup /> : null}
                 {startupReady ? <AgentTaskStartup /> : null}
                 {startupReady ? <AutoBackupStartup /> : null}
+                {startupReady ? <OverlayConfigBridge /> : null}
                 <StartupFlow onReady={handleStartupReady} />
               </AppProvider>
             </I18nProvider>

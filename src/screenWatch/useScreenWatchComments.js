@@ -22,7 +22,9 @@ import {
   THREAD_ROLE_USER,
   appendThreadEntry,
   getOrCreateActiveThread,
+  syncOverlayThreadEntries,
 } from './threads.js';
+import { appendOverlayTurn, readOverlayThreadEntries } from './overlayThreadLog.js';
 import { readImageDataUri } from '../chat/attachments.js';
 import {
   mergeDescriptionIntoUserText,
@@ -34,6 +36,24 @@ import { useTranslation } from '../i18n/I18nContext.js';
 const COMMENT_TEXT_MAX = 2000;
 // 注入给模型的历史条数上限（约 6 轮）：够角色记住这场对话，又不淹没当前画面。
 const THREAD_HISTORY_MAX = 12;
+
+// M2.5：把悬浮窗对话日志并入本线程，返回**并入后**的线程（供历史注入使用）。
+// 任何一步失败都退回原线程：并入只是「让角色记得悬浮窗里聊过什么」，
+// 读不到不该阻断 app 内的截图评论。
+async function syncOverlayConversation(thread, character) {
+  if (!thread) return null;
+  try {
+    const entries = await readOverlayThreadEntries({
+      // 按角色名过滤：切换角色后不把上一个角色的对话带进来（读入器会保留无 persona 的历史行）。
+      persona: String((character && character.name) || '').trim(),
+    });
+    if (entries.length === 0) return thread;
+    const merged = await syncOverlayThreadEntries(thread.id, entries);
+    return merged || thread;
+  } catch (error) {
+    return thread;
+  }
+}
 
 // 解析当前模型能力：在线来源 supportsVision/supportsVideo 或本地多模态。
 // 供「生成前门控」与悬浮窗「视频帧序列」判定复用；读盘失败按不支持处理。
@@ -180,7 +200,10 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
         throw Object.assign(new Error(t('screenWatch.error.ocrFailed')), { code: 'OCR_FAILED' });
       }
       // 对话线程历史（不含本次要说的话）：让角色记住这场对话的前文，连续截屏不再各说各话。
-      const thread = threadState ? threadState.thread : null;
+      // M2.5：先把悬浮窗（原生大脑）那场对话并入本线程——用户在 app 内续聊时接得上，
+      // 角色也记得刚才在悬浮窗里聊过什么。幂等（按条目 id 去重），重复调用无副作用。
+      const baseThread = threadState ? threadState.thread : null;
+      const thread = await syncOverlayConversation(baseThread, character);
       const historyMessages = (thread ? thread.entries : [])
         .slice(-THREAD_HISTORY_MAX)
         .map(entry => ({ id: entry.id, role: entry.role, text: entry.text }));
@@ -236,6 +259,11 @@ export function useScreenWatchComments({ characters, defaultCharacterId = '' }) 
           });
         } catch (error) {}
       }
+      // M2.5 双写（设计文档 3.7）：把 app 内这两轮也写回悬浮窗的同一份对话日志，
+      // 这样悬浮窗的下一轮就看得见「用户刚在 app 里续聊了什么」。由原生代写，
+      // 格式与大脑一致（含 persona/ms），失败静默——写不进去不影响本次评论。
+      if (saidText) appendOverlayTurn(THREAD_ROLE_USER, saidText).catch(() => {});
+      appendOverlayTurn(THREAD_ROLE_CHARACTER, text.slice(0, COMMENT_TEXT_MAX)).catch(() => {});
       const comment = {
         id: `sw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         characterId: character.id,

@@ -54,7 +54,6 @@ import { resolveScreenWatchCapabilities, useScreenWatchComments } from './useScr
 import { THREAD_IDLE_MS, THREAD_SCOPE_WORKSPACE, appendThreadEntry, getOrCreateActiveThread, getScreenWatchThreads } from './threads.js';
 import { runWorkspaceWatchTurn } from './workspaceWatchTurn.js';
 import { runHeadlessAgent } from '../workspace/headlessAgent.js';
-import { writeOverlayConfigSnapshot } from './overlayConfig.js';
 
 // 视频观屏（模型声明视频能力时）以周期帧序列近似「连续看」。
 const OVERLAY_VIDEO_FRAMES = 4;
@@ -289,16 +288,6 @@ export default function ScreenWatchScreen() {
     if (!overlaySupported || !overlayActive) return;
     setOverlayCharacterName(overlayCharacterName);
   }, [overlaySupported, overlayActive, overlayCharacterName]);
-
-  // M2 大脑搬家：把当前配置快照喂给原生大脑（endpoint/能力/人设/locale）。
-  // 时机：本页挂载 + 角色切换时。原生大脑在**发送时**才读快照，所以这里写一次
-  // 就能让之后「app 在后台用悬浮窗聊天」拿到最新配置。
-  // 设计文档还要求「保存 API 配置/ASR/TTS 设置」时也写——那是设置页的保存流程，
-  // 本页覆盖不到，列为 M2.5（见提交说明）。
-  useEffect(() => {
-    if (!overlaySupported) return;
-    writeOverlayConfigSnapshot({ character: selectedCharacter }).catch(() => {});
-  }, [overlaySupported, selectedCharacter]);
 
   // ---- 悬浮窗统一启动链（FIX-3）----
   //

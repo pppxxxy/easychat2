@@ -12,6 +12,31 @@ import { markMediaWrite } from '../storage/mediaProtection.js';
 export const SCREEN_WATCH_DIR_NAME = 'screen-watch';
 const SWEEP_KEEP = 20;
 
+// 悬浮窗对话日志（M2.5）：由原生大脑写入 screen-watch/overlay-thread*.jsonl。
+// 读取放在这里而不是 overlayThreadLog.js —— 本文件是 screen-watch 域的**文件系统封装点**
+//（eslint 分层规则：新文件不得直接 import expo-file-system/legacy）。
+const OVERLAY_LOG_PATTERN = /^overlay-thread(-\d+)?\.jsonl$/;
+
+/** 读出全部对话日志分片（按名字排序 = 时间顺序）；目录不存在时返回空数组。 */
+export async function readOverlayThreadLogSlices(dir = null) {
+  const base = dir === null ? screenWatchDirectory() : dir;
+  let names = [];
+  try {
+    names = await FileSystem.readDirectoryAsync(base);
+  } catch (error) {
+    return [];   // 从没用过悬浮窗 → 目录还不存在，不是错误
+  }
+  const slices = [];
+  for (const name of (names || []).filter(item => OVERLAY_LOG_PATTERN.test(String(item))).sort()) {
+    try {
+      slices.push({ name: String(name), text: await FileSystem.readAsStringAsync(`${base}${name}`) });
+    } catch (error) {
+      // 单个分片读失败不拖垮整体：其余分片照常并入。
+    }
+  }
+  return slices;
+}
+
 export function screenWatchDirectory(documentDirectory = null) {
   const base = documentDirectory === null ? FileSystem.documentDirectory : documentDirectory;
   return `${base || ''}${SCREEN_WATCH_DIR_NAME}/`;

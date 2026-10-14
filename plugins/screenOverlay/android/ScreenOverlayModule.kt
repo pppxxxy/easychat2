@@ -312,6 +312,23 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     }
 
     /**
+     * M2.5 双写：把 app 内管线产生的一轮也写进悬浮窗的同一份对话日志。
+     *
+     * 设计文档 3.7 的风险表要求「JS 续聊后把后续轮次也 append 进同一文件」。
+     * 由原生代写而不是 JS 自己拼 JSONL：格式与大脑完全一致（含 persona/ms 字段），
+     * 两处各写一份必然漂移。大脑每次发送都重读该文件，于是下一轮就能看见这里写的内容。
+     */
+    @ReactMethod
+    fun appendOverlayTurn(role: String?, text: String?, promise: Promise) {
+        try {
+            OverlayBrain.get(reactContext).appendExternalTurn(role ?: "assistant", text ?: "")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_TURN", e.message, e)
+        }
+    }
+
+    /**
      * 无障碍服务是否已开启。只读查询，不申请任何权限、不产生副作用。
      *
      * 两条判据取**或**：

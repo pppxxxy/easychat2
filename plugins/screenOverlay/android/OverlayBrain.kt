@@ -105,9 +105,9 @@ class OverlayBrain private constructor(context: Context) {
     @Volatile var protocolSupported: Boolean = true
         private set
 
-    // 会话历史：内存 ring + JSONL 落盘。请求时只取最近 HISTORY_MAX 轮。
+    // 会话历史：内存镜像 + JSONL 落盘。**文件是唯一事实源**，每次发送前重读
+    //（见 loadHistoryFromDisk），所以内存这份只是当前请求的视图，不是权威状态。
     private val history = mutableListOf<Turn>()
-    private var historyLoaded = false
 
     // ---------- 配置快照 ----------
 
@@ -223,11 +223,16 @@ class OverlayBrain private constructor(context: Context) {
         try {
             val file = historyFile()
             file.parentFile?.mkdirs()
-            val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date())
+            val now = System.currentTimeMillis()
+            val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date(now))
             val entry = JSONObject()
                 .put("t", stamp)
+                // 毫秒时间戳：JS 侧按时间线合并时直接用，不必解析本地化时间串（跨端更稳）。
+                .put("ms", now)
                 .put("role", turn.role)
                 .put("text", turn.text)
+                // 人设名：切换角色后按它过滤，避免把上一个角色的对话带进新角色（M2.5）。
+                .put("persona", currentPersonaName())
             if (turn.imageFile.isNotBlank()) entry.put("image", turn.imageFile)
             // 单行 + O_APPEND：一行足够小（<4KB 截断后）在 ext4/f2fs 上是原子追加，
             // 两个写入方（原生 / JS 续聊）不会把行写花。
@@ -239,10 +244,14 @@ class OverlayBrain private constructor(context: Context) {
         }
     }
 
-    /** 读回 JSONL（首次发送前调用一次）；坏行跳过，不让一行脏数据废掉整场对话。 */
+    private fun currentPersonaName(): String = prefs.getString(KEY_PERSONA_NAME, "") ?: ""
+
+    /** 读回 JSONL；坏行跳过，不让一行脏数据废掉整场对话。 */
     private fun loadHistoryFromDisk() {
-        if (historyLoaded) return
-        historyLoaded = true
+        // 每次发送都重读：文件是**唯一事实源**——这样 app 内续聊写进来的轮次
+        //（经 appendExternalTurn）下一轮就能被大脑看见，且不会重复计数。
+        history.clear()
+        val persona = currentPersonaName()
         try {
             val file = historyFile()
             if (!file.exists()) return
@@ -250,6 +259,11 @@ class OverlayBrain private constructor(context: Context) {
                 if (line.isBlank()) return@forEach
                 try {
                     val obj = JSONObject(line)
+                    // 切换角色后不把另一个角色的对话带进请求；旧版本无 persona 字段视为通用。
+                    val linePersona = obj.optString("persona", "").trim()
+                    if (persona.isNotEmpty() && linePersona.isNotEmpty() && linePersona != persona) {
+                        return@forEach
+                    }
                     val role = obj.optString("role", "assistant")
                     val text = obj.optString("text", "")
                     if (text.isNotBlank()) history.add(Turn(role, text))
@@ -261,6 +275,20 @@ class OverlayBrain private constructor(context: Context) {
         } catch (error: Exception) {
             Log.w(TAG, "load history failed: ${error.message}")
         }
+    }
+
+    /**
+     * 供 app 内管线写一轮进**同一份**对话日志（M2.5 双写）。
+     *
+     * 设计文档 3.7 的风险表要求「JS 续聊后把后续轮次也 append 进同一文件」——
+     * 由原生代写（格式与大脑一致，JS 不必复刻 JSONL 结构）。大脑每次发送都重读该文件，
+     * 所以下一轮就能看见 app 里续聊的内容。
+     */
+    fun appendExternalTurn(role: String, text: String) {
+        val value = text.trim()
+        if (value.isEmpty()) return
+        val normalized = if (role == "user") "user" else "assistant"
+        appendTurnToDisk(Turn(normalized, value))
     }
 
     // ---------- 发送 ----------

@@ -185,8 +185,38 @@ export function appendThreadEntry(threadId, entry) {
   });
 }
 
-export function deleteScreenWatchThread(id) {
+// M2.5：把悬浮窗（原生大脑）那场对话**幂等**并入某个线程。
+// 判据是条目 id（读入器用「日志文件名 + 行号」生成，稳定）——同一份日志重复读入
+// 不会产生重复条目，因此可以每次生成评论前都安全调用。
+// 只追加新条目：已有条目与顺序都不动（历史不改写）。
+export function syncOverlayThreadEntries(threadId, entries) {
   return threadsMutation.enqueue(async () => {
+    const targetId = String(threadId || '');
+    const incoming = (Array.isArray(entries) ? entries : [])
+      .map(item => normalizeThreadEntry(item))
+      .filter(item => item.id && item.text);
+    if (!targetId || incoming.length === 0) return null;
+    const result = await readThreadsStatus();
+    if (result.status === 'corrupt') throw new Error('screen-watch-threads-read-failed');
+    const target = result.list.find(item => item.id === targetId);
+    if (!target) return null;
+    const seen = new Set(target.entries.map(entry => entry.id));
+    const fresh = incoming.filter(entry => !seen.has(entry.id));
+    if (fresh.length === 0) return target;
+    const latest = fresh.reduce((max, entry) => Math.max(max, entry.at || 0), target.updatedAt);
+    const updated = normalizeThread({
+      ...target,
+      updatedAt: latest,
+      entries: [...target.entries, ...fresh],
+    });
+    const list = await writeThreads(result.list.map(item => (
+      item.id === targetId ? updated : item
+    )));
+    return list.find(item => item.id === targetId) || updated;
+  });
+}
+
+export function deleteScreenWatchThread(id) {  return threadsMutation.enqueue(async () => {
     const targetId = String(id || '');
     const result = await readThreadsStatus();
     if (result.status === 'corrupt') throw new Error('screen-watch-threads-read-failed');
