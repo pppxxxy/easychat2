@@ -475,7 +475,7 @@ class OverlayService : Service() {
 
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(button("截屏") { requestCaptureFromButton() })
-        actions.addView(button("说话") { openAppForTalk() })
+        actions.addView(button("说话") { focusInput() })
         actions.addView(button("收起") { showCollapsed() })
         actions.addView(button("关闭") { stopSelf() })
         panel.addView(actions)
@@ -570,9 +570,21 @@ class OverlayService : Service() {
     private fun setFocusableForInput(focusable: Boolean) {
         try {
             params.flags = if (focusable) {
-                params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() and
-                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM.inv()
+                // ⚠️ 必须**同时补回 FLAG_NOT_TOUCH_MODAL**（bug③「小窗以外全部卡死」的根因）。
+                //
+                // Android 的窗口规则：置上 FLAG_NOT_FOCUSABLE 会**隐含启用**
+                // FLAG_NOT_TOUCH_MODAL（官方文档原文：This flag will also enable
+                // FLAG_NOT_TOUCH_MODAL whether or not that is explicitly set）。
+                // 于是清掉 NOT_FOCUSABLE 让窗口可获焦点的**同一瞬间**，那个隐含的
+                // NOT_TOUCH_MODAL 也一起消失——窗口立刻变成 touch-modal：悬浮窗矩形以外的
+                // 所有触摸事件都被本窗口吞掉（窗口自己并不处理它们），下层 app / 桌面
+                // 怎么滑都没反应。触发路径就是用户点输入框说话。
+                // 所以聚焦分支必须显式把 NOT_TOUCH_MODAL 置回去。
+                (params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() and
+                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM.inv()) or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             } else {
+                // 失焦：装回 NOT_FOCUSABLE（它隐含 NOT_TOUCH_MODAL，无需重复声明）。
                 params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             }
             windowManager.updateViewLayout(rootView, params)
@@ -683,30 +695,30 @@ class OverlayService : Service() {
         ScreenOverlayModule.emit(EVENT_REQUEST_CAPTURE, Arguments.createMap())
     }
 
-    // 「说话」：把 App 带到前台，用户在「看屏幕」面板里对角色说话——截屏前/后都能说，
-    // 这些话与评论归入同一场对话（见 JS 侧 screenWatch/threads.js）。
-    // 优先 deep link（将来可直达分段），失败退回普通启动，保证按钮始终有反应。
-    private fun openAppForTalk() {
-        val deepLink = try {
-            Intent(Intent.ACTION_VIEW, android.net.Uri.parse("easychat2://screen-watch")).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-        } catch (error: Exception) {
-            null
+    // 「说话」（M1 临时形态）：**只把焦点交给输入框**，不再跳 App。
+    //
+    // 原实现是 openAppForTalk()：从 Service 里 startActivity 把 RN 主 Activity 拉起来。
+    // 那是 bug④（卡死 → 悬浮窗消失 → app 呈重启状）的 ANR 源头：焦点持有 + IME 绑在
+    // overlay 窗口 + 主线程被 Activity 启动/RN 恢复/IME 焦点协商一起堵住 → 输入事件
+    // 5 秒未分发 → ANR → 系统杀进程 → 前台服务与悬浮窗陪葬 → 再打开就是冷启动。
+    // 新架构的总纲是「原生完全体，JS 降级为编辑器」，悬浮窗**永不** startActivity；
+    // 与外界 app 的唯一合规交互是通知 PendingIntent（见 startForegroundCompat）。
+    //
+    // M3 会把这里换成窗内录音（AudioRecord → ASR）；在那之前先聚焦输入框，
+    // 保证按钮始终有反应，且不引入任何跨进程/跨 Activity 的隐患。
+    private fun focusInput() {
+        val input = chatInput
+        if (input == null) {
+            // 收起态没有输入框：先展开再聚焦，用户点一下就能开始打字。
+            showExpanded()
+            mainHandler.post { chatInput?.requestFocus() }
+            setStatusText("说点什么…")
+            return
         }
-        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val target = deepLink ?: launch ?: return
-        try {
-            startActivity(if (deepLink != null) deepLink else target)
-            setStatusText("在 App 里说点什么，角色会记住这场对话")
-        } catch (error: Exception) {
-            // deep link 无人可处理时退回普通启动。
-            try {
-                if (launch != null) startActivity(launch)
-            } catch (inner: Exception) {}
-        }
+        input.requestFocus()
+        // 键盘的显示交给输入法自己决定（窗口已可获焦点），这里不主动调 InputMethodManager——
+        // 从 Service 强制 showSoftInput 在部分 ROM 上需要 token，失败后反而更难查。
+        setStatusText("说点什么…")
     }
 
     fun requestCapture() {

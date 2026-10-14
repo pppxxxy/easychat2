@@ -237,6 +237,73 @@ test('FIX-4：后台冻结检测只读查询 + 引导页（不谎报「已放行
     '电池优化查询必须容错（系统服务可能不可用）');
 });
 
+// ---------- M1 保命（2026-10-14 推倒重设计的第一期）----------
+//
+// 本批只修「死」、不搬家：把 bug③（小窗以外全部卡死）与 bug④（卡死后收起 →
+// 悬浮窗消失 → app 呈重启状）钉死在代码里。两条都是**结构性**修复，
+// 谁改回去谁变红。
+
+test('M1：可聚焦时必须补 FLAG_NOT_TOUCH_MODAL（bug③「小窗以外全部卡死」的根因）', () => {
+  const fn = serviceSrc.slice(
+    serviceSrc.indexOf('private fun setFocusableForInput('),
+    serviceSrc.indexOf('fun applyImeInset(')
+  );
+  assert.ok(fn.length > 0, '必须能截出 setFocusableForInput');
+
+  // 聚焦分支：清 NOT_FOCUSABLE + 清 ALT_FOCUSABLE_IM + **置上 NOT_TOUCH_MODAL**
+  assert.match(fn, /FLAG_NOT_FOCUSABLE\.inv\(\)/, '聚焦要清 NOT_FOCUSABLE');
+  assert.match(fn, /FLAG_ALT_FOCUSABLE_IM\.inv\(\)/, '聚焦要清 ALT_FOCUSABLE_IM（反转语义）');
+  assert.match(fn, /or\s+WindowManager\.LayoutParams\.FLAG_NOT_TOUCH_MODAL/,
+    '聚焦**必须**同时置上 FLAG_NOT_TOUCH_MODAL —— 清掉 NOT_FOCUSABLE 会连带取消'
+    + '系统隐含的 NOT_TOUCH_MODAL，窗口随即变 touch-modal 并吞掉窗外所有触摸');
+
+  // 反向：不得写成「聚焦分支只做两个 inv()、不补 NOT_TOUCH_MODAL」的旧形态
+  assert.equal(
+    /focusable\)\s*\{[\s\S]{0,320}?ALT_FOCUSABLE_IM\.inv\(\)\s*\}?\s*else/.test(fn),
+    false,
+    '聚焦分支不得止于两个 inv()（那正是卡死的写法）'
+  );
+
+  // 窗口初值仍必须是 NOT_FOCUSABLE（可拖拽、不抢焦点）
+  assert.ok(/FLAG_NOT_FOCUSABLE or WindowManager\.LayoutParams\.FLAG_LAYOUT_NO_LIMITS/.test(serviceSrc),
+    '初始窗口仍要 NOT_FOCUSABLE');
+});
+
+test('M1：悬浮窗**永不** startActivity（bug④ 的 ANR 源头必须物理移除）', () => {
+  // 死因链：焦点持有 + IME 绑在 overlay 窗口 + 从 Service startActivity 拉起主 Activity
+  // → 主线程被 Activity 启动/RN 恢复/IME 焦点协商堵住 → 输入事件 5s 未分发 → ANR
+  // → 系统杀进程 → 前台服务与悬浮窗陪葬 → 再打开就是冷启动。
+  const code = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.equal(/\bstartActivity\s*\(/.test(code), false,
+    'OverlayService 不得再调 startActivity（ANR 源头）');
+  // 断言也只看**代码**：删掉的那段历史在注释里被引用了名字来解释原因，按整文件
+  // 匹配会把说明文字判成违规（门禁空转的经典成因）。
+  assert.equal(/\bfun\s+openAppForTalk\s*\(/.test(code), false,
+    'openAppForTalk 实现必须整体删除，不得只改调用点');
+  assert.equal(/\bopenAppForTalk\s*\(/.test(code), false,
+    '也不得留下任何对 openAppForTalk 的调用');
+
+  // 「说话」按钮仍必须有反应（不能因为删了跳转就变成死按钮）
+  assert.match(serviceSrc, /button\("说话"\)\s*\{\s*focusInput\(\)\s*\}/,
+    '「说话」应改为聚焦输入框（M3 再换成窗内录音）');
+  assert.ok(serviceSrc.includes('private fun focusInput()'), 'focusInput 实现存在');
+
+  // 收起态没有输入框：点「说话」要先展开，否则按钮看似无反应
+  const focusFn = serviceSrc.slice(serviceSrc.indexOf('private fun focusInput()'));
+  assert.ok(focusFn.slice(0, 700).includes('showExpanded()'),
+    '收起态点「说话」必须先展开面板（否则 chatInput 为 null，按钮像坏的）');
+});
+
+test('M1：越过悬浮窗的合规对外通道仍只有通知 PendingIntent', () => {
+  // 总纲要求「与外界 app 的唯一交互是通知 PendingIntent」——它不是 startActivity，
+  // 由系统代发，不经 app 主线程，因此不会 ANR。
+  assert.ok(serviceSrc.includes('PendingIntent.getActivity'), '前台通知仍走 PendingIntent');
+  assert.equal(/PendingIntent\.getActivity[\s\S]{0,200}?startActivity/.test(serviceSrc), false,
+    'PendingIntent 不得退化成直接 startActivity');
+});
+
 // ---------- 结构完整性 ----------
 
 test('Kotlin 源仍保持大括号平衡（沙箱无法编译，防编辑遗留重复片段）', () => {
