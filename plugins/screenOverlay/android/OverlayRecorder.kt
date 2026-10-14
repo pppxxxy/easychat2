@@ -141,7 +141,10 @@ class OverlayRecorder {
      * 采样率/声道/位深必须与录音参数一致，否则识别端会当成噪声。
      */
     private fun writeWav(chunks: List<ByteArray>, pcmBytes: Int): File {
-        val dir = File(dirProvider?.invoke() ?: throw IllegalStateException("no dir"))
+        // ⚠️ 不能写成 `File(dirProvider?.invoke() ?: throw ...)`：invoke() 返回的就是 File，
+        // 再套一层 File(...) 是「File 构造 File」——**Kotlin 没有这个构造函数**（编译失败）。
+        // 本机无编译器，只有 CI 能抓。
+        val dir = dirProvider?.invoke() ?: throw IllegalStateException("no dir")
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, "voice-${System.currentTimeMillis().toString(36)}.wav")
         FileOutputStream(file).use { out ->

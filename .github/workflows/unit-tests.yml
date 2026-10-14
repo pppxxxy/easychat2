@@ -105,5 +105,30 @@ jobs:
 
       - name: Compile release Kotlin
         # 只到 compileReleaseKotlin：不需要 release 签名，也不产生产物，是最小的编译闭环。
+        #
+        # 为什么要包一层而不是直接 `./gradlew ...`：
+        # Gradle 的编译错误只在 **job 日志**里，而 job 日志需要仓库 admin 权限才能下载
+        # （无权限时 API 返回 403）。结果是「CI 红了但看不到为什么」——只能靠猜，
+        # 本机又没有 JDK 可以复现（仓库既有约束）。这里把 Kotlin 错误行转成
+        # `::error::` 工作流命令，GitHub 会把它们放进 **check-run annotations**，
+        # 那个接口无需 admin 权限即可读取（`GET /repos/{owner}/{repo}/check-runs/{id}/annotations`）。
+        # 于是「CI 红了」这件事重新变得可诊断，而不是只有 admin 才看得见。
         working-directory: android
-        run: ./gradlew :app:compileReleaseKotlin --no-daemon --stacktrace
+        run: |
+          set +e
+          ./gradlew :app:compileReleaseKotlin --no-daemon --stacktrace 2>&1 | tee /tmp/kotlin-compile.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Kotlin 编译错误形如 `e: file:///path/Foo.kt:12:5 message`；
+            # 同时把 `FAILURE:` / `What went wrong` 段也带出来（配置/依赖类错误没有 e: 行）。
+            emit=$(grep -E "^e: |^w: .*\.kt|What went wrong|^FAILURE:|Could not (resolve|find|determine)" /tmp/kotlin-compile.log | head -60)
+            if [ -z "$emit" ]; then
+              emit=$(tail -60 /tmp/kotlin-compile.log)
+            fi
+            printf '%s\n' "$emit" | while IFS= read -r line; do
+              # 注解里的 % 需要转义，否则 GitHub 解析工作流命令会出错
+              safe=$(printf '%s' "$line" | sed 's/%/%25/g; s/\r//g')
+              echo "::error::$safe"
+            done
+          fi
+          exit "$status"
