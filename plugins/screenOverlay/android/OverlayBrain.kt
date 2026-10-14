@@ -438,6 +438,9 @@ class OverlayBrain private constructor(context: Context) {
         onDelta: (String) -> Unit,
         onDone: (String) -> Unit,
         onError: (String) -> Unit,
+        // 过程提示（如「当前模型不识图，未附截图」）：调用方渲染成一条气泡。
+        // 与 onError 分开：它不是失败，不该走错误样式。
+        onNote: (String) -> Unit = {},
     ): Boolean {
         val text = userText.trim()
         if (text.isEmpty()) return false
@@ -461,12 +464,20 @@ class OverlayBrain private constructor(context: Context) {
         appendTurnToDisk(Turn("user", text))
         history.add(Turn("user", text))
 
-        // 模型不识图：不发图，气泡如实提示（设计文档 3.2）。
+        // 模型不识图：不发图，但**必须在气泡里说清**（设计文档 3.2 要求
+        // 「气泡提示『当前模型不识图，已用文字描述截屏时间』」）。
+        //
+        // ⚠️ 这里曾经只是静默把图丢掉（注释写着「气泡如实提示」但代码没做）——
+        // 用户点了「截屏」却看不到任何说明，会以为截屏坏了。
+        // 现在把「图没发出去」这件事通过 onNote 交给调用方渲染成气泡。
         val attachImage = imageBase64 != null && config.vision
+        if (imageBase64 != null && !config.vision) {
+            onNote("当前模型不识图，未附截图")
+        }
 
         val chain = listOf(config.model) + config.fallbacks
         sendWithFallback(config, chain, 0, text, if (attachImage) imageBase64 else null,
-            onDelta, onDone, onError)
+            onDelta, onDone, onError, onNote)
         return true
     }
 
@@ -486,6 +497,7 @@ class OverlayBrain private constructor(context: Context) {
         onDelta: (String) -> Unit,
         onDone: (String) -> Unit,
         onError: (String) -> Unit,
+        onNote: (String) -> Unit,
     ) {
         if (index >= chain.size) {
             inFlight.set(false)
@@ -494,7 +506,9 @@ class OverlayBrain private constructor(context: Context) {
             return
         }
         streamOnce(config, chain[index], userText, imageBase64, onDelta, onDone,
-            onRetry = { sendWithFallback(config, chain, index + 1, userText, imageBase64, onDelta, onDone, onError) },
+            onRetry = {
+                sendWithFallback(config, chain, index + 1, userText, imageBase64, onDelta, onDone, onError, onNote)
+            },
             onFail = {
                 inFlight.set(false)
                 state = State.IDLE

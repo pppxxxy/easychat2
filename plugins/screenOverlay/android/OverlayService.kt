@@ -1450,6 +1450,9 @@ class OverlayService : Service() {
                 }
             },
             onError = { message -> mainHandler.post { updateLastAssistantMessage("（$message）") } },
+            // 模型不识图时 brain 会通知一声（图没发出去）——必须让用户看见，
+            // 否则他点了「截屏」却毫无说明，只会以为截屏坏了。
+            onNote = { note -> mainHandler.post { appendChatMessage("assistant", "（$note）") } },
         )
         if (!accepted) {
             mainHandler.post { updateLastAssistantMessage("（未能发送，请重试）") }

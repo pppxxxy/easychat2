@@ -361,8 +361,7 @@ test('M1.3：授权 Activity 在清单里注册（透明主题、不导出、独
 
 // ---------- M3 耳朵 + 眼睛 ----------
 
-test('M3 眼睛：悬浮窗截屏走原生直发大脑，但 **app 内截屏仍走 JS 事件**', () => {
-  // 这是 M3 最容易做错的地方：设计文档说「删除 onRequestCapture/onCapture 双事件往返」，
+test('M3 眼睛：悬浮窗截屏走原生直发大脑，但 **app 内截屏仍走 JS 事件**', () => {  // 这是 M3 最容易做错的地方：设计文档说「删除 onRequestCapture/onCapture 双事件往返」，
   // 但那两个事件**不只服务悬浮窗**——app 内「看屏幕」页也靠 onCapture 拿图
   //（ScreenWatchScreen 调 captureOverlayFrame() → capture() → onCapture）。
   // 一刀切删掉会把 app 内截屏一起打断。正确做法是**按去向分流**。
@@ -379,6 +378,19 @@ test('M3 眼睛：悬浮窗截屏走原生直发大脑，但 **app 内截屏仍�
   // 失败复位：不复位会让下一次 app 内截屏的帧被误投给大脑而消失
   assert.match(serviceCode, /captureTarget = CAPTURE_TARGET_JS/,
     '交付/失败后必须复位去向');
+});
+
+test('M3 眼睛：不识图时必须**在气泡里说清**（不能静默丢图）', () => {
+  // 写清单核对时发现的缺口：OverlayBrain 的注释写着「模型不识图，气泡如实提示」，
+  // 但代码只是 `attachImage = ... && config.vision` —— 图被静默丢掉，气泡没有任何说明。
+  // 用户点了「截屏」却看不到解释，只会以为截屏坏了。
+  const brain = kotlinSource('OverlayBrain.kt');
+  assert.ok(brain.includes('onNote'), '必须有一条「过程提示」通道（与 onError 分开）');
+  assert.match(brain, /imageBase64 != null && !config\.vision[\s\S]{0,200}?onNote\(/,
+    '不识图且确实带了图时，必须发一条提示');
+  // 服务侧必须把它渲染成气泡，否则等于没提示
+  assert.match(serviceSrc, /onNote = \{[\s\S]{0,200}?appendChatMessage\(/,
+    '服务必须把提示渲染成气泡');
 });
 
 test('M3 耳朵：窗内录音 → ASR → 文本进输入框；且录音必须能停', () => {
