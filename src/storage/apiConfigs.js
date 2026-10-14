@@ -26,9 +26,10 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 32000;
 // 入队的 save 形成同队列重入。
 const apiConfigsMutation = createMutationQueue();
 
+// 兜底模型名与能力解析的默认值同源（modelCapabilities.js），避免两处各自漂移。
 const DEFAULT_API_CONFIG = {
   baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: DEFAULT_MODEL_FALLBACK,
   apiKey: ''
 };
 
@@ -36,115 +37,31 @@ function makeApiConfigId() {
   return `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ---- 模型能力：按「模型」一份，而不是按「API 配置」一份 ----
+// ---- 模型能力解析 ----
 //
-// 同一配置下不同模型的模态能力不同（一把 key 可能既有纯文本模型又有视觉模型），
-// 因此思考/识图/视频/语音识别与思考字段名都挂在具体模型上：
-//   config.modelCapabilities = { [modelName]: { supportsThinking, thinkingField,
-//     thinkingFormat, supportsVision, supportsVideo, supportsAudio } }
-// 旧版本把能力存在配置级——首次归一时物化成每个已有模型一份（保留旧行为）；
-// 此后**新增模型不继承任何旧值**（未确认 = 全不支持，需要用户在能力弹层里显式确认）。
+// 实现在 `./modelCapabilities.js`（**零依赖纯函数叶子**），这里只做 re-export。
+// 为什么外提：本文件 import 了 ./io.js，而 io.js 会加载 `expo-file-system/legacy`
+// —— 该子路径在 Node 下不存在（tests/imageRecognitionEngine.test.mjs 顶部有记），
+// 所以「凡是 import apiConfigs 的模块都进不了 Node 测试」。能力解析必须能被
+// 纯函数直测（听歌侧的音频能力判定就踩过读错字段的坑），故拆到零依赖叶子。
+// 公开 API 完全不变：下面 re-export 后，原有 `from './apiConfigs.js'` 的导入照旧可用。
+//
+// 注意：`export ... from` **不创建本地绑定**，所以本文件内部要用的符号必须另外 import。
+import {
+  DEFAULT_MODEL_FALLBACK,
+  normalizeModelCapabilities,
+} from './modelCapabilities.js';
 
-const CAPABILITY_DEFAULTS = {
-  supportsThinking: false,
-  thinkingField: 'reasoning_effort',
-  thinkingFormat: 'effort',
-  supportsVision: false,
-  supportsVideo: false,
-  supportsAudio: false,
-  contextWindow: 0,
-  // 模型的最大输出长度（tokens）；0 = 未声明（请求构造用默认 32000）。
-  maxOutput: 0,
-  // 「自定义参数」总开关（默认关闭）：关闭时高级项（思考字段名/格式、上下文窗口、
-  // 输出长度）一律按默认值参与请求构造——用户填过的值保留在盘上但不生效，
-  // 避免手改过的字段在用户以为「已关闭」时仍偷偷改变请求。
-  customParams: false,
-};
-
-// 旧数据推断：写过非默认的思考字段名/格式，或填过上下文窗口/输出长度，
-// 都说明用户本来就在自定义 —— 迁移时置 customParams=true，避免升级后被默认值静默覆盖。
-function isCustomCapabilitySource(source) {
-  const contextWindow = Math.max(0, Math.floor(Number(source.contextWindow)) || 0);
-  const maxOutput = Math.max(0, Math.floor(Number(source.maxOutput)) || 0);
-  const field = String(source.thinkingField || '').trim();
-  const format = String(source.thinkingFormat || '').trim();
-  return contextWindow > 0
-    || maxOutput > 0
-    || (field !== '' && field !== CAPABILITY_DEFAULTS.thinkingField)
-    || (format !== '' && format !== CAPABILITY_DEFAULTS.thinkingFormat);
-}
-
-export function normalizeCapabilityEntry(raw) {
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  return {
-    supportsThinking: source.supportsThinking === true,
-    thinkingField: String(source.thinkingField || '').trim() || 'reasoning_effort',
-    thinkingFormat: ['effort', 'boolean', 'object'].includes(source.thinkingFormat)
-      ? source.thinkingFormat
-      : 'effort',
-    supportsVision: source.supportsVision === true,
-    supportsVideo: source.supportsVideo === true,
-    supportsAudio: source.supportsAudio === true,
-    // 模型声明的上下文窗口（tokens）；0 = 未声明（显示与自动压缩用保守默认）。
-    contextWindow: Math.max(0, Math.floor(Number(source.contextWindow)) || 0),
-    maxOutput: Math.max(0, Math.floor(Number(source.maxOutput)) || 0),
-    // 老数据没写过这个标记：按 isCustomCapabilitySource 推断（含旧配置级迁移来的
-    // enable_thinking 这类自定义字段名），新模型无条目 → 走默认关闭。
-    customParams: source.customParams === undefined
-      ? isCustomCapabilitySource(source)
-      : source.customParams === true,
-  };
-}
-
-// 生效能力：customParams 关闭时高级项一律回落默认（基础 supports* 开关不受影响）。
-// 运行时消费点（请求构造、上下文占用）统一走这里；编辑器回填走 rawCapabilityForModel，
-// 两者分开是为了「关掉开关后仍记得上次填的值」。
-export function effectiveCapability(entry) {
-  const caps = normalizeCapabilityEntry(entry);
-  if (caps.customParams === true) return caps;
-  return {
-    ...caps,
-    thinkingField: CAPABILITY_DEFAULTS.thinkingField,
-    thinkingFormat: CAPABILITY_DEFAULTS.thinkingFormat,
-    contextWindow: 0,
-    maxOutput: 0,
-  };
-}
-
-// 归一能力表：只保留 models 列表内、且有显式条目的模型；整张表缺失（从未迁移过的
-// 旧数据）时用配置级旧字段物化一份给每个已有模型。已迁移过的数据里移除的模型条目
-// 会被自然丢弃；新增模型则保持「无条目」= 待确认。
-function normalizeModelCapabilities(raw, models, legacy) {
-  const list = Array.isArray(models) ? models : [];
-  const out = {};
-  if (raw === undefined || raw === null) {
-    list.forEach(model => { out[model] = normalizeCapabilityEntry(legacy); });
-    return out;
-  }
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  list.forEach(model => {
-    if (source[model] !== undefined) out[model] = normalizeCapabilityEntry(source[model]);
-  });
-  return out;
-}
-
-// 解析某模型的能力（纯函数，运行时统一入口）：无显式条目 = 未确认 = 全不支持。
-// 返回**生效值**：customParams 关闭时高级项已回落默认，消费点无需各自判断开关。
-export function capabilitiesForModel(config, model) {
-  const name = String(model || '');
-  const entry = config && config.modelCapabilities ? config.modelCapabilities[name] : null;
-  return effectiveCapability(entry || CAPABILITY_DEFAULTS);
-}
-
-// 原始能力（能力编辑器回填用）：保留用户填过的高级项，
-// 这样关掉「自定义参数」再打开，上次填的字段名/窗口还在。
-export function rawCapabilityForModel(config, model) {
-  const name = String(model || '');
-  const entry = config && config.modelCapabilities ? config.modelCapabilities[name] : null;
-  return normalizeCapabilityEntry(entry || CAPABILITY_DEFAULTS);
-}
-
-export { CAPABILITY_DEFAULTS };
+export {
+  CAPABILITY_DEFAULTS,
+  DEFAULT_MODEL_FALLBACK,
+  capabilitiesForModel,
+  effectiveCapability,
+  getActiveModel,
+  normalizeCapabilityEntry,
+  normalizeModelCapabilities,
+  rawCapabilityForModel,
+} from './modelCapabilities.js';
 
 function normalizeApiConfig(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -204,13 +121,8 @@ function normalizeApiConfig(raw, index = 0) {
   };
 }
 
-export function getActiveModel(config) {
-  if (!config) return DEFAULT_API_CONFIG.model;
-  return String(config.activeModel || '')
-    || (Array.isArray(config.models) && config.models[0])
-    || String(config.model || '')
-    || DEFAULT_API_CONFIG.model;
-}
+// getActiveModel 已随能力解析一起外提到 ./modelCapabilities.js 并在此 re-export
+// （定义只剩一处，避免两处兜底模型名各自漂移）。
 
 function ensureUniqueApiConfigIds(list) {
   const seen = new Set();

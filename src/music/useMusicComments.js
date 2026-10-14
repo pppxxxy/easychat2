@@ -25,6 +25,7 @@ import {
   buildTriggerCommentPrompt,
   canAttachSongAudio,
   resolveAudioSupport,
+  resolveOnlineAudioSupport,
 } from './commentPrompts.js';
 import { CLIP_DURATION_MS, CLIP_SAMPLE_RATE } from './audioClip.js';
 import { useTranslation } from '../i18n/I18nContext.js';
@@ -191,6 +192,12 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
       if (controller.signal.aborted) return false;
       const localMedia = getLocalModelMediaCapabilities(localSettings, localItem);
       const canHear = resolveAudioSupport(apiConfig, localMedia);
+      // 回写界面状态（缺陷 2）：横幅与「片段时长/采样率」的显隐读的是 audioSupported，
+      // 而它此前只在 [songId] 的探测 effect 里 set 一次——用户在面板打开后改了「支持语音识别」
+      // 开关、又不切歌，界面就会一直停留在旧判断上，与实际发送行为脱节。
+      // 这里每次生成都现读配置并按结果刷新，界面与行为重新对齐。
+      // setAudioSupported 引用稳定（useState 的 setter），无需加入依赖数组。
+      if (mountedRef.current) setAudioSupported(canHear);
       // 具备听音频能力时准备音频片段（默认从当前播放位置起 30 秒）；否则纯文字评论。
       const startMs = kind === 'opening' ? 0 : Math.max(0, Math.floor(Number(atMs)) || 0);
       const settings = clipSettingsRef.current || {};
@@ -244,7 +251,12 @@ export function useMusicComments({ song, characters, defaultCharacterId = '', cl
         : requestMessages;
       const onlineMessages = filterRequestMedia(requestMessages, {
         allowVision: false,
-        allowAudio: Boolean(activeConfig && activeConfig.supportsAudio),
+        // ⚠️ 用**仅在线**的能力判据（resolveOnlineAudioSupport），不能用上面合并了本地能力的
+        // canHear：在线链路只看在线模型能力。若用 canHear，「本地模型能听」会让音频被保留并
+        // 发给一个不支持音频的在线模型（本地推理失败会静默回退在线）。
+        // 同时这里也**不能**再读配置级 activeConfig.supportsAudio：那是废弃的旧口径、
+        // 新配置上恒为 false——那样横幅说「能听」而音频在这一步被剥掉，用户看到模型对着空气评论。
+        allowAudio: resolveOnlineAudioSupport(apiConfig),
       });
       const onlineSend = () => sendChatMessage(onlineMessages, {
         stream: false,

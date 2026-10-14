@@ -111,20 +111,161 @@ test('AppContext + ChatScreen：pendingQuote 生产/消费对称', () => {
     '消费后写入引用条，且一次性');
 });
 
-test('resolveAudioSupport：在线/本地能力判定', async () => {
-  const { resolveAudioSupport } = await import('../src/music/commentPrompts.js');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: true }], activeId: 'a' }), true,
-    '在线配置标记 supportsAudio 即视为可听音频');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: false }], activeId: 'a' }), false,
-    '在线配置未标记音频能力时不支持');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }, { id: 'b', supportsAudio: true }], activeId: 'b' }), true,
-    '按 activeId 选中配置判定');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a' }], activeId: 'missing' }, null), false,
-    'activeId 失配时退回首个配置');
+test('resolveAudioSupport：按**模型**解析能力（不是废弃的配置级字段）', async () => {
+  const { resolveAudioSupport, resolveOnlineAudioSupport } = await import('../src/music/commentPrompts.js');
+
+  // 现行口径：能力挂在 modelCapabilities[模型名] 上（能力编辑器只写这里）。
+  const perModel = {
+    configs: [{ id: 'a', activeModel: 'm1', modelCapabilities: { m1: { supportsAudio: true } } }],
+    activeId: 'a',
+  };
+  assert.equal(resolveAudioSupport(perModel), true, '当前模型声明 supportsAudio 即可听');
+
+  // 同一配置、切到未确认的模型 → 不支持（未确认 = 全不支持）
+  const otherModel = {
+    configs: [{ id: 'a', activeModel: 'm2', modelCapabilities: { m1: { supportsAudio: true } } }],
+    activeId: 'a',
+  };
+  assert.equal(resolveAudioSupport(otherModel), false, '换到无条目的模型应为不支持');
+  assert.equal(resolveAudioSupport(otherModel, { audio: true }), true, '本地可听仍可听');
+
+  // 这正是本次修的 bug：配置级 supportsAudio 是废弃字段。
+  //
+  // 旧数据的兼容**由存储层归一负责**（normalizeModelCapabilities 在 modelCapabilities
+  // 缺失时按配置级旧字段给每个已有模型物化一份）——上方注释与任务书都明确要求
+  // 「不要再自行加一层配置级读取」（那会让两套口径重新分叉）。
+  // 所以这里不假设纯函数能读配置级字段，而是**先过一次存储层归一**再看结果，
+  // 这才是生产里真实发生的事（getApiConfigs 读盘时就会归一）。
+  const { normalizeModelCapabilities } = await import('../src/storage/modelCapabilities.js');
+  // 模拟存储层读盘后的形状：{ configs: [...], activeId }，其中 configs 已归一。
+  const materialize = raw => {
+    const models = raw.models || [raw.activeModel || raw.model || 'deepseek-chat'];
+    return {
+      configs: [{
+        ...raw,
+        models,
+        activeModel: raw.activeModel || models[0],
+        modelCapabilities: normalizeModelCapabilities(
+          raw.modelCapabilities,
+          models,
+          { supportsAudio: raw.supportsAudio === true }
+        ),
+      }],
+      activeId: raw.id || 'a',
+    };
+  };
+  assert.equal(
+    resolveOnlineAudioSupport(materialize({ id: 'a', supportsAudio: true })),
+    true,
+    '旧式数据（只有配置级字段）经存储层归一后仍可听'
+  );
+  assert.equal(
+    resolveOnlineAudioSupport({ configs: [{ id: 'a', supportsAudio: true }], activeId: 'a' }),
+    false,
+    '未经归一的裸配置不该被纯函数读配置级字段（口径单一：只认 modelCapabilities）'
+  );
+  // 反过来：配置级 false 但模型级 true —— 必须认模型级（旧实现会误判为 false）
+  assert.equal(
+    resolveOnlineAudioSupport({
+      configs: [{ id: 'a', activeModel: 'm1', supportsAudio: false, modelCapabilities: { m1: { supportsAudio: true } } }],
+      activeId: 'a',
+    }),
+    true,
+    '配置级 false 不得压过模型级 true（旧实现正是在这里读错字段）'
+  );
+  assert.equal(
+    resolveOnlineAudioSupport({
+      configs: [{ id: 'a', activeModel: 'm1', supportsAudio: true, modelCapabilities: { m1: { supportsAudio: false } } }],
+      activeId: 'a',
+    }),
+    false,
+    '配置级 true 也不得压过模型级 false'
+  );
+
+  // activeId 选中与失配回落
+  assert.equal(
+    resolveOnlineAudioSupport({
+      configs: [
+        { id: 'a', activeModel: 'm', modelCapabilities: { m: { supportsAudio: false } } },
+        { id: 'b', activeModel: 'm', modelCapabilities: { m: { supportsAudio: true } } },
+      ],
+      activeId: 'b',
+    }),
+    true,
+    '按 activeId 选中配置判定'
+  );
+  assert.equal(
+    resolveOnlineAudioSupport({ configs: [{ id: 'a' }], activeId: 'missing' }),
+    false,
+    'activeId 失配时退回首个配置'
+  );
   assert.equal(resolveAudioSupport(undefined), false, '拿不到配置时按不支持处理');
   assert.equal(resolveAudioSupport(null, { audio: true }), true, '本地模型带音频能力即可听');
-  assert.equal(resolveAudioSupport({ configs: [{ id: 'a', supportsAudio: false }], activeId: 'a' }, { audio: true }), true,
-    '在线不支持但本地支持时仍可听');
+  assert.equal(
+    resolveAudioSupport({ configs: [{ id: 'a' }], activeId: 'a' }, { audio: true }),
+    true,
+    '在线不支持但本地支持时仍可听'
+  );
+});
+
+test('听歌侧不再读废弃的配置级 supportsAudio（结构性防回归）', async () => {
+  const source = readSource('src/music/useMusicComments.js');
+  const prompts = readSource('src/music/commentPrompts.js');
+
+  // 消费点必须走逐模型口径
+  assert.ok(prompts.includes('capabilitiesForModel'), 'commentPrompts 走逐模型能力解析');
+  assert.ok(prompts.includes('modelCapabilities.js'),
+    '能力解析从零依赖叶子导入（apiConfigs 会拉进 expo-file-system/legacy，Node 里加载不了）');
+
+  // 第二个消费点（在线消息裁剪）同样不得读配置级字段
+  assert.ok(!/allowAudio:\s*Boolean\(activeConfig && activeConfig\.supportsAudio\)/.test(source),
+    'filterRequestMedia 的 allowAudio 不得读配置级 supportsAudio');
+  assert.ok(source.includes('resolveOnlineAudioSupport(apiConfig)'),
+    '在线消息裁剪必须用仅在线判据');
+
+  // 配置级字段只允许作为 legacy 回落来源出现在 modelCapabilities.js 的归一里；
+  // 这里只检查两个听歌文件不得再直接读它。
+  assert.ok(!/current\.supportsAudio/.test(prompts), 'commentPrompts 不得读配置级 supportsAudio');
+});
+
+test('能力解析叶子必须保持零依赖（否则纯函数测试会因 expo-file-system 崩掉）', () => {
+  // 这条守卫保护的是「可测性」本身：modelCapabilities.js 一旦引入任何 import，
+  // 就可能（直接或间接）拉进 storage/io.js → expo-file-system/legacy，
+  // 那个子路径在 Node 下不存在，会让所有直接 import 它的纯函数测试当场崩。
+  // 这个坑在上次迁移时真实发生过（tests/imageRecognitionEngine.test.mjs 顶部有记）。
+  const leaf = readSource('src/storage/modelCapabilities.js');
+  // 只检查**代码**、跳过注释：文件里正解释着「为什么不能引 expo-file-system」，
+  // 按整文件正则会把这段说明误当成违规（同 themeContrast 检测器与 FIX-6 的口径）。
+  const codeLines = leaf.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line));
+  const code = codeLines.join('\n');
+  const imports = codeLines.filter(line => /^\s*import\b/.test(line));
+  assert.deepEqual(imports, [], `能力解析叶子不得有 import，现有：${imports.join(' | ')}`);
+  assert.ok(!/\brequire\s*\(/.test(code), '也不得用 require 绕开');
+  // 反向确认：这个文件必须真的不依赖 RN / expo，才谈得上「纯」
+  assert.ok(!/expo-|react-native/.test(code), '叶子不得引用 RN/expo 运行时');
+  // 上面这条守卫有没有效力，取决于注释剔除逻辑本身：确认注释**确实**被剔掉了
+  assert.ok(!code.includes('expo-file-system/legacy'),
+    '注释应已被剔除（否则上一条断言形同虚设）');
+  // apiConfigs 必须原样把公开符号转发出去（既有导入点不受外提影响）
+  const apiConfigs = readSource('src/storage/apiConfigs.js');
+  for (const name of ['capabilitiesForModel', 'getActiveModel', 'normalizeCapabilityEntry',
+    'rawCapabilityForModel', 'CAPABILITY_DEFAULTS']) {
+    assert.ok(apiConfigs.includes(name), `apiConfigs.js 必须仍然导出 ${name}（re-export）`);
+  }
+});
+
+test('缺陷 2：generate() 把现读的能力回写 audioSupported（横幅不再停在旧值）', () => {
+  const source = readSource('src/music/useMusicComments.js');
+  const gen = source.slice(source.indexOf('const generate = useCallback'));
+  assert.ok(gen.includes('setAudioSupported(canHear)'),
+    'generate 里必须按本次现读结果回写状态，否则改了开关不切歌界面不刷新');
+  // 回写必须在拿 canHear 之后（同一处的紧邻行），而不是别处
+  const canHearAt = gen.indexOf('const canHear = resolveAudioSupport(');
+  const writeAt = gen.indexOf('setAudioSupported(canHear)');
+  assert.ok(canHearAt >= 0 && writeAt > canHearAt, '回写要跟在 canHear 计算之后');
+  // 探测 effect 保留（负责面板打开时的初始态）
+  assert.ok(/useEffect\(\(\) => \{[\s\S]{0,400}?setAudioSupported\(resolveAudioSupport/.test(source),
+    '[songId] 探测 effect 保留，负责初始态');
 });
 
 test('听歌面板：无音频能力时给出提示接线', () => {
