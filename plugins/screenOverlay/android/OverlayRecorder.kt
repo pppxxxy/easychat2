@@ -162,7 +162,10 @@ class OverlayRecorder {
         header.put("WAVE".toByteArray(Charsets.US_ASCII))
         header.put("fmt ".toByteArray(Charsets.US_ASCII))
         header.putInt(16)                    // fmt chunk 大小
-        header.putShort(1)                   // PCM
+        // ⚠️ 必须显式 .toShort()：Kotlin 不会把 Int 字面量自动收窄成 Short
+        //（Java 的 ByteBuffer.putShort(1) 能编过，Kotlin 不行）。本机无编译器，
+        // 这类错误只有 CI 的 Kotlin job 能抓。
+        header.putShort(1.toShort())          // PCM 格式
         header.putShort(channels.toShort())
         header.putInt(SAMPLE_RATE)
         header.putInt(byteRate)

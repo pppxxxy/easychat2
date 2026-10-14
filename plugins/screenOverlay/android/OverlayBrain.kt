@@ -69,13 +69,20 @@ class OverlayBrain private constructor(context: Context) {
         val protocolSupported: Boolean get() = protocol == "openai"
     }
 
-    /** ASR 配置（M3 耳朵）：loadAsrConfig 的返回形状。 */
+    /** ASR 配置（M3 耳朵）：loadAsrConfig 的返回形状，OverlaySpeech 直接用这个类型。 */
     data class AsrConfig(
         val provider: String,
         val baseUrl: String,
         val apiKey: String,
         val model: String,
-    )
+    ) {
+        /** 云端 ASR 是否可用（字段齐全）；否则调用方退回系统识别。 */
+        val cloudUsable: Boolean
+            get() = provider == "cloud"
+                && baseUrl.isNotBlank()
+                && apiKey.isNotBlank()
+                && model.isNotBlank()
+    }
 
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

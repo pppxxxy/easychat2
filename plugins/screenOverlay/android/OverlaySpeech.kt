@@ -42,16 +42,9 @@ class OverlaySpeech(private val context: Context) {
         val ok: Boolean get() = error.isEmpty() && text.isNotEmpty()
     }
 
-    /** ASR 配置（由 OverlayBrain 的配置快照提供）。 */
-    data class AsrConfig(
-        val provider: String,
-        val baseUrl: String,
-        val apiKey: String,
-        val model: String,
-    ) {
-        val cloudUsable: Boolean
-            get() = provider == "cloud" && baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
-    }
+    /** ASR 配置：**复用 OverlayBrain.AsrConfig**（单一类型，避免两处各定义一个同名类）。 */
+    // 注：typealias 必须声明在**文件顶层**（Kotlin 不允许类内 typealias），
+    // 所以这里只是文档说明，实际声明见文件末尾的 typealias。
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -136,7 +129,10 @@ class OverlaySpeech(private val context: Context) {
         }
         // 回调可能多次触发（onResults / onError）：用一次性标记保证只结算一次，
         // 否则会同时出现「识别结果」与「识别失败」两条气泡。
-        var settled = false
+        // ⚠️ 用 AtomicBoolean 而不是 `var settled = false`：后者被 lambda 捕获时
+        // Kotlin 会编译失败（captured member must be initialized）——本机无编译器，
+        // 这类错误只有 CI 的 Kotlin job 能抓（前两轮已各踩过一次同款）。
+        val settled = java.util.concurrent.atomic.AtomicBoolean(false)
         val recognizer = try {
             SpeechRecognizer.createSpeechRecognizer(context)
         } catch (error: Exception) {
@@ -148,8 +144,7 @@ class OverlaySpeech(private val context: Context) {
             return
         }
         val finish = { result: Result ->
-            if (!settled) {
-                settled = true
+            if (settled.compareAndSet(false, true)) {
                 try {
                     recognizer.destroy()
                 } catch (error: Exception) {}
@@ -194,3 +189,14 @@ class OverlaySpeech(private val context: Context) {
         private const val TAG = "OverlaySpeech"
     }
 }
+
+/**
+ * ASR 配置：**复用 OverlayBrain.AsrConfig**，不在这里另定义一个同名类。
+ *
+ * 为什么必须统一类型：OverlayService 直接把 `OverlayBrain.loadAsrConfig()` 的返回值
+ * 传给 `OverlaySpeech.transcribe(...)`。两处各定义一个同名字段的数据类时，
+ * 参数类型不匹配 → Kotlin 编译失败（本机无编译器，只有 CI 能抓）。
+ *
+ * 注：typealias 只能声明在**文件顶层**（Kotlin 不允许类内 typealias）。
+ */
+typealias AsrConfig = OverlayBrain.AsrConfig
