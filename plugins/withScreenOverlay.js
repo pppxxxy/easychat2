@@ -21,6 +21,15 @@ const PERMISSIONS = [
   // Android 13+ 前台服务的常驻通知需要运行时通知权限才可见；清单声明 + 模块内
   // startOverlay 时的运行时请求（ScreenOverlayModule.requestNotificationPermissionIfNeeded）。
   'android.permission.POST_NOTIFICATIONS',
+  // M3 耳朵：悬浮窗内直接录音（AudioRecord）需要 RECORD_AUDIO。
+  // ⚠️ 这是**运行时**权限（dangerous），清单声明只是必要条件；实际申请走
+  // OverlayPermissionActivity（它已是本插件的透明 Activity，顺带承担麦克风申请，
+  // 免得再新增一个 Activity 与一套授权流程）。
+  'android.permission.RECORD_AUDIO',
+  // Android 14（API 34）起：前台服务若在**后台**启动并要访问麦克风，
+  // 必须声明 FOREGROUND_SERVICE_MICROPHONE 并以 microphone 类型 startForeground，
+  // 否则抛 SecurityException / MissingForegroundServiceTypeException。
+  'android.permission.FOREGROUND_SERVICE_MICROPHONE',
 ];
 
 const SERVICE_NAME = '.screenoverlay.OverlayService';
@@ -69,7 +78,10 @@ function applyComponents(manifest) {
       $: {
         'android:name': SERVICE_NAME,
         'android:exported': 'false',
-        'android:foregroundServiceType': 'mediaProjection',
+        // M3：两个类型并列——mediaProjection（截屏）与 microphone（窗内录音）。
+        // Android 14 起 startForeground 的类型必须是这里声明的子集，多声明一个类型
+        // 本身不产生额外要求（只在真的用到该类型时才需要对应权限与运行时授权）。
+        'android:foregroundServiceType': 'mediaProjection|microphone',
       },
     });
   }

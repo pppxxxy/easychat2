@@ -501,6 +501,39 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             if (granted) OverlayService.instance?.attachProjection(resultCode, data)
         }
 
+        /**
+         * 麦克风运行时权限的结果（M3 耳朵），由 [OverlayPermissionActivity] 投递。
+         *
+         * 与投屏授权不同：麦克风没有「一次性凭据」的概念，系统只回答准/不准。
+         * 因此这里只记一个**进程级标记**并留痕——拒绝时「说话」按钮给出
+         * 「语音识别不可用，请用文字输入」的如实提示（设计 3.3），不静默失败。
+         */
+        @JvmStatic
+        fun onRecordAudioPermissionResult(granted: Boolean) {
+            recordAudioGranted = granted
+            recordTrace("record-audio", if (granted) "granted" else "denied")
+        }
+
+        /**
+         * 当前是否持有麦克风权限（供 OverlayService 决定「说话」按钮走录音还是提示）。
+         *
+         * **以系统状态为准**，缓存标记只作兜底：权限是持久的，进程重启后缓存会归零，
+         * 若只看缓存就会把「用户早就授权过」误判成「没权限」，于是每次开悬浮窗都弹一次框。
+         * 拿不到 context（理论上不会）时退回缓存值。
+         */
+        @JvmStatic
+        fun hasRecordAudioPermission(): Boolean {
+            val context = contextRef?.get() ?: return recordAudioGranted
+            return try {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+            } catch (error: Exception) {
+                recordAudioGranted
+            }
+        }
+
+        @Volatile private var recordAudioGranted = false
+
         // ---- 投屏授权凭据：**进程级**，不是 Module 实例级 ----
         //
         // resultCode/resultData 是 MediaProjection 的**一次性授权凭据**：它对应的 projection

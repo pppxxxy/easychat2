@@ -297,15 +297,14 @@ test('M1：悬浮窗**永不** startActivity（bug④ 的 ANR 源头必须物理
   assert.equal(/\bopenAppForTalk\s*\(/.test(code), false,
     '也不得留下任何对 openAppForTalk 的调用');
 
-  // 「说话」按钮仍必须有反应（不能因为删了跳转就变成死按钮）
-  assert.match(serviceSrc, /button\("说话"\)\s*\{\s*focusInput\(\)\s*\}/,
-    '「说话」应改为聚焦输入框（M3 再换成窗内录音）');
-  assert.ok(serviceSrc.includes('private fun focusInput()'), 'focusInput 实现存在');
-
-  // 收起态没有输入框：点「说话」要先展开，否则按钮看似无反应
-  const focusFn = serviceSrc.slice(serviceSrc.indexOf('private fun focusInput()'));
-  assert.ok(focusFn.slice(0, 700).includes('showExpanded()'),
-    '收起态点「说话」必须先展开面板（否则 chatInput 为 null，按钮像坏的）');
+  // 「说话」按钮必须始终有反应。M1 的临时形态是「聚焦输入框」，M3 起换成
+  // **窗内录音**（设计 3.3）——两者都满足「不跳 App」这条铁律，守卫因此断言
+  // 「按钮绑到了一个本地的 toggle 函数」，而不是钉死某个具体实现。
+  assert.match(serviceSrc, /button\("说话"\)\s*\{\s*toggleRecording\(\)\s*\}/,
+    '「说话」应绑定窗内录音开关（M3），且绝不跳 App');
+  assert.ok(serviceSrc.includes('private fun toggleRecording()'), '录音开关实现存在');
+  // 录音走的是 AudioRecord（真在窗内采集），不是「跳 App 让用户在那里说」。
+  assert.ok(serviceSrc.includes('OverlayRecorder'), '必须用窗内录音器');
 });
 
 test('M1：越过悬浮窗的合规对外通道仍只有通知 PendingIntent', () => {
@@ -358,6 +357,69 @@ test('M1.3：授权 Activity 在清单里注册（透明主题、不导出、独
   const again = applyComponents({ application: [app] }).application[0];
   assert.equal(again.activity.filter(a => a.$['android:name'] === PERMISSION_ACTIVITY_NAME).length, 1,
     '重复 applyComponents 不得重复注册');
+});
+
+// ---------- M3 耳朵 + 眼睛 ----------
+
+test('M3 眼睛：悬浮窗截屏走原生直发大脑，但 **app 内截屏仍走 JS 事件**', () => {
+  // 这是 M3 最容易做错的地方：设计文档说「删除 onRequestCapture/onCapture 双事件往返」，
+  // 但那两个事件**不只服务悬浮窗**——app 内「看屏幕」页也靠 onCapture 拿图
+  //（ScreenWatchScreen 调 captureOverlayFrame() → capture() → onCapture）。
+  // 一刀切删掉会把 app 内截屏一起打断。正确做法是**按去向分流**。
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.ok(serviceCode.includes('captureForBrain()'), '悬浮窗按钮必须走原生直发');
+  assert.ok(serviceCode.includes('CAPTURE_TARGET_BRAIN'), '存在「给大脑」的去向标记');
+  assert.ok(serviceCode.includes('EVENT_CAPTURE'), 'app 内截屏的 onCapture 事件必须保留');
+  assert.ok(serviceCode.includes('EVENT_REQUEST_CAPTURE'), 'app 内请求事件必须保留');
+  // 无配置时必须回退 JS 管线（否则用户没打开过 App 时截屏彻底不可用）
+  assert.match(serviceCode, /hasConfig\(\)[\s\S]{0,200}?requestCaptureFromButton\(\)/,
+    '无大脑配置时截屏回退 JS 管线');
+  // 失败复位：不复位会让下一次 app 内截屏的帧被误投给大脑而消失
+  assert.match(serviceCode, /captureTarget = CAPTURE_TARGET_JS/,
+    '交付/失败后必须复位去向');
+});
+
+test('M3 耳朵：窗内录音 → ASR → 文本进输入框；且录音必须能停', () => {
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  // 录音器与识别器是独立文件（各自可读、可换），服务只做编排
+  const recorder = kotlinSource('OverlayRecorder.kt');
+  const speech = kotlinSource('OverlaySpeech.kt');
+  assert.ok(recorder.includes('AudioRecord'), '录音用 AudioRecord');
+  assert.ok(recorder.includes('SAMPLE_RATE = 16000'), '与 app 现格式一致：16kHz');
+  assert.ok(recorder.includes('CHANNEL_IN_MONO'), '单声道');
+  assert.ok(recorder.includes('wavHeader'), '产物是 WAV（app 现格式）');
+  // ASR：云端优先、系统兜底（设计 3.3）
+  assert.ok(speech.includes('audio/transcriptions'), '云端 ASR 走 OpenAI 兼容端点');
+  assert.ok(speech.includes('SpeechRecognizer'), '系统识别作兜底');
+  assert.ok(speech.includes('EXTRA_PREFER_OFFLINE'), '系统识别尽量离线');
+  // 都不可用时必须如实说，不静默失败
+  assert.ok(speech.includes('语音识别不可用，请用文字输入'), '失败文案必须如实');
+  // 服务侧编排
+  assert.ok(serviceCode.includes('toggleRecording()'), '录音开关存在');
+  assert.ok(serviceCode.includes('stopRecordingAndTranscribe()'), '停止并识别存在');
+  assert.ok(serviceCode.includes('chatInput?.setText'), '识别文本进输入框');
+  // 识别是阻塞活：必须丢到工作线程（M1 的教训：主线程一堵全部兜底失灵）
+  assert.match(serviceCode, /stopRecordingAndTranscribe\(\)[\s\S]{0,900}?handler\.post/,
+    '识别必须在工作线程跑');
+  // 麦克风是隐私敏感资源：收起面板/服务销毁都必须停录
+  assert.match(serviceCode, /private fun showCollapsed\(\)[\s\S]{0,900}?overlayRecorder\?\.cancel\(\)/,
+    '收起面板必须停录音（否则麦克风一直开着）');
+  assert.match(serviceCode, /override fun onDestroy\(\)[\s\S]{0,300}?overlayRecorder\?\.cancel\(\)/,
+    '服务销毁必须停录音');
+});
+
+test('M3 耳朵：麦克风权限走通知而非 startActivity（M1 铁律）', () => {
+  // 我自己实现时先写了 startActivity(OverlayPermissionActivity)，被 M1 守卫当场抓住。
+  // 这不是放宽守卫的理由——后台起 Activity 在 Android 10+ 本就受限，
+  // 而通知的 PendingIntent 由系统代发、不经主线程，才是合规通道。
+  assert.ok(serviceSrc.includes('notifyPermissionNeeded'), '授权引导走通知');
+  assert.ok(serviceSrc.includes('PERM_MIC'), '麦克风是通知的一类');
+  assert.match(serviceSrc, /hasRecordAudioPermission\(\)[\s\S]{0,300}?notifyPermissionNeeded\(PERM_MIC\)/,
+    '缺麦克风权限时发「授权麦克风」通知');
 });
 
 // ---------- 结构完整性 ----------

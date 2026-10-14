@@ -8,6 +8,7 @@
 import { NativeModules } from 'react-native';
 import { getActiveApiConfig, capabilitiesForModel, getActiveModel } from '../storage/apiConfigs.js';
 import { getActiveLocale } from '../i18n/index.js';
+import { resolveCharacterTranscription } from '../character/runtimeConfig.js';
 
 function nativeModule() {
   return NativeModules.ScreenOverlay || null;
@@ -41,6 +42,23 @@ export async function buildOverlayConfigSnapshot({ character = null } = {}) {
     if (!config) return null;
     const model = getActiveModel(config);
     const caps = capabilitiesForModel(config, model);
+    // M3 耳朵：ASR 复用既有解析层（resolveCharacterTranscription）——它就是 app 内
+    // 语音转文字的单一入口，原生侧照单执行即可，不重复实现「复用聊天来源还是独立配置」
+    // 的判定（两处各判一次必然漂移）。拿不到就退回系统识别（provider='system'）。
+    let asr = { provider: 'system', baseUrl: '', apiKey: '', model: '' };
+    try {
+      const resolved = await resolveCharacterTranscription(character ? character.id : '');
+      if (resolved && resolved.source !== 'none' && resolved.apiKey) {
+        asr = {
+          provider: 'cloud',
+          baseUrl: String(resolved.baseUrl || ''),
+          apiKey: String(resolved.apiKey || ''),
+          model: String(resolved.model || ''),
+        };
+      }
+    } catch (error) {
+      // ASR 解析失败不影响大脑配置：原生会退回系统识别。
+    }
     return JSON.stringify({
       endpoint: {
         baseUrl: String(config.baseUrl || ''),
@@ -60,6 +78,7 @@ export async function buildOverlayConfigSnapshot({ character = null } = {}) {
         name: String(character?.name || '').trim(),
         systemPrompt: rolePersona(character),
       },
+      asr,
       locale: getActiveLocale(),
     });
   } catch (error) {

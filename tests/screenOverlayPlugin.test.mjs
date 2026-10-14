@@ -94,16 +94,34 @@ test('applyPermissions 能注入且幂等', () => {
   assert.equal(manifest['uses-permission'].length, PERMISSIONS.length);
 });
 
-test('组件注册：OverlayService 非导出、前台服务类型 mediaProjection，且幂等', () => {
+test('组件注册：OverlayService 非导出、前台服务类型（截屏+录音），且幂等', () => {
   const app = applyComponents(minimalManifest()).application[0];
   const service = app.service.find(s => s.$['android:name'] === SERVICE_NAME);
   assert.ok(service, '未注册 OverlayService');
   assert.equal(service.$['android:exported'], 'false');
-  assert.equal(service.$['android:foregroundServiceType'], 'mediaProjection');
+  // M3 起是两个类型并列：mediaProjection（截屏）+ microphone（窗内录音）。
+  // 用**集合**断言而不是全等：以后再加类型不该无谓地让门禁变红，
+  // 但少一个已声明的类型（真机上会直接抛 SecurityException）必须红。
+  const types = String(service.$['android:foregroundServiceType'] || '').split('|').filter(Boolean);
+  assert.ok(types.includes('mediaProjection'), '截屏必须声明 mediaProjection 类型');
+  assert.ok(types.includes('microphone'), 'M3 窗内录音必须声明 microphone 类型');
   // 悬浮窗服务不得带无障碍权限（那是另一个服务的声明，别混在一起）。
   assert.equal(service.$['android:permission'], undefined);
   const again = applyComponents({ application: [app] }).application[0];
   assert.equal(again.service.length, 2, '两个服务：悬浮窗 + 无障碍骨架，且幂等不重复注册');
+});
+
+test('M3：录音权限三件套齐全（RECORD_AUDIO + FOREGROUND_SERVICE_MICROPHONE）', () => {
+  // 缺任何一条的后果都是真机直接失败（不是降级）：
+  //   · 无 RECORD_AUDIO → AudioRecord 初始化抛 SecurityException；
+  //   · 无 FOREGROUND_SERVICE_MICROPHONE / 未以 microphone 类型 startForeground
+  //     → Android 14 抛 MissingForegroundServiceTypeException。
+  for (const required of [
+    'android.permission.RECORD_AUDIO',
+    'android.permission.FOREGROUND_SERVICE_MICROPHONE',
+  ]) {
+    assert.ok(PERMISSIONS.includes(required), `缺少权限 ${required}`);
+  }
 });
 
 test('MainApplication 补丁注册 ScreenOverlayPackage（SDK 50 template）且幂等', () => {

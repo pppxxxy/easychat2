@@ -59,10 +59,23 @@ class OverlayBrain private constructor(context: Context) {
         val personaName: String,
         val systemPrompt: String,
         val locale: String,
+        // M3 耳朵：ASR 随同一份快照下发（避免再开一个写入入口与一套漂移风险）。
+        val asrProvider: String = "system",
+        val asrBaseUrl: String = "",
+        val asrApiKey: String = "",
+        val asrModel: String = "",
     ) {
         /** 设计文档 3.2：原生只实现 OpenAI 兼容协议，其余一律引导回 App。 */
         val protocolSupported: Boolean get() = protocol == "openai"
     }
+
+    /** ASR 配置（M3 耳朵）：loadAsrConfig 的返回形状。 */
+    data class AsrConfig(
+        val provider: String,
+        val baseUrl: String,
+        val apiKey: String,
+        val model: String,
+    )
 
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -135,6 +148,9 @@ class OverlayBrain private constructor(context: Context) {
             .putString(KEY_PERSONA_NAME, config.personaName)
             .putString(KEY_SYSTEM_PROMPT, config.systemPrompt)
             .putString(KEY_LOCALE, config.locale)
+            .putString(KEY_ASR_PROVIDER, config.asrProvider)
+            .putString(KEY_ASR_BASE_URL, config.asrBaseUrl)
+            .putString(KEY_ASR_MODEL, config.asrModel)
             .apply()
         // apiKey：优先加密存储；写成功后删掉明文（迁移清理，与 ProactiveCore 同款）。
         if (writeSecretApiKey(config.apiKey)) {
@@ -142,7 +158,27 @@ class OverlayBrain private constructor(context: Context) {
         } else {
             prefs.edit().putString(KEY_API_KEY, config.apiKey).apply()
         }
+        // M3 耳朵：ASR 配置与大脑同批落盘（另一个 apiKey，同样走加密区）。
+        if (writeSecretAsrKey(config.asrApiKey)) {
+            prefs.edit().remove(KEY_ASR_API_KEY).apply()
+        } else {
+            prefs.edit().putString(KEY_ASR_API_KEY, config.asrApiKey).apply()
+        }
         return true
+    }
+
+    /**
+     * 读取 ASR 配置（M3 耳朵）。供 OverlayService 在「说话」时决定走云端还是系统识别。
+     * provider 非 cloud 或字段不全时返回 null——调用方据此退回系统识别。
+     */
+    fun loadAsrConfig(): AsrConfig? {
+        val provider = prefs.getString(KEY_ASR_PROVIDER, "system") ?: "system"
+        return AsrConfig(
+            provider = provider,
+            baseUrl = prefs.getString(KEY_ASR_BASE_URL, "") ?: "",
+            apiKey = readSecretAsrKey() ?: prefs.getString(KEY_ASR_API_KEY, "") ?: "",
+            model = prefs.getString(KEY_ASR_MODEL, "") ?: "",
+        )
     }
 
     fun hasConfig(): Boolean = loadConfig() != null
@@ -171,6 +207,7 @@ class OverlayBrain private constructor(context: Context) {
             ?: throw IllegalArgumentException("snapshot 缺 endpoint")
         val caps = root.optJSONObject("capabilities") ?: JSONObject()
         val persona = root.optJSONObject("persona") ?: JSONObject()
+        val asr = root.optJSONObject("asr") ?: JSONObject()
         val fallbacks = mutableListOf<String>()
         endpoint.optJSONArray("fallbacks")?.let { array ->
             for (i in 0 until array.length()) {
@@ -188,6 +225,11 @@ class OverlayBrain private constructor(context: Context) {
             personaName = persona.optString("name", ""),
             systemPrompt = persona.optString("systemPrompt", ""),
             locale = root.optString("locale", "zh-CN"),
+            // M3 耳朵：provider 缺省 system（走系统识别兜底），与 JS 侧默认一致。
+            asrProvider = asr.optString("provider", "system"),
+            asrBaseUrl = asr.optString("baseUrl", ""),
+            asrApiKey = asr.optString("apiKey", ""),
+            asrModel = asr.optString("model", ""),
         )
     }
 
@@ -210,6 +252,28 @@ class OverlayBrain private constructor(context: Context) {
             encrypted.getString(KEY_API_KEY, null)
         } catch (error: Exception) {
             Log.w(TAG, "apiKey 读取加密存储失败，回退明文", error)
+            null
+        }
+    }
+
+    /** ASR 的 apiKey 单独一个键（与聊天 key 分开存：两者常是不同服务商的密钥）。 */
+    private fun writeSecretAsrKey(value: String): Boolean {
+        val encrypted = secretPrefs ?: return false
+        return try {
+            encrypted.edit().putString(KEY_ASR_API_KEY, value).apply()
+            true
+        } catch (error: Exception) {
+            Log.w(TAG, "asrKey 写入加密存储失败，降级明文", error)
+            false
+        }
+    }
+
+    private fun readSecretAsrKey(): String? {
+        val encrypted = secretPrefs ?: return null
+        return try {
+            encrypted.getString(KEY_ASR_API_KEY, null)
+        } catch (error: Exception) {
+            Log.w(TAG, "asrKey 读取加密存储失败，回退明文", error)
             null
         }
     }
@@ -510,6 +574,11 @@ class OverlayBrain private constructor(context: Context) {
         private const val KEY_PERSONA_NAME = "persona_name"
         private const val KEY_SYSTEM_PROMPT = "system_prompt"
         private const val KEY_LOCALE = "locale"
+        // M3 耳朵：ASR 配置（apiKey 同样只进加密区，明文键只作降级兜底）。
+        private const val KEY_ASR_PROVIDER = "asr_provider"
+        private const val KEY_ASR_BASE_URL = "asr_base_url"
+        private const val KEY_ASR_MODEL = "asr_model"
+        private const val KEY_ASR_API_KEY = "asr_api_key"
         // 请求里带的历史轮数（设计文档 3.2：截断至最近 12 轮）。
         private const val HISTORY_MAX = 12
         // 内存/JSONL 里保留的轮数上限（防长会话把内存撑爆；归档滚动是 M4）。

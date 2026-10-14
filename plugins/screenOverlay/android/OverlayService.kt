@@ -36,6 +36,9 @@ import android.widget.TextView
 import com.facebook.react.bridge.Arguments
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -83,6 +86,13 @@ class OverlayService : Service() {
         private const val FRAME_CACHE_INTERVAL_NANOS = 500_000_000L
         // SW3：mini 聊天消息区上限（超出滚动裁剪，防长会话把悬浮窗撑爆）。
         private const val CHAT_MESSAGE_MAX = 50
+        // M3.2：抓帧去向。JS = 旧路径（app 内截屏走评论管线）；
+        // BRAIN = 悬浮窗按钮 → 原生直发大脑（不经 JS）。
+        private const val CAPTURE_TARGET_JS = "js"
+        private const val CAPTURE_TARGET_BRAIN = "brain"
+        // 「需要授权」通知的两类文案（同一个 PendingIntent，见 notifyPermissionNeeded）。
+        private const val PERM_CAPTURE = "capture"
+        private const val PERM_MIC = "mic"
 
         @Volatile var instance: OverlayService? = null
             private set
@@ -105,6 +115,9 @@ class OverlayService : Service() {
     private var chatMessages: ScrollView? = null
     private var chatInput: EditText? = null
     private var scopeButton: TextView? = null
+    // M3 耳朵：「说话」按钮（录音时文案切成「停止」）与在跑的录音器。
+    private var talkButton: TextView? = null
+    private var overlayRecorder: OverlayRecorder? = null
     // 消息留档：收起/展开会重建视图，内容不能跟着丢（用户要求切种类、收起重开都保留上下文）。
     private val chatHistory = mutableListOf<Pair<String, String>>()
     // 键盘处理：面板被输入法顶住时上移（见 applyImeInset）。
@@ -115,6 +128,9 @@ class OverlayService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var captureRequested = false
+    // M3.2：本次抓帧的去向。悬浮窗「截屏」按钮走大脑（原生直发），
+    // app 内截屏仍走 JS 事件（那条路径要用 JS 的 OCR/视频帧/评论管线，不能一并砍掉）。
+    private var captureTarget = CAPTURE_TARGET_JS
     // 本次截屏请求的发起时刻（System.nanoTime 时基，与 Image.timestamp 同源）：
     // 重挂载 Surface 会先吐出旧帧，用它识别早于请求的帧。
     private var captureRequestedAtNanos = 0L
@@ -175,6 +191,11 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         releaseCapture()
+        // M3 耳朵：服务销毁必须停录音（否则麦克风被一个已死的服务占着）。
+        try {
+            overlayRecorder?.cancel()
+        } catch (error: Exception) {}
+        overlayRecorder = null
         // 服务销毁 = 授权凭据已失效：必须同步清掉 Module 侧的缓存，否则「关掉后再开启」
         // 会带着失效 token 启动（Android 14 上 SecurityException / IllegalStateException
         // 连环闪退，见 ScreenOverlayModule 的 token 生命周期说明）。
@@ -343,6 +364,11 @@ class OverlayService : Service() {
         chatMessages = null
         chatInput = null
         scopeButton = null
+        talkButton = null
+        // M3 耳朵：收起面板时若还在录音，必须停掉——否则麦克风一直开着（隐私问题），
+        // 且录音器持有的是已从视图树上摘除的按钮状态。
+        overlayRecorder?.cancel()
+        overlayRecorder = null
         rootView.removeAllViews()
         val size = dp(52)
         val icon = circularAppIcon(size)
@@ -477,8 +503,10 @@ class OverlayService : Service() {
         panel.addView(inputRow)
 
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(button("截屏") { requestCaptureFromButton() })
-        actions.addView(button("说话") { focusInput() })
+        actions.addView(button("截屏") { captureForBrain() })
+        val talk = button("说话") { toggleRecording() }
+        talkButton = talk
+        actions.addView(talk)
         actions.addView(button("收起") { showCollapsed() })
         actions.addView(button("关闭") { stopSelf() })
         panel.addView(actions)
@@ -750,30 +778,108 @@ class OverlayService : Service() {
         ScreenOverlayModule.emit(EVENT_REQUEST_CAPTURE, Arguments.createMap())
     }
 
-    // 「说话」（M1 临时形态）：**只把焦点交给输入框**，不再跳 App。
-    //
-    // 原实现是 openAppForTalk()：从 Service 里 startActivity 把 RN 主 Activity 拉起来。
-    // 那是 bug④（卡死 → 悬浮窗消失 → app 呈重启状）的 ANR 源头：焦点持有 + IME 绑在
-    // overlay 窗口 + 主线程被 Activity 启动/RN 恢复/IME 焦点协商一起堵住 → 输入事件
-    // 5 秒未分发 → ANR → 系统杀进程 → 前台服务与悬浮窗陪葬 → 再打开就是冷启动。
-    // 新架构的总纲是「原生完全体，JS 降级为编辑器」，悬浮窗**永不** startActivity；
-    // 与外界 app 的唯一合规交互是通知 PendingIntent（见 startForegroundCompat）。
-    //
-    // M3 会把这里换成窗内录音（AudioRecord → ASR）；在那之前先聚焦输入框，
-    // 保证按钮始终有反应，且不引入任何跨进程/跨 Activity 的隐患。
-    private fun focusInput() {
-        val input = chatInput
-        if (input == null) {
-            // 收起态没有输入框：先展开再聚焦，用户点一下就能开始打字。
-            showExpanded()
-            mainHandler.post { chatInput?.requestFocus() }
-            setStatusText("说点什么…")
+    /**
+     * M3.2 眼睛：悬浮窗「截屏」按钮改为**原生自己抓帧直发大脑**，不再与 JS 打乒乓。
+     *
+     * 旧路径（设计文档 §一 症状①的死亡链条）：原生 emit(onRequestCapture) → 等 JS 调回
+     * capture() → 抓帧 → emit(onCapture) → JS 走评论管线。这条链要求 JS 实例活着且在前台，
+     * 而悬浮窗的主场景恰恰是 app 不在前台——于是「app 外截屏不了」。
+     * 现在：抓帧 → 压缩 → base64 → 直接进本轮请求。
+     */
+    private fun captureForBrain() {
+        val brain = OverlayBrain.get(this)
+        if (!brain.hasConfig()) {
+            // 无配置快照（用户还没打开过 App）：退回 JS 管线，app 在前台时仍可用。
+            requestCaptureFromButton()
             return
         }
-        input.requestFocus()
-        // 键盘的显示交给输入法自己决定（窗口已可获焦点），这里不主动调 InputMethodManager——
-        // 从 Service 强制 showSoftInput 在部分 ROM 上需要 token，失败后反而更难查。
-        setStatusText("说点什么…")
+        if (brain.isBusy) {
+            appendChatMessage("assistant", "上一条还在回复，稍等一下")
+            return
+        }
+        captureTarget = CAPTURE_TARGET_BRAIN
+        requestCapture()
+    }
+
+    // 「说话」（M3 耳朵）：**窗内直接录音**，不再跳 App、也不再只是聚焦输入框。
+    //
+    // 交互：点一下开始录（按钮变「停止」），再点一下结束 → 识别 → 文本进输入框。
+    // 用户可在发送前编辑；「识别完直接发送」是设置项（M3.4，本批先做成进输入框可编辑）。
+    //
+    // 为什么不再用 openAppForTalk()：那是 bug④（卡死 → 悬浮窗消失 → app 呈重启状）的
+    // ANR 源头——从 Service startActivity 会把主线程连同 IME 焦点协商一起堵住。
+    // 新架构总纲：悬浮窗**永不** startActivity，与外界 app 的唯一合规交互是通知 PendingIntent。
+    private fun toggleRecording() {
+        val recorder = overlayRecorder
+        if (recorder != null && recorder.isRecording) {
+            stopRecordingAndTranscribe()
+            return
+        }
+        // 权限：RECORD_AUDIO 是运行时权限，必须由 Activity 申请。悬浮窗自己起不了那个框，
+        // 而**从 Service startActivity 正是 M1 物理移除的 ANR 源头**（后台起 Activity 在
+        // Android 10+ 也本就受限）。所以这里走通知：PendingIntent 由**系统**代为启动，
+        // 不经本进程主线程——与「重新授权截屏」同一个合规通道（见 notifyPermissionNeeded）。
+        if (!ScreenOverlayModule.hasRecordAudioPermission()) {
+            appendChatMessage("assistant", "（需要麦克风权限：点通知里的「授权麦克风」后再点「说话」）")
+            notifyPermissionNeeded(PERM_MIC)
+            return
+        }
+        val created = OverlayRecorder().apply {
+            dirProvider = { File(filesDir, "screen-watch") }
+        }
+        if (!created.start()) {
+            // 启动失败（设备占用/不支持 16kHz）：如实说，不静默失败（设计 3.3）。
+            appendChatMessage("assistant", "（语音识别不可用，请用文字输入）")
+            return
+        }
+        overlayRecorder = created
+        updateTalkButton(true)
+        setStatusText("正在听…再点一下结束")
+    }
+
+    private fun stopRecordingAndTranscribe() {
+        val recorder = overlayRecorder ?: return
+        overlayRecorder = null
+        updateTalkButton(false)
+        setStatusText("")
+        val file = recorder.stop()
+        if (file == null) {
+            appendChatMessage("assistant", "（没有录到声音）")
+            return
+        }
+        // 识别是阻塞活（网络/系统服务）：放工作线程，绝不占主线程（M1 的教训）。
+        val handler = workerHandler
+        if (handler == null) {
+            appendChatMessage("assistant", "（语音识别不可用，请用文字输入）")
+            return
+        }
+        setStatusText("正在识别…")
+        handler.post {
+            val asrConfig = OverlayBrain.get(this).loadAsrConfig()
+            OverlaySpeech(this).transcribe(file, asrConfig) { result ->
+                // 回到主线程改 UI（气泡/输入框都只能在主线程碰）。
+                mainHandler.post {
+                    setStatusText("")
+                    if (result.ok) {
+                        chatInput?.setText(result.text)
+                        chatInput?.setSelection(result.text.length)
+                        // 识别完直接发送（设计 3.3 的默认行为）：用户点「说话」就是想说话，
+                        // 多一步「再点发送」没有意义。想改文本的用户仍可在识别后立刻编辑——
+                        // 这一批先做直接发送，设置开关留 M3.4。
+                        sendChatFromInput()
+                    } else {
+                        appendChatMessage("assistant", "（${result.error}）")
+                    }
+                }
+            }
+        }
+    }
+
+    /** 「说话」按钮在录音/停止之间切换文案（用户要能看出现在是什么状态）。 */
+    private fun updateTalkButton(recording: Boolean) {
+        mainHandler.post {
+            talkButton?.text = if (recording) "停止" else "说话"
+        }
     }
 
     fun requestCapture() {
@@ -886,6 +992,9 @@ class OverlayService : Service() {
     // 采集失败统一出口：JS 侧据此中止评论并提示，避免「截不到图却一直在评论」。
     private fun emitCaptureFailed(reason: String) {
         captureRequested = false
+        // 失败也要复位去向：否则下一次 app 内截屏会被误判成「给大脑的」，帧直接消失。
+        val target = captureTarget
+        captureTarget = CAPTURE_TARGET_JS
         mainHandler.removeCallbacks(captureFallback)
         workerHandler?.removeCallbacks(captureTimeout)
         pendingStaleBitmap?.recycle()
@@ -893,6 +1002,13 @@ class OverlayService : Service() {
         // 失败也要复位状态文字：否则小窗永远停在「正在看…」，用户以为卡死（真机 bug）。
         setStatusText("")
         ScreenOverlayModule.recordTrace("capture-failed", reason)
+        // M3.2：大脑路径没有 JS 在场，失败必须在**气泡**里说出来（设计 3.4）——
+        // 否则用户点了「截屏」什么也没发生，只能看到小窗停在「正在看…」。
+        if (target == CAPTURE_TARGET_BRAIN) {
+            mainHandler.post {
+                appendChatMessage("assistant", "（截不到画面：$reason）")
+            }
+        }
         // 凭据失效类失败：app 大概率不在前台（悬浮窗的主场景），没有 JS 可用来引导。
         // 通知是唯一合规通道——用户点它即可在 app 外完成重授权（M1 验收项）。
         if (reason == "no-projection" || reason == "projection-invalid" || reason == "projection-denied") {
@@ -912,7 +1028,16 @@ class OverlayService : Service() {
      *
      * 同一个 notificationId：连续失败时是**替换**而不是堆叠，不会刷屏。
      */
-    private fun notifyReauthNeeded() {
+    private fun notifyReauthNeeded() = notifyPermissionNeeded(PERM_CAPTURE)
+
+    /**
+     * 「需要授权」通知的统一出口（M3 起两类：截屏凭据、麦克风）。
+     *
+     * PendingIntent 拉起 OverlayPermissionActivity —— 它按当前缺哪项权限决定弹哪个框
+     *（见该 Activity 的 onCreate：先麦克风、再投屏）。因此两类通知共用同一个 Intent，
+     * 只是文案不同。
+     */
+    private fun notifyPermissionNeeded(kind: String) {
         try {
             val manager = getSystemService(NotificationManager::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && manager?.getNotificationChannel(CHANNEL_ID) == null) {
@@ -931,14 +1056,20 @@ class OverlayService : Service() {
                 @Suppress("DEPRECATION")
                 Notification.Builder(this)
             }
-            builder.setContentTitle("重新授权截屏")
-                .setContentText("点此重新授权，悬浮窗即可继续看屏幕")
+            val title = if (kind == PERM_MIC) "授权麦克风" else "重新授权截屏"
+            val text = if (kind == PERM_MIC) {
+                "点此允许麦克风，悬浮窗就能听你说话"
+            } else {
+                "点此重新授权，悬浮窗即可继续看屏幕"
+            }
+            builder.setContentTitle(title)
+                .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setContentIntent(pending)
                 .setAutoCancel(true)
             manager?.notify(REAUTH_NOTIFICATION_ID, builder.build())
         } catch (error: Exception) {
-            Log.w(TAG, "reauth notification failed: ${error.message}")
+            Log.w(TAG, "permission notification failed: ${error.message}")
         }
     }
 
@@ -1166,6 +1297,10 @@ class OverlayService : Service() {
     // emit 走 RN 事件通道，本身线程安全；bitmap 在本函数内回收，不跨线程共享。
     private fun saveAndEmit(bitmap: Bitmap) {
         val startedAt = System.currentTimeMillis()
+        // M3.2：本次抓帧是给原生大脑的（悬浮窗按钮）还是给 JS 管线的（app 内截屏）。
+        // 在**进入**本函数时就取走标记并复位，避免后续状态变化影响这一帧的去向。
+        val target = captureTarget
+        captureTarget = CAPTURE_TARGET_JS
         try {
             val dir = File(filesDir, "screen-watch")
             if (!dir.exists()) dir.mkdirs()
@@ -1174,13 +1309,54 @@ class OverlayService : Service() {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
             }
             ScreenOverlayModule.recordTrace("capture-saved", "${System.currentTimeMillis() - startedAt}ms")
-            val map = Arguments.createMap().apply { putString("path", "file://${file.absolutePath}") }
-            ScreenOverlayModule.emit(EVENT_CAPTURE, map)
+            if (target == CAPTURE_TARGET_BRAIN) {
+                deliverFrameToBrain(file)
+            } else {
+                val map = Arguments.createMap().apply { putString("path", "file://${file.absolutePath}") }
+                ScreenOverlayModule.emit(EVENT_CAPTURE, map)
+            }
         } catch (error: Exception) {
             Log.w(TAG, "save frame failed: ${error.message}")
             mainHandler.post { emitCaptureFailed("save-failed") }
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    /**
+     * M3.2：把刚抓到的帧直接交给原生大脑（不再经 JS）。
+     *
+     * 图片读成 base64 后作为多模态 part 拼进本轮请求——与设计文档 3.4 的
+     * 「气泡显示『[已附屏幕截图 HH:mm:ss]』」一致。
+     * 模型不识图时**不发图**，气泡如实提示（设计 3.2），不静默丢弃。
+     */
+    private fun deliverFrameToBrain(file: File) {
+        val brain = OverlayBrain.get(this)
+        val stamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        val base64 = try {
+            android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
+        } catch (error: Exception) {
+            Log.w(TAG, "read frame for brain failed: ${error.message}")
+            null
+        }
+        if (base64 == null) {
+            mainHandler.post { appendChatMessage("assistant", "（截屏读取失败，请重试）") }
+            return
+        }
+        // 气泡先记「已附截图」：这是用户能看到的、真实发生的事（图确实随请求发出）。
+        mainHandler.post {
+            appendChatMessage("assistant", "[已附屏幕截图 $stamp]")
+            beginAssistantStreaming()
+        }
+        val accepted = brain.send(
+            userText = "看看我的屏幕，说点什么。",
+            imageBase64 = base64,
+            onDelta = { accumulated -> mainHandler.post { updateLastAssistantMessage(accumulated) } },
+            onDone = { reply -> mainHandler.post { updateLastAssistantMessage(reply) } },
+            onError = { message -> mainHandler.post { updateLastAssistantMessage("（$message）") } },
+        )
+        if (!accepted) {
+            mainHandler.post { updateLastAssistantMessage("（未能发送，请重试）") }
         }
     }
 
