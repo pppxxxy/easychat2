@@ -93,9 +93,11 @@ test('Kotlin：mini 聊天的三件套齐备（消息区 / 输入框 / scope 切
   assert.ok(service.includes('private fun toggleChatScope()'), 'scope 切换按钮存在');
   assert.ok(service.includes('private fun appendChatMessage('), '消息追加实现存在');
   assert.ok(service.includes('fun pushChatMessage('), 'JS → 原生推送入口存在');
-  // 上限裁剪：长会话不得把悬浮窗撑爆
+  // 上限裁剪：长会话不得把悬浮窗撑爆。
+  // FIX-SW6：裁剪对象从 ScrollView 改成内衬 LinearLayout（ScrollView 只允许一个直接子
+  // View，消息必须挂内衬）。断言随实现改名，语义不变。
   assert.ok(service.includes('CHAT_MESSAGE_MAX'), '消息条数上限常量');
-  assert.ok(/while \(container\.childCount > CHAT_MESSAGE_MAX\)/.test(service), '超出上限时裁剪最旧消息');
+  assert.ok(/while \(list\.childCount > CHAT_MESSAGE_MAX\)/.test(service), '超出上限时裁剪最旧消息');
   // scope 切换**不清消息**（用户要求切种类保留上下文）
   assert.match(service, /private fun toggleChatScope\(\)[\s\S]{0,400}?scopeButton\?\.text = scopeLabel\(\)/,
     '切换只改按钮文案与 scope');

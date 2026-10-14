@@ -125,6 +125,11 @@ class OverlayService : Service() {
     // scope 决定 JS 侧走哪条管线（聊天角色 / 工作区 agent）；切换只改 scope，不清消息。
     private var chatScope = SCOPE_WORKSPACE
     private var chatMessages: ScrollView? = null
+    // FIX-SW6 P0-1：消息真正挂载的内衬容器。Android 的 ScrollView 只允许**一个**直接子
+    // View——第二条 addView 必抛 IllegalStateException（真机四份崩溃栈同一死法：
+    // "ScrollView can host only one direct child"）。所以 ScrollView 本体只做滚动，
+    // 消息全部挂在这层 LinearLayout 上。chatMessages 与 chatList 同生共死（收起=null）。
+    private var chatList: LinearLayout? = null
     private var chatInput: EditText? = null
     private var scopeButton: TextView? = null
     // M3 耳朵：「说话」按钮（录音时文案切成「停止」）与在跑的录音器。
@@ -436,6 +441,8 @@ class OverlayService : Service() {
         // pushChatMessage 会往一个不在屏幕上的 ScrollView 里塞内容）。
         // 消息内容本身保留在 chatHistory 里，展开时重建。
         chatMessages = null
+        // FIX-SW6：与 chatMessages 同生共死（都指向已摘除的视图树）。
+        chatList = null
         chatInput = null
         scopeButton = null
         talkButton = null
@@ -539,6 +546,8 @@ class OverlayService : Service() {
         statusView = status
 
         // SW3：消息区（ScrollView + 动态文本行，上限 CHAT_MESSAGE_MAX 条）。
+        // FIX-SW6 P0-1：ScrollView 只允许一个直接子 View——消息挂内衬 LinearLayout，
+        // 否则第二条气泡必崩（真机四份崩溃栈实锤）。
         val messages = ScrollView(this).apply {
             // 悬浮窗内滚动：容器高度固定，内容超出由 ScrollView 自己滚。
             layoutParams = LinearLayout.LayoutParams(
@@ -546,6 +555,11 @@ class OverlayService : Service() {
                 dp(140)
             )
         }
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        messages.addView(list)   // ScrollView 的唯一子 View
+        chatList = list
         chatMessages = messages
         panel.addView(messages)
         // 收起期间收到的消息在这里补齐（留档见 chatHistory）。
@@ -632,15 +646,15 @@ class OverlayService : Service() {
         beginAssistantStreaming()
         val accepted = brain.send(
             userText = text,
-            onDelta = { accumulated -> mainHandler.post { updateLastAssistantMessage(accumulated) } },
+            onDelta = { accumulated -> postUi("brain-delta") { updateLastAssistantMessage(accumulated) } },
             onDone = { reply ->
-                mainHandler.post {
+                postUi("brain-done") {
                     updateLastAssistantMessage(reply)
                     // M4.1：回复完成后按开关播报（系统 TTS；云端 TTS 只在 app 内可用）。
                     maybeSpeak(reply)
                 }
             },
-            onError = { message -> mainHandler.post { updateLastAssistantMessage("（" + message + "）") } },
+            onError = { message -> postUi("brain-error") { updateLastAssistantMessage("（" + message + "）") } },
         )
         if (!accepted) {
             // 理论上 isBusy 已挡住；兜底：把占位气泡改回提示，不吞用户输入。
@@ -651,24 +665,24 @@ class OverlayService : Service() {
     /** 流式回复：先占一个 assistant 气泡，增量到达时往里填（见 updateLastAssistantMessage）。 */
     private fun beginAssistantStreaming() {
         chatHistory.add("assistant" to "")
-        val container = chatMessages ?: return
-        container.addView(makeChatLine("assistant", "…"))
-        container.post { container.fullScroll(View.FOCUS_DOWN) }
+        val list = chatList ?: return
+        list.addView(makeChatLine("assistant", "…"))
+        chatMessages?.post { chatMessages?.fullScroll(View.FOCUS_DOWN) }
     }
 
     /** 流式增量：更新内存留档里的最后一条 assistant + 重画气泡最后一行。 */
     private fun updateLastAssistantMessage(text: String) {
         val index = chatHistory.indexOfLast { it.first == "assistant" }
         if (index >= 0) chatHistory[index] = "assistant" to text
-        val container = chatMessages ?: return
-        val last = container.getChildAt(container.childCount - 1) as? TextView
+        val list = chatList ?: return
+        val last = list.getChildAt(list.childCount - 1) as? TextView
         last?.text = text
-        container.post { container.fullScroll(View.FOCUS_DOWN) }
+        chatMessages?.post { chatMessages?.fullScroll(View.FOCUS_DOWN) }
     }
 
     // JS 推回一条消息（回复或确认题卡）→ 渲染成气泡/按钮组。
     fun pushChatMessage(role: String?, text: String?) {
-        mainHandler.post {
+        postUi("push-chat") {
             appendChatMessage(if (role == "user") "user" else "assistant", text.orEmpty())
         }
     }
@@ -686,14 +700,14 @@ class OverlayService : Service() {
     // 把一条消息画进消息区（视图不在时静默——留档已在 appendChatMessage 完成，
     // 展开时 renderChatHistory 会补齐）。
     private fun renderChatMessage(role: String, text: String) {
-        val container = chatMessages ?: return
+        val list = chatList ?: return
         if (text.isBlank()) return
-        container.addView(makeChatLine(role, text))
+        list.addView(makeChatLine(role, text))
         // 上限裁剪：只留最近 CHAT_MESSAGE_MAX 条（长会话不把悬浮窗撑爆）。
-        while (container.childCount > CHAT_MESSAGE_MAX) {
-            container.removeViewAt(0)
+        while (list.childCount > CHAT_MESSAGE_MAX) {
+            list.removeViewAt(0)
         }
-        container.post { container.fullScroll(View.FOCUS_DOWN) }
+        chatMessages?.post { chatMessages?.fullScroll(View.FOCUS_DOWN) }
     }
 
     // 聊天行的统一样式（渲染与流式更新共用，改样式只动这一处）。
@@ -708,8 +722,8 @@ class OverlayService : Service() {
 
     // 展开时把留档的消息重画一遍（收起态收到的推送不丢）。
     private fun renderChatHistory() {
-        val container = chatMessages ?: return
-        container.removeAllViews()
+        val list = chatList ?: return
+        list.removeAllViews()
         for ((role, text) in chatHistory) {
             val line = TextView(this).apply {
                 this.text = (if (role == "user") "我：" else "") + text
@@ -717,9 +731,9 @@ class OverlayService : Service() {
                 textSize = 12f
                 setPadding(dp(6), dp(4), dp(6), dp(4))
             }
-            container.addView(line)
+            list.addView(line)
         }
-        container.post { container.fullScroll(View.FOCUS_DOWN) }
+        chatMessages?.post { chatMessages?.fullScroll(View.FOCUS_DOWN) }
     }
 
     // 输入焦点切换：点输入框要能弹键盘（去掉 FLAG_NOT_FOCUSABLE），失焦再装回去
@@ -959,7 +973,7 @@ class OverlayService : Service() {
             val asrConfig = OverlayBrain.get(this).loadAsrConfig()
             OverlaySpeech(this).transcribe(file, asrConfig) { result ->
                 // 回到主线程改 UI（气泡/输入框都只能在主线程碰）。
-                mainHandler.post {
+                postUi("asr-result") {
                     setStatusText("")
                     if (result.ok) {
                         chatInput?.setText(result.text)
@@ -978,8 +992,36 @@ class OverlayService : Service() {
 
     /** 「说话」按钮在录音/停止之间切换文案（用户要能看出现在是什么状态）。 */
     private fun updateTalkButton(recording: Boolean) {
-        mainHandler.post {
+        postUi("talk-button") {
             talkButton?.text = if (recording) "停止" else "说话"
+        }
+    }
+
+    /**
+     * FIX-SW6 P0-2：主线程 UI 任务统一包闸。
+     *
+     * 为什么需要：已经两次「以为修完了还有下一条裸奔」——FIX-SW5 后崩溃从
+     * 「无痕迹死亡」变成「有堆栈死亡」，而真凶（ScrollView 单子限制）恰恰死在
+     * **异步 UI 回调**里，不在按钮点击的同步段内（P0-3 按钮总闸够不着这里）。
+     * 现在把 UI 线程的**全部入口**罩住：任何一处再崩，都降级成
+     * 「状态栏提示 + ui-crash-guard 诊断打点」，进程不死。
+     *
+     * catch Throwable：OOM 也要接住。取证代码自身再崩也必须吞掉（不吞就是
+     * 死循环/更糟的死法）。
+     */
+    private fun postUi(tag: String, body: () -> Unit) {
+        mainHandler.post {
+            try {
+                body()
+            } catch (error: Throwable) {
+                Log.e(TAG, "ui task '$tag' failed", error)
+                try {
+                    ScreenOverlayModule.recordTrace("ui-crash-guard", "$tag ${error.javaClass.simpleName}")
+                } catch (_: Throwable) {}
+                try {
+                    setStatusText("出错了，请重试")
+                } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -1124,7 +1166,7 @@ class OverlayService : Service() {
         // M3.2：大脑路径没有 JS 在场，失败必须在**气泡**里说出来（设计 3.4）——
         // 否则用户点了「截屏」什么也没发生，只能看到小窗停在「正在看…」。
         if (target == CAPTURE_TARGET_BRAIN) {
-            mainHandler.post {
+            postUi("capture-fail-bubble") {
                 appendChatMessage("assistant", "（截不到画面：$reason）")
             }
         }
@@ -1503,27 +1545,29 @@ class OverlayService : Service() {
         val brain = OverlayBrain.get(this)
         val stamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         // 气泡先记「已附截图」：这是用户能看到的、真实发生的事（图确实随请求发出）。
-        mainHandler.post {
+        // FIX-SW6：这曾是裸 mainHandler.post——真机四份崩溃栈里有三份死在这里的
+        // beginAssistantStreaming（第二条 addView 崩）。postUi 包闸后，再崩也只降级成提示。
+        postUi("capture-bubble") {
             appendChatMessage("assistant", "[已附屏幕截图 $stamp]")
             beginAssistantStreaming()
         }
         val accepted = brain.send(
             userText = "看看我的屏幕，说点什么。",
             imageBase64 = base64,
-            onDelta = { accumulated -> mainHandler.post { updateLastAssistantMessage(accumulated) } },
+            onDelta = { accumulated -> postUi("brain-delta") { updateLastAssistantMessage(accumulated) } },
             onDone = { reply ->
-                mainHandler.post {
+                postUi("brain-done") {
                     updateLastAssistantMessage(reply)
                     maybeSpeak(reply)
                 }
             },
-            onError = { message -> mainHandler.post { updateLastAssistantMessage("（$message）") } },
+            onError = { message -> postUi("brain-error") { updateLastAssistantMessage("（$message）") } },
             // 模型不识图时 brain 会通知一声（图没发出去）——必须让用户看见，
             // 否则他点了「截屏」却毫无说明，只会以为截屏坏了。
-            onNote = { note -> mainHandler.post { appendChatMessage("assistant", "（$note）") } },
+            onNote = { note -> postUi("brain-note") { appendChatMessage("assistant", "（$note）") } },
         )
         if (!accepted) {
-            mainHandler.post { updateLastAssistantMessage("（未能发送，请重试）") }
+            postUi("brain-not-accepted") { updateLastAssistantMessage("（未能发送，请重试）") }
         }
     }
 

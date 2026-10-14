@@ -661,6 +661,108 @@ test('M4.1：TTS 只做系统引擎，且录音时暂停播报', () => {  const 
     'onDestroy 必须释放 TTS 引擎');
 });
 
+// ---------- FIX-SW6：真凶落网（ScrollView 单子限制） ----------
+
+test('FIX-SW6 P0-1：消息区必须是 ScrollView + LinearLayout 内衬（ScrollView 只允许一个直接子 View）', () => {
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  // 铁证：真机四份崩溃栈同一句话
+  //   java.lang.IllegalStateException: ScrollView can host only one direct child
+  // 根因：裸 ScrollView 直接 addView 聊天气泡 —— 第一条成功，第二条必崩。
+  // 修法：ScrollView 的唯一子 View 是内衬 LinearLayout，消息挂内衬。
+  //
+  // ⚠️ 正面断言（吸取 FIX-SW5 两条反面断言空转的教训）：
+  // 不断言「不得出现 X」，而断言「必须出现 Y 且 Y 在正确位置」。
+  assert.match(serviceCode, /val list = LinearLayout\(this\)/,
+    '必须有内衬 LinearLayout');
+  assert.match(serviceCode, /messages\.addView\(list\)/,
+    'ScrollView 的唯一子 View 必须是内衬（messages.addView(list)）');
+  assert.match(serviceCode, /chatList = list/, '必须保存 chatList 引用');
+  // 内衬必须在 ScrollView 构造之后、panel.addView(messages) 之前
+  const scrollIdx = serviceCode.indexOf('val messages = ScrollView(this)');
+  const listIdx = serviceCode.indexOf('val list = LinearLayout(this)');
+  const panelIdx = serviceCode.indexOf('panel.addView(messages)');
+  assert.ok(scrollIdx >= 0 && listIdx > scrollIdx && panelIdx > listIdx,
+    '顺序必须是：建 ScrollView → 建内衬 → 挂到 panel');
+  // 四个消息操作点必须全部改指 chatList（不能再用 chatMessages 装消息）
+  assert.equal(/chatMessages\?\.addView/.test(serviceCode), false,
+    'chatMessages 是 ScrollView，不得再直接 addView 消息');
+  assert.equal(/container\.addView/.test(serviceCode), false,
+    '不得再出现 container.addView（那是旧裸 ScrollView 的写法）');
+  // ⚠️ 每个函数体内必须**从 chatList 取值**（`chatList ?: return`），
+  // 而不是只出现 `list.` 字样——注入验证发现：把 renderChatMessage 里的
+  // `val list = chatList ?: return` 改成 `val list = chatMessages ?: return` 时，
+  // 只断言「出现 list.」仍然通过（等于放过真凶回归）。所以正面断言取值来源。
+  for (const fn of ['beginAssistantStreaming', 'updateLastAssistantMessage', 'renderChatMessage', 'renderChatHistory']) {
+    const start = serviceCode.indexOf(`private fun ${fn}(`);
+    assert.ok(start >= 0, `${fn} 应存在`);
+    const body = serviceCode.slice(start, start + 900);
+    assert.match(body, /val list = chatList \?: return/,
+      `${fn} 必须从 chatList 取值（不得改回 chatMessages）`);
+    assert.equal(/val list = chatMessages/.test(body), false,
+      `${fn} 不得从 chatMessages（ScrollView）取值`);
+  }
+  // chatList 必须与 chatMessages 同生共死（收起时都置 null）
+  assert.match(serviceCode, /chatMessages = null[\s\S]{0,300}?chatList = null/,
+    '收起面板时必须同时清空 chatList');
+});
+
+test('FIX-SW6 P0-2：主线程 UI 任务统一走 postUi（裸 post 不再出现在聊天渲染路径）', () => {
+  const serviceCode = serviceSrc.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  // 两次「以为修完了还有下一条裸奔」——真凶恰好死在异步 UI 回调里，
+  // 按钮总闸（只包点击同步段）够不着。postUi 把 UI 线程全部入口罩住。
+  assert.match(serviceCode, /private fun postUi\(tag: String, body: \(\) -> Unit\)/,
+    '必须有 postUi 辅助');
+  assert.match(serviceCode, /postUi[\s\S]{0,400}?catch \(error: Throwable\)/,
+    'postUi 必须 catch Throwable');
+  assert.ok(serviceCode.includes('ui-crash-guard'), 'postUi 必须留诊断打点');
+  // 最关键的两条路径（真机堆栈实锤）必须走 postUi
+  const deliverStart = serviceCode.indexOf('private fun deliverFrameToBrain');
+  assert.ok(deliverStart >= 0, 'deliverFrameToBrain 应存在');
+  const deliverBody = serviceCode.slice(deliverStart, deliverStart + 1600);
+  assert.match(deliverBody, /postUi\("capture-bubble"\)/,
+    '截屏气泡必须走 postUi（真机三份崩溃栈死在这里的 beginAssistantStreaming）');
+  assert.equal(/mainHandler\.post/.test(deliverBody), false,
+    'deliverFrameToBrain 内不得再有裸 mainHandler.post');
+  const stopStart = serviceCode.indexOf('private fun stopRecordingAndTranscribe');
+  assert.ok(stopStart >= 0, 'stopRecordingAndTranscribe 应存在');
+  const stopBody = serviceCode.slice(stopStart, stopStart + 1600);
+  assert.match(stopBody, /postUi\("asr-result"\)/,
+    '说话结果回主线程必须走 postUi（真机两份崩溃栈死在这里）');
+  // sendViaBrain 的三条回调也必须走 postUi
+  const sendStart = serviceCode.indexOf('private fun sendViaBrain');
+  const sendBody = serviceCode.slice(sendStart, sendStart + 1400);
+  assert.equal(/mainHandler\.post/.test(sendBody), false,
+    'sendViaBrain 内不得再有裸 mainHandler.post（delta/done/error 全走 postUi）');
+});
+
+test('FIX-SW6 P0-3：识图测试弹窗 detail 绝不为空', () => {
+  const diag = fs.readFileSync(path.resolve('src/screenWatch/screenWatchDiagnostics.js'), 'utf8');
+  // 真实踩到：00:25 截图弹窗只有一行，detail 为空 → 用户拿不到任何线索。
+  assert.match(diag, /return detail \|\| '/,
+    'extractDetail 必须在空 detail 时兜底（弹窗永远带一行原因）');
+  assert.ok(diag.includes('no error detail'), '兜底文案存在（ASCII，与诊断日志同口径）');
+});
+
+test('FIX-SW6 P1-4：源 5xx 时必须如实说「服务端错误」，不得甩给用户查 app 配置', () => {
+  const brain = kotlinSource('OverlayBrain.kt');
+  const code = brain.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+  // 源整晚 502 时，旧文案「模型无响应，请到 App 内检查网络配置」会误导用户以为 app 坏了。
+  assert.ok(brain.includes('服务端错误'), '必须有服务端错误文案');
+  // 状态码必须沿 fallback 链传下去（否则链耗尽时不知道最后败在几几几）
+  assert.match(code, /lastHttpCode: Int = 0/, '必须有 lastHttpCode 沿链传递');
+  assert.match(code, /onRetry: \(Int\) -> Unit/, 'onRetry 必须携带状态码');
+  assert.match(code, /onRetry\(resp\.code\)/, '5xx/429 重试时必须传真实状态码');
+  // 链耗尽时按状态码分流文案
+  assert.match(code, /lastHttpCode in 500\.\.599|lastHttpCode == 429/,
+    '链耗尽时必须按状态码选文案（5xx → 服务端错误）');
+  // 网络层失败传 0（没有状态码）
+  assert.match(code, /onRetry\(0\)/, '网络层失败必须传 0');
+});
+
 // ---------- 结构完整性 ----------
 
 test('Kotlin 源仍保持大括号平衡（沙箱无法编译，防编辑遗留重复片段）', () => {

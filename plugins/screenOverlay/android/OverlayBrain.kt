@@ -513,16 +513,28 @@ class OverlayBrain private constructor(context: Context) {
         onDone: (String) -> Unit,
         onError: (String) -> Unit,
         onNote: (String) -> Unit,
+        // FIX-SW6 P1-4：最后一场**可重试**失败的服务端状态码（0 = 网络层失败）。
+        // 沿链传递，耗尽时用它如实相告——否则源整晚 502 时用户只会看到
+        // 「模型无响应，请到 App 内检查网络配置」，以为又是 app 坏了。
+        lastHttpCode: Int = 0,
     ) {
         if (index >= chain.size) {
             inFlight.set(false)
             state = State.IDLE
-            onError("模型无响应，请稍后再试或到 App 内检查网络配置")
+            // 5xx/429 是**服务端**问题，如实说服务端，别甩给用户去查 app 配置。
+            // 429 在这里几乎不可能出现（429 会重试到下一个模型），但保留口径。
+            onError(
+                if (lastHttpCode == 429 || (lastHttpCode in 500..599)) {
+                    "服务端错误 $lastHttpCode：接口暂时不可用，请稍后再试"
+                } else {
+                    "模型无响应，请稍后再试或到 App 内检查网络配置"
+                }
+            )
             return
         }
         streamOnce(config, chain[index], userText, imageBase64, onDelta, onDone,
-            onRetry = {
-                sendWithFallback(config, chain, index + 1, userText, imageBase64, onDelta, onDone, onError, onNote)
+            onRetry = { code ->
+                sendWithFallback(config, chain, index + 1, userText, imageBase64, onDelta, onDone, onError, onNote, code)
             },
             onFail = {
                 inFlight.set(false)
@@ -541,7 +553,9 @@ class OverlayBrain private constructor(context: Context) {
         imageBase64: String?,
         onDelta: (String) -> Unit,
         onDone: (String) -> Unit,
-        onRetry: () -> Unit,
+        // FIX-SW6 P1-4：带**本次失败的服务端状态码**（0 = 网络/流层失败），
+        // 供 fallback 链耗尽时如实相告（源 502 时不再误导成「模型无响应」）。
+        onRetry: (Int) -> Unit,
         onFail: (String) -> Unit,
     ) {
         // M4.4：原生大脑的链路打点（stage: request / first-byte / done / fail）。
@@ -595,7 +609,7 @@ class OverlayBrain private constructor(context: Context) {
                     "brain-fail",
                     "network ${System.currentTimeMillis() - startedAt}ms ${error.javaClass.simpleName}"
                 )
-                onRetry()
+                onRetry(0)   // 网络层失败：没有 HTTP 状态码
             }
 
             override fun onResponse(call: Call, response: okhttp3.Response) {
@@ -605,7 +619,7 @@ class OverlayBrain private constructor(context: Context) {
                         // 重试只会得到同样的拒绝，还多烧一次配额。
                         if (resp.code == 429 || resp.code >= 500) {
                             ScreenOverlayModule.recordTrace("brain-fail", "http ${resp.code} retry")
-                            onRetry()
+                            onRetry(resp.code)
                         } else {
                             ScreenOverlayModule.recordTrace("brain-fail", "http ${resp.code} fatal")
                             onFail("请求失败（HTTP ${resp.code}），请检查密钥或模型名")
@@ -619,7 +633,7 @@ class OverlayBrain private constructor(context: Context) {
                     }
                     if (source == null) {
                         ScreenOverlayModule.recordTrace("brain-fail", "no-body")
-                        onRetry()
+                        onRetry(0)
                         return
                     }
                     state = State.STREAMING
@@ -663,7 +677,7 @@ class OverlayBrain private constructor(context: Context) {
                             onDone(full.toString())
                         } else {
                             ScreenOverlayModule.recordTrace("brain-fail", "stream-read ${error.javaClass.simpleName}")
-                            onRetry()
+                            onRetry(0)   // 流读到一半断了：没有可用的 HTTP 状态码
                         }
                         return
                     }

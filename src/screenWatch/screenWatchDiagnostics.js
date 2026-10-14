@@ -83,7 +83,15 @@ export function reportCaptureFailure({
   alert(title, detail ? `${body}\n\n${detail}` : body);
 }
 
-/** 从任意抛出物取出可展示的原因（脱敏 + 截断）。 */
+/**
+ * 从任意抛出物取出可展示的原因（脱敏 + 截断）。
+ *
+ * FIX-SW6 P0-3：detail **绝不为空**——error 为空对象/空串时兜底返回
+ * 'no error detail'（ASCII，与诊断日志同口径）。否则弹窗只剩一行
+ * 「没能完成截屏」，用户截图里没有任何线索（本次真实踩到：
+ * 00:25 截图弹窗只有一行，detail 为空）。
+ */
 export function extractDetail(error) {
-  return maskSecrets(String((error && error.message) || error || '')).trim();
+  const detail = maskSecrets(String((error && error.message) || error || '')).trim();
+  return detail || 'no error detail';
 }
