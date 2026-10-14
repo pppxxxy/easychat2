@@ -9,6 +9,11 @@ concurrency:
 
 jobs:
   build:
+    # 显式 job 名（GitHub 没有 name 时显示 id `build`）。
+    # 刻意**不**写成与 workflow 同名的「Build APK」：那样会重现
+    # tests/ciWorkflowNaming.test.mjs 守的那类问题——列表页只显示 workflow 名，
+    # 同名会让人以为「整个 workflow 就是这个 job」，失败时指不清环节。
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:

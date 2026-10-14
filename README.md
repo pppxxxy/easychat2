@@ -162,7 +162,7 @@ easychat2/
 │   ├── SettingsScreen.js   # 设置
 │   ├── ...                 # 其余屏幕（记忆 / 扩展 / 搜索 / 生图 / 各面板）
 │   └── <domain>/           # agent / storage / chat / workspace / localModel / moments / ...
-└── .github/workflows/      # CI（单元测试门禁 + APK 构建）
+└── .github/workflows/      # CI（单元测试门禁 + Kotlin 编译 + APK 构建）
 ```
 
 > 完整模块清单见 `.monkeycode/docs/INTERFACES.md` 与 `AGENTS.md` 的「Architecture map」。

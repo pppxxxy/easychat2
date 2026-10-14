@@ -1,4 +1,17 @@
-name: Unit tests
+# ⚠️ workflow 名必须**概括它下面所有 job**，不能沿用某个 job 的名字。
+#
+# 这里原名叫 `Unit tests`，但本文件其实跑**两个** job：单元测试 + Kotlin 编译。
+# 后果（真实踩到）：GitHub 的 Actions 列表页与提交状态显示的是 **workflow 名**，
+# 于是 Kotlin 编译失败时页面显示「Unit tests failed」——
+# 看起来像单元测试挂了，实际单元测试一直是绿的（run 279/280/283/284 都是这个假象）。
+# 排查时得逐个 job 去翻才知道挂的是哪个环节，而「CI 红了但说不清哪个环节红了」
+# 正是本文件里 Kotlin 错误接 check-run annotations 要解决的同一个问题。
+#
+# 所以改名成能概括全部 job 的 `Tests & Kotlin compile`。
+# 名字与文件名（unit-tests.yml）不再一一对应，但**列表页显示的是 name**，
+# 那个才是人会看到的东西；文件名改不改都不影响显示，故保持不动以免无谓地
+# 改动引用路径（README 等）。job 名各自保留，它们才是精确的那一层。
+name: Tests & Kotlin compile
 
 # 手动触发、PR 和 main 关键路径提交时运行。
 on:

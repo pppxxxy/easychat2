@@ -12,6 +12,10 @@ permissions:
 
 jobs:
   debug:
+    # 显式 job 名（GitHub 没有 name 时显示 id `debug`）。
+    # 与 workflow 名「EAS Build Debug」不同，避免同名导致失败信息指不清环节
+    #（见 tests/ciWorkflowNaming.test.mjs）。
+    name: EAS build debug info
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
