@@ -12,6 +12,7 @@
 
 import { evaluatePermissionRules } from '../permissions.js';
 import { tActive } from '../../i18n/index.js';
+import { confirmSignature, repeatGuardMessage } from './confirmBudget.js';
 
 export const AGENT_MODES = Object.freeze({
   ASK: 'ask',
@@ -292,6 +293,22 @@ export async function runTool(call, ctx = {}) {
   if (needsConfirmation || ruleVerdict === 'ask') {
     if (typeof ctx.confirm !== 'function') {
       return toErrorResult(`该操作需要用户确认，但当前环境无法询问用户（未执行）：${name}`);
+    }
+    // FEAT-AC8 P0-B：**同签名确认预算**（防「连环弹卡」烧用户）。
+    //
+    // 事故：一个回合弹了 5 张卡（4 允许 + 1 拒绝）——工具持续失败（BUG-A）时模型
+    // 合规重发，每次重发都要用户再点一次。重复调用检测只 nudge 不阻断，拦不住这件打扰。
+    // 预算用尽 → **按拒绝结算**（方向是拒绝，不是放行），并给模型一句明确的收尾话术，
+    // 否则它只看到「用户拒绝」会继续重发。
+    //
+    // 预算实例由**回合**持有（loop.js 每回合建一个并经 ctx 传下来），
+    // 不是模块级单例——那样会把「上一轮用户已经点过」错算进新一轮，
+    // 且并发回合（工作区 + 悬浮窗）会互相吃预算。
+    const budget = ctx.confirmBudget && typeof ctx.confirmBudget.shouldAsk === 'function'
+      ? ctx.confirmBudget
+      : null;
+    if (budget && !budget.shouldAsk(confirmSignature(tool.name, args))) {
+      return toErrorResult(repeatGuardMessage(tool.name, { budget: budget.budget }));
     }
     if (signal && signal.aborted) throw makeAbortError();
     // 审批也要能被中止竞速：用户点「停止生成」时弹框可能还开着，弹框的按钮回调

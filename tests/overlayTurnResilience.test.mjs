@@ -92,9 +92,16 @@ function stripComments(source) {
 test('打点格式：事件名 + 白名单字段；缺字段省略，不写 undefined', () => {
   assert.equal(formatTurnEvent('turn-tool', { round: 2, tool: 'set_app_setting' }),
     'turn-tool round=2 tool=set_app_setting');
-  // elapsed 带 ms 单位；0 与空串被省略（不打「elapsed=0ms」这种噪音）
+  // elapsed 带 ms 单位
   assert.equal(formatTurnEvent('turn-done', { round: 1, elapsed: 1200 }), 'turn-done round=1 elapsed=1200ms');
   assert.equal(formatTurnEvent('turn-start', {}), 'turn-start');
+  // ⚠️ FEAT-AC8 P0-D：falsy 值必须**保留**（`ok=false` 与 `elapsed=0` 都是有意义的值）。
+  // 早先的实现用 `if (!value) continue`，会把它们吞掉——那正是「打点白记了」的形态：
+  // 当晚 5 次 set_app_setting 全部失败，若 ok=false 被过滤，日志里就只剩工具名，
+  // 读不出成败（BUG-A 也就无法当场定罪）。
+  assert.equal(formatTurnEvent('turn-tool', { tool: 'set_app_setting', ok: false }),
+    'turn-tool tool=set_app_setting ok=false', 'ok=false 必须保留');
+  assert.equal(formatTurnEvent('turn-done', { elapsed: 0 }), 'turn-done elapsed=0ms', 'elapsed=0 必须保留');
   // 未知事件名归 turn-unknown（不静默丢弃，也不冒充已知事件）
   assert.equal(formatTurnEvent('bogus', { round: 1 }), 'turn-unknown round=1');
   // 非白名单字段（可能含隐私正文）不得进日志
@@ -105,8 +112,10 @@ test('打点格式：事件名 + 白名单字段；缺字段省略，不写 unde
   assert.equal(withError.includes('第二行堆栈'), false, 'error 只取首行（堆栈由真错误路径负责）');
 });
 
-test('打点四事件齐备（turn-start/tool/done/timeout）', () => {
-  assert.deepEqual([...TURN_EVENTS], ['turn-start', 'turn-tool', 'turn-done', 'turn-timeout']);
+test('打点事件齐备（turn-start/tool/done/timeout + AC8 的落库留痕）', () => {
+  // FEAT-AC8 P0-C 把 thread-append 加进同一落盘通道（它不是回合事件，
+  // 但共用「组装 → 注入落盘」这一层，故同表登记——分开两张表只会两处漂移）。
+  assert.deepEqual([...TURN_EVENTS], ['turn-start', 'turn-tool', 'turn-done', 'turn-timeout', 'thread-append']);
 });
 
 test('打点：未注入 recorder 时静默；注入后逐条落盘；recorder 抛错不影响主流程', () => {
@@ -291,10 +300,19 @@ test('P0-C：runWorkspaceWatchTurn 成功/失败/中止/超时四种收尾都落
     '用户消息优先落库');
 });
 
-test('P0-C：落库写失败不挡主流程（既有纪律不变）', () => {
+test('P0-C：落库写失败不挡主流程，且**必须留痕**（AC8 起不再静默）', () => {
   const turn = read('src/screenWatch/workspaceWatchTurn.js');
-  assert.match(turn, /for \(const entry of entries\) \{\s*try \{\s*await appendEntry\(thread\.id, entry\);\s*\} catch \(error\) \{\}/,
-    '逐条落库且失败静默（不挡本轮结果）');
+  // 早期这里是裸 `catch (error) {}`——「失败静默」保住了主流程，但真机上
+  // 「到底写没写进去」无法证实也无法证伪（AC8 BUG-C 的盲区）。
+  // AC8 起：失败仍然不挡主流程，但**每一条都留痕**（ok:false）。
+  assert.match(turn, /for \(const entry of entries\) \{[\s\S]{0,700}?catch \(error\) \{\s*ok = false;\s*\}/,
+    '逐条落库且失败不挡本轮结果（catch 里置 ok=false）');
+  // 留痕必须真的调用（不是只定义 onAppend 参数）
+  assert.match(turn, /if \(typeof onAppend === 'function'\) \{[\s\S]{0,200}?onAppend\(\{ threadId: thread\.id, role: entry\.role, ok \}\)/,
+    '每条落库都要报送结果（含失败的）');
+  // 三处落库调用点都要接上留痕器（漏一处 = 那条路径仍然静默）
+  const wired = (turn.match(/onAppend: appendTracer/g) || []).length;
+  assert.equal(wired, 3, `三处落库（成功/空回复/异常收尾）都要留痕，实际接上 ${wired} 处`);
 });
 
 // ---------- ⑦ 接线：P0-F 悬浮窗忙反馈（不允许沉默）----------

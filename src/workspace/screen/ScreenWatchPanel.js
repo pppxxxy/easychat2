@@ -46,6 +46,8 @@ import {
   THREAD_SCOPE_WORKSPACE,
 } from '../../screenWatch/threads.js';
 import { formatThreadEntryTime, threadEntryRoleKey } from '../../screenWatch/threadEntries.js';
+import { noteTurnEvent } from '../../screenWatch/turnDiagnostics.js';
+import { subscribeThreadsChanged } from '../../screenWatch/threadEvents.js';
 import { screenThreadPreview } from '../../memory/memoryBuckets.js';
 import { readImageDataUri } from '../../chat/attachments.js';
 import { approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
@@ -118,6 +120,17 @@ export default function ScreenWatchPanel({ storeRef }) {
     (async () => { if (alive) await refresh(); })();
     return () => { alive = false; };
   }, [refresh]);
+
+  // FEAT-AC8 P0-C：**悬浮窗回合结束后自动刷新**。
+  //
+  // 事故：列表此前只在挂载 + 开/关悬浮窗时刷新 ⇒ 悬浮窗往线程里写完条目后，
+  // 面板还停在回合开始前的旧状态，于是「（暂无内容）」到底是「真没写入」还是
+  // 「UI 陈旧」无法分辨（任务书 §四 明确把这标为真机实证缺失）。
+  // 现在回合收尾会广播一次，面板在场即刷新——「陈旧」这个可能性被消除，
+  // 真机上再看到空列表就可以直接判定为落库问题。
+  useEffect(() => subscribeThreadsChanged(() => {
+    if (mountedRef.current) refresh().catch(() => {});
+  }), [refresh]);
 
   const toggleOverlay = useCallback(async () => {
     if (busy) return;
@@ -232,6 +245,11 @@ export default function ScreenWatchPanel({ storeRef }) {
         ),
         readFrame: readImageDataUri,
         appendEntry: appendThreadEntry,
+        // FEAT-AC8 P0-D：回合打点（面板路径与悬浮窗路径共用 runWorkspaceWatchTurn，
+        // 于是两条路都过同一打点器——任务书 §二 P0-D 的要求）。
+        onTurnEvent: noteTurnEvent,
+        // P0-C：每条落库留痕（含失败），静默吞错从此可查。
+        onThreadAppend: info => noteTurnEvent('thread-append', info),
         onToolEvent: event => {
           if (!mountedRef.current || !event) return;
           if (event.phase === 'start' && event.name) {

@@ -293,3 +293,60 @@ test('布尔值渲染成「开/关」而不是 true/false（模型与人都好�
   assert.equal(renderSettingValue('tts.autoBroadcast', false), '关');
   assert.equal(renderSettingValue('appearance.theme', 'dark'), 'dark');
 });
+
+// ---------- FEAT-AC8 BUG-A：当晚场景端到端重演 ----------
+//
+// 任务书 §二 P0-A 明确要求：模型传字符串 "true" → **恰好 1 张确认卡** → 允许 →
+// 写入成功 → 工具结果为「已把…从 关 改为 开」。
+// 下面这条就是那次真机事故的逐字重演（走真实 execute，只把落盘换成桩）。
+test('AC8 当晚场景：模型传字符串 "true" → 一次成功（不再连环弹卡）', async () => {
+  const calls = [];
+  const restoreReaders = __swapPanelReaders({
+    tts: async () => ({ autoBroadcast: false, activeProvider: 'system', providers: {} }),
+  });
+  const restoreWriters = __swapKeyWriters({
+    'tts.autoBroadcast': async (ctx, value) => { calls.push(`write:${value}:${typeof value}`); },
+  });
+  setOverlaySnapshotRefresher(async () => { calls.push('snapshot'); });
+  setSettingChangeRecorder({ noteSettingChanged() {} });
+  try {
+    const tool = byName('set_app_setting');
+    // 现场证据：确认卡上显示的就是 {"key":"tts.autoBroadcast","value":"true"}（带引号）
+    const out = await tool.execute({}, { key: 'tts.autoBroadcast', value: 'true' }, { characterId: 'c1' });
+
+    // ① 工具不再回「未做任何修改」——那正是模型重发的原因
+    assert.equal(/未做任何修改/.test(out), false, '不得再拒绝字符串 true（否则模型会合规重发）');
+    assert.match(out, /已把/, `应报告成功，实际：${out}`);
+    assert.match(out, /从 关 改为 开/, '应从「关」改为「开」');
+    // ② 写盘必须拿到**布尔**（不是字符串 "true"——那会写坏存储）
+    assert.deepEqual(calls.find(item => item.startsWith('write:')), 'write:true:boolean',
+      '归一必须在写盘之前发生（写进去的必须是布尔）');
+    // ③ 快照照旧刷新（设置类工具既有纪律）
+    assert.ok(calls.includes('snapshot'), '设置改动后仍要刷悬浮窗快照');
+  } finally {
+    restoreReaders();
+    restoreWriters();
+    setOverlaySnapshotRefresher(null);
+    setSettingChangeRecorder(null);
+  }
+});
+
+test('AC8 当晚场景反例：非法字符串仍然拒绝且不写盘（不猜不修）', async () => {
+  const calls = [];
+  const restoreReaders = __swapPanelReaders({
+    tts: async () => ({ autoBroadcast: false, activeProvider: 'system', providers: {} }),
+  });
+  const restoreWriters = __swapKeyWriters({
+    'tts.autoBroadcast': async (ctx, value) => { calls.push(`write:${value}`); },
+  });
+  try {
+    const tool = byName('set_app_setting');
+    const out = await tool.execute({}, { key: 'tts.autoBroadcast', value: 'yes' }, { characterId: 'c1' });
+    assert.match(out, /需要 true 或 false/, '有歧义的值必须给出具体原因');
+    assert.match(out, /未做任何修改/, '被拒时必须明说没改');
+    assert.deepEqual(calls, [], '被拒时**绝不能**写盘（不猜不修）');
+  } finally {
+    restoreReaders();
+    restoreWriters();
+  }
+});

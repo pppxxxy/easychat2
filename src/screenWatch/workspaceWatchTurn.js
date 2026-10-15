@@ -80,7 +80,7 @@ export function buildScreenWatchTurnEntries({ userText, replyText, imageUri, at 
 //
 // 纪律：用户说过的话**永远**先落（它是事实），结论文案按收尾类型给明确的一句话。
 // 写盘失败不挡主流程（与既有纪律一致）。
-async function persistTurnEntries({ thread, appendEntry, userText, conclusionText, imageUri }) {
+async function persistTurnEntries({ thread, appendEntry, userText, conclusionText, imageUri, onAppend = null }) {
   if (!thread || typeof appendEntry !== 'function') return;
   const entries = buildScreenWatchTurnEntries({
     userText,
@@ -88,9 +88,21 @@ async function persistTurnEntries({ thread, appendEntry, userText, conclusionTex
     imageUri,
   });
   for (const entry of entries) {
+    // FEAT-AC8 P0-C：**每条落库都留痕**。
+    // 此前这里是裸 `catch (error) {}` —— 静默吞错，于是「到底写没写进去」
+    // 真机上无法证实也无法证伪（任务书 §四 明确标注了这个盲区）。
+    // 留痕只记「线程 id 尾 4 位 + role + ok/fail」，不含正文（隐私）。
+    let ok = true;
     try {
       await appendEntry(thread.id, entry);
-    } catch (error) {}
+    } catch (error) {
+      ok = false;
+    }
+    if (typeof onAppend === 'function') {
+      try {
+        onAppend({ threadId: thread.id, role: entry.role, ok });
+      } catch (error) {}
+    }
   }
 }
 
@@ -130,6 +142,14 @@ export async function runWorkspaceWatchTurn({
   readFrame = null,
   appendEntry = null,
   onToolEvent = null,
+  // FEAT-AC8 P0-D：回合打点（宿主注入；缺省不打点）。**打点收口在本函数**——
+  // 面板与悬浮窗两条驱动路径都经这里，于是「同一件事只记一份」，
+  // 且真实轮数只有这一层看得全（见下面 maxRound 的说明）。
+  onTurnEvent = null,
+  // FEAT-AC8 P0-C：落库留痕（宿主注入；缺省不记）。记「线程 id 尾 4 位 + role + ok/fail」。
+  // 为什么注入而不是本文件直接调 turnDiagnostics：本模块要在纯 Node 里直测
+  //（见文件头「不静态 import threads.js」的同一理由），注入让测试能断言「记了什么」。
+  onThreadAppend = null,
   t = key => key,
 } = {}) {
   const said = String(userText || '').trim();
@@ -141,6 +161,34 @@ export async function runWorkspaceWatchTurn({
     return { ok: false, text: '', steps: [], error: t('screenWatch.error.agentUnavailable') };
   }
 
+  // FEAT-AC8 P0-D：真实轮数贯通。
+  // 任务书指出「日志里 round=0 是硬编码的 0，纯打点质量问题」——正确。
+  // 轮数的**唯一来源**是 onToolEvent 的 event.round（loop.js 每轮带真实轮号），
+  // 本函数包一层取最大值，于是 turn-* 打点不必再猜、也不必硬编码。
+  const startedAt = Date.now();
+  let maxRound = 0;
+  const emitTurn = (event, fields = {}) => {
+    if (typeof onTurnEvent !== 'function') return;
+    try {
+      onTurnEvent({ event, round: maxRound, elapsed: Date.now() - startedAt, ...fields });
+    } catch (error) {}
+  };
+  const forwardToolEvent = event => {
+    if (event && Number.isFinite(Number(event.round))) {
+      maxRound = Math.max(maxRound, Number(event.round));
+    }
+    if (typeof onToolEvent === 'function') onToolEvent(event);
+  };
+  // 落库留痕器：只取线程 id 尾 4 位（够定位是哪一场，又不把 id 全文写进日志）。
+  const appendTracer = typeof onThreadAppend === 'function'
+    ? info => onThreadAppend({
+      threadTail: String(info.threadId || '').slice(-4),
+      role: info.role,
+      ok: info.ok === true,
+    })
+    : null;
+  emitTurn('turn-start');
+
   try {
     // 帧 → data URI（接口只认 data:/http(s)，本地 file:// 会被服务端忽略）。
     let frames = [];
@@ -148,6 +196,7 @@ export async function runWorkspaceWatchTurn({
       try {
         frames = await Promise.all(uris.map(uri => readFrame(uri)));
       } catch (error) {
+        emitTurn('turn-timeout', { error: new Error('frame-read-failed') });
         return { ok: false, text: '', steps: [], error: t('screenWatch.capture.failed.body') };
       }
     }
@@ -165,7 +214,9 @@ export async function runWorkspaceWatchTurn({
       confirm,
       // 权限规则（hooks.json + 用户存储）：不传时写工具上的手写 deny 会失效（P0-2）。
       permissionRules,
-      onToolEvent,
+      onToolEvent: forwardToolEvent,
+      // 打点透传给 agent 循环（缺省不传 = 不打点）。
+      ...(typeof onTurnEvent === 'function' ? { onTurnEvent } : {}),
     });
     const text = String((result && result.text) || '').trim();
     if (!text) {
@@ -173,6 +224,7 @@ export async function runWorkspaceWatchTurn({
       const emptyConclusion = t('error.comments.noReply');
       await persistTurnEntries({
         thread, appendEntry, userText: said, conclusionText: emptyConclusion, imageUri: uris[0] || '',
+        onAppend: appendTracer,
       });
       return { ok: false, text: '', steps: (result && result.steps) || [], error: emptyConclusion };
     }
@@ -180,7 +232,9 @@ export async function runWorkspaceWatchTurn({
     // 线程落库：写失败不挡本轮结果（与聊天侧同款纪律）。
     await persistTurnEntries({
       thread, appendEntry, userText: said, conclusionText: text, imageUri: uris[0] || '',
+      onAppend: appendTracer,
     });
+    emitTurn('turn-done');
     return { ok: true, text, steps: (result && result.steps) || [], error: '' };
   } catch (caught) {
     // FEAT-AC7 P0-C：**中止 / 超时 / 失败三种收尾也要落库**（用户消息 + 结论文案）。
@@ -192,7 +246,10 @@ export async function runWorkspaceWatchTurn({
       : t(turnEndingTextKey(ending));
     await persistTurnEntries({
       thread, appendEntry, userText: said, conclusionText: conclusion, imageUri: uris[0] || '',
+      onAppend: appendTracer,
     });
+    // P0-D：收尾打点带**真实轮数**（maxRound 由 onToolEvent 累积而来）。
+    emitTurn(ending === 'aborted' ? 'turn-done' : 'turn-timeout', caught ? { error: caught } : {});
     // 中止不是失败：不给用户看错误（既有语义不变），但它**已经落库**了。
     if (ending === 'aborted') return { ok: false, text: '', steps: [], error: '' };
     return { ok: false, text: '', steps: [], error: conclusion };

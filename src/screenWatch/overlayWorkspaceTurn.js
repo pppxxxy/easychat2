@@ -24,6 +24,7 @@ import { readToolPermissionRules } from '../chat/toolApprovalFlow.js';
 import { getWorkspaceSettings } from '../storage/workspace.js';
 import { tActive } from '../i18n/index.js';
 import { noteTurnEvent } from './turnDiagnostics.js';
+import { notifyThreadsChanged } from './threadEvents.js';
 
 // 进程级单例（确认钩子要在多轮之间复用；store 只为读 hooks.json）。
 let store = null;
@@ -89,7 +90,9 @@ export async function runOverlayWorkspaceTurn({ text = '', signal = null } = {})
     // 模式徽标（只读/可改）显示在标题行——用户要知道现在能不能改动。
     // 'ask' 档没有写工具，按只读显示（与 canRunTool 的实际放行一致）。
     setOverlayScopeMode(workspaceMode === 'write' ? 'write' : 'read').catch(() => {});
-    noteTurnEvent('turn-start', { model: workspaceMode, round: 0 });
+    // FEAT-AC8 P0-D：打点**收口在 runWorkspaceWatchTurn**（面板/悬浮窗同源，
+    // 且真实轮数只有那一层看得全）。此前这里硬编码 round: 0（任务书指出的
+    // 「round=0 是打点质量问题」——正确），现在只负责把落盘器注入进去。
     const result = await runWorkspaceWatchTurn({
       userText: said,
       thread,
@@ -110,17 +113,20 @@ export async function runOverlayWorkspaceTurn({ text = '', signal = null } = {})
         await readHookPermissionRules(store, 'workspace')
       ),
       appendEntry: appendThreadEntry,
+      // 回合打点：走 turnDiagnostics 的注入式落盘器（app 级 bridge 里装好的）。
+      onTurnEvent: noteTurnEvent,
+      // P0-C：每条落库留痕（此前是裸 catch 静默吞错——真机上「写没写进去」无法分辨）。
+      onThreadAppend: info => noteTurnEvent('thread-append', info),
       t: tActive,
     });
-    const elapsed = Date.now() - startedAt;
-    noteTurnEvent(result.ok ? 'turn-done' : 'turn-timeout', { round: 0, elapsed });
-    // P0-C 收尾落库**已收口在 runWorkspaceWatchTurn 里**（四种收尾都写）——
-    // 两条路径（面板 / 悬浮窗）共用同一个函数，因此共用同一份落库纪律。
-    // 早先这里也补过一次失败落库，那是重复写（同一轮两条 assistant 条目）。
+    // P0-C：回合结束后**通知面板刷新**（面板在场即刷新，不再等下次挂载）。
+    // 成功路径不必再打 turn-done：那已在 runWorkspaceWatchTurn 里带着**真实轮数**发出。
+    notifyThreadsChanged();
     return result;
   } catch (error) {
     const elapsed = Date.now() - startedAt;
-    noteTurnEvent('turn-timeout', { round: 0, elapsed, error });
+    noteTurnEvent('turn-timeout', { elapsed, error });
+    notifyThreadsChanged();
     return {
       ok: false,
       text: '',

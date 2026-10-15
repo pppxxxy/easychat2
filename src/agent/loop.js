@@ -13,6 +13,7 @@ import { TOOL_RESULT_LIMIT, serializeToolResultAsync, toAssistantMessage } from 
 // D 系把唯一定义收敛到 messages.js 后，这里保留 re-export 以免调用点/测试拿到 undefined。
 export { TOOL_RESULT_LIMIT };
 import { listToolsForMode, runTool } from './tools/registry.js';
+import { ConfirmBudget } from './tools/confirmBudget.js';
 import { createTurnMachine, createTurnState } from './turn/turnState.js';
 import { PLAN_NAG_TEXT, PLAN_TOOL_NAME, shouldNudgePlan } from './planNudge.js';
 // P1：K1 工具结果清除（对齐 harness microcompact / dsh pruner）——每轮请求前按预算
@@ -259,6 +260,11 @@ export async function runAgentTurn(messages, options = {}) {
   };
   emitTurnEvent('turn-start', { round: 0, model: currentModel || undefined });
 
+  // FEAT-AC8 P0-B：**本回合**的同签名确认预算（防连环弹卡）。
+  // 每回合新建一个：上一轮用户已经点过的次数不该算进新一轮（新一轮发话应重新获得
+  // 完整确认机会），并发回合也不该互相吃预算。
+  const confirmBudget = new ConfirmBudget();
+
   // requestOptions 只承载配置守卫等透传项，不允许夹带 tools/toolChoice。
   const {
     tools: _ignoredTools,
@@ -400,6 +406,8 @@ export async function runAgentTurn(messages, options = {}) {
             allowChatTools,
             characterId: context.characterId,
             sessionId: context.sessionId,
+            // FEAT-AC8 P0-B：把本回合的确认预算传下去（registry 据此防连环弹卡）。
+            confirmBudget,
             // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
             // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
             ...(onToolApproval ? { confirm: onToolApproval } : {}),
@@ -413,13 +421,18 @@ export async function runAgentTurn(messages, options = {}) {
           if (isCanceledError(error) || (effectiveSignal && effectiveSignal.aborted)) throwIfStopped();
           outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
         }
-        // 工具耗时进打点：某工具一直不返回时，这条是唯一能指出它的记录。
+        // 成败只算一次（下面打点与计划记账共用同一判定——两处各算一遍必然漂移）。
+        const ok = !(outcome && outcome.isError === true);
+        // 工具耗时与成败进打点：某工具一直不返回时，这条是唯一能指出它的记录。
+        // FEAT-AC8 P0-D：带上成败——当晚 5 次 set_app_setting 若有一条
+        // 「turn-tool tool=set_app_setting ok=fail」，BUG-A 当场就能读出来，
+        // 不必对着截图推演（那正是「打点先行」的意义）。
         emitTurnEvent('turn-tool', {
           round: toolRound,
           tool: call.name,
+          ok,
           elapsed: Date.now() - toolStartedAt,
         });
-        const ok = !(outcome && outcome.isError === true);
         // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
         if (call.name === PLAN_TOOL_NAME && ok) {
           latestPlanArgs = parseToolArgs(call);

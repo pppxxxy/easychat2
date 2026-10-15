@@ -16,18 +16,24 @@ export const TURN_EVENTS = Object.freeze([
   'turn-tool',
   'turn-done',
   'turn-timeout',
+  // FEAT-AC8 P0-C：落库留痕（**不是** turn-* 回合事件，但走同一条落盘通道）。
+  // 为什么要它：persistTurnEntries 此前是裸 catch 静默吞错，真机上「那条消息
+  // 到底写进线程没有」无法证实也无法证伪（任务书 §四 明确标注了这个盲区）。
+  'thread-append',
 ]);
 
 // 允许的字段（白名单）：打点是给排查用的，不该把工具参数（可能含用户内容/路径）整包写进去。
-// 只留「模型 / 轮数 / 工具名 / 耗时」四个——足以定位挂点，且不含隐私正文。
-const FIELDS = Object.freeze(['model', 'round', 'tool', 'elapsed', 'error']);
+// 只留「模型 / 轮数 / 工具名 / 成败 / 耗时 / 线程尾号 / 角色」——足以定位挂点，且不含隐私正文。
+// ok 只写 'ok' / 'fail' 两个字面量（不是任意值），避免工具结果正文从这里漏进日志。
+// threadTail 只取线程 id **尾 4 位**（够认出是哪一场，又不把 id 全文写进日志）。
+const FIELDS = Object.freeze(['model', 'round', 'tool', 'ok', 'threadTail', 'role', 'elapsed', 'error']);
 
 /**
  * 组装一条回合打点的文本。
  *
  * @param {string} event TURN_EVENTS 之一
  * @param {object} fields 白名单字段（缺失的省略，不写 `undefined`）
- * @returns {string} 例：`turn-tool round=2 tool=set_app_setting elapsed=1200ms`
+ * @returns {string} 例：`turn-tool round=2 tool=set_app_setting ok=false elapsed=1200ms`
  */
 export function formatTurnEvent(event, fields = {}) {
   const name = TURN_EVENTS.includes(event) ? event : 'turn-unknown';
@@ -35,6 +41,8 @@ export function formatTurnEvent(event, fields = {}) {
   const parts = [name];
   for (const key of FIELDS) {
     const value = source[key];
+    // ⚠️ 只挡 undefined / null / 空串：**不能**用 `!value`——`ok=false` 与
+    // `elapsed=0` 都是有意义的值，falsy 过滤会把它们吞掉（那就白记了）。
     if (value === undefined || value === null || value === '') continue;
     // error 只取 message 一行并截断：堆栈由真错误路径负责，这里只是定位线索。
     const text = key === 'error'

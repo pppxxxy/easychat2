@@ -46,6 +46,19 @@ export async function runHeadlessAgent({
   images = [],
   // SW2：工具事件回调（面板显示「正在调用 X」；缺省不订阅）。
   onToolEvent = null,
+  // FEAT-AC8 P0-D：回合打点回调（turn-start/tool/done/timeout）。
+  //
+  // 为什么必须由**调用方注入**而不是本文件直接 import 打点模块：loop.js 在纯 Node
+  // 测试里用 Module._load 桩加载，静态拉起 storage/diagnostics 那条链会炸；
+  // 且打点要落到宿主的诊断日志（工作区/悬浮窗各自有落盘口）。缺省 null = 不打点。
+  //
+  // 为什么这个参数此前**全仓无人传**（BUG-D 的真相，任务书措辞有误）：
+  // loop.js 里 turn-* 的 emit 代码一直都在（:387/:417 等），但没有任何调用方把
+  // onTurnEvent 传进来 ⇒ `typeof options.onTurnEvent === 'function'` 恒为 false
+  // ⇒ 打点全部静默丢弃。**不是「定义了没人调用」，是「调用了但钩子从未注入」**。
+  // 这条链现在从宿主一路贯通到这里（见 runWorkspaceWatchTurn / overlayWorkspaceTurn /
+  // ScreenWatchPanel 三处透传）。
+  onTurnEvent = null,
 } = {}) {
   const effectiveMode = resolveHeadlessMode(mode, allowWrite);
   const text = String(prompt || '').trim();
@@ -89,6 +102,8 @@ export async function runHeadlessAgent({
       ...(typeof confirm === 'function' ? { onToolApproval: confirm } : {}),
       // 权限规则同样只在给了才传（缺省 = 无规则，行为与旧版一致）。
       ...(permissionRules ? { permissionRules } : {}),
+      // FEAT-AC8 P0-D：回合打点透传（缺省不传 = 不打点，行为与旧版一致）。
+      ...(typeof onTurnEvent === 'function' ? { onTurnEvent } : {}),
       onToolEvent: event => {
         if (event && event.phase === 'start' && event.name) steps.push({ name: event.name });
         if (typeof onToolEvent === 'function') onToolEvent(event);

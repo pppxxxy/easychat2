@@ -134,6 +134,29 @@ export function keysForPanel(panel) {
 }
 
 /**
+ * 布尔字段的字符串宽容：'true' / 'false'（trim 后、大小写不敏感）→ 布尔。
+ *
+ * 为什么必须宽容（FEAT-AC8 BUG-A 的根因，已对码核实）：
+ * set_app_setting 的 value 参数**刻意不声明 type**（类型随键而变，见工具定义），
+ * 于是模型把布尔序列化成字符串 `"true"` 并不违规——确认卡上显示
+ * `{"key":"tts.autoBroadcast","value":"true"}`（JSON 里布尔不带引号、字符串才带）
+ * 就是现场证据。而校验层原先严格要求 `typeof value === 'boolean'`，
+ * 字符串一律拒 ⇒ 工具返回「未做任何修改」⇒ 模型**合规地重发** ⇒ 确认卡连环弹
+ * （用户一轮点了 4 次允许 + 1 次拒绝）。
+ *
+ * 这不是「放松校验」：字符串 'true' 的**语义无歧义**，与枚举的 "30" → 30 是同一类
+ * 归一（那段注释早就写着「模型常把数值写成字符串，为这个差异拒绝一次会让它多绕一轮」
+ * ——同样的宽容此前唯独没给布尔）。真正有歧义的（'yes' / '1' / '' / 'on'）**仍然拒**。
+ */
+export function parseBooleanString(value) {
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim().toLowerCase();
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  return undefined;
+}
+
+/**
  * 类型/枚举校验：返回 null = 通过；返回字符串 = 拒绝原因（给模型与用户看）。
  *
  * 校验失败**不猜不修**：静默把非法值归一成默认值会让模型以为改成功了
@@ -143,8 +166,10 @@ export function validateSettingValue(key, value) {
   const spec = APP_SETTING_KEYS[key];
   if (!spec) return `该键不可通过助手修改：${key || '(空)'}`;
   if (spec.type === 'boolean') {
-    if (typeof value !== 'boolean') return `${key} 需要 true 或 false，收到的是 ${describeValue(value)}`;
-    return null;
+    // 布尔与布尔字符串都放行（后者由 coerceSettingValue 归一）；
+    // 其余（'yes' / '1' / '' / 数字）仍拒——语义有歧义的不猜。
+    if (typeof value === 'boolean' || parseBooleanString(value) !== undefined) return null;
+    return `${key} 需要 true 或 false，收到的是 ${describeValue(value)}`;
   }
   if (spec.type === 'enum') {
     const allowed = spec.enumValues || [];
@@ -160,10 +185,19 @@ export function validateSettingValue(key, value) {
   return `未知的设置类型：${spec.type}`;
 }
 
-/** 枚举值的规范化：把 "30" 归一成 30（数值枚举），其余原样。 */
+/**
+ * 值的规范化：把 "30" 归一成 30（数值枚举）、'true' 归一成 true（布尔），其余原样。
+ * 与 validateSettingValue 的放行口径**必须成对**——只放宽校验不归一，
+ * 会把字符串写进存储（`autoBroadcast: 'false'` 是 truthy，比拒绝更糟）。
+ */
 export function coerceSettingValue(key, value) {
   const spec = APP_SETTING_KEYS[key];
-  if (!spec || spec.type !== 'enum') return value;
+  if (!spec) return value;
+  if (spec.type === 'boolean') {
+    const parsed = parseBooleanString(value);
+    return parsed === undefined ? value : parsed;
+  }
+  if (spec.type !== 'enum') return value;
   const allowed = spec.enumValues || [];
   const matched = allowed.find(item => item === value || String(item) === String(value));
   return matched === undefined ? value : matched;
