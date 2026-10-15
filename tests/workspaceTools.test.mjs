@@ -100,6 +100,8 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
     'list_app_settings', 'get_app_setting',
     // FEAT-AC2：音乐只读两件。
     'list_music_library', 'get_music_status',
+    // FEAT-AC4 P0-B：提醒只读一件。
+    'list_reminders',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -120,6 +122,8 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
     'set_app_setting',
     // FEAT-AC2：音乐控制——写专属（会改变正在播放的内容）。
     'control_music',
+    // FEAT-AC4 P0-B：提醒写入两件（需确认）。
+    'set_reminder', 'cancel_reminder',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
@@ -128,7 +132,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
   assert.deepEqual(listToolsForMode(AGENT_MODES.ASK), []);
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'list_music_library', 'get_music_status', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
+    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'list_music_library', 'get_music_status', 'list_reminders', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
   );
   // FEAT-AC1 验收第 3 条：只读模式下 set_app_setting **不可见**（canRunTool 口径）。
   assert.equal(listToolsForMode(AGENT_MODES.READ).some(item => item.function.name === 'set_app_setting'), false,
@@ -138,7 +142,7 @@ test('registerWorkspaceTools 按模式暴露工具', () => {
     '只读模式不得暴露 control_music');
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.WRITE).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'list_music_library', 'get_music_status', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'set_app_setting', 'control_music', 'run_remote_build', 'export_workspace_docx', 'install_extension_pack', 'import_extension'],
+    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'list_music_library', 'get_music_status', 'list_reminders', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos', 'create_workspace_dir', 'write_workspace_file', 'edit_workspace_file', 'set_app_setting', 'control_music', 'set_reminder', 'cancel_reminder', 'run_remote_build', 'export_workspace_docx', 'install_extension_pack', 'import_extension'],
   );
 });
 

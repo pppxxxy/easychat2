@@ -50,6 +50,8 @@ const READ_TOOLS = [
   // FEAT-AC2：音乐只读两件（列曲库 / 查播放状态）——不改任何东西。
   'list_music_library',
   'get_music_status',
+  // FEAT-AC4 P0-B：提醒只读一件（列已设提醒）。
+  'list_reminders',
 ];
 
 const WRITE_TOOLS = [
@@ -76,6 +78,11 @@ const WRITE_TOOLS = [
   // 确认分级由宿主侧按 action 判定（只有 play/resume 弹，见 musicToolSchema 的
   // MUSIC_ACTIONS.needsConfirm）——MCP 这边写档本来就有 confirm:true 两步确认兜着。
   'control_music',
+  // FEAT-AC4 P0-B：提醒写入两件。属**写**档——它们会到点打扰用户（建立）
+  // 或改掉用户已设的提醒（取消），但不执行代码、不装扩展。
+  // 两件都声明了 requiresConfirmation，MCP 这边写档另有 confirm:true 两步确认。
+  'set_reminder',
+  'cancel_reminder',
 ];
 
 const EXEC_TOOLS = [

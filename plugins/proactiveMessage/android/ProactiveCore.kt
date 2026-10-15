@@ -117,13 +117,26 @@ data class RoleSchedule(
     val windowMinutes: Int = 0,
     // 多风格抽取表（权重和由 JS 归一为 1）。非空时触发时按权重抽一条，
     // 用它的 task 替换请求体里的 PROACTIVE_TASK_TOKEN，并用它的类型出兜底文案。
-    val variants: List<ProactiveVariant> = emptyList()
+    val variants: List<ProactiveVariant> = emptyList(),
+    // FEAT-AC4 P0-B：**一次性精确触发**（epoch ms；0 = 不是一次性，走每日重复）。
+    //
+    // 为什么需要新字段而不是复用 hour/minute：主动消息的既有模型只有「每日重复的
+    // 时:分」，表达不了「明天早上 8 点提醒我开会」这种**指定日期时间**的一次性闹钟。
+    // fireAt > 0 时忽略 hour/minute，到点即发，**发完自删**（防堆积）。
+    val fireAt: Long = 0,
+    // FEAT-AC4 P0-B：**固定文案**（非空时原样作为消息体，不调 LLM）。
+    // 提醒类的可靠性要求见 SendPipeline.send 处的注释。
+    val fixedText: String = ""
 ) {
     init {        require(roleId.isNotBlank())
         require(hour in 0..23)
         require(minute in 0..59)
         require(windowMinutes >= 0)
+        require(fireAt >= 0)
     }
+
+    /** 是否是一次性提醒（fireAt 有效）。 */
+    val isOneShot: Boolean get() = fireAt > 0
 
     /** 兜底：老数据没有 slotId 时按角色+时刻派生，保证同一槽稳定 */
     val resolvedSlotId: String
@@ -164,6 +177,10 @@ data class RoleSchedule(
         .put("executor", executor.name)
         .put("windowMinutes", windowMinutes)
         .put("variants", JSONArray().apply { variants.forEach { put(it.toJson()) } })
+        // FEAT-AC4 P0-B：一次性触发时刻（epoch ms；0 = 非一次性）。
+        .put("fireAt", fireAt)
+        // FEAT-AC4 P0-B：固定文案（提醒类用；空 = 走 LLM 生成）。
+        .put("fixedText", fixedText)
 
     companion object {
         fun fromJson(json: JSONObject): RoleSchedule = RoleSchedule(
@@ -193,7 +210,11 @@ data class RoleSchedule(
                 (0 until array.length())
                     .mapNotNull { index -> array.optJSONObject(index)?.let { ProactiveVariant.fromJson(it) } }
                     .filter { it.weight > 0.0 }
-            }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList()),
+            // FEAT-AC4 P0-B：老配置没有这个字段 → 0（非一次性），行为不变。
+            fireAt = json.optLong("fireAt", 0L).coerceAtLeast(0L),
+            // FEAT-AC4 P0-B：老配置没有 → 空（走 LLM 生成），行为不变。
+            fixedText = json.optString("fixedText", "")
         )
     }
 }
@@ -287,6 +308,13 @@ object MessageClock {
     }
 
     fun isExpired(config: RoleSchedule, nowMillis: Long): Boolean {
+        // FEAT-AC4 P0-B：一次性提醒的过期判据完全不同——它没有「今日时:分窗口」，
+        // 触发时刻就是 fireAt 本身。用每日窗口算会得到一个无意义的 deadline
+        //（hour/minute 对一次性槽没有语义），从而把刚到点的提醒误判成过期。
+        // 判据：超过 fireAt 太久（MAX_LATENESS_MS）才算过期（与每日语义同一宽限）。
+        if (config.isOneShot) {
+            return nowMillis - config.fireAt > MAX_LATENESS_MS
+        }
         // 过期判据是「**窗口结束** + 宽限」，不是「抽中的那个时刻」：抽中的时刻本身是随机的，
         // 拿它当基准会让同一分钟内两次判定结果不同（发送前复检会因此误判）。
         // 固定时刻（span=0）时退化成原来的「起点 + 宽限」，逐字不变。
@@ -944,8 +972,15 @@ object ProactiveMessageSender {
 
         val generated = store.loadApiSettings()
             ?.let { AiApiClient().generateProactiveMessage(it, effective) }
-        val text = generated ?: FallbackMessages.random(effective.messageType).also {
-            Log.i(TAG, "AI 生成失败，使用本地降级文案: slot=$slotId style=${effective.messageType}")
+        // FEAT-AC4 P0-B：提醒类用**固定文案**（把 fixedText 原样作为消息体），不走 LLM。
+        //
+        // 为什么可靠性优先：闹钟的全部价值就是「到点一定说出那句话」。走 LLM 会引入
+        // 网络失败/模型改写/超时三种不确定性——用户设「8 点提醒我开会」，收到
+        // 「早上好呀，今天也要加油哦」比收不到更糟。
+        val text = schedule.fixedText.ifBlank {
+            generated ?: FallbackMessages.random(effective.messageType).also {
+                Log.i(TAG, "AI 生成失败，使用本地降级文案: slot=$slotId style=${effective.messageType}")
+            }
         }
 
         // 网络请求可能耗时较久，发送前复检

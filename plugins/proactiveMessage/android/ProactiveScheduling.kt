@@ -132,13 +132,21 @@ object AlarmScheduler {
             DailyWorkScheduler.schedule(context, schedule.copy(mode = ScheduleMode.WORK))
             return
         }
+        // FEAT-AC4 P0-B：一次性提醒用 fireAt 本身作为触发时刻（不走「每日时:分」推算）。
+        // 过去的 fireAt 不再排（已过期）；调用方（JS 工具层）本应先拒过去时间，
+        // 这里是第二道——排一个过去的闹钟会被系统立即触发，等于立刻打扰用户。
+        val triggerAt = if (schedule.isOneShot) schedule.fireAt else MessageClock.nextTarget(schedule)
+        if (triggerAt <= System.currentTimeMillis()) {
+            Log.w("AlarmScheduler", "触发时刻已过，跳过排定: slot=${schedule.resolvedSlotId}")
+            return
+        }
         context.getSystemService(AlarmManager::class.java)
             .setExactAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
-                MessageClock.nextTarget(schedule),
+                triggerAt,
                 buildPendingIntent(context, schedule)
             )
-        Log.i("AlarmScheduler", "已设置精确闹钟: slot=${schedule.resolvedSlotId}")
+        Log.i("AlarmScheduler", "已设置精确闹钟: slot=${schedule.resolvedSlotId} fireAt=${schedule.fireAt}")
     }
 
     fun cancel(context: Context, slotId: String) {
@@ -177,7 +185,21 @@ class AlarmReceiver : BroadcastReceiver() {
         val revision = intent.getStringExtra(EXTRA_REVISION) ?: ""
 
         val schedule = MessageStore(context).findScheduleBySlot(slotId)
-        if (schedule != null && schedule.enabled) AlarmScheduler.schedule(context, schedule)
+        // FEAT-AC4 P0-B：一次性提醒**触发后自删**（防堆积），且**不再重排**。
+        //
+        // ⚠️ 这里是最容易做错的一处：既有逻辑在每次触发时无条件
+        // `AlarmScheduler.schedule(context, schedule)` 重新排下一次（每日重复语义）。
+        // 对一次性 fireAt 来说那是错的——fireAt 是固定时刻，重排会：
+        //   ① 被 schedule() 的「已过期就跳过」挡掉（好在有那道防线），但
+        //   ② 槽位仍留在存储里，list_reminders 会一直列出已响过的提醒。
+        // 所以：一次性 → 先删槽再继续发送（本次仍要发出去）。
+        val oneShot = schedule != null && schedule.isOneShot
+        if (oneShot) {
+            MessageStore(context).removeScheduleBySlot(slotId)
+            Log.i("AlarmReceiver", "一次性提醒已触发并自删: slot=$slotId")
+        } else if (schedule != null && schedule.enabled) {
+            AlarmScheduler.schedule(context, schedule)
+        }
 
         // 定时 Agent 任务走无界面 JS（由 AgentTaskTrigger 启动前台服务），不经过消息前台服务。
         if (schedule != null && schedule.executor == ScheduleExecutor.AGENT) {

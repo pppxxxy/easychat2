@@ -42,6 +42,10 @@ import {
   MUSIC_READ_DEFINITIONS,
   MUSIC_WRITE_DEFINITIONS,
 } from './toolDefs/musicTools.js';
+import {
+  REMINDER_READ_DEFINITIONS,
+  REMINDER_WRITE_DEFINITIONS,
+} from './toolDefs/reminderTools.js';
 import { unregisterAllMcpTools } from './mcpTools.js';
 
 // 兼容导出：read 工具的格式化实现随定义搬去了 readTools.js，既有引用点（含测试）从这里取。
@@ -62,6 +66,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   ...APP_SETTINGS_READ_DEFINITIONS,
   // FEAT-AC2：音乐只读两件（列曲库/查播放状态）——同样属只读区。
   ...MUSIC_READ_DEFINITIONS,
+  // FEAT-AC4 P0-B：提醒只读一件（列已设提醒）——只读区。
+  ...REMINDER_READ_DEFINITIONS,
   SEARCH_TOOL_DEFINITION,
   LIST_SYMBOLS_TOOL_DEFINITION,
   FIND_REFERENCES_TOOL_DEFINITION,
@@ -83,6 +89,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   ...APP_SETTINGS_WRITE_DEFINITIONS,
   // FEAT-AC2：音乐控制（control_music）。属写区——它会改变正在播放的内容。
   ...MUSIC_WRITE_DEFINITIONS,
+  // FEAT-AC4 P0-B：提醒写入两件（建立 / 取消，均需确认）——属写区。
+  ...REMINDER_WRITE_DEFINITIONS,
   RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,
   INSTALL_PACK_TOOL_DEFINITION,

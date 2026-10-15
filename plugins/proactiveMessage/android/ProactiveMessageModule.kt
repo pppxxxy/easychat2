@@ -254,7 +254,13 @@ class ProactiveMessageModule(private val reactContext: ReactApplicationContext) 
                 // 多风格抽取表：JS 传 JSON 字符串（数组跨 Interop 编组不可靠，与 ackPendingMessages 同款处理）
                 variants = parseVariants(
                     if (config.hasKey("variantsJson")) config.getString("variantsJson") else null
-                )
+                ),
+                // FEAT-AC4 P0-B：一次性精确触发时刻（epoch ms；0 = 非一次性）。
+                // 负值一律夹成 0（= 非一次性），不让一个坏数字把调度算飞。
+                fireAt = (if (config.hasKey("fireAt")) config.getDouble("fireAt").toLong() else 0L)
+                    .coerceAtLeast(0L),
+                // FEAT-AC4 P0-B：固定文案（提醒类用；非空时不调 LLM，原样作消息体）。
+                fixedText = if (config.hasKey("fixedText")) config.getString("fixedText") ?: "" else ""
             )
             val store = MessageStore(reactContext)
             store.upsertSchedule(schedule)

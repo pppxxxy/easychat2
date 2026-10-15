@@ -98,6 +98,7 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'list_app_settings', 'get_app_setting',
     // FEAT-AC2：音乐只读两件（列曲库 / 查播放状态）——同样只读区。
     'list_music_library', 'get_music_status',
+    'list_reminders',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -118,6 +119,7 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'set_app_setting',
     // FEAT-AC2：音乐控制——属写区（会改变正在播放的内容）。
     'control_music',
+    'set_reminder', 'cancel_reminder',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
