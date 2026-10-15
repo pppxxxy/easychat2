@@ -247,6 +247,45 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    /**
+     * FEAT-AC4 P0-A：推送一张**窗内确认卡**（JS → 原生）。
+     *
+     * 与 pushChatMessage 分开的原因：那条只渲染文本；确认卡要原生画「允许/拒绝」
+     * 两键，并在点击/超时后经 onConfirmResult 事件回报给 JS 结算挂起的 agent 循环。
+     *
+     * 为什么不在悬浮窗弹全屏 Alert：会盖住用户正在看的画面（SW3 的原始取舍）。
+     * 卡片插在聊天流里，用户不必离开当前应用。
+     */
+    @ReactMethod
+    fun pushConfirmCard(id: String?, summary: String?, timeoutMs: Double, promise: Promise) {
+        try {
+            val applied = OverlayService.instance?.pushConfirmCard(
+                id ?: "",
+                summary ?: "",
+                timeoutMs.toLong()
+            ) ?: false
+            promise.resolve(applied)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_CONFIRM", e.message, e)
+        }
+    }
+
+    /**
+     * FEAT-AC4 P0-A：悬浮窗标题行的模式徽标（只读/可改）。
+     *
+     * 徽标只**显示**当前模式；改模式仍要回 app 面板（不在悬浮窗里直接切——
+     * 那是安全相关开关，避免误触）。
+     */
+    @ReactMethod
+    fun setScopeModeLabel(mode: String?, promise: Promise) {
+        try {
+            OverlayService.instance?.setScopeModeLabel(mode ?: "")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_MODE", e.message, e)
+        }
+    }
+
     @ReactMethod
     fun setCharacterName(name: String?, promise: Promise) {
         try {

@@ -10,12 +10,14 @@ import {
   OVERLAY_EVENT_CAPTURE,
   OVERLAY_EVENT_CAPTURE_FAILED,
   OVERLAY_EVENT_CHAT_SEND,
+  OVERLAY_EVENT_CONFIRM_RESULT,
   OVERLAY_EVENT_REQUEST_CAPTURE,
   OVERLAY_EVENT_STATE,
   OVERLAY_EVENT_TRACE,
   parseCaptureEvent,
   parseCaptureFailedEvent,
   parseChatSendEvent,
+  parseConfirmResultEvent,
   parseStateEvent,
   parseTraceEvent,
 } from './overlayEvents.js';
@@ -338,8 +340,60 @@ export function addChatSendListener(handler) {
   return () => subscription.remove();
 }
 
+/**
+ * FEAT-AC4 P0-A：把一张**窗内确认卡**推给悬浮窗（JS → 原生）。
+ *
+ * 为什么不复用 pushOverlayChatMessage：那条只接 role/text（原生侧实现也只渲染文本）。
+ * 确认卡要原生画「允许/拒绝」两键并在点击后回报，是**独立的一条通道**。
+ *
+ * 老构建没有该方法时返回 false——调用方据此按「无法询问 = 拒绝」处理
+ *（registry 的既定纪律：问不到用户绝不能默默放行）。
+ */
+export async function pushOverlayConfirm(payload) {
+  const module = nativeModule();
+  if (!module || typeof module.pushConfirmCard !== 'function') return false;
+  const safe = payload && typeof payload === 'object' ? payload : {};
+  const id = String(safe.id || '').trim();
+  if (!id) return false;
+  try {
+    return !!(await module.pushConfirmCard(
+      id,
+      String(safe.summary || ''),
+      // 超时由原生侧计时（它才能知道卡片什么时候真的消失了）；
+      // JS 侧另有一道兜底超时，两边同一语义：不执行。
+      Number(safe.timeoutMs) > 0 ? Number(safe.timeoutMs) : 0
+    ));
+  } catch (error) {
+    return false;
+  }
+}
+
+// FEAT-AC4 P0-A：用户在窗内确认卡上点了允许/拒绝（或原生超时）→ 结算挂起请求。
+export function addConfirmResultListener(handler) {
+  const subscription = DeviceEventEmitter.addListener(OVERLAY_EVENT_CONFIRM_RESULT, payload => {
+    const parsed = parseConfirmResultEvent(payload);
+    if (parsed && typeof handler === 'function') handler(parsed);
+  });
+  return () => subscription.remove();
+}
+
+/**
+ * FEAT-AC4 P0-A：设置悬浮窗标题行的模式徽标（'read' | 'write'，其余 = 不显示）。
+ *
+ * 只**显示**模式；切换仍回 app 面板（那是安全开关，不该在悬浮窗里误触）。
+ * 老构建没有该方法时静默返回 false。
+ */
+export async function setOverlayScopeMode(mode) {
+  const module = nativeModule();
+  if (!module || typeof module.setScopeModeLabel !== 'function') return false;
+  try {
+    return !!(await module.setScopeModeLabel(String(mode || '')));
+  } catch (error) {
+    return false;
+  }
+}
+
 // FIX-4：采集链路打点 → 诊断日志。
-//
 // 为什么必须落诊断：真机上「一直等」此前完全不可观测——不知道卡在请求 / 帧到达 /
 // 压缩 / 落盘 / emit / JS 接收的哪一环。荣耀等 ROM 的后台冻结若仍导致偶发挂死，
 // 日志会直接指出断点，不必再猜。

@@ -20,6 +20,8 @@ export const screenWatch = {
   'screenWatch.avatar.pick': 'Choose image',
   'screenWatch.avatar.pickFailed.title': 'Could not use that image',
   'screenWatch.avatar.pickFailed.body': 'The image could not be read. Please try another one.',
+  // FEAT-AC4 P0-A: in-window confirmation card.
+  'screenWatch.overlay.confirm.fallback': 'This step needs your confirmation',
   'screenWatch.characterLabel': 'Looking with',
   'screenWatch.limits': 'The capture only covers this app (this panel itself is in frame) and requires a vision-capable model; tap the button to verify the current model can actually read an image. For cross-app screen viewing, use the floating window above.',
   'screenWatch.empty.title': 'No screen peeks yet',

@@ -20,6 +20,8 @@ export const screenWatch = {
   'screenWatch.avatar.pick': '选择图片',
   'screenWatch.avatar.pickFailed.title': '选择图片失败',
   'screenWatch.avatar.pickFailed.body': '没能读取这张图片，请换一张试试。',
+  // FEAT-AC4 P0-A：窗内确认卡。
+  'screenWatch.overlay.confirm.fallback': '这一步需要你确认',
   'screenWatch.characterLabel': '一起看屏幕的角色',
   'screenWatch.limits': '截图只包含本应用的画面（截屏时这个面板也会入镜），需要模型支持识图；点这个按钮即可验证当前模型能不能读图。跨应用看屏幕请用上方的悬浮窗。',
   'screenWatch.empty.title': '还没有一起看屏幕',

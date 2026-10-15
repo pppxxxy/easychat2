@@ -64,12 +64,18 @@ class OverlayService : Service() {
         // SW3：悬浮窗 mini 聊天——用户在悬浮窗里发话（原生 → JS）。
         // payload: { text, scope }；scope 决定 JS 侧走聊天管线还是工作区 agent 管线。
         const val EVENT_CHAT_SEND = "ScreenOverlay:onChatSend"
+        // FEAT-AC4 P0-A：窗内确认卡的用户决定（原生 → JS 结算挂起的 agent 循环）。
+        // payload: { id, approved, reason }；reason ∈ approved|denied|timeout。
+        const val EVENT_CONFIRM_RESULT = "ScreenOverlay:onConfirmResult"
         // SW3：mini 聊天的两个作用域（与 JS 侧 overlayEvents.OVERLAY_CHAT_SCOPES 同值）。
         const val SCOPE_CHAT = "chat"
         const val SCOPE_WORKSPACE = "workspace"
         private const val TAG = "ScreenOverlay"
         private const val NOTIFICATION_ID = 0x5C02
         private const val CHANNEL_ID = "screen_overlay"
+        // FEAT-AC4 P0-A：窗内确认卡的默认等待时长（与 JS 侧
+        // overlayConfirm.OVERLAY_CONFIRM_TIMEOUT_MS 同值，两边语义一致：不执行）。
+        private const val CONFIRM_TIMEOUT_MS = 60000L
         // 「重新授权截屏」通知：与前台常驻通知分开 ID，autoCancel + 替换语义（不堆叠）。
         private const val REAUTH_NOTIFICATION_ID = 0x5C04
         private const val REAUTH_REQUEST_CODE = 0x5C05
@@ -139,6 +145,10 @@ class OverlayService : Service() {
     // 空串 = 回退 App 图标。
     private var avatarChatUri = ""
     private var avatarWorkspaceUri = ""
+    // FEAT-AC4 P0-A：当前工作区模式（read/write）+ 标题行徽标。
+    // 徽标只显示，切换仍回 app 面板（安全开关，避免误触）。
+    private var modeLabel = ""
+    private var modeBadge: TextView? = null
     // M4.1 嘴巴：系统 TTS 播报（懒创建——没有播报需求时不占资源）。
     private var overlayTts: OverlayTts? = null
     // 消息留档：收起/展开会重建视图，内容不能跟着丢（用户要求切种类、收起重开都保留上下文）。
@@ -447,6 +457,8 @@ class OverlayService : Service() {
         chatMessages = null
         // FIX-SW6：与 chatMessages 同生共死（都指向已摘除的视图树）。
         chatList = null
+        // FEAT-AC4：模式徽标同上（展开态才有它）。
+        modeBadge = null
         chatInput = null
         scopeButton = null
         talkButton = null
@@ -621,6 +633,16 @@ class OverlayService : Service() {
         }
         titleRow.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         titleView = title
+        // FEAT-AC4 P0-A：模式徽标（只读/可改）。空串时不占位（聊天 scope 无「模式」概念）。
+        val badge = TextView(this).apply {
+            text = modeBadgeText()
+            setTextColor(Color.parseColor("#ffd479"))
+            textSize = 11f
+            setPadding(dp(4), 0, dp(4), 0)
+            visibility = if (modeBadgeText().isEmpty()) View.GONE else View.VISIBLE
+        }
+        modeBadge = badge
+        titleRow.addView(badge)
         val scopeBtn = button(scopeLabel()) { toggleChatScope() }
         scopeButton = scopeBtn
         titleRow.addView(scopeBtn)
@@ -854,6 +876,104 @@ class OverlayService : Service() {
             textSize = 12f
             setPadding(dp(6), dp(4), dp(6), dp(4))
         }
+    }
+
+    /**
+     * FEAT-AC4 P0-A：把一张**窗内确认卡**插进消息区。
+     *
+     * 为什么是卡片而不是全屏 Alert（SW3 的原始取舍）：全屏框会盖住用户正在看的画面，
+     * 而悬浮窗的主场景恰恰是「用户在看别的 app」。卡片插在聊天流里，点一下即可。
+     *
+     * 结算语义与 JS 侧 registry 一致：**恰好一次**。
+     *   · 允许/拒绝按钮点过 → 立刻禁用两键（防连点结算两次）；
+     *   · 超时 → 按拒绝，并把卡片改成「已超时」；
+     *   · 卡片被消息上限裁掉（长会话）→ 由超时兜底（不会永远悬着）。
+     */
+    fun pushConfirmCard(id: String, summary: String, timeoutMs: Long): Boolean {
+        val cardId = id.trim()
+        if (cardId.isEmpty()) return false
+        mainHandler.post {
+            val list = chatList
+            if (list != null) {
+                val card = makeConfirmCard(cardId, summary.trim(), timeoutMs)
+                list.addView(card)
+                while (list.childCount > CHAT_MESSAGE_MAX) list.removeViewAt(0)
+                // 卡片也要进留档：否则展开/收起重建时它会消失，而 JS 侧还在等它。
+                chatHistory.add("assistant" to "[需要确认] $summary")
+                while (chatHistory.size > CHAT_MESSAGE_MAX) chatHistory.removeAt(0)
+                chatMessages?.post { chatMessages?.fullScroll(View.FOCUS_DOWN) }
+            }
+        }
+        return true
+    }
+
+    private fun makeConfirmCard(id: String, summary: String, timeoutMs: Long): LinearLayout {
+        val text = if (summary.isEmpty()) "这一步需要你确认" else summary
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(9).toFloat()
+                setColor(Color.parseColor("#3a3a5a"))
+            }
+        }
+        val label = TextView(this).apply {
+            this.text = "需要确认：$text"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setPadding(0, 0, 0, dp(6))
+        }
+        card.addView(label)
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        // 结算封装：**只允许一次**（两键点过就禁用，避免连点重复 emit 导致 JS 侧
+        // 虽然幂等但用户看到「点了两次」的困惑）。
+        var settled = false
+        val finish = { approved: Boolean, reason: String ->
+            if (!settled) {
+                settled = true
+                try {
+                    label.text = when (reason) {
+                        "timeout" -> "已超时（未执行）：$text"
+                        "approved" -> "已允许：$text"
+                        else -> "已拒绝：$text"
+                    }
+                } catch (error: Exception) {}
+                for (i in 0 until buttons.childCount) buttons.getChildAt(i).isEnabled = false
+                try {
+                    ScreenOverlayModule.emit(EVENT_CONFIRM_RESULT, Arguments.createMap().apply {
+                        putString("id", id)
+                        putBoolean("approved", approved)
+                        putString("reason", reason)
+                    })
+                } catch (error: Exception) {}
+            }
+        }
+        val allow = button("允许") { finish(true, "approved") }
+        val deny = button("拒绝") { finish(false, "denied") }
+        buttons.addView(allow)
+        val spacer = android.view.View(this)
+        buttons.addView(spacer, LinearLayout.LayoutParams(dp(6), 1))
+        buttons.addView(deny)
+        card.addView(buttons)
+        // 超时 = 拒绝（agent 循环不能无限挂起）。timeoutMs<=0 时用默认 60s。
+        val wait = if (timeoutMs > 0) timeoutMs else CONFIRM_TIMEOUT_MS
+        mainHandler.postDelayed({ finish(false, "timeout") }, wait)
+        return card
+    }
+
+    /** FEAT-AC4 P0-A：标题行的模式徽标（只读/可改）。空串 = 不显示。 */
+    fun setScopeModeLabel(mode: String) {
+        val label = mode.trim()
+        mainHandler.post {
+            modeLabel = label
+            modeBadge?.text = modeBadgeText()
+        }
+    }
+
+    private fun modeBadgeText(): String = when (modeLabel) {
+        "write" -> "可改"
+        "read" -> "只读"
+        else -> ""
     }
 
     // 展开时把留档的消息重画一遍（收起态收到的推送不丢）。

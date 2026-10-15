@@ -11,6 +11,10 @@ export const OVERLAY_EVENT_TRACE = 'ScreenOverlay:onTrace';
 // SW3：悬浮窗 mini 聊天——用户在悬浮窗里发了话（原生 → JS）。
 // payload: { text, scope }；scope 决定 JS 侧走聊天角色管线还是工作区 agent 管线。
 export const OVERLAY_EVENT_CHAT_SEND = 'ScreenOverlay:onChatSend';
+// FEAT-AC4 P0-A：窗内确认卡的用户决定（原生 → JS）。
+// payload: { id, approved }；approved=false 同时覆盖「点了拒绝」与「超时自动拒绝」
+//（reason 区分二者：'denied' vs 'timeout'——助手收尾文案不同，但语义都是「不执行」）。
+export const OVERLAY_EVENT_CONFIRM_RESULT = 'ScreenOverlay:onConfirmResult';
 
 // SW3：会话作用域（与 screenWatch/threads.js 的 THREAD_SCOPES 同值）。
 export const OVERLAY_CHAT_SCOPES = Object.freeze(['chat', 'workspace']);
@@ -24,6 +28,20 @@ export function parseChatSendEvent(payload) {
     ? payload.scope
     : 'chat';
   return { text, scope };
+}
+
+// FEAT-AC4 P0-A：原生回报的确认卡决定。
+//
+// 缺 id 一律视为无效（无法归属到某个挂起请求，结算了也没意义——反而可能
+// 误结算另一个同 id 的请求）。
+// reason: 'approved' | 'denied' | 'timeout'（原生侧给；缺失时按 approved 推断）。
+export function parseConfirmResultEvent(payload) {
+  const id = String((payload && payload.id) || '').trim();
+  if (!id) return null;
+  const approved = (payload && payload.approved) === true;
+  const rawReason = String((payload && payload.reason) || '').trim();
+  const reason = rawReason || (approved ? 'approved' : 'denied');
+  return { id, approved, reason };
 }
 
 // JS → 原生推送一条消息（原生渲染成气泡/按钮组）。
