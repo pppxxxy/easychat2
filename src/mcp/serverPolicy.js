@@ -44,6 +44,9 @@ const READ_TOOLS = [
   'board_read',
   'board_inbox',
   'skill',
+  // FEAT-AC1：APP 设置只读两件。读设置不改任何东西，放只读档。
+  'list_app_settings',
+  'get_app_setting',
 ];
 
 const WRITE_TOOLS = [
@@ -59,6 +62,12 @@ const WRITE_TOOLS = [
   'board_post',
   'board_send',
   'board_task',
+  // FEAT-AC1：改 APP 设置。属**写**档而非执行档——它只改配置值，不执行代码、
+  // 不装扩展；但它确实改变用户环境，所以绝不能在只读档（默认只开只读档）。
+  // 另注：它声明了 requiresConfirmation，本地 UI 会弹确认；MCP 会话里没有那个
+  // 「当场点头的人」，与隐藏档的 ask_user 不同——这里**不隐藏**：
+  // 写档默认关闭（MCP_DEFAULT_TIERS），开了写档就等于用户明确许可过写操作。
+  'set_app_setting',
 ];
 
 const EXEC_TOOLS = [

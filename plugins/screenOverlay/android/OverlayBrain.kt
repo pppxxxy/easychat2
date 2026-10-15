@@ -722,6 +722,13 @@ class OverlayBrain private constructor(context: Context) {
             if (isNotBlank()) append("\n\n")
             append("你和用户正在一起看屏幕（悬浮窗模式）。请用简短、口语化的中文回复，")
             append("不要输出 Markdown 或代码块，直接输出要说的话。")
+            // FEAT-AC1 §五：聊天 scope **刻意不给工具**（原生大脑是纯流式直连，
+            // 补 function-calling 等于在 Kotlin 里再造一遍 JS agent 基建，收益低）。
+            // 但助手必须**如实指路**，而不是含糊地说「我做不到」或假装能改——
+            // 否则用户会一直试，或者以为 app 坏了。改设置/操作文件的能力在**工作区** scope。
+            append("\n\n你没有工具调用能力（这是有意的设计）：不能改 App 设置、不能读写文件、不能执行命令。")
+            append("如果用户要你改设置或操作文件，请如实说明并把顶部分类切到「工作区」，")
+            append("在那里你才有那些工具——不要含糊答应，也不要编造已经改好了。")
         }
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
         // 最近 HISTORY_MAX 轮（不含本轮）

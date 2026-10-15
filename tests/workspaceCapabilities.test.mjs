@@ -51,6 +51,8 @@ test('activeWorkspaceTools：按模式给出真实工具集', () => {
   assert.deepEqual(activeWorkspaceTools({ mode: 'read' }), [
     'list_workspace_files',
     'read_workspace_file',
+    'list_app_settings',
+    'get_app_setting',
     'search_workspace',
     'list_symbols',
     'find_references',
@@ -69,6 +71,8 @@ test('activeWorkspaceTools：按模式给出真实工具集', () => {
   assert.deepEqual(activeWorkspaceTools({ mode: 'write', location: APP_ROOT }), [
     'list_workspace_files',
     'read_workspace_file',
+    'list_app_settings',
+    'get_app_setting',
     'search_workspace',
     'list_symbols',
     'find_references',
@@ -86,6 +90,7 @@ test('activeWorkspaceTools：按模式给出真实工具集', () => {
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'set_app_setting',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',

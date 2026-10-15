@@ -93,6 +93,9 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
   assert.deepEqual([...tools.WORKSPACE_TOOL_NAMES], [
     'list_workspace_files',
     'read_workspace_file',
+    // FEAT-AC1：APP 设置只读两件（沙盒外的第一个工具域）——放在只读区，
+    // 因为它们确实 readOnly（次序契约「只读在前」照旧成立）。
+    'list_app_settings', 'get_app_setting',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -109,6 +112,8 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    // FEAT-AC1：写设置（需确认）——属写区，read 模式由 canRunTool 过滤掉。
+    'set_app_setting',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',

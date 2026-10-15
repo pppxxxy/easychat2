@@ -34,6 +34,10 @@ import { SEARCH_EXTENSION_REPOS_TOOL_DEFINITION, IMPORT_EXTENSION_TOOL_DEFINITIO
 import { DOCX_TOOL_DEFINITION } from './toolDefs/docxTool.js';
 import { PYTHON_TOOL_DEFINITION, SHELL_TOOL_DEFINITION } from './toolDefs/execTools.js';
 import { GIT_TOOL_DEFINITIONS } from './toolDefs/gitTools.js';
+import {
+  APP_SETTINGS_READ_DEFINITIONS,
+  APP_SETTINGS_WRITE_DEFINITIONS,
+} from './toolDefs/appSettingsTools.js';
 import { unregisterAllMcpTools } from './mcpTools.js';
 
 // 兼容导出：read 工具的格式化实现随定义搬去了 readTools.js，既有引用点（含测试）从这里取。
@@ -48,6 +52,10 @@ function resolveStore({ store, root, fileSystem } = {}) {
 // 工具次序都依赖它——只读 → 搜索 → 计划 → 物化 → 构建日志 → 子代理 → 写 → 云构建 → 导出。
 const WORKSPACE_TOOL_DEFINITIONS = [
   ...READ_ONLY_TOOL_DEFINITIONS,
+  // FEAT-AC1：APP 设置**只读**两件（list / get）。
+  // 位置遵循「只读在前」的既有次序契约——它们确实是只读工具（readOnly: true），
+  // 放在只读区让模型看到的工具次序与实际能力一致。
+  ...APP_SETTINGS_READ_DEFINITIONS,
   SEARCH_TOOL_DEFINITION,
   LIST_SYMBOLS_TOOL_DEFINITION,
   FIND_REFERENCES_TOOL_DEFINITION,
@@ -64,6 +72,9 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   EXPORT_PACK_TOOL_DEFINITION,
   SEARCH_EXTENSION_REPOS_TOOL_DEFINITION,
   ...WRITE_TOOL_DEFINITIONS,
+  // FEAT-AC1：APP 设置**写入**（set_app_setting，需确认）。属写区——
+  // read 模式下由 canRunTool 按 readOnly 过滤掉（这是门控第一层）。
+  ...APP_SETTINGS_WRITE_DEFINITIONS,
   RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,
   INSTALL_PACK_TOOL_DEFINITION,

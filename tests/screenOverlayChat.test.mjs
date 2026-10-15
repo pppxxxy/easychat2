@@ -172,6 +172,16 @@ test('Kotlin：架构边界——OverlayService 本体不做业务；OverlayBrai
   assert.ok(configWriter.includes('writeOverlayConfig'), 'JS 侧有配置快照写入器');
 });
 
+test('FEAT-AC1 §五：聊天 scope 如实声明「没有工具」并指路工作区（不假装能改）', () => {
+  const brain = read('plugins/screenOverlay/android/OverlayBrain.kt');
+  // 聊天 scope 刻意不给工具（原生大脑是纯流式直连；补 function-calling 等于
+  // 在 Kotlin 里再造一遍 JS agent 基建，收益低——任务书 §五 裁决）。
+  // 但**必须如实指路**：不能含糊答应、也不能编造「已经改好了」。
+  assert.ok(brain.includes('没有工具调用能力'), '系统提示必须如实声明没有工具');
+  assert.ok(brain.includes('工作区'), '必须指路到工作区 scope（那才有设置/文件工具）');
+  assert.match(brain, /不要含糊答应|不要编造/, '必须明确禁止假装改好了');
+});
+
 test('Kotlin：模块方法齐备且失败不崩（promise.reject 有 catch）', () => {
   const module_ = read('plugins/screenOverlay/android/ScreenOverlayModule.kt');
   assert.ok(module_.includes('fun pushChatMessage('), 'pushChatMessage 已注册');

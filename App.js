@@ -18,6 +18,7 @@ import MemoryScreen from './src/MemoryScreen.js';
 import ExtensionScreen from './src/ExtensionScreen.js';
 import SettingsScreen from './src/SettingsScreen.js';
 import { writeOverlayConfigSnapshot } from './src/screenWatch/overlayConfig.js';
+import { setOverlaySnapshotRefresher } from './src/workspace/toolDefs/appSettingsTools.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
@@ -539,10 +540,14 @@ function ProactiveMessageBridge({ navigationReady }) {
 // 回到前台统一刷一次，任何变更都被覆盖；原生大脑在**发送时**才读快照，所以不要求实时。
 function OverlayConfigBridge() {
   const { characters, activeId, loaded } = useApp();
+  // 用 ref 存角色，让「注入给设置工具」的那个闭包总是取**当时**的角色，
+  // 而不必因为角色变化重新注册（注册点只有一个，闭包捕获 ref 即可）。
+  const characterRef = useRef(null);
+  const character = (characters || []).find(item => item.id === activeId) || null;
+  characterRef.current = character;
   useEffect(() => {
     if (!loaded) return undefined;
-    const character = (characters || []).find(item => item.id === activeId) || null;
-    const push = () => { writeOverlayConfigSnapshot({ character }).catch(() => {}); };
+    const push = () => { writeOverlayConfigSnapshot({ character: characterRef.current }).catch(() => {}); };
     push();
     let previous = AppState.currentState;
     const subscription = AppState.addEventListener('change', next => {
@@ -552,6 +557,20 @@ function OverlayConfigBridge() {
     });
     return () => subscription.remove();
   }, [loaded, characters, activeId]);
+
+  // FEAT-AC1 P0-3 第 2 条：把「刷快照」注册给设置工具（agent 改设置后立刻刷）。
+  //
+  // 为什么必须注册：agent 改 tts.autoBroadcast 后若不刷快照，就会出现
+  // 「设置里开了、悬浮窗 TTS 不响」的脱节——快照是原生大脑读 TTS 开关的唯一来源。
+  // 用**注入**而不是让工具直接 import overlayConfig：那条静态链会拖进 RN/expo，
+  // 纯 Node 单测就崩了（与工具文件里 storage 域惰性加载同一原因）。
+  // 依赖数组只有 [loaded]：注册一次即可（闭包读 characterRef），
+  // 不必随角色切换反复注册/注销。
+  useEffect(() => {
+    if (!loaded) return undefined;
+    setOverlaySnapshotRefresher(() => writeOverlayConfigSnapshot({ character: characterRef.current }));
+    return () => setOverlaySnapshotRefresher(null);
+  }, [loaded]);
   return null;
 }
 

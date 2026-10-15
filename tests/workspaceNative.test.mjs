@@ -31,6 +31,7 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
   assert.deepEqual(names, [
     'list_workspace_files',
     'read_workspace_file',
+    'list_app_settings', 'get_app_setting',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -47,17 +48,18 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'set_app_setting',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
     'import_extension',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 23);
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 26);
   // 只读模式只放开只读工具（含子代理/工作流）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
+    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
   );
 });
 
@@ -123,6 +125,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
   assert.deepEqual(names, [
     'list_workspace_files',
     'read_workspace_file',
+    'list_app_settings', 'get_app_setting',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -139,6 +142,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'set_app_setting',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
@@ -210,6 +214,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
   assert.deepEqual(names, [
     'list_workspace_files',
     'read_workspace_file',
+    'list_app_settings', 'get_app_setting',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -226,6 +231,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'create_workspace_dir',
     'write_workspace_file',
     'edit_workspace_file',
+    'set_app_setting',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
