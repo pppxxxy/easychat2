@@ -208,20 +208,41 @@ test('播放控件：左右三角是上一首/下一首，跳时间交给 -15 / 
   // 需求 1：四种播放方式 + 播完处理
   assert.ok(screen.includes('PLAY_MODE_META'), '播放方式图标与文案表');
   assert.ok(screen.includes('cyclePlayMode'), '点击循环切换');
-  assert.ok(screen.includes("playMode === 'repeatOne'"), '单曲循环分支');
   assert.ok(screen.includes('nextSequentialIndex(items.length, currentIndex)'), '顺序下一首');
-  assert.ok(screen.includes('pickShuffleIndex(items.length, currentIndex)'), '随机下一首');
-  assert.ok(screen.includes('status.finished'), '播完触发');
-  assert.ok(screen.includes('finishedHandledRef'), '防重入（结束会多次推送状态）');
+  // FEAT-AC2：播完续接的**判定与执行搬进了 playerService**（页面不在场时也要能续接，
+  // 那正是本轮的目的）。断言随之指向新位置——语义不变，且更强：
+  // 现在要求「判定在纯层、执行在服务层」两处都在。
+  const service = read('src/music/playerService.js');
+  assert.ok(service.includes('decideAfterFinish'), '播完续接判定走纯层 decideAfterFinish');
+  assert.ok(service.includes("kind === 'seek0'"), '单曲循环分支（回到开头重播）');
+  assert.ok(service.includes('playAt(decision.index)'), '顺序/随机下一首');
+  assert.ok(service.includes('finishedHandled'), '防重入（结束会多次推送状态）');
+  assert.ok(service.includes('status.finished'), '播完触发');
+  // 页面侧：不再自己处理 finished（否则后台连播会断），但要有序地退订而不销毁播放。
+  assert.equal(screen.includes('finishedHandledRef'), false,
+    '页面不得再自行处理播完续接（那是本轮修的根因）');
+  const pureSettings = read('src/music/playerSettingsPure.js');
+  assert.ok(pureSettings.includes('export function decideAfterFinish'), '续接判定的纯函数在纯层');
+  assert.ok(pureSettings.includes("mode === 'repeatOne'") && pureSettings.includes('pickShuffleIndex'),
+    '四种播放方式在纯层齐全');
   // 播放方式与倍速的持久化已外提到该 hook。
   const playerSettings = read('src/music/useMusicPlayerSettings.js');
   assert.ok(playerSettings.includes('getMusicPlayerSettings') && playerSettings.includes('saveMusicPlayerSettings'),
     '播放方式与倍速都要持久化');
+  // FEAT-AC2：playMode 必须同步进服务（否则页面上是顺序播放、服务层以为 stop，播完不续接）。
+  assert.ok(playerSettings.includes('playerService.setPlayMode'), 'playMode 变更要同步进服务');
   // 需求 2：倍速
   assert.ok(screen.includes('cycleRate') && screen.includes('formatMusicRate'), '倍速切换与显示');
+  // FEAT-AC2：播放器实现在 playerService（hook 只剩订阅适配）——两条路径都要在。
   const player = read('src/music/useMusicPlayer.js');
-  assert.ok(player.includes('setPlaybackRate'), '走 expo-audio 的倍速 API');
-  assert.ok(player.includes('shouldCorrectPitch = true'), '变速不变调');
-  assert.ok(/applyRate\(player\);/.test(player), '每次载入后重新应用倍速（replace 会重置 rate）');
+  assert.ok(service.includes('setPlaybackRate'), '走 expo-audio 的倍速 API');
+  assert.ok(service.includes('shouldCorrectPitch = true'), '变速不变调');
+  assert.ok(service.includes('applyRate()'), '每次载入后重新应用倍速（replace 会重置 rate）');
+  assert.ok(player.includes('playerService.subscribe'), 'hook 改为对服务的订阅适配层');
   assert.ok(player.includes('setRate'), '对外暴露 setRate');
+  // 结构守卫（P1-4 第三条）：播放器只许在 playerService 一处创建。
+  assert.equal(/createAudioPlayer/.test(player), false,
+    'useMusicPlayer 不得再直接 createAudioPlayer（只许 playerService 一处）');
+  assert.equal(/createAudioPlayer/.test(screen), false,
+    'MusicScreen 不得直接 createAudioPlayer');
 });

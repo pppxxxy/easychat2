@@ -19,6 +19,7 @@ import ExtensionScreen from './src/ExtensionScreen.js';
 import SettingsScreen from './src/SettingsScreen.js';
 import { writeOverlayConfigSnapshot } from './src/screenWatch/overlayConfig.js';
 import { setOverlaySnapshotRefresher } from './src/workspace/toolDefs/appSettingsTools.js';
+import { setMusicToolRecorder } from './src/workspace/toolDefs/musicTools.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
@@ -571,6 +572,23 @@ function OverlayConfigBridge() {
     setOverlaySnapshotRefresher(() => writeOverlayConfigSnapshot({ character: characterRef.current }));
     return () => setOverlaySnapshotRefresher(null);
   }, [loaded]);
+
+  // FEAT-AC2 P1-3：音乐工具的诊断留痕（action + 目标名，**不含路径不含密钥**）。
+  //
+  // 与上一条同款注入理由：诊断模块依赖 AsyncStorage，工具文件里不能静态引用
+  //（否则读工具定义这一步就把纯 Node 单测拖崩）。这里注册真实实现。
+  useEffect(() => {
+    setMusicToolRecorder({
+      noteMusicTool(action, target) {
+        recordDiagnostic(
+          'log',
+          new Error(`[music-tool] action=${action} target=${target || 'none'}`),
+          'music'
+        );
+      },
+    });
+    return () => setMusicToolRecorder(null);
+  }, []);
   return null;
 }
 

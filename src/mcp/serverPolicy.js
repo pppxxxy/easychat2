@@ -47,6 +47,9 @@ const READ_TOOLS = [
   // FEAT-AC1：APP 设置只读两件。读设置不改任何东西，放只读档。
   'list_app_settings',
   'get_app_setting',
+  // FEAT-AC2：音乐只读两件（列曲库 / 查播放状态）——不改任何东西。
+  'list_music_library',
+  'get_music_status',
 ];
 
 const WRITE_TOOLS = [
@@ -68,6 +71,11 @@ const WRITE_TOOLS = [
   // 「当场点头的人」，与隐藏档的 ask_user 不同——这里**不隐藏**：
   // 写档默认关闭（MCP_DEFAULT_TIERS），开了写档就等于用户明确许可过写操作。
   'set_app_setting',
+  // FEAT-AC2：控制音乐播放。属**写**档——它会改变正在播放的内容（会出声），
+  // 但既不执行代码也不装扩展，故不入执行档。
+  // 确认分级由宿主侧按 action 判定（只有 play/resume 弹，见 musicToolSchema 的
+  // MUSIC_ACTIONS.needsConfirm）——MCP 这边写档本来就有 confirm:true 两步确认兜着。
+  'control_music',
 ];
 
 const EXEC_TOOLS = [

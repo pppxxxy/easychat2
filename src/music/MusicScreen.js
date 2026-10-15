@@ -53,10 +53,10 @@ import useMusicPlaylists from './useMusicPlaylists.js';
 import useMusicPlayerSettings from './useMusicPlayerSettings.js';
 import useMusicTriggers from './useMusicTriggers.js';
 import { useMusicPlayer } from './useMusicPlayer.js';
+import * as playerService from './playerService.js';
 import {
   formatMusicRate,
   nextSequentialIndex,
-  pickShuffleIndex,
 } from './playerSettings.js';
 
 // 播放方式的图标与文案键（静态表：动态拼接的 key 无法被文案扫描静态提取）。
@@ -129,7 +129,10 @@ export default function MusicScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [importing, setImporting] = useState(false);
   const [currentId, setCurrentId] = useState('');
-  const { status, load, toggle, seekToSeconds, setRate, stop } = useMusicPlayer();
+  // FEAT-AC2：playAt/toggle 等动作由 playerService 提供（队列也在服务里），
+  // 页面只是订阅方。`track` 是服务告知的「当前曲目」——服务自动续接换歌时，
+  // 页面靠它同步 currentId（页面不再自己管队列）。
+  const { status, track, load, toggle, seekToSeconds, setRate, stop } = useMusicPlayer();
   const { playMode, rate, clipSettings, cyclePlayMode, cycleRate, updateClipSettings } = useMusicPlayerSettings({ setRate });
 
   // 隐藏 WebView 裁剪器：把歌曲裁成短片段再送模型。
@@ -206,8 +209,30 @@ export default function MusicScreen() {
       .catch(() => {});
   }, [current, status.durationMs]);
 
+  // 切歌统一入口：列表点播、上一首/下一首都走它（自动续接由**服务**负责，见下）。
+  // FEAT-AC2：队列与续接判定搬进 playerService —— 页面不在场时也要能续接，
+  // 所以这里不再自己算下标，而是「同步队列给服务 + 让服务切歌」。
+  useEffect(() => {
+    playerService.setQueue(items);
+  }, [items]);
+
+  // 服务换歌（含后台自动续接）→ 同步页面 currentId，并让开场评论跟上。
+  useEffect(() => {
+    const id = (track && track.id) || '';
+    if (!id || id === currentId) return;
+    setCurrentId(id);
+    durationDoneRef.current = '';
+  }, [track, currentId]);
+
   // 开场评论：切到一首新歌时点一次（生成失败不影响播放）。
   const openingDoneRef = useRef('');
+  useEffect(() => {
+    if (!current) return;
+    if (openingDoneRef.current === current.id) return;
+    openingDoneRef.current = current.id;
+    generate({ kind: 'opening', song: current });
+  }, [current, generate]);
+
   // 当前曲目在曲库里的下标（找不到时按 0：列表可能刚被删空又加回来）。
   const currentIndex = useMemo(() => {
     const list = Array.isArray(items) ? items : [];
@@ -215,22 +240,17 @@ export default function MusicScreen() {
     return index >= 0 ? index : 0;
   }, [currentId, items]);
 
-  // 切歌统一入口：列表点播、上一首/下一首、播完自动续接都走它。
-  // index 会环绕（-1 取末首，越界回到开头）。
   const playAt = useCallback(index => {
     const list = Array.isArray(items) ? items : [];
     if (list.length === 0) return;
     const bounded = ((Math.floor(Number(index)) || 0) % list.length + list.length) % list.length;
     const item = list[bounded];
     if (!item) return;
-    setCurrentId(item.id);
     durationDoneRef.current = '';
-    load(item);
-    if (openingDoneRef.current !== item.id) {
-      openingDoneRef.current = item.id;
-      generate({ kind: 'opening', song: item });
-    }
-  }, [generate, items, load]);
+    // 队列已在上面同步给服务；这里只让它切到该下标（服务负责载入+播放）。
+    playerService.setQueue(list);
+    playerService.playAt(bounded);
+  }, [items]);
 
   const handleNextTrack = useCallback(() => {
     playAt(nextSequentialIndex(items.length, currentIndex));
@@ -250,32 +270,8 @@ export default function MusicScreen() {
     playAt(index >= 0 ? index : 0);
   }, [currentId, items, playAt, toggle]);
 
-  // 播完按播放方式处理。status.finished 只在结束那一帧为 true，用 ref 防重入
-  // （同一轮结束会因多次状态推送重复触发）。
-  const finishedHandledRef = useRef(false);
-  useEffect(() => {
-    if (!status.finished) {
-      finishedHandledRef.current = false;
-      return;
-    }
-    if (finishedHandledRef.current || !current) return;
-    finishedHandledRef.current = true;
-    if (playMode === 'repeatOne') {
-      // 先回到开头再重播：播放位置停在末尾时直接 play 会立刻再次触发 finished。
-      seekToSeconds(0).then(() => load(current)).catch(() => {});
-      return;
-    }
-    if (playMode === 'sequential') {
-      playAt(nextSequentialIndex(items.length, currentIndex));
-      return;
-    }
-    if (playMode === 'shuffle') {
-      playAt(pickShuffleIndex(items.length, currentIndex));
-      return;
-    }
-    // stop：停住但保留当前曲目，用户可直接再点播放从头听。
-    stop();
-  }, [current, currentIndex, items.length, load, playAt, playMode, seekToSeconds, status.finished, stop]);
+  // 播完续接不再在这里处理：判定与执行都搬进了 playerService
+  //（页内处理的话，页面不在场时后台连播就断了——那是本轮要修的根因）。
 
   const { addTriggerHere, removeTrigger } = useMusicTriggers({
     current,

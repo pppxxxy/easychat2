@@ -7,9 +7,13 @@ import {
   nextMusicRate,
   saveMusicPlayerSettings,
 } from './playerSettings.js';
+import * as playerService from './playerService.js';
 
 // 播放设置域：播放方式（单曲/顺序/随机）、倍速、音频片段（时长/采样率）。
 // 全局持久化，打开时读一次、改动即写（失败不阻断播放）。从 MusicScreen 原样搬出。
+//
+// FEAT-AC2：playMode 变更必须**同步进 playerService** —— 播完续接的判定在服务层
+// （它得在页面不在场时也能续接，那正是本轮的目的）。这里单向推送：页内改 → 服务生效。
 export default function useMusicPlayerSettings({ setRate }) {
   const [clipSettings, setClipSettings] = useState(DEFAULT_MUSIC_CLIP);
   // 播放方式与倍速：全局持久化，打开时读一次、改动即写（失败不阻断播放）。
@@ -24,6 +28,9 @@ export default function useMusicPlayerSettings({ setRate }) {
         setPlayMode(settings.playMode);
         setRateState(settings.rate);
         setRate(settings.rate);
+        // 读到的播放方式同步进服务：否则「页面上是顺序播放、服务层却以为 stop」，
+        // 播完不会续接（页面不在场时尤其明显）。
+        playerService.setPlayMode(settings.playMode);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -33,6 +40,7 @@ export default function useMusicPlayerSettings({ setRate }) {
     setPlayMode(current => {
       const next = nextMusicPlayMode(current);
       saveMusicPlayerSettings({ playMode: next }).catch(() => {});
+      playerService.setPlayMode(next);
       return next;
     });
   }, []);

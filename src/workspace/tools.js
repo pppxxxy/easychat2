@@ -38,6 +38,10 @@ import {
   APP_SETTINGS_READ_DEFINITIONS,
   APP_SETTINGS_WRITE_DEFINITIONS,
 } from './toolDefs/appSettingsTools.js';
+import {
+  MUSIC_READ_DEFINITIONS,
+  MUSIC_WRITE_DEFINITIONS,
+} from './toolDefs/musicTools.js';
 import { unregisterAllMcpTools } from './mcpTools.js';
 
 // 兼容导出：read 工具的格式化实现随定义搬去了 readTools.js，既有引用点（含测试）从这里取。
@@ -56,6 +60,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   // 位置遵循「只读在前」的既有次序契约——它们确实是只读工具（readOnly: true），
   // 放在只读区让模型看到的工具次序与实际能力一致。
   ...APP_SETTINGS_READ_DEFINITIONS,
+  // FEAT-AC2：音乐只读两件（列曲库/查播放状态）——同样属只读区。
+  ...MUSIC_READ_DEFINITIONS,
   SEARCH_TOOL_DEFINITION,
   LIST_SYMBOLS_TOOL_DEFINITION,
   FIND_REFERENCES_TOOL_DEFINITION,
@@ -75,6 +81,8 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   // FEAT-AC1：APP 设置**写入**（set_app_setting，需确认）。属写区——
   // read 模式下由 canRunTool 按 readOnly 过滤掉（这是门控第一层）。
   ...APP_SETTINGS_WRITE_DEFINITIONS,
+  // FEAT-AC2：音乐控制（control_music）。属写区——它会改变正在播放的内容。
+  ...MUSIC_WRITE_DEFINITIONS,
   RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,
   INSTALL_PACK_TOOL_DEFINITION,
