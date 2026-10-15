@@ -50,6 +50,20 @@ const state = {
 const registryStub = {
   getTool: name => state.tools[name] || null,
   listRegisteredTools: () => Object.values(state.tools),
+  // 与真实 registry.requiresConfirmationFor 同口径（含函数形态与 fail-closed）：
+  // 这条桩是**测试替身**，必须跟着被测契约走，否则会掩盖生产里的 fail-open 回归
+  //（本桩原先缺这个导出 → 合并后 runtime 调用它直接 undefined 报错，正是被这条测试抓到）。
+  requiresConfirmationFor: (tool, args = {}) => {
+    const value = tool && tool.requiresConfirmation;
+    if (typeof value === 'function') {
+      try {
+        return value(args) === true;
+      } catch (error) {
+        return true;
+      }
+    }
+    return value === true;
+  },
   runTool: async (call, ctx) => {
     calls.runTool.push({ call, ctx });
     return state.toolResult;
@@ -167,6 +181,34 @@ test('executeMcpTool：confirm 只放行「工具自己声明要确认」的工�
   assert.equal(await confirm({ name: 'run_shell', args: {} }), true, '声明了 requiresConfirmation → 档位+预览已经替用户回答了');
   assert.equal(await confirm({ name: 'read_workspace_file', args: {} }), false, '没声明 → 只可能是 hooks 的 ask 规则，问不到用户就拒绝');
   assert.equal(await confirm({ name: 'nonexistent', args: {} }), false, '未知工具一律拒绝');
+});
+
+test('executeMcpTool：confirm 必须认得出**函数形态** requiresConfirmation（fail-open 回归）', async () => {
+  // 合并 m1015m1 时核实出的真缺陷：该批给 requiresConfirmation 加了函数形态
+  //（control_music 按 action 分级），而 MCP 的 confirm 原先写
+  // `definition.requiresConfirmation === true` —— 对函数形态恒为 false ⇒
+  // 在 MCP 写档下 **control_music 不经确认就执行**（放行方向，fail-open）。
+  // 这条用函数形态工具钉住修复：play 认得出（true），pause 不打扰（false）。
+  reset();
+  state.tools.control_music = {
+    name: 'control_music',
+    requiresConfirmation: args => (args && args.action === 'play') === true,
+  };
+  try {
+    await runtime.executeMcpTool({ name: 'control_music', args: { action: 'play' }, tier: 'write' });
+    const { confirm } = calls.runTool[0].ctx;
+    assert.equal(await confirm({ name: 'control_music', args: { action: 'play' } }), true,
+      '函数形态求值为 true 时必须放行（档位+预览已替用户回答）');
+    assert.equal(await confirm({ name: 'control_music', args: { action: 'pause' } }), false,
+      '函数形态求值为 false 时不打扰用户');
+    // 分级函数坏掉 → fail-closed（宁可多问，不可静默放行）
+    state.tools.broken_tool = { name: 'broken_tool', requiresConfirmation: () => { throw new Error('boom'); } };
+    assert.equal(await confirm({ name: 'broken_tool', args: {} }), true,
+      '判定函数抛错必须按「需要确认」处理');
+  } finally {
+    delete state.tools.control_music;
+    delete state.tools.broken_tool;
+  }
 });
 
 test('executeMcpTool：character_id 覆盖沙盒；解析不到时回落到传入的 id', async () => {

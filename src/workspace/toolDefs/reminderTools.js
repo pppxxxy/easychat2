@@ -52,7 +52,10 @@ export function setReminderRecorder(recorder) {
  *
  * 为什么读 JS 侧而不是问原生：slots 的**权威记录在 JS**（原生 MessageStore 是
  * 另一份调度态），且这里只需要「有哪些提醒」用于展示与取消，不必读原生。
- * 原生那份到期自删后，JS 这份由 syncReminders 对账清理。
+ *
+ * ⚠️ 已知缺口（不要以为已经处理）：原生那份到点会自删，但 **JS 这份不会自动对账**——
+ * 已触发（fireAt 已过）的提醒仍留在 proactive settings 里，list_reminders 因此会
+ * 继续列出它们。清理需要一个 syncReminders 步骤（本域尚未实现）。
  */
 export async function readReminders() {
   const { moments } = native();
@@ -121,7 +124,11 @@ export async function createReminder({ text, time, now = Date.now() } = {}) {
       roleId: 'workspace-assistant',
       roleName: assistantName,
       persona: '',
-      // 一次性形态：hour/minute 只为兼容字段（原生按 fireAt 触发，忽略它们）。
+      // 一次性形态的**触发时刻**：原生 `ProactiveMessageModule` 读 `config.fireAt`
+      //（缺省 0L）→ `isOneShot = fireAt > 0`。**必须传**，否则被判成每日时段：
+      // 提醒会在每天的 hour:minute 重复响，且到点不自删（ProactiveScheduling 的一次性分支走不到）。
+      fireAt: Math.floor(fireAt),
+      // hour/minute 只为兼容字段（一次性分支下原生忽略它们，见 ProactiveScheduling）。
       hour,
       minute,
       mode: 'EXACT',

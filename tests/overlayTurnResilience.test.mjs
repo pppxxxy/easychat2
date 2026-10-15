@@ -354,13 +354,19 @@ test('行数：本轮新增/修改文件都在 800 硬上限内', () => {
 
 test('BUG-4 核实：setOverlaySnapshotRefresher **已被调用**（任务书「全仓无人调用」是误判）', () => {
   // 任务书 §一 BUG-4 称「setOverlaySnapshotRefresher 导出了，全仓无人调用」。
-  // 核实结论：**误判**——App.js 的 OverlayConfigBridge 一直在调它。
-  // 误判来源：App.js 在仓库**根目录**，不在 src/ 下；只 grep src/ 就会漏掉它
-  //（这条测试把事实钉住，避免下一轮又据此「修」一个不存在的问题）。
+  // 核实结论：**误判**——宿主一直在调它。
+  // 误判来源：当时它在 App.js（仓库**根目录**，不在 src/ 下），只 grep src/ 就会漏掉。
+  //
+  // ⚠️ 2026-10-15 m1015m1 合并后修正本断言：原先钉的是「App.js 里有这行」——
+  // 那是**位置**断言，而宿主接线已被（正确地）外提到 src/startup/workspaceRecorders.js
+  // 做集中装配。位置会变，**行为**不会：要钉的是「有宿主注入真实实现，且卸载时清空，
+  // 且工具侧真的调用它」。故改为按行为断言（跨 App.js / workspaceRecorders 两处均可）。
   const app = read('App.js');
-  assert.match(app, /setOverlaySnapshotRefresher\(\(\) => writeOverlayConfigSnapshot\(/,
-    'App.js 装配处必须注入真实快照刷新实现');
-  assert.match(app, /setOverlaySnapshotRefresher\(null\)/, '卸载时清空注入');
+  const recorders = read('src/startup/workspaceRecorders.js');
+  const wiring = `${app}\n${recorders}`;
+  assert.match(wiring, /setOverlaySnapshotRefresher\(\(\) => writeOverlayConfigSnapshot\(/,
+    '宿主必须注入真实快照刷新实现（App.js 或集中装配模块皆可）');
+  assert.match(wiring, /setOverlaySnapshotRefresher\(null\)/, '卸载时清空注入');
   // 工具侧确实会调用它（不是只注入不使用）
   const tools = read('src/workspace/toolDefs/appSettingsTools.js');
   assert.match(tools, /if \(overlaySnapshotRefresher\) await overlaySnapshotRefresher\(\);/,
@@ -369,4 +375,85 @@ test('BUG-4 核实：setOverlaySnapshotRefresher **已被调用**（任务书「
   const test = read('tests/appSettingsTools.test.mjs');
   assert.ok(test.includes("assert.ok(calls.includes('snapshot')"),
     '既有单测已断言快照刷新被触发');
+});
+
+test('宿主接线：四个 recorder 全部有注入点（缺一个 = 生产静默 no-op）', () => {
+  // 合并 m1015m1 时核实出的一类缺陷：工具层用**注入**解耦（正确，保住纯 Node 单测），
+  // 但「注入点是否被宿主接上」没有守卫 ⇒ 定义了却没人调 = 生产里静默 no-op。
+  // 当时 setSettingChangeRecorder / setReminderRecorder **从未被注入**（只定义了）。
+  // 这条按**行为**钉住四个注入点都有人接（不管接在哪个文件）。
+  const wiring = `${read('App.js')}\n${read('src/startup/workspaceRecorders.js')}`;
+  for (const name of [
+    'setOverlaySnapshotRefresher',
+    'setMusicToolRecorder',
+    'setSettingChangeRecorder',
+    'setReminderRecorder',
+  ]) {
+    // 必须有「传真实实现」的调用（排除 setXxx(null) 这种卸载调用）
+    assert.match(wiring, new RegExp(`${name}\\((?!null)`),
+      `${name} 必须被宿主注入真实实现（只定义不注入 = 生产 no-op）`);
+  }
+});
+
+// ---------- ⑪ requiresConfirmation 函数形态：消费方必须认得出（fail-open 风险）----------
+
+test('requiresConfirmationFor：函数形态的唯一求值入口，且 fail-closed', async () => {
+  // 背景（合并 m1015m1 时核实）：该批把 requiresConfirmation 扩展成支持函数形态
+  //（control_music 按 action 分级）。**任何写成 `=== true` 的消费方对函数形态都求值为
+  // false** —— 那是放行方向（fail-open）。实测两个消费方原先正是这种写法。
+  // 修法：求值收口到 requiresConfirmationFor，各消费方统一走它。
+  // registry.js 可被 Node 直接 import（不拖 RN/expo——它有惰性 require 纪律）。
+  const { requiresConfirmationFor } = await import('../src/agent/tools/registry.js');
+  // 布尔形态：严格 === true
+  assert.equal(requiresConfirmationFor({ requiresConfirmation: true }), true);
+  assert.equal(requiresConfirmationFor({ requiresConfirmation: false }), false);
+  assert.equal(requiresConfirmationFor({}), false);
+  assert.equal(requiresConfirmationFor(null), false);
+  // 函数形态：按 args 求值
+  const graded = { requiresConfirmation: args => (args && args.action === 'play') === true };
+  assert.equal(requiresConfirmationFor(graded, { action: 'play' }), true);
+  assert.equal(requiresConfirmationFor(graded, { action: 'pause' }), false);
+  // 函数返回非布尔：只认 === true（与布尔形态同口径，不把 truthy 当确认）
+  assert.equal(requiresConfirmationFor({ requiresConfirmation: () => 'yes' }), false);
+  // 判定函数抛错 → fail-closed（宁可多问一次，不可静默放行）
+  assert.equal(requiresConfirmationFor({ requiresConfirmation: () => { throw new Error('boom'); } }), true,
+    '分级函数坏掉时必须按「需要确认」处理');
+});
+
+test('函数形态消费方：MCP 的 confirm 与 runTool 共用同一求值（不得各写 === true）', () => {
+  // MCP 的 confirm 钩子语义是「工具自己声明要确认 ⇒ 档位+预览已替用户回答」。
+  // 它原先写 `definition.requiresConfirmation === true` —— 对 control_music（函数形态）
+  // 求值为 false ⇒ 在 MCP 写档下**不经确认执行**。已改为走 requiresConfirmationFor。
+  const runtime = read('src/mcp/serverRuntime.js');
+  assert.match(runtime, /requiresConfirmationFor\(definition, toolArgs \|\| \{\}\)/,
+    'MCP confirm 必须走统一求值（认得出函数形态）');
+  // ⚠️ 必须剥注释再判：本文件里有一行注释正解释着「不能写 === true」，
+  // 按整文件匹配会自己打自己（本仓反复踩过的假阳性形态，这次又踩了一次）。
+  const runtimeCode = runtime.split('\n')
+    .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+  assert.equal(/requiresConfirmation === true/.test(runtimeCode), false,
+    '不得再写 === true（对函数形态 fail-open）');
+  // runTool 内部同样走统一求值（不在两处各写一份三目）
+  const registry = read('src/agent/tools/registry.js');
+  assert.match(registry, /const needsConfirmation = requiresConfirmationFor\(tool, args\);/,
+    'runTool 的判定也要走统一求值');
+});
+
+test('子代理白名单与函数形态工具的交集必须为空（否则 subagent 会 fail-open）', () => {
+  // subagent.js 刻意不接触全局注册表（文件头的硬边界），它的 needsConfirm 用的是
+  // `tool.requiresConfirmation === true`。该写法**只对布尔形态完整**：
+  // 一旦函数形态工具进了它的名字白名单，就会静默放行（不确认）。
+  // 目前白名单是固定三个只读 + 三个写文件工具，不含 control_music（唯一的函数形态工具）。
+  // 这条把那个**前提**钉住：将来谁把函数形态工具加进白名单，这里立刻变红。
+  const subagent = read('src/agent/subagent.js');
+  const names = [...subagent.matchAll(/SUBAGENT_(?:WRITE_)?TOOL_NAMES = Object\.freeze\(\[([^\]]*)\]/g)]
+    .flatMap(match => match[1].split(',').map(item => item.trim().replace(/^'|'$/g, '')).filter(Boolean));
+  assert.ok(names.length >= 5, `白名单解析失败（只取到 ${names.length} 个）`);
+  // 唯一的函数形态工具（发现新的就一起加进来）
+  const functionFormTools = ['control_music'];
+  for (const tool of functionFormTools) {
+    assert.equal(names.includes(tool), false,
+      `${tool} 使用函数形态 requiresConfirmation，不得进子代理白名单（那里只认 === true，会 fail-open）`);
+  }
 });

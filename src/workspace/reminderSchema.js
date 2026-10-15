@@ -9,6 +9,11 @@
 //
 // 本文件管**判定**（时间归一、过去时间拒绝、文案渲染），脏层管读写。
 
+import { describeValue } from './schemaValue.js';
+
+// 与 AC1/AC2 共用同一实现（口径统一，避免三处漂移）。
+export const describeReminderValue = describeValue;
+
 // 提醒文本长度上限：通知栏放不下太长的正文，且它会被原样作为消息体（不走 LLM）。
 export const REMINDER_TEXT_MAX = 200;
 
@@ -76,16 +81,6 @@ export function validateReminder({ text, time, now = Date.now() } = {}) {
     return `提醒时间已经过去了（${formatReminderTime(at)}）。请给一个将来的时间。`;
   }
   return null;
-}
-
-/** 把任意值渲染成可读短串（错误消息里用，与 AC1/AC2 同口径）。 */
-export function describeReminderValue(value) {
-  if (value === null) return 'null';
-  if (value === undefined) return '（未给）';
-  if (typeof value === 'string') return `「${value}」`;
-  if (Array.isArray(value)) return '数组';
-  if (typeof value === 'object') return '对象';
-  return String(value);
 }
 
 /**

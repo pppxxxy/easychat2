@@ -55,6 +55,43 @@ function toErrorResult(message) {
   return { content: String(message || '工具执行失败。'), isError: true };
 }
 
+// requiresConfirmation 归一：true / 函数原样保留，其余（含 truthy 非布尔）→ false。
+// 函数形态让「同一工具按参数分级确认」成为注册表的一等能力（见 control_music）。
+function normalizeRequiresConfirmation(value) {
+  if (value === true) return true;
+  return typeof value === 'function' ? value : false;
+}
+
+/**
+ * 求值「这次调用是否需要用户确认」——**函数形态的唯一入口**。
+ *
+ * 为什么必须导出而不是各处自己写 `=== true`：`requiresConfirmation` 现在可能是函数
+ * （按 args 分级，见 control_music）。任何写成 `definition.requiresConfirmation === true`
+ * 的消费方，对函数形态都会求值为 **false** ——那是**放行**方向，属 fail-open。
+ * 已核实的两个消费方（mcp/serverRuntime.js 的 confirm 钩子、agent/subagent.js 的
+ * needsConfirm）原先正是这种写法；合并 m1015m1 时统一改走本函数。
+ *
+ * 判据与 runTool 内部**逐字一致**（同一个求值，不是两份）：`=== true` 才为真，
+ * 函数形态按 args 求值后同样只认 `=== true`（返回值非布尔的实现按「不确认」处理，
+ * 与 normalize 的严格口径同源）。
+ *
+ * @param {object} tool 注册表里的工具定义（或任意带该字段的对象）
+ * @param {object} [args] 本次调用参数（函数形态按它分级）
+ */
+export function requiresConfirmationFor(tool, args = {}) {
+  const value = tool && tool.requiresConfirmation;
+  if (typeof value === 'function') {
+    try {
+      return value(args) === true;
+    } catch (error) {
+      // 判定函数抛错：按**需要确认**处理（fail-closed）。
+      // 分级函数的用途是「少打扰用户」，它坏掉时宁可多问一次，也不能静默放行。
+      return true;
+    }
+  }
+  return value === true;
+}
+
 export function registerTool(definition) {
   const source = definition && typeof definition === 'object' ? definition : {};
   const name = String(source.name || '').trim();
@@ -76,8 +113,11 @@ export function registerTool(definition) {
     timeoutMs: Number.isFinite(source.timeoutMs) && source.timeoutMs > 0
       ? source.timeoutMs
       : DEFAULT_TOOL_TIMEOUT_MS,
-    // 需要用户逐次点头的工具（目前只有 run_shell）。缺省 false，故既有工具行为不变。
-    requiresConfirmation: source.requiresConfirmation === true,
+    // 需要用户逐次点头的工具（run_shell 等）。缺省 false，故既有工具行为不变。
+    // 也接受**函数**：`(args) => boolean`，用于「同一工具里按参数分级」的场景
+    //（FEAT-AC2 的 control_music：play/resume 要确认、pause/next 不弹）——
+    // 整工具级布尔会把不弹的动作也变成要确认，违背产品裁决。
+    requiresConfirmation: normalizeRequiresConfirmation(source.requiresConfirmation),
     // 聊天内受控工具（联网搜索）：不受工作区模式门控，由 allowChatTools 单独放行。
     chatTool: source.chatTool === true,
   };
@@ -243,7 +283,13 @@ export async function runTool(call, ctx = {}) {
   //
   // 命中 ask 规则的工具即使没声明 requiresConfirmation 也要问（ask 档的意义就是从
   // 宽规则里挖出例外），批准只对这一次生效（askOnly，由宿主侧 approveToolCall 保证）。
-  if (tool.requiresConfirmation || ruleVerdict === 'ask') {
+  //
+  // `requiresConfirmation` 可能是**函数**（按 args 分级）：只有 play/resume 要确认时，
+  // 这里为 pause/next 求值为 false，不会打扰用户（产品裁决的唯一事实源在工具纯层）。
+  // 求值收口在 requiresConfirmationFor —— 与宿主侧消费方共用**同一个**判定，
+  // 不在这里再写一遍 `=== true` 的三目（两处各写一份必然漂移）。
+  const needsConfirmation = requiresConfirmationFor(tool, args);
+  if (needsConfirmation || ruleVerdict === 'ask') {
     if (typeof ctx.confirm !== 'function') {
       return toErrorResult(`该操作需要用户确认，但当前环境无法询问用户（未执行）：${name}`);
     }

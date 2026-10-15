@@ -17,6 +17,7 @@ import { runHeadlessAgent } from '../workspace/headlessAgent.js';
 import { appendThreadEntry, getOrCreateActiveThread, THREAD_SCOPE_WORKSPACE } from './threads.js';
 import { pushOverlayChatMessage, setOverlayScopeMode, updateOverlayText } from './overlay.js';
 import { createOverlayConfirmHandler } from './overlayConfirmBridge.js';
+import { summarizeToolCall } from './overlaySummary.js';
 import { createWorkspaceStore } from '../workspace/native.js';
 import { readHookPermissionRules } from '../workspace/hooks.js';
 import { readToolPermissionRules } from '../chat/toolApprovalFlow.js';
@@ -33,7 +34,15 @@ let busy = false;
 
 function ensureSingletons() {
   if (store === null) store = createWorkspaceStore({});
-  if (confirmHandler === null) confirmHandler = createOverlayConfirmHandler();
+  // summarize：把工具调用渲染成人话摘要（AC1/AC2/AC4 的渲染函数经此接线）。
+  //
+  // ⚠️ 合并 m1015m1 时补上的一处**集成缺口**：那一批把 summarize 接进了
+  // useOverlayChatSend（当时工作区回合还在那个 hook 里）；而 FEAT-AC7 已把
+  // 工作区回合外提到本文件（app 级常驻，页面不在也能跑）。若不在此处一起接，
+  // 工作区路径的确认卡会退回「工具名 + JSON args」——正是那批要修的毛病，
+  // 且**只在悬浮窗工作区路径复现**（面板路径走 approveToolCall，不受影响）。
+  // 两条路径现在共用同一个摘要实现，不会再各写一份而漂移。
+  if (confirmHandler === null) confirmHandler = createOverlayConfirmHandler({ summarize: summarizeToolCall });
 }
 
 /** 测试/宿主可见：重置进程级状态（仅测试用）。 */

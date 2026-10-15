@@ -38,10 +38,9 @@ import {
   MUSIC_TOOL_DEFINITIONS,
   MUSIC_WRITE_DEFINITIONS,
   __setMusicNativeModules,
-  buildMusicApproval,
   setMusicToolRecorder,
 } from '../src/workspace/toolDefs/musicTools.js';
-import { AGENT_MODES, listToolsForMode, registerTool, unregisterTool } from '../src/agent/tools/registry.js';
+import { AGENT_MODES, listToolsForMode, registerTool, runTool, unregisterTool } from '../src/agent/tools/registry.js';
 
 const byName = name => MUSIC_TOOL_DEFINITIONS.find(item => item.name === name);
 const read = rel => fs.readFileSync(path.resolve(rel), 'utf8');
@@ -194,18 +193,25 @@ test('纯层既有判定不变（回归）：nextSequentialIndex / pickShuffleIn
 
 // ---------- 工具形状与门控 ----------
 
-test('工具形状：两个只读 + 一个写，且写工具**不声明**整工具级确认', () => {
+test('工具形状：两个只读 + 一个写，且写工具用**函数式**确认（按 action 分级）', () => {
   assert.deepEqual(MUSIC_READ_DEFINITIONS.map(i => i.name), ['list_music_library', 'get_music_status']);
   assert.deepEqual(MUSIC_WRITE_DEFINITIONS.map(i => i.name), ['control_music']);
   assert.equal(byName('list_music_library').readOnly, true);
   assert.equal(byName('get_music_status').readOnly, true);
   assert.equal(byName('control_music').readOnly, false);
-  // ⚠️ 关键设计：control_music **不能**声明 requiresConfirmation。
-  // 因为确认分级是「同一工具里 play/resume 弹、pause/next 不弹」，
-  // 而 registry 的 requiresConfirmation 是**整工具级**的布尔——声明了会把
-  // pause/next 也变成要弹（违背产品裁决），所以改由宿主按 action 分级。
-  assert.equal(byName('control_music').requiresConfirmation, undefined,
-    'control_music 不得声明整工具级确认（分级由 buildMusicApproval 按 action 决定）');
+  // ⚠️ 关键设计：control_music 声明**函数式** requiresConfirmation，不是整工具级布尔。
+  // 整工具级 true 会把 pause/next 也变成要确认（违背「只有出声的动作才弹」的产品裁决）；
+  // 函数按 action 求值，事实源是 musicToolSchema 的 actionNeedsConfirm。
+  const policy = byName('control_music').requiresConfirmation;
+  assert.equal(typeof policy, 'function', 'control_music 用函数式确认（按 action 分级）');
+  assert.equal(policy({ action: 'play' }), true);
+  assert.equal(policy({ action: 'resume' }), true);
+  for (const action of ['pause', 'stop', 'next', 'prev', 'seek', 'set_rate', 'set_play_mode']) {
+    assert.equal(policy({ action }), false, `${action} 不该触发整工具级确认`);
+  }
+  // 非法动作不打扰用户（真正的拒绝在 execute 的 validateMusicAction）
+  assert.equal(policy({ action: 'explode' }), false);
+  assert.equal(policy({}), false, '缺 action 不打扰用户（execute 会如实拒绝）');
 });
 
 test('只读模式下 control_music 不出现在工具清单（canRunTool 口径）', () => {
@@ -222,29 +228,73 @@ test('只读模式下 control_music 不出现在工具清单（canRunTool 口径
   }
 });
 
-// ---------- 确认分级的宿主接口 ----------
+// ---------- 确认分级经注册表生效（产品裁决落地的**行为**验证）----------
+//
+// 为什么必须走 runTool 而不是直接 execute：分级由注册表按 requiresConfirmation(args)
+// 求值——直接调 execute 绕过了那一层，就测不到「play 会弹、pause 不弹」。
+// 注册一个 control_music：execute 走 tools.js 同款包装（raw def 是 (options,args,ctx)，
+// 而 registry 调的是 (args, ctx)）。直接 registerTool(rawDef) 会把 args/ctx 错位。
+function registerControlMusic() {
+  const def = byName('control_music');
+  registerTool({ ...def, execute: async (args, ctx) => def.execute({}, args || {}, ctx || {}) });
+}
 
-test('buildMusicApproval：play/resume 要确认并给出问句；其余动作 skip', () => {
-  const play = buildMusicApproval({ action: 'play', trackName: '晴天' });
-  assert.equal(play.kind, 'confirm');
-  assert.match(play.text, /晴天/);
+test('确认分级：play 触发审批、pause 不触发（经 registry.runTool）', async () => {
+  resetStubs();
+  registerControlMusic();
+  try {
+    const confirmLog = [];
+    const deny = async call => { confirmLog.push(call.name); return false; };
 
-  const resume = buildMusicApproval({ action: 'resume', trackName: '稻香' });
-  assert.equal(resume.kind, 'confirm');
-  assert.match(resume.text, /稻香/);
+    // pause 不弹确认 → 直接执行
+    const paused = await runTool(
+      { name: 'control_music', arguments: { action: 'pause' } },
+      { mode: 'write', confirm: deny }
+    );
+    assert.equal(paused.isError === true, false, 'pause 应正常执行');
+    assert.deepEqual(confirmLog, [], 'pause 不得弹确认');
 
-  for (const action of ['pause', 'stop', 'next', 'prev', 'seek', 'set_rate', 'set_play_mode']) {
-    assert.equal(buildMusicApproval({ action, args: {} }).kind, 'skip', `${action} 不该要确认`);
+    // play 触发确认；用户拒绝 → 工具不执行
+    let played = false;
+    nativeStubs.library.getMusicItems = async () => [{ id: 't1', name: '晴天', uri: 'file://a.mp3', durationMs: 1 }];
+    nativeStubs.playerService.playAt = () => { played = true; return { id: 't1', name: '晴天' }; };
+    const denied = await runTool(
+      { name: 'control_music', arguments: { action: 'play', trackId: 't1' } },
+      { mode: 'write', confirm: deny }
+    );
+    assert.deepEqual(confirmLog, ['control_music'], 'play 必须弹确认');
+    assert.equal(played, false, '用户拒绝时绝不许播放');
+    assert.match(denied.content, /拒绝/);
+
+    // play + 用户允许 → 执行
+    const approved = await runTool(
+      { name: 'control_music', arguments: { action: 'play', trackId: 't1' } },
+      { mode: 'write', confirm: async () => true }
+    );
+    assert.equal(approved.isError === true, false, '允许后应正常执行');
+    assert.equal(played, true, '允许后应真的播放');
+  } finally {
+    unregisterTool('control_music');
   }
 });
 
-test('buildMusicApproval：非法动作不因「不需要确认」而被放行（交工具自己拒）', () => {
-  // skip 表示「不需要人工确认」，但**不等于**放行执行——工具 execute 里还有一层
-  // validateMusicAction。这里断言：非法动作拿到的也是 skip（不打扰用户），
-  // 由工具返回具体原因。若哪天误把非法动作判成 confirm，用户会被无谓地打扰。
-  const bad = buildMusicApproval({ action: 'explode' });
-  assert.equal(bad.kind, 'skip');
-  // 但工具必须真的拒掉它（下一条用例验）。
+test('确认分级：没有审批钩子时 play 被拒（问不到用户 = 不执行）', async () => {
+  resetStubs();
+  registerControlMusic();
+  try {
+    let played = false;
+    nativeStubs.library.getMusicItems = async () => [{ id: 't1', name: '晴天', uri: 'file://a.mp3', durationMs: 1 }];
+    nativeStubs.playerService.playAt = () => { played = true; return { id: 't1', name: '晴天' }; };
+    // 不传 confirm：registry 对需要确认的工具按「无法询问 = 拒绝」。
+    const out = await runTool(
+      { name: 'control_music', arguments: { action: 'play', trackId: 't1' } },
+      { mode: 'write' }
+    );
+    assert.equal(out.isError, true, '无审批钩子时 play 必须被拒');
+    assert.equal(played, false, '绝不能无人应答就播放');
+  } finally {
+    unregisterTool('control_music');
+  }
 });
 
 // ---------- 脏层行为（storage / playerService 全打桩）----------

@@ -14,7 +14,7 @@
 //      走到 confirm 的其它情形只可能是 hooks 的 ask 规则——那是「必须当场问用户」的语义，
 //      MCP 会话里没有用户，按「问不到 = 拒绝」处理（与 taskRunner 同款纪律）。
 
-import { getTool, listRegisteredTools, runTool } from '../agent/tools/registry.js';
+import { getTool, listRegisteredTools, requiresConfirmationFor, runTool } from '../agent/tools/registry.js';
 import { getMcpServerSettings, patchMcpServerSettings } from '../storage/settings.js';
 import { getWorkspaceSettings } from '../storage/workspace.js';
 import { resolveWorkspaceAssistant } from '../workspace/assistant.js';
@@ -62,9 +62,13 @@ export async function executeMcpTool({ name, args, tier, characterId = '' }) {
     mode,
     characterId: ownerId,
     permissionRules: () => readHookPermissionRules(store, ownerId),
-    confirm: async ({ name: toolName }) => {
+    confirm: async ({ name: toolName, args: toolArgs }) => {
       const definition = getTool(toolName);
-      return Boolean(definition && definition.requiresConfirmation === true);
+      // ⚠️ 必须走 requiresConfirmationFor，不能写 `definition.requiresConfirmation === true`：
+      // 后者对**函数形态**（control_music 的按 action 分级）求值为 false ——
+      // 那是放行方向（fail-open）。MCP 的语义是「工具自己声明要确认 ⇒ 档位+预览已替用户
+      // 回答」，所以这里必须认得出函数形态，否则 control_music 在 MCP 写档下会不经确认执行。
+      return requiresConfirmationFor(definition, toolArgs || {});
     },
   });
 }

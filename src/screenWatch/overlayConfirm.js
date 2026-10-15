@@ -138,8 +138,11 @@ export class OverlayConfirmRegistry {
  * 为什么需要兜底：工具的 confirm 渲染函数（AC1 的「旧值→新值」、AC2 的「将播放《X》」）
  * 不一定存在——registry 传下来的只有 { name, args }。兜底用工具名 + 参数摘要，
  * 总比一张空白卡片强（用户至少能看出在确认哪个操作）。
+ *
+ * `fallback` 由调用方传入 **i18n 已译文案**（本层是纯逻辑层，不许硬编码会被渲染的中文）；
+ * 不给时退回非本地化的 'confirm'（跨语言契约占位，不是文案）。
  */
-export function renderOverlayConfirmSummary({ name, args, render } = {}) {
+export function renderOverlayConfirmSummary({ name, args, render, fallback } = {}) {
   if (typeof render === 'function') {
     try {
       const text = String(render({ name, args }) || '').trim();
@@ -148,7 +151,7 @@ export function renderOverlayConfirmSummary({ name, args, render } = {}) {
       // 渲染函数抛错 → 走下面的兜底，不让确认卡因此弹不出来。
     }
   }
-  const toolName = String(name || '').trim() || '未知操作';
+  const toolName = String(name || '').trim() || String(fallback || '').trim() || 'confirm';
   let detail = '';
   try {
     detail = args && typeof args === 'object' ? JSON.stringify(args) : String(args || '');

@@ -12,6 +12,11 @@
 
 import { TTS_PROVIDERS } from '../tts/providers.js';
 import { THEMES } from '../theme/themes.js';
+import { describeValue } from './schemaValue.js';
+
+// 值的可读短串渲染走共享实现（与 musicToolSchema / reminderSchema 同一口径，
+// 避免三处各写一份必然漂移）。对外仍以 describeValue 名义导出。
+export { describeValue };
 
 // 面板名与键描述：**在函数里用模板串渲染**，与 toolDefs/ 下 123 处工具 description 同口径。
 //
@@ -128,15 +133,6 @@ export function keysForPanel(panel) {
   return APP_SETTING_KEY_NAMES.filter(name => APP_SETTING_KEYS[name].panel === panel);
 }
 
-/** 把模型传来的任意值渲染成可读短串（错误消息里用）。 */
-export function describeValue(value) {
-  if (typeof value === 'string') return `「${value}」`;
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return '数组';
-  if (typeof value === 'object') return '对象';
-  return String(value);
-}
-
 /**
  * 类型/枚举校验：返回 null = 通过；返回字符串 = 拒绝原因（给模型与用户看）。
  *
@@ -178,18 +174,4 @@ export function renderSettingValue(key, value) {
   const spec = APP_SETTING_KEYS[key];
   if (spec && spec.type === 'boolean') return value ? `开` : `关`;
   return String(value);
-}
-
-/**
- * 渲染「这次要改什么」的一句话（工具输出与诊断留痕用）。
- *
- * ⚠️ 关于确认弹窗：**弹窗文案不走这里**。本仓的审批弹窗由
- * `src/chat/toolApproval.js` 的 describeToolApproval 统一渲染——标题取自 i18n
- * （`chat.tool.approval.title`），正文是 `JSON.stringify(args)`。
- * 也就是说用户在弹窗里看到的是 **key + value 的 JSON**，而本函数产出的是
- * 给**模型**看的结果描述。两者刻意分开：弹窗文案必须走 i18n，模型提示词不进 i18n。
- */
-export function renderSettingChangePrompt(key, oldValue, newValue) {
-  return `将把「${describeSetting(key)}」（${key}）从 ${renderSettingValue(key, oldValue)}`
-    + ` 改为 ${renderSettingValue(key, newValue)}，允许吗？`;
 }

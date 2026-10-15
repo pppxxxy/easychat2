@@ -240,6 +240,9 @@ test('createReminder：正常路径 —— 一次性形态 + 固定文案 + 新�
   assert.equal(result.fireAt, fireAt);
   assert.ok(config, '必须真的排了调度');
   assert.equal(config.mode, 'EXACT', '一次性走精确模式');
+  // ⚠️ fireAt 必须原样传下去：原生 ProactiveMessageModule 读 config.fireAt 才认一次性
+  //（缺省 0L → isOneShot=false → 退化成每日重复且到点不自删）。
+  assert.equal(config.fireAt, fireAt, '必须把 fireAt 传给原生（否则退化成每日重复）');
   assert.equal(config.fixedText, '开会', '固定文案原样传（不走 LLM）');
   assert.equal(config.requestJson, '', 'requestJson 留空 = 新建对话语义');
   assert.equal(config.roleId, 'workspace-assistant', '发送者是工作区助手');

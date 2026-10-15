@@ -217,6 +217,14 @@ export async function runSubagent({
         //        因此根本不走权限规则求值」。
         // 取 `!== true` 而非 `=== false`：readOnly 缺失/写错的工具按「可能写」处理（fail-closed），
         // 宁可多问一次，不可静默放行。
+        //
+        // ⚠️ 这里刻意**不**改成 requiresConfirmationFor（合并 m1015m1 时核实过）：
+        // 本模块的两条硬边界之一就是「**不接触全局注册表**」（见文件头第 11-12 行），
+        // 且工具来源是 SUBAGENT_TOOL_NAMES / SUBAGENT_WRITE_TOOL_NAMES 两个**名字白名单**
+        //（不含 control_music —— 目前唯一使用函数形态的工具）。因此函数形态在这里
+        // **不可达**：`requiresConfirmation === true` 对白名单里的工具语义完整。
+        // 若将来把函数形态工具放进白名单，本行必须一起改（否则会 fail-open 放行）——
+        // 已加测试钉住这个前提：白名单与函数形态工具的交集必须为空。
         const needsConfirm = tool.requiresConfirmation === true || tool.readOnly !== true;
         if (needsConfirm && typeof confirm !== 'function') {
           outcome = { content: '该工具需要用户确认，但当前环境无法询问用户（未执行）。', isError: true };

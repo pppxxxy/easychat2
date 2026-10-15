@@ -205,7 +205,10 @@ test('摘要渲染：render 抛错 → 兜底（确认卡不能因此弹不出�
 
 test('摘要渲染：无 render → 工具名 + 参数摘要；都空也有兜底名', () => {
   assert.match(renderOverlayConfirmSummary({ name: 'x', args: { a: 1 } }), /x/);
-  assert.equal(renderOverlayConfirmSummary({}), '未知操作');
+  // 无工具名、无 fallback → 非本地化占位（纯层不许硬编码会被渲染的中文）
+  assert.equal(renderOverlayConfirmSummary({}), 'confirm');
+  // 调用方给了 i18n 兜底 → 用兜底
+  assert.equal(renderOverlayConfirmSummary({ fallback: 'FALLBACK' }), 'FALLBACK');
   // 参数不可序列化也不抛
   const cyclic = {};
   cyclic.self = cyclic;
@@ -246,11 +249,17 @@ test('事件名与原生同值（跨语言契约）', () => {
 
 // ---------- 解锁根因（本任务的核心）----------
 
-test('解锁：悬浮窗不再硬编码只读、不再一律自动拒绝', () => {
-  const hook = read('src/screenWatch/useOverlayChatSend.js');
-  // ⚠️ 剥注释再判：本文件的注释正解释着「原先硬编码 mode:'read'」这段历史，
-  // 按整文件匹配会自己打自己（本仓反复踩过的假阳性形态）。
-  const code = hook.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+test('解锁：悬浮窗不再硬编码只读、不再一律自动拒绝（钉在**活路径**上）', () => {
+  // ⚠️ FEAT-AC7 P0-A 之后，工作区回合的**活路径**是 overlayWorkspaceTurn.js
+  //（app 级常驻，页面不在场也能跑）；useOverlayChatSend.js 只剩聊天 scope。
+  // 原先本条断言查的是 useOverlayChatSend.js 里那份工作区实现——AC7 之后它**不可达**，
+  // 于是守卫钉在死代码上：实测把活路径的 allowWrite / permissionRules / confirm / mode
+  // 逐个删掉，本条**全绿**（本仓「名字出现过 ≠ 真的在用」的又一形态，且这次是我自己造的）。
+  // 故断言目标改为活路径。useOverlayChatSend 只保留一条「不得再有工作区分支」的反向断言。
+  const live = read('src/screenWatch/overlayWorkspaceTurn.js');
+  // ⚠️ 剥注释再判：注释里正解释着「原先硬编码 mode:'read'」这段历史，
+  // 按整文件匹配会自己打打（本仓反复踩过的假阳性形态）。
+  const code = live.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
   // 旧实现的两行必须彻底消失（它们是「悬浮窗干不了活」的单一根因）
   assert.equal(/mode:\s*'read'/.test(code), false, '不得再硬编码只读模式');
   assert.equal(/confirm:\s*async\s*\(\)\s*=>\s*false/.test(code), false, '不得再一律自动拒绝');
@@ -263,14 +272,17 @@ test('解锁：悬浮窗不再硬编码只读、不再一律自动拒绝', () =>
   assert.ok(code.includes("allowWrite: workspaceMode === 'write'"),
     'allowWrite 要与 mode 同源（app 面板也是这么传的）');
   // 确认走窗内卡片
-  assert.ok(code.includes('confirm: confirmRef.current'), '确认走窗内卡片钩子');
+  assert.ok(code.includes('confirm: confirmHandler'), '确认走窗内卡片钩子');
   assert.ok(code.includes('createOverlayConfirmHandler'), '钩子来自窗内确认编排');
+  // summarize 必须接线（否则确认卡只显示工具名 + JSON args）
+  assert.ok(code.includes('summarize: summarizeToolCall'),
+    'confirm 钩子必须带 summarize（人话摘要）');
   // 权限规则也要接（否则写工具上的手写 deny 变死键）。
   // ⚠️ 必须断言**真的调用了**——只断言 includes('readToolPermissionRules') 时，
   // 留个 import 行就能蒙混（注入验证抓到的第 5 次同形态）。
   assert.match(code, /permissionRules: async \(\) => readToolPermissionRules\(/,
     '权限规则必须真的作为 permissionRules 传进回合');
-  assert.match(code, /await readHookPermissionRules\(storeRef\.current, 'workspace'\)/,
+  assert.match(code, /await readHookPermissionRules\(store, 'workspace'\)/,
     'hooks.json 规则要经合并入口读（与工作区聊天同一条）');
   // 模式徽标：'read' 只允许出现在「徽标取值的三目」里，不允许出现在 mode 传参里
   assert.ok(code.includes('setOverlayScopeMode'), '推送模式徽标');
@@ -279,6 +291,14 @@ test('解锁：悬浮窗不再硬编码只读、不再一律自动拒绝', () =>
   // 'read' 只出现在徽标三目这一处（mode 传参用的是变量）
   assert.equal((code.match(/'read'/g) || []).length, 1,
     "'read' 字面量只应在徽标三目里出现一次（mode 传参必须用变量）");
+
+  // 反向断言：旧 hook 不得再持有工作区分支（两份实现 = 守卫会钉在死代码上）
+  const hook = read('src/screenWatch/useOverlayChatSend.js');
+  const hookCode = hook.split('\n').filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+  assert.equal(/scope === 'workspace'/.test(hookCode), false,
+    'useOverlayChatSend 不得再有工作区分支（AC7 起工作区走 overlayWorkspaceTurn）');
+  assert.equal(/runWorkspaceWatchTurn/.test(hookCode), false,
+    '不得再持有工作区回合调用（重复实现必然漂移）');
 });
 
 test('解锁：ScreenWatchScreen 已把该块外提（行数棘轮），且不再自己拼管线', () => {
