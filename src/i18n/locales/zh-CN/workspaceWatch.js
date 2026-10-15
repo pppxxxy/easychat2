@@ -42,6 +42,15 @@ export const workspaceWatch = {
   'workspace.watch.deleteThread.body': '确定删除与「{name}」的这场看屏幕对话吗？截图文件不会一并删除。',
   'workspace.watch.entryImage': '（含截图）',
   'workspace.watch.noEntries': '这场对话还没有内容。',
+  // FEAT-AC7：回合收尾与悬浮窗忙反馈。
+  // 「已停止」与「超时未响应」必须分开：前者是用户的意图（点了停止），
+  // 后者是故障（模型/网络没响应）——混成一句会让用户以为是自己点错了。
+  'screenWatch.overlay.turnBusy': '正在处理…',
+  'screenWatch.overlay.turnStopped': '已停止。',
+  'screenWatch.overlay.turnTimeout': '超时未响应（等待超过 {seconds} 秒）。可以换一个更快的模型，或把任务拆小后重试。',
+  // 页面不在场时的如实说明（app 级监听器兜底，不再静默丢弃）。
+  'screenWatch.overlay.chatNeedsPage': '（聊天模式需要先打开「看屏幕」页：请打开 App 的扩展 → 看屏幕，再发一次）',
+  'screenWatch.overlay.captureNeedsPage': '（截屏需要先打开「看屏幕」页）',
 };
 
 export default workspaceWatch;

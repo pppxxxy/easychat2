@@ -35,11 +35,12 @@ import { reportCaptureFailure, reportOverlayCrashReports } from './screenWatchDi
 import { useOverlayChatSend } from './useOverlayChatSend.js';
 import useOverlayActive from './useOverlayActive.js';
 import {
+  setOverlayCaptureHandler,
+  setOverlayChatHandler,
+} from './overlayEventBridge.js';
+import {
   addCaptureFailedListener,
   addCaptureListener,
-  addChatSendListener,
-  addRequestCaptureListener,
-  addTraceListener,
   captureOverlayFrame,
   ensurePermissionThenStart,
   isIgnoringBatteryOptimizations,
@@ -238,16 +239,22 @@ export default function ScreenWatchScreen() {
       captureErrorRef.current = reason;
       settleCapture('');
     });
-    const offRequest = addRequestCaptureListener(() => { overlayRequestHandlerRef.current(); });
-    // 状态订阅（含回前台对账）已在 useOverlayActive 里挂好——这里不再重复订阅
-    // addStateListener：两个监听器写同一份状态只会让「谁才是权威」变模糊。
-    // FIX-4：采集链路打点 → 诊断日志（addTraceListener 内部已写，这里无需额外处理；
-    // 订阅本身保证即使无人关心也会落盘，便于「一直等」类故障事后定位卡在哪一环）。
-    const offTrace = addTraceListener();
-    // SW3：悬浮窗里发来的话——按 scope 走对应管线（聊天角色 / 工作区 agent），
-    // 结果经 pushOverlayChatMessage 推回悬浮窗渲染（原生只做嘴和眼）。
-    const offChat = addChatSendListener(payload => { overlayChatHandlerRef.current(payload); });
-    return () => { offCapture(); offFailed(); offRequest(); offTrace(); offChat(); };
+    // FEAT-AC7 P0-A：**trace / chat-send / request-capture 三个订阅已上移 app 级**
+    //（overlayEventBridge.js）——它们此前挂在本组件的 useEffect 里，于是本页不在栈顶时
+    // 监听器根本不存在：悬浮窗发话无人接（BUG-1）、诊断日志一条不落（BUG-3）。
+    // 本组件只保留**纯 UI 订阅**：capture / captureFailed 是这一页自己在 await 的一帧结果
+    //（waitForCapture 的 resolve），搬走会让等待永远等不到。
+    //
+    // 需要页面的两条改为**向 app 级注入实现**：页面挂载时填充，卸载时清空；
+    // 页面不在时 app 级给兜底文案（不静默——见 overlayEventBridge 的分工表）。
+    setOverlayChatHandler(payload => overlayChatHandlerRef.current(payload));
+    setOverlayCaptureHandler(() => { overlayRequestHandlerRef.current(); });
+    return () => {
+      offCapture();
+      offFailed();
+      setOverlayChatHandler(null);
+      setOverlayCaptureHandler(null);
+    };
   }, [overlaySupported, settleCapture]);
 
   // 小窗标题跟随当前角色（用户要求顶部显示角色名，而不是固定的「看屏幕」）。

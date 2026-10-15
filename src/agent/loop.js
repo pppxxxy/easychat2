@@ -24,6 +24,40 @@ import {
 } from './resultClearing.js';
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
+
+// FEAT-AC7 P0-B：**回合总时长上限**（本文件此前缺失的那一层）。
+//
+// 已核实的事实（与任务书的措辞不同，故在此写清）：单个 HTTP 请求**有**超时
+//（src/network/requestTimeout.js：流式首字节 120s / 空闲 30s / 非流式 300s，
+// api.js 的 armIdleTimer 在 send 与每次 onprogress 上挂表）。
+// 缺的是**回合级**上限：一轮回合 = 最多 12 轮模型请求 × 每轮最多 4 个模型
+//（1 主 + FALLBACK_MODELS_MAX=3 降级链）× 每请求 120s ⇒ 最坏约 **96 分钟**。
+// 对用户而言这与「永远卡住」不可区分——截图 #286/287 的「正在调用…」不动就是这个形态。
+// 所以补的是**把乘法收成一个上限**，而不是「给请求加超时」（那件事早已存在）。
+//
+// 取 180s（任务书 §二 P0-B 的取值）：足够一次正常的多轮工具回合跑完，
+// 又远小于「用户会以为卡死」的时间尺度。
+//
+// 为什么不在本层再压一个 60s 首字节超时（任务书 §二 P0-B 的另一半）：那会**比既有
+// 策略更严**并造成真回归——requestTimeout.js 的注释明确写着「推理模型思考期间可能
+// 几十秒不吐字，放宽到 120s，否则会误报超时」。压到 60s 会把正常的慢思考判成超时。
+// 单请求超时沿用既有三档（那是经过审计的取值），本层只补总时长。
+export const DEFAULT_TURN_BUDGET_MS = 180000;
+
+// 回合超时的错误：与用户主动中止**必须可区分**（前者要如实报「超时未响应」，
+// 后者是用户的意图，不该报错——见 workspaceWatchTurn 的收尾分流）。
+export function createTurnTimeoutError({ model = '', round = 0, elapsedMs = 0 } = {}) {
+  const seconds = Math.max(1, Math.round(Number(elapsedMs) / 1000));
+  const error = new Error(
+    `回合超时（${seconds}s 未完成）：模型 ${model || '未知'}，卡在第 ${round || '?'} 轮。`
+    + '可换一个更快的模型，或把任务拆小后重试。'
+  );
+  error.name = 'TurnTimeoutError';
+  error.timedOut = true;
+  error.model = String(model || '');
+  error.round = Number(round) || 0;
+  return error;
+}
 // 两段式预算提醒的第一段（能力升级任务书 A1）：剩 2 轮时注入——模型还有机会把已有
 // 信息整理成结论，而不是被下面那句 CAP_NOTICE 硬截断在工具调用中间。
 export const ROUND_BUDGET_WARNING = '轮次预算还剩 2 轮，请开始收束：先把已确认的信息整理成结论，需要补的工具调用只做最关键的。';
@@ -158,6 +192,73 @@ export async function runAgentTurn(messages, options = {}) {
     ? options.tools
     : listToolsForMode(mode, { allowChatTools });
 
+  // FEAT-AC7 P0-B/P0-D：回合总时长上限 + 回合打点。
+  //
+  // 实现要点：**不改调用方传进来的 signal**，而是派生一个「本回合的有效信号」——
+  // 到点 abort 它。这样：
+  //   · 调用方的 signal（用户点「停止」）语义逐字不变；
+  //   · 超时中止与用户中止在**抛出物**上可区分（前者 TurnTimeoutError，后者 AbortError），
+  //     宿主据此给「超时未响应」而不是「已停止」——两者对用户的含义完全不同。
+  const turnBudgetMs = Number.isFinite(Number(options.turnBudgetMs)) && Number(options.turnBudgetMs) > 0
+    ? Number(options.turnBudgetMs)
+    : DEFAULT_TURN_BUDGET_MS;
+  const onTurnEvent = typeof options.onTurnEvent === 'function' ? options.onTurnEvent : null;
+  const emitTurnEvent = (event, fields) => safeCallback(onTurnEvent, { event, ...fields });
+  const turnStartedAt = Date.now();
+  // 记录「当前正在跑哪一轮 / 哪个模型」，供超时错误与打点说出卡点。
+  let currentRound = 0;
+  let currentModel = '';
+  let timedOut = false;
+  const budgetController = typeof AbortController === 'function' ? new AbortController() : null;
+  const budgetTimer = budgetController
+    ? setTimeout(() => {
+      timedOut = true;
+      budgetController.abort();
+    }, turnBudgetMs)
+    : null;
+  // 组合信号：调用方 signal 或超时任一触发都中止。
+  //
+  // ⚠️ 不用 AbortSignal.any：它在 Hermes/旧 RN 上未必存在（本仓 no-undef 门禁直接报
+  // 「AbortSignal is not defined」——那正是它在 RN 全局里不保证可用的信号）。
+  // 手工转发两个来源，行为等价且到处都能跑。
+  let detachCallerSignal = null;
+  const effectiveSignal = budgetController
+    ? (() => {
+      if (!signal) return budgetController.signal;
+      const controller = budgetController;
+      const onCallerAbort = () => controller.abort();
+      if (typeof signal.addEventListener === 'function') {
+        signal.addEventListener('abort', onCallerAbort);
+        detachCallerSignal = () => signal.removeEventListener('abort', onCallerAbort);
+        if (signal.aborted) controller.abort();
+      } else if (signal.aborted) {
+        controller.abort();
+      }
+      return controller.signal;
+    })()
+    : signal;
+  const clearBudget = () => {
+    if (budgetTimer) clearTimeout(budgetTimer);
+    if (detachCallerSignal) {
+      try {
+        detachCallerSignal();
+      } catch (error) {}
+      detachCallerSignal = null;
+    }
+  };
+  // 超时/中止的统一抛出点：把「为什么停」翻译成调用方能分辨的错误。
+  const throwIfStopped = () => {
+    if (timedOut) {
+      throw createTurnTimeoutError({
+        model: currentModel,
+        round: currentRound,
+        elapsedMs: Date.now() - turnStartedAt,
+      });
+    }
+    if (effectiveSignal && effectiveSignal.aborted) throw createAbortError();
+  };
+  emitTurnEvent('turn-start', { round: 0, model: currentModel || undefined });
+
   // requestOptions 只承载配置守卫等透传项，不允许夹带 tools/toolChoice。
   const {
     tools: _ignoredTools,
@@ -173,13 +274,13 @@ export async function runAgentTurn(messages, options = {}) {
   }));
   machine.start();
 
-  if (signal && signal.aborted) throw createAbortError();
+  if (effectiveSignal && effectiveSignal.aborted) throwIfStopped();
 
   if (!tools.length) {
     machine.startModelRequest();
     const result = await streamChatCompletion(history, {
       ...requestOptions,
-      signal,
+      signal: effectiveSignal,
       onChunk: text => safeCallback(onToken, text),
       onReasoning: text => safeCallback(onReasoning, text),
       ...(onModelFallback ? { onModelFallback } : {}),
@@ -188,6 +289,8 @@ export async function runAgentTurn(messages, options = {}) {
     machine.receiveModelResponse(text);
     machine.complete(text);
     if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, model: result.model, ...result.usage });
+    clearBudget();
+    emitTurnEvent('turn-done', { round: 1, model: (result && result.model) || undefined, elapsed: Date.now() - turnStartedAt });
     return text;
   }
 
@@ -203,7 +306,7 @@ export async function runAgentTurn(messages, options = {}) {
   // 跨轮累积：streamChatCompletion 每轮回传该轮全量，这里叠加后再上抛 UI。
   const streamRound = roundTools => streamChatCompletion(history, {
     ...requestOptions,
-    signal,
+    signal: effectiveSignal,
     ...(roundTools && roundTools.length ? { tools: roundTools, toolChoice: 'auto' } : {}),
     onChunk: text => safeCallback(onToken, streamedText + text),
     onReasoning: text => safeCallback(onReasoning, streamedReasoning + text),
@@ -220,7 +323,8 @@ export async function runAgentTurn(messages, options = {}) {
   try {
     while (round < maxRounds) {
       round += 1;
-      if (signal && signal.aborted) throw createAbortError();
+      currentRound = round;
+      if (effectiveSignal && effectiveSignal.aborted) throwIfStopped();
       // I1：Steering——每轮模型请求前取出用户中途补充的指令，以 system 小段注入。
       // 不中断当前工具链（工具调用的配对结构完整），只是让模型下一轮决策纳入新目标。
       if (steering) {
@@ -249,6 +353,9 @@ export async function runAgentTurn(messages, options = {}) {
       machine.receiveModelResponse(roundText);
       streamedText += roundText;
       streamedReasoning += typeof result.reasoning === 'string' ? result.reasoning : '';
+      // P0-D：记下本轮实际产出内容的模型（降级后可能与主模型不同）——超时错误要能说出
+      // 「卡在哪个模型」，那是用户换模型重试的直接依据。
+      if (result && result.model) currentModel = String(result.model);
       // E1：usage 上抛（端点在每轮 SSE 尾部返回时才有）——回调抛错不影响主流程。
       if (result && result.usage && onUsage) safeCallback(onUsage, { round, model: result.model, ...result.usage });
       history.push(toAssistantMessage(result));
@@ -256,6 +363,8 @@ export async function runAgentTurn(messages, options = {}) {
       if (!toolCalls.length) {
         machine.complete(streamedText);
         emitTranscript();
+        clearBudget();
+        emitTurnEvent('turn-done', { round, model: currentModel || undefined, elapsed: Date.now() - turnStartedAt });
         return streamedText;
       }
       machine.scheduleTools(toolCalls);
@@ -266,13 +375,16 @@ export async function runAgentTurn(messages, options = {}) {
       let planUpdatedThisRound = false;
       const signaturesThisRound = new Set();
       for (const call of toolCalls) {
-        if (signal && signal.aborted) throw createAbortError();
+        if (effectiveSignal && effectiveSignal.aborted) throwIfStopped();
         const signature = toolCallSignature(call);
         if (lastRoundSignatures.has(signature) || signaturesThisRound.has(signature)) {
           hasRepeatedCall = true;
         }
         signaturesThisRound.add(signature);
         const toolRound = round;
+        // P0-D：工具打点（info 级）——「卡在哪个工具」是排查的第一步。
+        const toolStartedAt = Date.now();
+        emitTurnEvent('turn-tool', { round: toolRound, tool: call.name });
         // A3 二期：start 事件带解析后的参数（订阅方按需读——计划进度条读 update_plan）。
         safeCallback(onToolEvent, {
           phase: 'start',
@@ -283,7 +395,7 @@ export async function runAgentTurn(messages, options = {}) {
         let outcome;
         try {
           outcome = await runTool(call, {
-            signal,
+            signal: effectiveSignal,
             mode,
             allowChatTools,
             characterId: context.characterId,
@@ -298,9 +410,15 @@ export async function runAgentTurn(messages, options = {}) {
             ...(onToolResult ? { onToolResult } : {}),
           });
         } catch (error) {
-          if (isCanceledError(error) || (signal && signal.aborted)) throw createAbortError();
+          if (isCanceledError(error) || (effectiveSignal && effectiveSignal.aborted)) throwIfStopped();
           outcome = { content: (error && error.message) || '工具执行失败。', isError: true };
         }
+        // 工具耗时进打点：某工具一直不返回时，这条是唯一能指出它的记录。
+        emitTurnEvent('turn-tool', {
+          round: toolRound,
+          tool: call.name,
+          elapsed: Date.now() - toolStartedAt,
+        });
         const ok = !(outcome && outcome.isError === true);
         // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
         if (call.name === PLAN_TOOL_NAME && ok) {
@@ -382,11 +500,26 @@ export async function runAgentTurn(messages, options = {}) {
     streamedText += finalText;
     machine.complete(streamedText);
     emitTranscript();
+    clearBudget();
+    emitTurnEvent('turn-done', { round, model: currentModel || undefined, elapsed: Date.now() - turnStartedAt });
     return streamedText;
   } catch (error) {
     // 中止（或任何抛出）之前已经发生的工具调用与结果都是事实，必须回抛给宿主持久化。
     // emitTranscript 自身不抛（safeCallback 包着），不会把原错误盖掉。
     emitTranscript();
+    // P0-D：把「这轮怎么结束的」写进打点——超时与中止都带耗时，日志里能直接看出卡了多久。
+    if (error && error.timedOut === true) {
+      emitTurnEvent('turn-timeout', {
+        round: currentRound,
+        model: currentModel || undefined,
+        elapsed: Date.now() - turnStartedAt,
+        error,
+      });
+    }
     throw error;
+  } finally {
+    // 无论如何都要清掉回合预算计时器：留着会让一个已结束的回合在 180s 后
+    // abort 一个复用的 signal（若调用方把同一 signal 用于后续回合，会莫名中止）。
+    clearBudget();
   }
 }

@@ -71,8 +71,15 @@ test('overlay.js 暴露全部桥方法且惰性读取原生模块', () => {
 test('ScreenWatchScreen 接线：桥方法、能力解析、多帧生成与回写小窗', () => {
   assert.ok(screenSrc.includes("from './overlay.js'"), '应导入 overlay 桥');
   assert.ok(screenSrc.includes('resolveScreenWatchCapabilities'), '应解析视频/识图能力');
-  assert.ok(screenSrc.includes('addRequestCaptureListener'), '应订阅小窗截屏请求');
-  assert.ok(screenSrc.includes('addCaptureListener'), '应订阅原生截屏结果');
+  // ⚠️ FEAT-AC7 P0-A 有意**移动**了这条订阅：addRequestCaptureListener 从本页
+  // 上移到 app 级（overlayEventBridge.js）。理由不是让测试变绿，而是原位置本身是 bug：
+  // 挂在本页 useEffect 里 ⇒ 用户在工作区页/其它页面/app 退后台时监听器根本不存在，
+  // 原生「截屏」按钮发来的请求无人接（静默丢弃）。
+  // 本页现在改为**注入实现**（setOverlayCaptureHandler），订阅归 app 级。
+  assert.ok(screenSrc.includes('setOverlayCaptureHandler'), '应把截屏处理实现注入 app 级桥');
+  assert.equal(/addRequestCaptureListener/.test(screenSrc), false,
+    '本页不得再自己订阅截屏请求（已上移 app 级；重复订阅会让一个事件两个处理者）');
+  assert.ok(screenSrc.includes('addCaptureListener'), '应订阅原生截屏结果（本页自己 await 的一帧）');
   assert.ok(screenSrc.includes('updateOverlayText'), '应回写小窗文案');
   assert.ok(screenSrc.includes('markMediaWrite'), '截图应登记媒体保护');
   assert.ok(/imageUris/.test(screenSrc), '视频能力应走多帧 imageUris');

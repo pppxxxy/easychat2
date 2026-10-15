@@ -43,6 +43,15 @@ export const workspaceWatch = {
   'workspace.watch.deleteThread.body': 'Delete the watch conversation with “{name}”? Captured files are kept.',
   'workspace.watch.entryImage': '(with screenshot)',
   'workspace.watch.noEntries': 'This conversation has no content yet.',
+  // FEAT-AC7: turn endings and the overlay busy indicator.
+  // "Stopped" and "timed out" must stay distinct: the first is the user's intent
+  // (they pressed stop), the second is a failure — merging them misleads the user.
+  'screenWatch.overlay.turnBusy': 'Working…',
+  'screenWatch.overlay.turnStopped': 'Stopped.',
+  'screenWatch.overlay.turnTimeout': 'No response before the time limit ({seconds}s). Try a faster model, or split the task into smaller steps.',
+  // Honest fallback when the page is not mounted (app-level listener, no more silent drops).
+  'screenWatch.overlay.chatNeedsPage': '(Chat mode needs the Screen peek page open: open Extension → Screen peek, then send again)',
+  'screenWatch.overlay.captureNeedsPage': '(Capturing needs the Screen peek page open)',
 };
 
 export default workspaceWatch;

@@ -71,6 +71,46 @@ export function buildScreenWatchTurnEntries({ userText, replyText, imageUri, at 
   return entries;
 }
 
+// FEAT-AC7 P0-C：**四种收尾都落库**（成功 / 失败 / 中止 / 超时）。
+//
+// 为什么这是必须的（用户截图 #288）：此前只有**成功**路径落库，中止路径直接
+// `return { ok:false, error:'' }` 什么都不写 ⇒ 线程被创建出来却 0 条目，
+// 面板显示「（暂无内容）/ 这场对话还没有内容」。用户看到的是「我的消息也没了」——
+// 那是比失败更糟的观感：连自己说过什么都不记得。
+//
+// 纪律：用户说过的话**永远**先落（它是事实），结论文案按收尾类型给明确的一句话。
+// 写盘失败不挡主流程（与既有纪律一致）。
+async function persistTurnEntries({ thread, appendEntry, userText, conclusionText, imageUri }) {
+  if (!thread || typeof appendEntry !== 'function') return;
+  const entries = buildScreenWatchTurnEntries({
+    userText,
+    replyText: conclusionText,
+    imageUri,
+  });
+  for (const entry of entries) {
+    try {
+      await appendEntry(thread.id, entry);
+    } catch (error) {}
+  }
+}
+
+// 收尾类型的判据（纯函数，可直测）：中止 > 超时 > 其它失败。
+// 中止与超时必须分开：前者是用户的意图（「已停止」），后者是故障（「超时未响应」）。
+export function classifyTurnEnding({ error = null, timedOut = false } = {}) {
+  if (error && error.canceled === true) return 'aborted';
+  if (error && error.name === 'AbortError') return 'aborted';
+  if (timedOut === true || (error && error.timedOut === true)) return 'timeout';
+  return 'failed';
+}
+
+// 收尾文案（i18n key + 参数）。纯映射，测试可直接断言「哪种收尾说哪句话」。
+export function turnEndingTextKey(ending) {
+  if (ending === 'aborted') return 'screenWatch.overlay.turnStopped';
+  if (ending === 'timeout') return 'screenWatch.overlay.turnTimeout';
+  return 'screenWatch.comments.failed';
+}
+
+
 // IO 编排：跑一轮工作区看屏幕会话。
 // 返回 { ok, text, steps, error }——**不抛**（调用方是 UI 回调，抛错只会变成未捕获拒绝）。
 // 依赖注入：runAgent（runHeadlessAgent）/ confirm（工具确认）/ readFrame（本地路径 → data URI）
@@ -128,30 +168,33 @@ export async function runWorkspaceWatchTurn({
       onToolEvent,
     });
     const text = String((result && result.text) || '').trim();
-    if (!text) return { ok: false, text: '', steps: (result && result.steps) || [], error: t('error.comments.noReply') };
+    if (!text) {
+      // 模型没给正文（占位/空回复）：也算一种收尾——照样落库，不让线程空着。
+      const emptyConclusion = t('error.comments.noReply');
+      await persistTurnEntries({
+        thread, appendEntry, userText: said, conclusionText: emptyConclusion, imageUri: uris[0] || '',
+      });
+      return { ok: false, text: '', steps: (result && result.steps) || [], error: emptyConclusion };
+    }
 
     // 线程落库：写失败不挡本轮结果（与聊天侧同款纪律）。
-    if (thread && typeof appendEntry === 'function') {
-      const entries = buildScreenWatchTurnEntries({
-        userText: said,
-        replyText: text,
-        imageUri: uris[0] || '',
-      });
-      for (const entry of entries) {
-        try {
-          await appendEntry(thread.id, entry);
-        } catch (error) {}
-      }
-    }
+    await persistTurnEntries({
+      thread, appendEntry, userText: said, conclusionText: text, imageUri: uris[0] || '',
+    });
     return { ok: true, text, steps: (result && result.steps) || [], error: '' };
   } catch (caught) {
-    if (signal && signal.aborted) return { ok: false, text: '', steps: [], error: '' };
+    // FEAT-AC7 P0-C：**中止 / 超时 / 失败三种收尾也要落库**（用户消息 + 结论文案）。
+    // 中止曾在此处直接 return 且什么都不写 ⇒ 线程 0 条目（截图 #288）。
+    const ending = classifyTurnEnding({ error: caught, timedOut: !!(caught && caught.timedOut) });
     const detail = String((caught && caught.message) || '').trim();
-    return {
-      ok: false,
-      text: '',
-      steps: [],
-      error: detail ? `${t('screenWatch.comments.failed')}\n${detail}` : t('screenWatch.comments.failed'),
-    };
+    const conclusion = ending === 'failed' && detail
+      ? `${t(turnEndingTextKey(ending))}\n${detail}`
+      : t(turnEndingTextKey(ending));
+    await persistTurnEntries({
+      thread, appendEntry, userText: said, conclusionText: conclusion, imageUri: uris[0] || '',
+    });
+    // 中止不是失败：不给用户看错误（既有语义不变），但它**已经落库**了。
+    if (ending === 'aborted') return { ok: false, text: '', steps: [], error: '' };
+    return { ok: false, text: '', steps: [], error: conclusion };
   }
 }

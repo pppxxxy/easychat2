@@ -21,6 +21,7 @@ import { writeOverlayConfigSnapshot } from './src/screenWatch/overlayConfig.js';
 import { setOverlaySnapshotRefresher } from './src/workspace/toolDefs/appSettingsTools.js';
 import { setMusicToolRecorder } from './src/workspace/toolDefs/musicTools.js';
 import { pushOverlayJsState } from './src/screenWatch/pushOverlayAvatar.js';
+import OverlayEventBridge from './src/screenWatch/overlayEventBridge.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
@@ -725,7 +726,9 @@ export default function App() {
                 {startupReady ? <DownloadQueueStartup /> : null}
                 {startupReady ? <AgentTaskStartup /> : null}
                 {startupReady ? <AutoBackupStartup /> : null}
-                {startupReady ? <OverlayConfigBridge /> : null}
+                {/* OverlayEventBridge（FEAT-AC7 P0-A）：悬浮窗事件监听的 app 级常驻，
+                    与页面解耦（原先挂在看屏幕页里，页面不在栈顶就无人接）。 */}
+                {startupReady ? <><OverlayConfigBridge /><OverlayEventBridge /></> : null}
                 <StartupFlow onReady={handleStartupReady} />
               </AppProvider>
             </I18nProvider>
