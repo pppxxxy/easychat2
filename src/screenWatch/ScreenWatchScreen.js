@@ -28,6 +28,7 @@ import { maskSecrets } from '../storage/secrets.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 
 import AccessibilityCard from './AccessibilityCard.js';
+import AvatarCard from './AvatarCard.js';
 import FrameRecognitionCard from './FrameRecognitionCard.js';
 import { captureAppScreen } from './capture.js';
 import { reportCaptureFailure, reportOverlayCrashReports } from './screenWatchDiagnostics.js';
@@ -505,9 +506,10 @@ export default function ScreenWatchScreen() {
         </Card>
       )}
 
-      {/* accessibility status card + frame recognition source picker */}
+      {/* accessibility status card + frame recognition source picker + ball avatar */}
       <AccessibilityCard />
       <FrameRecognitionCard />
+      <AvatarCard />
 
       <Card style={styles.captureCard}>
         <Text style={styles.sectionTitle}>{t('screenWatch.characterLabel')}</Text>

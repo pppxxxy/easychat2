@@ -55,6 +55,7 @@ export const error = {
   'error.storage.samplingSettingsReadFailed': 'Failed to read sampling parameters. Saving was aborted so they are not reset. Please try again later.',
   'error.storage.memorySummarySettingsReadFailed': 'Failed to read memory summary settings. Saving was aborted so they are not reset. Please try again later.',
   'error.storage.imageGenSettingsReadFailed': 'Failed to read image generation settings. Saving was aborted so the configured providers are not wiped. Please try again later.',
+  'error.storage.overlayAvatarReadFailed': 'Failed to read the floating-ball avatar settings. Saving was aborted so they are not reset. Please try again later.',
   // Legacy persona migration (reading USER_PROFILE_KEY while PERSONAS_KEY is missing) and the
   // active-persona pointer: both write nothing, so the next launch can retry.
   'error.storage.personasMigrationReadFailed': 'Failed to read legacy profile data. Persona migration was aborted so the data is not lost. Please try again later.',

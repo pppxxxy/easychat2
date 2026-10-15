@@ -56,6 +56,7 @@ export const error = {
   'error.storage.samplingSettingsReadFailed': '采样参数读取失败，已中止保存以免参数被重置，请稍后重试',
   'error.storage.memorySummarySettingsReadFailed': '记忆总结设置读取失败，已中止保存以免设置被重置，请稍后重试',
   'error.storage.imageGenSettingsReadFailed': '生图配置读取失败，已中止保存以免已有服务商配置被清空，请稍后重试',
+  'error.storage.overlayAvatarReadFailed': '悬浮球头像设置读取失败，已中止保存以免设置被重置，请稍后重试',
   // legacy 迁移（PERSONAS_KEY 缺失时读 USER_PROFILE_KEY）与活动人设指针读取失败：
   // 两处都**不写盘**，留待下次重试（迁移标记不落地 / 指针保持盘上原值不动）。
   'error.storage.personasMigrationReadFailed': '旧版资料读取失败，已中止人设迁移以免资料丢失，请稍后重试',

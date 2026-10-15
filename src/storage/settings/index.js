@@ -106,3 +106,12 @@ export {
   clearWebFetchWhitelist,
   getWebFetchWhitelistCount,
 } from './webFetchWhitelist.js';
+// FEAT-AC3：悬浮球头像三模式（默认 / 自定义 / 跟随角色）。
+export {
+  OVERLAY_AVATAR_KEY,
+  OVERLAY_AVATAR_MODES,
+  DEFAULT_OVERLAY_AVATAR,
+  normalizeOverlayAvatar,
+  getOverlayAvatarSettings,
+  saveOverlayAvatarSettings,
+} from './overlayAvatar.js';

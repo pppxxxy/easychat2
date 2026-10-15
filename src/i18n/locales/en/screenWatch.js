@@ -11,6 +11,15 @@ export const screenWatch = {
   // different failure; reusing the line above misdirects debugging.
   'screenWatch.generate.failed.title': 'Reply failed',
   'screenWatch.generate.failed.body': 'The capture worked, but the reply request failed. Please retry.',
+  // FEAT-AC3: floating-ball avatar (three modes).
+  'screenWatch.avatar.title': 'Floating ball avatar',
+  'screenWatch.avatar.hint': 'Follow character = the current character avatar in chat mode, the app icon in workspace mode. A custom image is used in both modes.',
+  'screenWatch.avatar.mode.default': 'Default',
+  'screenWatch.avatar.mode.character': 'Follow character',
+  'screenWatch.avatar.mode.custom': 'Custom',
+  'screenWatch.avatar.pick': 'Choose image',
+  'screenWatch.avatar.pickFailed.title': 'Could not use that image',
+  'screenWatch.avatar.pickFailed.body': 'The image could not be read. Please try another one.',
   'screenWatch.characterLabel': 'Looking with',
   'screenWatch.limits': 'The capture only covers this app (this panel itself is in frame) and requires a vision-capable model; tap the button to verify the current model can actually read an image. For cross-app screen viewing, use the floating window above.',
   'screenWatch.empty.title': 'No screen peeks yet',

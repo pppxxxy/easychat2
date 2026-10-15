@@ -42,6 +42,54 @@ export function screenWatchDirectory(documentDirectory = null) {
   return `${base || ''}${SCREEN_WATCH_DIR_NAME}/`;
 }
 
+/**
+ * FEAT-AC3：暴露 documentDirectory 给同域模块（角色头像 uri 归一要用它）。
+ *
+ * 为什么由本文件暴露：本文件是 screen-watch 域的**文件系统封装点**
+ *（分层规则：新文件不得直接 import expo-file-system/legacy）。
+ * 同域的头像来源编排需要这个基路径，把相对头像路径补成绝对 file:// uri。
+ */
+export function screenWatchDocumentDirectory() {
+  return FileSystem.documentDirectory || '';
+}
+
+/**
+ * FEAT-AC3：把用户选的图片复制到 screen-watch 下的**专属稳定路径**，返回新 uri。
+ *
+ * 为什么不直接存相册/SAF 的原始 uri（任务书 P0-4 明确要求）：
+ * 相册项可能被删、SAF 授权可能失效，那时头像会变成「有时能显示有时不能」。
+ * 复制进应用私有目录后，源被删也不波及（先例：cardForge/media.js 的 pickForgeImage，
+ * 同一套 copyAsync 到 documentDirectory 的做法）。
+ *
+ * 命名固定为 `overlay-avatar.<ext>`：同一时间只留一张（换图即覆盖），
+ * 不留旧文件——它不像截图那样有历史价值，且固定名字让孤儿回收无需额外登记。
+ *
+ * @param {string} sourceUri 选择器返回的 uri
+ * @param {string} [extension] 扩展名（不含点）；缺省按 sourceUri 猜，猜不到用 jpg
+ * @returns {Promise<string>} 落盘后的 file:// uri（失败抛错，由调用方提示）
+ */
+export async function copyOverlayAvatarFile(sourceUri, extension = '') {
+  const from = String(sourceUri || '').trim();
+  if (!from) throw new Error('overlay-avatar-source-empty');
+  const dir = screenWatchDirectory();
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  const ext = String(extension || '').trim().replace(/^\./, '')
+    || (from.match(/\.([A-Za-z0-9]{2,5})(?:\?|#|$)/) || [])[1]
+    || 'jpg';
+  const destination = `${dir}overlay-avatar.${ext}`;
+  await FileSystem.copyAsync({ from, to: destination });
+  // 登记媒体写入：孤儿回收不误删（与截图同一保护）。
+  markMediaWrite(destination);
+  return destination;
+}
+
+/** FEAT-AC3：删除自定义头像文件（用户切回默认/跟随角色时清理）。 */
+export async function deleteOverlayAvatarFile(uri) {
+  const target = String(uri || '').trim();
+  if (!target) return;
+  await FileSystem.deleteAsync(target, { idempotent: true }).catch(() => {});
+}
+
 // FIX-SW5 P1-4：进程级崩溃现场（原生 installCrashGuard 写入 screen-watch/crash-*.txt）。
 // 读后**即删**：只报一次，否则每次打开 app 都会把同一次崩溃重复塞进诊断日志。
 //

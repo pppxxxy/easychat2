@@ -11,6 +11,15 @@ export const screenWatch = {
   //（原实现把它也报成「没能完成截屏」，把排查方向带偏）。
   'screenWatch.generate.failed.title': '生成回复失败',
   'screenWatch.generate.failed.body': '截图成功，但请求回复时出错了，请重试。',
+  // FEAT-AC3：悬浮球头像三模式。
+  'screenWatch.avatar.title': '悬浮球头像',
+  'screenWatch.avatar.hint': '跟随角色 = 聊天模式下显示当前角色头像，工作区模式下显示 App 图标；自定义头像两种模式都用你选的图。',
+  'screenWatch.avatar.mode.default': '默认',
+  'screenWatch.avatar.mode.character': '跟随角色',
+  'screenWatch.avatar.mode.custom': '自定义',
+  'screenWatch.avatar.pick': '选择图片',
+  'screenWatch.avatar.pickFailed.title': '选择图片失败',
+  'screenWatch.avatar.pickFailed.body': '没能读取这张图片，请换一张试试。',
   'screenWatch.characterLabel': '一起看屏幕的角色',
   'screenWatch.limits': '截图只包含本应用的画面（截屏时这个面板也会入镜），需要模型支持识图；点这个按钮即可验证当前模型能不能读图。跨应用看屏幕请用上方的悬浮窗。',
   'screenWatch.empty.title': '还没有一起看屏幕',

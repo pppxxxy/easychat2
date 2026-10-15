@@ -135,6 +135,10 @@ class OverlayService : Service() {
     // M3 耳朵：「说话」按钮（录音时文案切成「停止」）与在跑的录音器。
     private var talkButton: TextView? = null
     private var overlayRecorder: OverlayRecorder? = null
+    // FEAT-AC3：悬浮球头像来源（**双值**——scope 切换在原生侧发生，不等 JS）。
+    // 空串 = 回退 App 图标。
+    private var avatarChatUri = ""
+    private var avatarWorkspaceUri = ""
     // M4.1 嘴巴：系统 TTS 播报（懒创建——没有播报需求时不占资源）。
     private var overlayTts: OverlayTts? = null
     // 消息留档：收起/展开会重建视图，内容不能跟着丢（用户要求切种类、收起重开都保留上下文）。
@@ -452,7 +456,8 @@ class OverlayService : Service() {
         overlayRecorder = null
         rootView.removeAllViews()
         val size = dp(52)
-        val icon = circularAppIcon(size)
+        // FEAT-AC3：头像按当前 scope 解析（自定义/角色头像优先，取不到回退 App 图标）。
+        val icon = resolveBallDrawable(size)
         val ball = if (icon != null) {
             ImageView(this).apply {
                 setImageDrawable(icon)
@@ -485,6 +490,19 @@ class OverlayService : Service() {
     private fun circularAppIcon(size: Int): android.graphics.drawable.Drawable? {
         return try {
             val source = resolveAppIconDrawable() ?: return null
+            circularFromDrawable(source, size)
+        } catch (error: Exception) {
+            Log.w(TAG, "app icon unavailable: ${error.message}")
+            null
+        }
+    }
+
+    // 把任意 Drawable 画成 size×size 的圆形（原 circularAppIcon 的裁剪管线抽出复用）。
+    private fun circularFromDrawable(
+        source: android.graphics.drawable.Drawable,
+        size: Int,
+    ): android.graphics.drawable.Drawable? {
+        return try {
             val full = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val fullCanvas = android.graphics.Canvas(full)
             source.setBounds(0, 0, size, size)
@@ -500,9 +518,82 @@ class OverlayService : Service() {
             android.graphics.Canvas(output).drawCircle(size / 2f, size / 2f, size / 2f, paint)
             android.graphics.drawable.BitmapDrawable(resources, output)
         } catch (error: Exception) {
-            Log.w(TAG, "app icon unavailable: ${error.message}")
+            Log.w(TAG, "circular drawable failed: ${error.message}")
             null
         }
+    }
+
+    /**
+     * FEAT-AC3：从 uri 加载图片并圆裁成悬浮球头像。
+     *
+     * 加载方式照 ProactiveCore.loadAvatar 的**真机验证过的**先例
+     * （contentResolver.openInputStream + BitmapFactory），因此 file:// 与
+     * content:// 都能读。
+     *
+     * 为什么要降采样：用户可能选一张 4000×3000 的相册图，而球只有 52dp——
+     * 直接整图解码既费内存（12MP × 4B ≈ 48MB）又慢（会掉帧）。
+     * 先用 inJustDecodeBounds 读尺寸算 inSampleSize，再解码（验收第 5 条专门验它）。
+     *
+     * 失败一律返回 null（调用方回退 App 图标）：文件被删、uri 失效、解码失败都是
+     * 预期路径，**不弹错不崩**（验收第 6 条）。
+     */
+    private fun circularAvatarFromUri(uri: String, size: Int): android.graphics.drawable.Drawable? {
+        if (uri.isBlank()) return null
+        return try {
+            val parsed = android.net.Uri.parse(uri)
+            // 第一趟：只读尺寸（inJustDecodeBounds = true 时不解码像素）
+            val bounds = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            contentResolver.openInputStream(parsed)?.use { input ->
+                android.graphics.BitmapFactory.decodeStream(input, null, bounds)
+            } ?: return null
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            // 第二趟：按目标边长算 2 的幂采样率（BitmapFactory 只认 2 的幂）
+            val options = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, size)
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val bitmap = contentResolver.openInputStream(parsed)?.use { input ->
+                android.graphics.BitmapFactory.decodeStream(input, null, options)
+            } ?: return null
+            val drawable = android.graphics.drawable.BitmapDrawable(resources, bitmap)
+            circularFromDrawable(drawable, size)
+        } catch (error: Exception) {
+            Log.w(TAG, "avatar load failed: ${error.javaClass.simpleName}")
+            null
+        }
+    }
+
+    // 目标边长下的采样率：每次减半直到不超目标（只缩不放）。
+    private fun calculateInSampleSize(width: Int, height: Int, target: Int): Int {
+        var sample = 1
+        val longest = maxOf(width, height)
+        while (longest / (sample * 2) >= target) {
+            sample *= 2
+        }
+        return sample
+    }
+
+    /**
+     * FEAT-AC3：按当前 scope 取该用哪个头像 uri。
+     *
+     * 双值的理由见 ScreenOverlayModule.setOverlayAvatar：scope 切换在原生侧发生
+     *（toggleChatScope 不回调 JS），所以两个 scope 的 uri 都由 JS 预先算好推来。
+     */
+    private fun activeAvatarUri(): String {
+        return if (chatScope == SCOPE_CHAT) avatarChatUri else avatarWorkspaceUri
+    }
+
+    /** 悬浮球最终用的 Drawable：自定义/角色头像优先，取不到就回退 App 图标。 */
+    private fun resolveBallDrawable(size: Int): android.graphics.drawable.Drawable? {
+        val uri = activeAvatarUri()
+        if (uri.isNotBlank()) {
+            val fromUri = circularAvatarFromUri(uri, size)
+            // 加载失败**静默回退** App 图标（文件被删/uri 失效是预期路径，不弹错）。
+            if (fromUri != null) return fromUri
+        }
+        return circularAppIcon(size)
     }
 
     private fun showExpanded() {
@@ -612,6 +703,51 @@ class OverlayService : Service() {
         chatScope = if (chatScope == SCOPE_WORKSPACE) SCOPE_CHAT else SCOPE_WORKSPACE
         scopeButton?.text = scopeLabel()
         // 切换只改 scope、不清消息（用户要求：切种类不该丢上下文）。
+        // FEAT-AC3：跟随角色模式下头像随 scope 变（聊天=角色头像，工作区=App 图标）。
+        // 这里**不等 JS**——双值早就推来了，本地重绘即可（切换是原生侧动作）。
+        refreshBallAvatar()
+    }
+
+    /**
+     * FEAT-AC3：设置双值头像来源（由 JS 的 setOverlayAvatar 推来）。
+     *
+     * 返回 true = 已应用到当前球；false = 服务视图不在（收起态重建时会读到新值，
+     * 所以不算失败——只有真的什么都没有时才 false）。
+     */
+    fun setAvatarUris(chatUri: String?, workspaceUri: String?): Boolean {
+        mainHandler.post {
+            avatarChatUri = (chatUri ?: "").trim()
+            avatarWorkspaceUri = (workspaceUri ?: "").trim()
+            refreshBallAvatar()
+        }
+        return true
+    }
+
+    /**
+     * FEAT-AC3：重绘收起态悬浮球的头像（按当前 scope）。
+     *
+     * 只在**收起态**有意义（展开态没有球）；展开着的时候什么都不做——
+     * 下次 showCollapsed() 会按新 uri 重建。
+     */
+    private fun refreshBallAvatar() {
+        mainHandler.post {
+            if (expanded) return@post
+            try {
+                if (!::rootView.isInitialized) return@post
+                val size = dp(52)
+                val ball = rootView.getChildAt(0) as? ImageView ?: return@post
+                val drawable = resolveBallDrawable(size)
+                if (drawable != null) {
+                    ball.setImageDrawable(drawable)
+                    ball.scaleType = ImageView.ScaleType.CENTER_CROP
+                } else {
+                    // 取不到任何图（App 图标也拿不到）→ 保留原图，不把球变空。
+                    // 文字球形态在 showCollapsed() 里重建，这里不折腾。
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "refresh ball avatar failed: ${error.message}")
+            }
+        }
     }
 
     // 用户在悬浮窗里发了话：交给 JS（LLM/工具/确认全在 JS 侧），原生只做嘴和眼。

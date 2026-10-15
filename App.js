@@ -20,6 +20,7 @@ import SettingsScreen from './src/SettingsScreen.js';
 import { writeOverlayConfigSnapshot } from './src/screenWatch/overlayConfig.js';
 import { setOverlaySnapshotRefresher } from './src/workspace/toolDefs/appSettingsTools.js';
 import { setMusicToolRecorder } from './src/workspace/toolDefs/musicTools.js';
+import { pushOverlayJsState } from './src/screenWatch/pushOverlayAvatar.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
@@ -548,7 +549,9 @@ function OverlayConfigBridge() {
   characterRef.current = character;
   useEffect(() => {
     if (!loaded) return undefined;
-    const push = () => { writeOverlayConfigSnapshot({ character: characterRef.current }).catch(() => {}); };
+    // FEAT-AC3：配置快照 + 悬浮球头像一次推全（编排在 pushOverlayJsState 里，
+    // 因为 App.js 是装配根、贴着 800 行棘轮）。
+    const push = () => { pushOverlayJsState({ character: characterRef.current }).catch(() => {}); };
     push();
     let previous = AppState.currentState;
     const subscription = AppState.addEventListener('change', next => {
@@ -559,25 +562,15 @@ function OverlayConfigBridge() {
     return () => subscription.remove();
   }, [loaded, characters, activeId]);
 
-  // FEAT-AC1 P0-3 第 2 条：把「刷快照」注册给设置工具（agent 改设置后立刻刷）。
+  // FEAT-AC1 P0-3 / FEAT-AC2 P1-3：把两个「工具 → 宿主」的注入点接上。
   //
-  // 为什么必须注册：agent 改 tts.autoBroadcast 后若不刷快照，就会出现
-  // 「设置里开了、悬浮窗 TTS 不响」的脱节——快照是原生大脑读 TTS 开关的唯一来源。
-  // 用**注入**而不是让工具直接 import overlayConfig：那条静态链会拖进 RN/expo，
-  // 纯 Node 单测就崩了（与工具文件里 storage 域惰性加载同一原因）。
-  // 依赖数组只有 [loaded]：注册一次即可（闭包读 characterRef），
-  // 不必随角色切换反复注册/注销。
+  // 为什么必须接：agent 改 tts.autoBroadcast 后不刷快照，就会出现「设置里开了、
+  // 悬浮窗 TTS 不响」的脱节；音乐工具不打点则事后无法定位。两处都用**注入**而不是
+  // 让工具直接 import（诊断/overlayConfig 都依赖 RN/expo，静态引用会把纯 Node 单测拖崩）。
+  // 依赖数组 [loaded]：注册一次即可（闭包读 characterRef），不必随角色切换反复注册。
   useEffect(() => {
     if (!loaded) return undefined;
     setOverlaySnapshotRefresher(() => writeOverlayConfigSnapshot({ character: characterRef.current }));
-    return () => setOverlaySnapshotRefresher(null);
-  }, [loaded]);
-
-  // FEAT-AC2 P1-3：音乐工具的诊断留痕（action + 目标名，**不含路径不含密钥**）。
-  //
-  // 与上一条同款注入理由：诊断模块依赖 AsyncStorage，工具文件里不能静态引用
-  //（否则读工具定义这一步就把纯 Node 单测拖崩）。这里注册真实实现。
-  useEffect(() => {
     setMusicToolRecorder({
       noteMusicTool(action, target) {
         recordDiagnostic(
@@ -587,8 +580,11 @@ function OverlayConfigBridge() {
         );
       },
     });
-    return () => setMusicToolRecorder(null);
-  }, []);
+    return () => {
+      setOverlaySnapshotRefresher(null);
+      setMusicToolRecorder(null);
+    };
+  }, [loaded]);
   return null;
 }
 

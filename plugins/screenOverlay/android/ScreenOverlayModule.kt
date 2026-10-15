@@ -19,6 +19,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
@@ -253,6 +254,30 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("ERR_OVERLAY_NAME", e.message, e)
+        }
+    }
+
+    /**
+     * FEAT-AC3：推送悬浮球头像来源（JS → 原生）。
+     *
+     * **为什么是双值**（本任务唯一的新设计点）：scope 切换（聊天 ⇄ 工作区）发生在
+     * **原生侧**（OverlayService.toggleChatScope，已核实它不回调 JS），所以 JS 一次性
+     * 把两个 scope 各自的头像都算好推过来，原生按当前 scope 自选。
+     * 这样不必新开「原生 → JS 反向询问」这条本来不存在的通道。
+     *
+     * 空串 = 「回退 App 图标」（原生侧不做任何解析，只管取值）。
+     * setOverlayAvatar 与 setCharacterName 同理：服务不在时 resolve(false) 而不是
+     * reject——悬浮窗没开时推头像不是错误（下次 startOverlay 会带上）。
+     */
+    @ReactMethod
+    fun setOverlayAvatar(payload: ReadableMap?, promise: Promise) {
+        try {
+            val chat = payload?.getString("chatAvatarUri") ?: ""
+            val workspace = payload?.getString("workspaceAvatarUri") ?: ""
+            val applied = OverlayService.instance?.setAvatarUris(chat, workspace) ?: false
+            promise.resolve(applied)
+        } catch (e: Exception) {
+            promise.reject("ERR_OVERLAY_AVATAR", e.message, e)
         }
     }
 

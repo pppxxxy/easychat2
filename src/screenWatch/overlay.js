@@ -184,6 +184,29 @@ export async function setOverlayCharacterName(name) {
   }
 }
 
+/**
+ * FEAT-AC3：推送悬浮球头像来源（双值）。
+ *
+ * payload 由 resolveOverlayAvatarSource 算出（纯函数，Node 可直测）：
+ *   { chatAvatarUri, workspaceAvatarUri }，空串 = 回退 App 图标。
+ *
+ * 老构建没有 setOverlayAvatar 时静默返回 false——悬浮球仍显示 App 图标（= 默认档），
+ * 与不支持该功能的构建行为一致（降级纪律同 pushOverlayChatMessage）。
+ */
+export async function setOverlayAvatar(payload) {
+  const module = nativeModule();
+  if (!module || typeof module.setOverlayAvatar !== 'function') return false;
+  const safe = payload && typeof payload === 'object' ? payload : {};
+  try {
+    return !!(await module.setOverlayAvatar({
+      chatAvatarUri: String(safe.chatAvatarUri || ''),
+      workspaceAvatarUri: String(safe.workspaceAvatarUri || ''),
+    }));
+  } catch (error) {
+    return false;
+  }
+}
+
 // SW3：把一条消息推给悬浮窗渲染（原生只做嘴和眼，LLM/工具/确认都在 JS 侧）。
 // payload 由 buildChatPushPayload 归一（role + text + 可选 confirm 题卡）。
 // 老构建没有这个方法时静默返回 false——悬浮窗仍可用（只是不显示这条回复）。
