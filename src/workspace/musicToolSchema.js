@@ -8,6 +8,10 @@
 // 不必真机点。若混进脏层，这条规则就只能靠 review 守。
 
 import { MUSIC_PLAY_MODES, MUSIC_RATES } from '../music/playerSettingsPure.js';
+import { describeValue } from './schemaValue.js';
+
+// 与 AC1 的 describeValue 共用同一实现（口径统一，避免三处漂移）。
+export const describeMusicValue = describeValue;
 
 /**
  * control_music 的动作白名单（**唯一事实源**）。
@@ -82,16 +86,6 @@ export function validateMusicAction(action, args = {}) {
     }
   }
   return null;
-}
-
-/** 把任意值渲染成可读短串（错误消息里用，与 AC1 的 describeValue 同口径）。 */
-export function describeMusicValue(value) {
-  if (typeof value === 'string') return `「${value}」`;
-  if (value === null) return 'null';
-  if (value === undefined) return '（未给）';
-  if (Array.isArray(value)) return '数组';
-  if (typeof value === 'object') return '对象';
-  return String(value);
 }
 
 /** 动作的可读名（结果文本里用）。 */

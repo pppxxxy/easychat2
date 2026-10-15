@@ -287,6 +287,30 @@ test('registerTool 归一化 requiresConfirmation（缺省 false，既有工具�
   assert.equal(registerTool({ name: 'g2', parameters: {}, requiresConfirmation: 'yes', execute: async () => '' }).requiresConfirmation, false);
 });
 
+test('registerTool 归一化 requiresConfirmation 的函数形态（按 args 分级）', async () => {
+  const policy = args => args && args.action === 'play';
+  const tool = registerTool({ name: 'graded', parameters: {}, requiresConfirmation: policy, execute: async () => 'ran' });
+  assert.equal(tool.requiresConfirmation, policy, '函数原样保留（不能被折叠成 true/false）');
+
+  // 求值为 false 的动作：不弹确认、直接执行
+  let asked = 0;
+  const silent = await runTool(
+    { name: 'graded', arguments: '{"action":"pause"}' },
+    { mode: AGENT_MODES.WRITE, confirm: async () => { asked += 1; return true; } },
+  );
+  assert.equal(silent.isError, false);
+  assert.equal(asked, 0, '函数判 false 的动作不该弹确认');
+
+  // 求值为 true 的动作：必须弹确认，拒绝则不执行
+  const gated = await runTool(
+    { name: 'graded', arguments: '{"action":"play"}' },
+    { mode: AGENT_MODES.WRITE, confirm: async () => { asked += 1; return false; } },
+  );
+  assert.equal(asked, 1, '函数判 true 的动作必须弹确认');
+  assert.equal(gated.isError, true);
+  assert.match(gated.content, /拒绝/);
+});
+
 test('拒绝时返回错误结果，且 execute 绝不被调用', async () => {
   let executed = 0;
   registerTool({

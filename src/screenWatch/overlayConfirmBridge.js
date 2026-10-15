@@ -91,14 +91,21 @@ export function createOverlayConfirmHandler({ summarize = null } = {}) {
       return;
     }
     const id = `oc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const summary = renderOverlayConfirmSummary({ name, args: call && call.args, render: summarize });
+    // 兜底文案走 i18n（纯逻辑层不许硬编码中文）——渲染摘要与空摘要两条路都用它。
+    const fallbackSummary = tActive('screenWatch.overlay.confirm.fallback');
+    const summary = renderOverlayConfirmSummary({
+      name,
+      args: call && call.args,
+      render: summarize,
+      fallback: fallbackSummary,
+    });
     const registered = ensureRegistry().register(
       {
         id,
         summary,
         timeoutMs: OVERLAY_CONFIRM_TIMEOUT_MS,
         // 兜底文案走 i18n（纯逻辑层不许硬编码中文——见 normalizeOverlayConfirmRequest）。
-        fallbackSummary: tActive('screenWatch.overlay.confirm.fallback'),
+        fallbackSummary,
       },
       result => resolve(result.approved === true)
     );

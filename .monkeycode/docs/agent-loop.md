@@ -126,7 +126,7 @@ registerTool({
 
 | 项 | 契约 |
 |----|------|
-| `runTool(call, ctx)` | `tool.requiresConfirmation` 为真时，**在超时竞速之外** `await ctx.confirm({ name, args })` |
+| `runTool(call, ctx)` | `tool.requiresConfirmation` 求值为真时（布尔为真，或**函数**对 `args` 返回 `true`——用于 `control_music` 这类按参数分级确认的工具），**在超时竞速之外** `await ctx.confirm({ name, args })` |
 | 返回值 | 假值 → `toErrorResult('用户拒绝了此操作（未执行）')`，**绝不执行**；真值 → 继续正常执行 |
 | `ctx.confirm` 缺失 | **按拒绝处理**（不是放行）：漏接钩子的循环只会「跑不了」 |
 | `ctx.confirm` 抛错 | 按中止处理（`AbortError`）；`signal.aborted` → 抛 `AbortError`（审批本身也参与中止竞速，避免弹框开着时循环卡住） |

@@ -744,8 +744,8 @@ data: [DONE]
 
 | 项 | 契约 |
 |----|------|
-| `registerTool({ requiresConfirmation })` | 布尔，缺省 `false`（既有工具零变化） |
-| `runTool(call, ctx)` | 若 `tool.requiresConfirmation`：**在超时竞速之外** `await ctx.confirm({ name, args })`；返回假值 → `toErrorResult('用户拒绝了此操作（未执行）')`，**绝不执行** |
+| `registerTool({ requiresConfirmation })` | `true` 或**函数** `(args) => boolean`，缺省 `false`（既有工具零变化）。函数形态用于「同一工具按参数分级」（FEAT-AC2 `control_music`：`play`/`resume` 要确认、`pause`/`next` 不弹）；`tools.js` 聚合层原样透传函数 |
+| `runTool(call, ctx)` | 若 `requiresConfirmation` 求值为真（布尔为真，或函数对 `args` 返回 `true`）：**在超时竞速之外** `await ctx.confirm({ name, args })`；返回假值 → `toErrorResult('用户拒绝了此操作（未执行）')`，**绝不执行** |
 | `ctx.confirm` 缺失 | **按拒绝处理**（`工具需要用户确认，但当前环境无法询问用户（未执行）`）——漏接钩子只会「跑不了」，不会「不用问就跑」 |
 | `ctx.confirm` 抛错 | 按中止处理（`AbortError`），绝不默认放行 |
 | `signal` 中止 | 审批本身参与中止竞速：抛 `AbortError`（否则弹框开着时循环会卡在永远等不到的 Promise 上） |

@@ -20,7 +20,6 @@ import {
   MUSIC_ACTION_NAMES,
   actionNeedsConfirm,
   formatMusicDuration,
-  renderMusicConfirmText,
   renderPlaylistList,
   renderTrackList,
   validateMusicAction,
@@ -186,11 +185,12 @@ const CONTROL_MUSIC_TOOL = {
     + '曲库为空时如实说明并指路导入，不要假装修放。',
   // 写工具：只在「可改」模式出现（canRunTool 按 readOnly 过滤）。
   readOnly: false,
-  // ⚠️ requiresConfirmation 这里**不能**一律设 true：确认分级是产品裁决
-  //（只有 play/resume 弹），而 registry 的 requiresConfirmation 是**整工具**级的。
-  // 所以本工具不声明它，改由宿主侧的审批钩子按 action 分级——
-  // 那份判定的**唯一事实源**是 musicToolSchema 的 MUSIC_ACTIONS.needsConfirm，
-  // 由 buildMusicApproval 暴露给宿主（见文件末尾）。
+  // ⚠️ 这里**不能**声明整工具级 `true`：确认分级是产品裁决（只有 play/resume 弹），
+  // 而整工具级布尔会把 pause/next 也变成要确认。改用**函数式** requiresConfirmation
+  //（注册表对同一工具按 args 分级，见 registry 的 normalizeRequiresConfirmation）——
+  // 判定的事实源是 musicToolSchema 的 MUSIC_ACTIONS.needsConfirm（actionNeedsConfirm）。
+  // 非法 action 求值为 false（不打扰用户），真正的拒绝在 execute 的 validateMusicAction。
+  requiresConfirmation: args => actionNeedsConfirm(String((args && args.action) || '').trim()),
   parameters: {
     type: 'object',
     properties: {
@@ -319,32 +319,11 @@ export const MUSIC_WRITE_DEFINITIONS = Object.freeze(
   MUSIC_TOOL_DEFINITIONS.filter(item => item.readOnly !== true)
 );
 
-/**
- * FEAT-AC2 确认分级的**宿主接口**。
- *
- * 为什么需要它：registry 的 `requiresConfirmation` 是整工具级的布尔，而产品裁决是
- * 「同一工具里 play/resume 要弹、pause/next 不弹」。所以 control_music **不声明**
- * requiresConfirmation，改由宿主的审批钩子调用本函数按 action 分级。
- *
- * 返回：
- *   { kind: 'skip' }                  —— 不需要确认，直接执行
- *   { kind: 'confirm', text }         —— 需要确认，text 是给用户看的问句
- *   { kind: 'reject', text }          —— 动作非法，直接拒绝（不打扰用户）
- *
- * ⚠️ skip 只在「动作合法且不需要确认」时返回。非法动作走 reject——
- * 不能因为「不需要确认」就把非法动作放行（那会让校验被绕过）。
- */
-export function buildMusicApproval({ action, args, trackName, playlistName, count } = {}) {
-  const name = String(action || '').trim();
-  if (validateMusicAction(name, args || {})) {
-    return { kind: 'skip' };   // 非法动作交给工具自己拒（那里有完整原因文案）
-  }
-  if (!actionNeedsConfirm(name)) return { kind: 'skip' };
-  return {
-    kind: 'confirm',
-    text: renderMusicConfirmText({ action: name, trackName, playlistName, count }),
-  };
-}
+// 确认分级**不在本文件另设「宿主接口」**：control_music 的 requiresConfirmation 直接
+// 用函数式（见工具定义），注册表按 args 求值。这样分级的事实源只有一处
+//（musicToolSchema.MUSIC_ACTIONS.needsConfirm / actionNeedsConfirm），
+// 不需要宿主再导入一个 buildMusicApproval 去二次判断（那正是「接口建好却没接线」的旧形态）。
+// 给用户看的确认问句由确认卡的 summarize 渲染（renderMusicConfirmText）。
 
 /** 测试可见：供单测断言「每个动作都有实现」。 */
 export const __musicToolNames = MUSIC_ACTION_NAMES;

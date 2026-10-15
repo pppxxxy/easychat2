@@ -17,10 +17,8 @@ import CharacterStack from './src/character/CharacterStack.js';
 import MemoryScreen from './src/MemoryScreen.js';
 import ExtensionScreen from './src/ExtensionScreen.js';
 import SettingsScreen from './src/SettingsScreen.js';
-import { writeOverlayConfigSnapshot } from './src/screenWatch/overlayConfig.js';
-import { setOverlaySnapshotRefresher } from './src/workspace/toolDefs/appSettingsTools.js';
-import { setMusicToolRecorder } from './src/workspace/toolDefs/musicTools.js';
 import { pushOverlayJsState } from './src/screenWatch/pushOverlayAvatar.js';
+import { installWorkspaceRecorders } from './src/startup/workspaceRecorders.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
 import {
@@ -562,31 +560,13 @@ function OverlayConfigBridge() {
     return () => subscription.remove();
   }, [loaded, characters, activeId]);
 
-  // FEAT-AC1 P0-3 / FEAT-AC2 P1-3：把两个「工具 → 宿主」的注入点接上。
-  //
-  // 为什么必须接：agent 改 tts.autoBroadcast 后不刷快照，就会出现「设置里开了、
-  // 悬浮窗 TTS 不响」的脱节；音乐工具不打点则事后无法定位。两处都用**注入**而不是
-  // 让工具直接 import（诊断/overlayConfig 都依赖 RN/expo，静态引用会把纯 Node 单测拖崩）。
-  // 依赖数组 [loaded]：注册一次即可（闭包读 characterRef），不必随角色切换反复注册。
+  // FEAT-AC1 P0-3 / FEAT-AC2 P1-3 / FEAT-AC4：把「工具 → 宿主」的四个注入点接上
+  //（快照刷新 + 设置/音乐/提醒三处留痕）。实现外提到 src/startup/workspaceRecorders.js
+  //（App.js 贴着 800 行棘轮，装配根只管调用与卸载）。
+  // 依赖数组 [loaded]：注册一次即可（取值器闭包读 characterRef），不必随角色切换反复注册。
   useEffect(() => {
     if (!loaded) return undefined;
-    setOverlaySnapshotRefresher(() => writeOverlayConfigSnapshot({ character: characterRef.current }));
-    setMusicToolRecorder({
-      noteMusicTool(action, target) {
-        // FEAT-AC5 P0-C：例行打点改传 { message }（无堆栈）。
-        // 音乐工具的每次调用是**成功留痕**，不是错误——原先 new Error 让它带一段
-        // 毫无信息量的堆栈，用户日志里满屏 Error 前缀（正是本轮在治的病）。
-        recordDiagnostic(
-          'log',
-          { message: `[music-tool] action=${action} target=${target || 'none'}` },
-          'music'
-        );
-      },
-    });
-    return () => {
-      setOverlaySnapshotRefresher(null);
-      setMusicToolRecorder(null);
-    };
+    return installWorkspaceRecorders(() => characterRef.current);
   }, [loaded]);
   return null;
 }

@@ -205,7 +205,10 @@ test('摘要渲染：render 抛错 → 兜底（确认卡不能因此弹不出�
 
 test('摘要渲染：无 render → 工具名 + 参数摘要；都空也有兜底名', () => {
   assert.match(renderOverlayConfirmSummary({ name: 'x', args: { a: 1 } }), /x/);
-  assert.equal(renderOverlayConfirmSummary({}), '未知操作');
+  // 无工具名、无 fallback → 非本地化占位（纯层不许硬编码会被渲染的中文）
+  assert.equal(renderOverlayConfirmSummary({}), 'confirm');
+  // 调用方给了 i18n 兜底 → 用兜底
+  assert.equal(renderOverlayConfirmSummary({ fallback: 'FALLBACK' }), 'FALLBACK');
   // 参数不可序列化也不抛
   const cyclic = {};
   cyclic.self = cyclic;

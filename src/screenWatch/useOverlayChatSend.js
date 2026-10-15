@@ -16,6 +16,7 @@ import { runHeadlessAgent } from '../workspace/headlessAgent.js';
 import { appendThreadEntry, getOrCreateActiveThread, THREAD_SCOPE_WORKSPACE } from './threads.js';
 import { pushOverlayChatMessage, setOverlayScopeMode } from './overlay.js';
 import { createOverlayConfirmHandler } from './overlayConfirmBridge.js';
+import { summarizeToolCall } from './overlaySummary.js';
 import { createWorkspaceStore } from '../workspace/native.js';
 import { readHookPermissionRules } from '../workspace/hooks.js';
 import { readToolPermissionRules } from '../chat/toolApprovalFlow.js';
@@ -38,7 +39,9 @@ export function useOverlayChatSend({ generate, errorText, t }) {
   if (storeRef.current === null) storeRef.current = createWorkspaceStore({});
   // 窗内确认钩子（进程级单例在 bridge 里；这里只持引用）。
   const confirmRef = useRef(null);
-  if (confirmRef.current === null) confirmRef.current = createOverlayConfirmHandler();
+  // summarize：把工具调用渲染成人话摘要（AC1/AC2/AC4 的渲染函数在这里接线，
+  // 否则确认卡只显示工具名 + JSON args）。
+  if (confirmRef.current === null) confirmRef.current = createOverlayConfirmHandler({ summarize: summarizeToolCall });
 
   const handler = useCallback(async ({ text, scope }) => {
     if (busyRef.current) return;
