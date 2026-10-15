@@ -15,6 +15,11 @@
 // **不静态 import threads.js**：那个模块拉进 storage/io.js（expo 原生依赖），
 // Node 测试环境进不来。role 字面量与 threads.js 同值（'user'/'assistant'），
 // 由 tests/workspaceWatchTurn.test.mjs 的断言与 threads.js 的口径对齐。
+//
+// 例外：turnDiagnostics.js 是**纯逻辑**（零依赖、零 RN），import 它不会拖进原生链，
+// 因此归一函数可以在这里直接用（回合级判重必须先归一，见 forwardTurnEvent）。
+import { normalizeTurnEvent } from './turnDiagnostics.js';
+
 const THREAD_ROLE_USER = 'user';
 const THREAD_ROLE_CHARACTER = 'assistant';
 
@@ -167,10 +172,14 @@ export async function runWorkspaceWatchTurn({
   // 本函数包一层取最大值，于是 turn-* 打点不必再猜、也不必硬编码。
   const startedAt = Date.now();
   let maxRound = 0;
+  // FEAT-AC9 P0-2：打点契约为**两参** `onTurnEvent(event, fields)`（见 turnDiagnostics
+  // 的归一说明）。原实现传单个对象 `{ event, round, elapsed, ...fields }`，而接线点
+  // 裸焊的 noteTurnEvent 收的是 `(event, fields)` ⇒ 真机 4 条 turn-unknown。
+  // 发射方统一两参，接收方的对象归一保留为防御层。
   const emitTurn = (event, fields = {}) => {
     if (typeof onTurnEvent !== 'function') return;
     try {
-      onTurnEvent({ event, round: maxRound, elapsed: Date.now() - startedAt, ...fields });
+      onTurnEvent(event, { round: maxRound, elapsed: Date.now() - startedAt, ...fields });
     } catch (error) {}
   };
   const forwardToolEvent = event => {
@@ -178,6 +187,38 @@ export async function runWorkspaceWatchTurn({
       maxRound = Math.max(maxRound, Number(event.round));
     }
     if (typeof onToolEvent === 'function') onToolEvent(event);
+  };
+  // FEAT-AC9：**回合级事件的所有权收归本层**（消除重复行）。
+  //
+  // 实测（探针真跑一轮带工具的回合）：内层 loop.js 自己也发 turn-start / turn-done，
+  // 于是「一个回合」在平面日志里出现 **6** 条 turn-*（2×start + 2×tool + 2×done），
+  // 而用户期望的是 4 条（start + tool pre + tool post + done）。任务书的算式
+  // 「4 条 = start + pre + post + done」把这个重复**算漏了**。
+  //
+  // 为什么由本层独占：只有它看得全这一回合——取帧、agent 循环、真实 maxRound、
+  // 落库，以及含准备工作在内的总耗时。内层 loop 的边界事件是**同一回合的同一条边界**，
+  // 两条边界挤在同一个平面日志里就是噪声，还会让「按条数核对」的验收失真。
+  // 工具级事件（turn-tool）本层看不到细节，照常放行。
+  //
+  // ⚠️ 这不是「弱化观测」：内层 turn-done 带的 `model`（降级后可能不是主模型）被
+  // **捕获并合并**进本层唯一那条 turn-done，信息一条不丢。
+  let innerModel = '';
+  // ⚠️ 归一**必须先做**：本函数按事件名判重，而内层若退回单对象形状
+  //（`{ event, ... }`），`event === 'turn-start'` 会**静默失配** ⇒ 去重失效、
+  // 重复行重新出现。这不是假设——注入验证实测到了它（把 loop.js 改回单对象，
+  // 本层立刻又发出 2 条 turn-start）。先归一，判重才与形状无关：
+  // 形状漂移只该降级成「仍可读」，不该悄悄变成「重复计数」。
+  const forwardTurnEvent = (event, fields = {}) => {
+    const { name, fields: normalized } = normalizeTurnEvent(event, fields);
+    if (name === 'turn-start') return;
+    if (name === 'turn-done') {
+      if (normalized && normalized.model) innerModel = String(normalized.model);
+      return;
+    }
+    // 收尾事件（timeout/aborted/failed）一律由本层按 classifyTurnEnding 如实发——
+    // 内层也发一条会与本层重复，且内层对「非超时的失败」根本不发（会漏收尾）。
+    if (name === 'turn-timeout' || name === 'turn-aborted' || name === 'turn-failed') return;
+    if (typeof onTurnEvent === 'function') onTurnEvent(name, normalized);
   };
   // 落库留痕器：只取线程 id 尾 4 位（够定位是哪一场，又不把 id 全文写进日志）。
   const appendTracer = typeof onThreadAppend === 'function'
@@ -196,7 +237,9 @@ export async function runWorkspaceWatchTurn({
       try {
         frames = await Promise.all(uris.map(uri => readFrame(uri)));
       } catch (error) {
-        emitTurn('turn-timeout', { error: new Error('frame-read-failed') });
+        // FEAT-AC9 P0-3：读帧失败是**失败**，不是超时（原先错标 turn-timeout，
+        // 会把「本地图片读不出来」误导成「模型没响应」）。
+        emitTurn('turn-failed', { error: new Error('frame-read-failed') });
         return { ok: false, text: '', steps: [], error: t('screenWatch.capture.failed.body') };
       }
     }
@@ -216,7 +259,8 @@ export async function runWorkspaceWatchTurn({
       permissionRules,
       onToolEvent: forwardToolEvent,
       // 打点透传给 agent 循环（缺省不传 = 不打点）。
-      ...(typeof onTurnEvent === 'function' ? { onTurnEvent } : {}),
+      // FEAT-AC9：经 forwardTurnEvent 去重——内层的回合级边界事件由本层独占（见上）。
+      ...(typeof onTurnEvent === 'function' ? { onTurnEvent: forwardTurnEvent } : {}),
     });
     const text = String((result && result.text) || '').trim();
     if (!text) {
@@ -234,7 +278,7 @@ export async function runWorkspaceWatchTurn({
       thread, appendEntry, userText: said, conclusionText: text, imageUri: uris[0] || '',
       onAppend: appendTracer,
     });
-    emitTurn('turn-done');
+    emitTurn('turn-done', innerModel ? { model: innerModel } : {});
     return { ok: true, text, steps: (result && result.steps) || [], error: '' };
   } catch (caught) {
     // FEAT-AC7 P0-C：**中止 / 超时 / 失败三种收尾也要落库**（用户消息 + 结论文案）。
@@ -249,7 +293,17 @@ export async function runWorkspaceWatchTurn({
       onAppend: appendTracer,
     });
     // P0-D：收尾打点带**真实轮数**（maxRound 由 onToolEvent 累积而来）。
-    emitTurn(ending === 'aborted' ? 'turn-done' : 'turn-timeout', caught ? { error: caught } : {});
+    // FEAT-AC9 P0-3：收尾事件**如实分三种**（aborted / timeout / failed）。
+    //
+    // 原实现写 `ending === 'aborted' ? 'turn-done' : 'turn-timeout'` —— 两个方向都错：
+    //   · 用户点「停止」→ 打 turn-done，日志上看着像**正常完成**；
+    //   · 断网 503 这类普通失败 → 打 turn-timeout，日志上看着像**超时**。
+    // 日志的用处就是回答「这轮怎么结束的」；错标比不打点更糟，它会把人朝错误方向带。
+    // classifyTurnEnding 早已区分三种（「中止是意图，超时是故障」），映射跟着它走即可。
+    emitTurn(
+      ending === 'aborted' ? 'turn-aborted' : ending === 'timeout' ? 'turn-timeout' : 'turn-failed',
+      caught ? { error: caught } : {}
+    );
     // 中止不是失败：不给用户看错误（既有语义不变），但它**已经落库**了。
     if (ending === 'aborted') return { ok: false, text: '', steps: [], error: '' };
     return { ok: false, text: '', steps: [], error: conclusion };

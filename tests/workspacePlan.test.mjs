@@ -140,9 +140,19 @@ test('A3 二期：normalizePlanSteps 归一（回显与进度条共用）+ 进�
   assert.ok(echo.includes('计划（1/2 完成）'));
 
   // 接线契约：ChatPanel 从工具事件读 update_plan 的 args，会话边界清空
+  //
+  // ⚠️ FEAT-AC9：这段工具事件处理器已从 ChatPanel 外提到 agentTurnObservation.js
+  //（ChatPanel 卡在行数棘轮基线上，且该批要给主对话补回合打点——按纪律拆文件而非抬上限）。
+  // 断言的**行为**不变，只是位置变了：处理器读 update_plan 的 args、用共用归一函数。
+  // 位置会变、行为不会——所以这里同时对两处断言，避免下次搬家又打自己。
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
-  assert.ok(panel.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
+  const observation = fs.readFileSync(path.resolve('src/workspace/screen/agentTurnObservation.js'), 'utf8');
+  const handlerSource = `${panel}\n${observation}`;
+  assert.ok(handlerSource.includes("event.name === 'update_plan'"), '工具事件接 update_plan');
+  assert.ok(handlerSource.includes('normalizePlanSteps(event.args && event.args.plan)'), '用共用归一函数');
+  // 且 ChatPanel 确实把这段接线装上了（不是只定义不用）
+  assert.ok(panel.includes('onToolEvent: createAgentToolEventHandler({'),
+    'ChatPanel 必须真的用外提后的处理器（否则进度条静默失效）');
   // W1 外提：进度条的渲染（含文案与折叠）搬去 AgentPlanPanel，ChatPanel 只负责把清单传下去。
   const planPanel = fs.readFileSync(path.resolve('src/workspace/screen/AgentPlanPanel.js'), 'utf8');
   assert.ok(planPanel.includes("t('workspace.chat.plan.title'"), '进度条文案（完成计数）');

@@ -45,7 +45,7 @@ import {
   getScreenWatchThreads,
   THREAD_SCOPE_WORKSPACE,
 } from '../../screenWatch/threads.js';
-import { formatThreadEntryTime, threadEntryRoleKey } from '../../screenWatch/threadEntries.js';
+import { filterStaleEmptyThreads, formatThreadEntryTime, threadEntryRoleKey } from '../../screenWatch/threadEntries.js';
 import { noteTurnEvent } from '../../screenWatch/turnDiagnostics.js';
 import { subscribeThreadsChanged } from '../../screenWatch/threadEvents.js';
 import { screenThreadPreview } from '../../memory/memoryBuckets.js';
@@ -107,7 +107,11 @@ export default function ScreenWatchPanel({ storeRef }) {
     await reconcile();
     try {
       const list = await getScreenWatchThreads();
-      setThreads((Array.isArray(list) ? list : []).filter(item => item && item.scope === THREAD_SCOPE_WORKSPACE));
+      // FEAT-AC9 P2-2：scope 收窄 + 滤掉遗留空线程（pre-AC7 留下的「（暂无内容）0」）。
+      // **只滤显示不删数据**：用户仍可在记忆页的「屏幕对话」里看到并手动删除。
+      setThreads(filterStaleEmptyThreads(
+        (Array.isArray(list) ? list : []).filter(item => item && item.scope === THREAD_SCOPE_WORKSPACE)
+      ));
     } catch (error) {
       // 读不到 ≠ 没有（与 useScreenWatchThreads 的三态口径一致）：如实说，不假装空列表。
       setThreads([]);

@@ -41,8 +41,41 @@ export function summarizeToolCall({ name, args } = {}) {
     const key = String(source.key || '').trim();
     if (!key) return '';
     const target = renderSettingValue(key, coerceSettingValue(key, source.value));
-    return `将把「${describeSetting(key)}」（${key}）改为 ${target}，允许吗？`;
+    // FEAT-AC9 P2-1：键移到**问句之后**，不再紧贴描述的右括号。
+    // 见 describeSettingKeySuffix 的说明（原先两对括号相邻，用户读成一串嵌套符号）。
+    return `将把「${describeSettingLabel(key)}」改为 ${target}，允许吗？${describeSettingKeySuffix(key)}`;
   }
 
   return '';
+}
+
+/**
+ * FEAT-AC9 P2-1：设置的**人话标签**（描述优先，无描述回落键）。
+ *
+ * @param {string} key 设置键
+ * @returns {string} 例：`角色回复后是否自动语音播报（悬浮窗与 app 内共用这个开关）`
+ */
+export function describeSettingLabel(key) {
+  const described = describeSetting(key);
+  // describeSetting 对未知键回落成键本身——那就不必再拼一次「键（键）」。
+  return described === key ? key : described;
+}
+
+/**
+ * FEAT-AC9 P2-1：键的**后缀**（放在问句末尾，避免与描述自带的括号相邻）。
+ *
+ * 事故（用户截图里的原话）：
+ *   `将把「语音播报（悬浮窗与 app 内共用这个开关）」（tts.autoBroadcast）改为 开`
+ * —— describeSetting 的描述**自带全角括号**，而原模板又无条件在末尾紧跟一层「（键）」，
+ * 于是出现 `）」（` 这种两对括号背靠背的形状。用户的反馈是「视觉嵌套错乱」：
+ * 一串括号和引号叠在一起，反而读不出「改哪个设置、改成什么」。
+ *
+ * 修法：**保留键**（它是用户回设置页核对的把手，不能丢），但把它移到问句之后，
+ * 中间隔着「改为 X，允许吗？」，两对括号不再相邻。描述与键相同（无描述）时返回空串。
+ *
+ * @param {string} key 设置键
+ * @returns {string} 例：`（tts.autoBroadcast）`；无描述时为 `''`
+ */
+export function describeSettingKeySuffix(key) {
+  return describeSetting(key) === key ? '' : `（${key}）`;
 }

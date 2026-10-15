@@ -123,10 +123,16 @@ export function parseToolArgs(call) {
   }
 }
 
-function safeCallback(callback, payload) {
+// 信息性回调的安全调用：**透传任意参数**并吞掉回调自身的异常。
+//
+// FEAT-AC9 P0-2 改动：原签名是 `safeCallback(callback, payload)`（只收一个参数）。
+// 打点钩子的契约是两参 `onTurnEvent(event, fields)`，若沿用单参签名就得现场
+// 直调 + try/catch（两处各写一遍 try/catch 只会漂移）。改成 rest 形参后
+// **所有既有单参调用点行为逐字不变**，同时让打点走同一条「回调抛错不打断循环」的纪律。
+function safeCallback(callback, ...args) {
   if (typeof callback !== 'function') return;
   try {
-    callback(payload);
+    callback(...args);
   } catch (error) {
     // 信息性 UI 回调抛错不得打断循环。
   }
@@ -204,7 +210,13 @@ export async function runAgentTurn(messages, options = {}) {
     ? Number(options.turnBudgetMs)
     : DEFAULT_TURN_BUDGET_MS;
   const onTurnEvent = typeof options.onTurnEvent === 'function' ? options.onTurnEvent : null;
-  const emitTurnEvent = (event, fields) => safeCallback(onTurnEvent, { event, ...fields });
+  // FEAT-AC9 P0-2：打点契约为**两参** `onTurnEvent(event, fields)`。
+  //
+  // 原实现是 `safeCallback(onTurnEvent, { event, ...fields })`（单对象）——而接收方
+  // noteTurnEvent 的签名是 `(event, fields)`，两个接线点又直接裸焊（`onTurnEvent: noteTurnEvent`）
+  // ⇒ 对象进 `TURN_EVENTS.includes(event)` 恒 false ⇒ 真机 4 条 turn-unknown、字段全丢。
+  // 现在发射方统一两参；接收方仍保留对象形态的归一作为**防御层**（见 turnDiagnostics）。
+  const emitTurnEvent = (event, fields) => safeCallback(onTurnEvent, event, fields);
   const turnStartedAt = Date.now();
   // 记录「当前正在跑哪一轮 / 哪个模型」，供超时错误与打点说出卡点。
   let currentRound = 0;

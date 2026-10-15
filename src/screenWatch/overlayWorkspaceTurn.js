@@ -114,6 +114,8 @@ export async function runOverlayWorkspaceTurn({ text = '', signal = null } = {})
       ),
       appendEntry: appendThreadEntry,
       // 回合打点：走 turnDiagnostics 的注入式落盘器（app 级 bridge 里装好的）。
+      // FEAT-AC9 P0-1/P0-2：这里是**裸焊**（曾把对象焊进两参签名 ⇒ 4 条 turn-unknown）。
+      // 现在发射方统一两参；接收方也做了对象形态归一（双保险，未来新接线不再踩同一个坑）。
       onTurnEvent: noteTurnEvent,
       // P0-C：每条落库留痕（此前是裸 catch 静默吞错——真机上「写没写进去」无法分辨）。
       onThreadAppend: info => noteTurnEvent('thread-append', info),
@@ -125,7 +127,11 @@ export async function runOverlayWorkspaceTurn({ text = '', signal = null } = {})
     return result;
   } catch (error) {
     const elapsed = Date.now() - startedAt;
-    noteTurnEvent('turn-timeout', { elapsed, error });
+    // FEAT-AC9 P0-3：这里捕获的是**回合开始前的准备失败**（取线程 / 读工作区设置），
+    // 从来不是超时。原先错标 turn-timeout ⇒ 日志会把「线程存储读失败」说成
+    // 「模型没响应」，把人朝错误方向带。runWorkspaceWatchTurn 自身不抛
+    //（它内部已按 aborted/timeout/failed 如实收尾），故此处不会与它的收尾重复计入。
+    noteTurnEvent('turn-failed', { elapsed, error });
     notifyThreadsChanged();
     return {
       ok: false,

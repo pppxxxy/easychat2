@@ -23,6 +23,7 @@ import {
 } from '../src/screenWatch/turnDiagnostics.js';
 import {
   classifyTurnEnding,
+  runWorkspaceWatchTurn,
   turnEndingTextKey,
 } from '../src/screenWatch/workspaceWatchTurn.js';
 
@@ -41,14 +42,28 @@ const babel = require('@babel/core');
 const loopPath = path.resolve('src/agent/loop.js');
 
 // 最小桩：本文件只取两个导出，不跑循环，所以桩只需让顶层 require 成功。
+//
+// ⚠️ FEAT-AC9 P0：两个桩**可变**——第 ⑫ 组要做「形状契约」的**真跑**测试
+//（发射方形状穿过接收方签名），需要真的跑一轮带工具的循环。
+// 不变的桩只能跑「无工具」分支，那测不到 turn-tool 这条最关键的发射点。
+let stubTools = [];
+let stubStreamPlan = [];
 const apiStub = {
   createAbortError: () => Object.assign(new Error('aborted'), { name: 'AbortError', canceled: true }),
   isCanceledError: error => !!(error && (error.canceled === true || error.name === 'AbortError')),
-  streamChatCompletion: async () => ({ text: '', toolCalls: [] }),
+  streamChatCompletion: async () => {
+    const plan = stubStreamPlan.shift() || { text: '', toolCalls: [] };
+    return {
+      text: typeof plan.text === 'string' ? plan.text : '',
+      toolCalls: plan.toolCalls || [],
+      model: plan.model || '',
+      usage: null,
+    };
+  },
 };
 const registryStub = {
-  listToolsForMode: () => [],
-  runTool: async () => ({ content: '', isError: false }),
+  listToolsForMode: () => stubTools,
+  runTool: async () => ({ content: 'ok', isError: false }),
 };
 
 const originalLoad = Module._load;
@@ -99,8 +114,16 @@ test('打点格式：事件名 + 白名单字段；缺字段省略，不写 unde
   // 早先的实现用 `if (!value) continue`，会把它们吞掉——那正是「打点白记了」的形态：
   // 当晚 5 次 set_app_setting 全部失败，若 ok=false 被过滤，日志里就只剩工具名，
   // 读不出成败（BUG-A 也就无法当场定罪）。
+  // FEAT-AC9 P0-3：ok 归一成 'ok' / 'fail' 字面量（FIELDS 注释一直这么宣称，
+  // 而实现渲染的是 true/false——改行为与注释对齐）。**false 仍然被保留**（变成 fail），
+  // 这正是本条要守的：成败不能因为取值是 falsy 而消失。
   assert.equal(formatTurnEvent('turn-tool', { tool: 'set_app_setting', ok: false }),
-    'turn-tool tool=set_app_setting ok=false', 'ok=false 必须保留');
+    'turn-tool tool=set_app_setting ok=fail', 'ok=false 必须保留（归一成 fail）');
+  assert.equal(formatTurnEvent('turn-tool', { tool: 'set_app_setting', ok: true }),
+    'turn-tool tool=set_app_setting ok=ok', 'ok=true 归一成 ok');
+  // 幂等：已经是 'ok' 字面量再走一遍不得被翻成 fail（二次包装/转发的情形）
+  assert.equal(formatTurnEvent('turn-tool', { tool: 'x', ok: 'ok' }), 'turn-tool tool=x ok=ok',
+    'ok 字面量必须幂等（不得把成功降级成失败）');
   assert.equal(formatTurnEvent('turn-done', { elapsed: 0 }), 'turn-done elapsed=0ms', 'elapsed=0 必须保留');
   // 未知事件名归 turn-unknown（不静默丢弃，也不冒充已知事件）
   assert.equal(formatTurnEvent('bogus', { round: 1 }), 'turn-unknown round=1');
@@ -112,10 +135,13 @@ test('打点格式：事件名 + 白名单字段；缺字段省略，不写 unde
   assert.equal(withError.includes('第二行堆栈'), false, 'error 只取首行（堆栈由真错误路径负责）');
 });
 
-test('打点事件齐备（turn-start/tool/done/timeout + AC8 的落库留痕）', () => {
+test('打点事件齐备（turn-start/tool/done/timeout/aborted/failed + AC8 的落库留痕）', () => {
   // FEAT-AC8 P0-C 把 thread-append 加进同一落盘通道（它不是回合事件，
   // 但共用「组装 → 注入落盘」这一层，故同表登记——分开两张表只会两处漂移）。
-  assert.deepEqual([...TURN_EVENTS], ['turn-start', 'turn-tool', 'turn-done', 'turn-timeout', 'thread-append']);
+  // FEAT-AC9 P0-3 补上 turn-aborted / turn-failed：中止与失败此前**冒充**
+  // turn-done / turn-timeout（详见 turnDiagnostics 里该段的说明）。
+  assert.deepEqual([...TURN_EVENTS],
+    ['turn-start', 'turn-tool', 'turn-done', 'turn-timeout', 'turn-aborted', 'turn-failed', 'thread-append']);
 });
 
 test('打点：未注入 recorder 时静默；注入后逐条落盘；recorder 抛错不影响主流程', () => {
@@ -474,4 +500,210 @@ test('子代理白名单与函数形态工具的交集必须为空（否则 suba
     assert.equal(names.includes(tool), false,
       `${tool} 使用函数形态 requiresConfirmation，不得进子代理白名单（那里只认 === true，会 fail-open）`);
   }
+});
+
+// ---------- ⑫ FEAT-AC9 P0：**形状契约**（发射方形状 → 接收方签名）----------
+//
+// 这一组是本轮的核心防再犯措施。为什么必须有它：
+// BUG-E 之所以能活着进真机，是因为**没有任何测试把发射方的形状接到接收方的签名上**——
+// workspaceWatchTurn 与 loop 各自测各自的发射形状，turnDiagnostics 测自己的两参签名，
+// 而两个接线点是**裸焊**（`onTurnEvent: noteTurnEvent`）。两边各自全绿，集成处断裂。
+// 所以下面**真跑**发射方（不是源码正则匹配），把它的输出喂进真实的 noteTurnEvent，
+// 断言落盘的**文本**可读。任何人再改坏形状，这里立刻变红。
+
+test('P0 形状契约：loop 的发射形状穿过 noteTurnEvent，产出可读的 turn-*（不是 turn-unknown）', async () => {
+  // 真跑一轮带工具的 loop：stub 的 streamChatCompletion 第一轮给工具调用、第二轮收尾。
+  stubTools = [{ type: 'function', function: { name: 'set_app_setting', description: '', parameters: {} } }];
+  stubStreamPlan = [
+    { text: '', toolCalls: [{ id: 'c1', name: 'set_app_setting', arguments: '{"key":"tts.autoBroadcast","value":true}' }] },
+    { text: '已打开', toolCalls: [], model: 'm1' },
+  ];
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  try {
+    const { runAgentTurn } = loadLoopExports();
+    await runAgentTurn([{ role: 'user', content: '打开语音播报' }], {
+      mode: 'write',
+      onTurnEvent: noteTurnEvent,
+    });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+
+  // 关键断言：**一条都不能是 turn-unknown**（这正是真机 4 条 turn-unknown 的形态）
+  const unknown = lines.filter(line => line.startsWith('turn-unknown'));
+  assert.deepEqual(unknown, [], `不得出现 turn-unknown（形状对不上的形态），实际: ${JSON.stringify(lines)}`);
+  // 事件名与字段都要在（名对了但字段空 = 同样不可用）
+  const started = lines.find(line => line.startsWith('turn-start'));
+  assert.ok(started, `要有 turn-start，实际: ${JSON.stringify(lines)}`);
+  const toolPre = lines.find(line => /^turn-tool\b/.test(line) && line.includes('tool=set_app_setting') && !line.includes('ok='));
+  assert.ok(toolPre, `要有工具执行前的 turn-tool（带工具名），实际: ${JSON.stringify(lines)}`);
+  const toolPost = lines.find(line => /^turn-tool\b/.test(line) && line.includes('ok=ok'));
+  assert.ok(toolPost, `要有工具执行后的 turn-tool（带成败），实际: ${JSON.stringify(lines)}`);
+  assert.ok(lines.some(line => line.startsWith('turn-done')), '要有 turn-done');
+  // 字段不能丢（真机的第二个症状就是「字段全空」）
+  assert.match(toolPre, /tool=set_app_setting/, '字段必须渲染出来（不能只剩裸事件名）');
+});
+
+test('P0 形状契约：两参形状穿过 noteTurnEvent 同样可读（唯一合法契约）', () => {
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  try {
+    noteTurnEvent('turn-tool', { round: 0, tool: 'set_app_setting', ok: false });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+  assert.deepEqual(lines, ['turn-tool round=0 tool=set_app_setting ok=fail']);
+});
+
+test('P0 形状契约：单对象形状仍被接收方归一（防御层，未来新接线不再集体 turn-unknown）', () => {
+  // 这是**双保险**的第二道：发射方已统一两参，但接收方保留对象归一。
+  // 目的不是「继续支持两种形状」，而是让**未来某个忘记对齐的新接线点**
+  // 退化成一个可读的打点，而不是一整轮日志全变成 turn-unknown（真机形态）。
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  try {
+    noteTurnEvent({ event: 'turn-tool', round: 2, tool: 'set_app_setting', ok: false });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+  assert.deepEqual(lines, ['turn-tool round=2 tool=set_app_setting ok=fail'],
+    '对象形状必须被归一成事件名 + 字段（不是 turn-unknown、不是字段全丢）');
+});
+
+test('P0 形状契约：内层退回单对象时，回合级去重**仍然生效**（去重必须先归一）', async () => {
+  // 这条是注入验证逼出来的真实缺陷（不是假想）：
+  // 去重器原先按 `event === 'turn-start'` 判重，而内层若退回单对象形状，
+  // `event` 是**对象**⇒ 比较静默失配 ⇒ 去重失效 ⇒ 重复行重新出现。
+  // 修法是「先归一、再判重」——接收方防御层不该只在最末端生效。
+  // 这里直接构造**单对象形状**的内层发射器，验证去重仍然吃掉重复的边界事件。
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  try {
+    await runWorkspaceWatchTurn({
+      userText: '随便说句话',
+      thread: { id: 'swthread-abcd', entries: [] },
+      appendEntry: async () => {},
+      runAgent: async payload => {
+        // 模拟「内层 loop 用单对象形状发回合级事件」（形状漂移的情形）
+        if (typeof payload.onTurnEvent === 'function') {
+          payload.onTurnEvent({ event: 'turn-start', round: 0 });
+          payload.onTurnEvent({ event: 'turn-tool', round: 1, tool: 'set_app_setting' });
+          payload.onTurnEvent({ event: 'turn-done', round: 1, model: 'm-inner' });
+        }
+        return { text: '好', steps: [] };
+      },
+      onTurnEvent: noteTurnEvent,
+      t: key => key,
+    });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+  const starts = lines.filter(line => line.startsWith('turn-start')).length;
+  const dones = lines.filter(line => line.startsWith('turn-done')).length;
+  assert.equal(starts, 1, `内层单对象形状下 turn-start 仍只能 1 条: ${JSON.stringify(lines)}`);
+  assert.equal(dones, 1, `内层单对象形状下 turn-done 仍只能 1 条: ${JSON.stringify(lines)}`);
+  // 工具事件照常放行（本层看不到细节，不该吞）
+  assert.ok(lines.some(line => line.startsWith('turn-tool') && line.includes('tool=set_app_setting')),
+    `工具事件必须放行: ${JSON.stringify(lines)}`);
+  // 内层的 model 仍要合并进唯一那条 turn-done
+  assert.match(lines.find(line => line.startsWith('turn-done')), /model=m-inner/,
+    '内层 model 不得因为形状漂移而丢失');
+});
+
+test('P0 形状契约：aborted 收尾走 turn-aborted，不再冒充 turn-done', async () => {
+  // classifyTurnEnding 分三种（aborted / timeout / failed），打点必须如实映射。
+  // 原实现 `ending === 'aborted' ? 'turn-done' : 'turn-timeout'`：
+  //   · 用户点「停止」→ 日志显示**正常完成**；
+  //   · 断网这类普通失败 → 日志显示**超时**。
+  // 这里真跑 runWorkspaceWatchTurn 的中止路径，断言落盘的是 turn-aborted。
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  let thrown;
+  try {
+    const aborted = Object.assign(new Error('已停止'), { canceled: true });
+    await runWorkspaceWatchTurn({
+      userText: '跑个长任务',
+      runAgent: async () => { thrown = aborted; throw aborted; },
+      thread: { id: 'swthread-abcd', entries: [] },
+      appendEntry: async () => {},
+      onTurnEvent: noteTurnEvent,
+      t: key => key,
+    });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+  assert.ok(thrown, '前置条件：runAgent 真的抛了中止错误');
+  assert.ok(lines.some(line => line.startsWith('turn-aborted')),
+    `中止要打 turn-aborted，实际: ${JSON.stringify(lines)}`);
+  assert.equal(lines.some(line => line.startsWith('turn-done')), false,
+    `中止不得打成 turn-done（那会让日志显示成正常完成）: ${JSON.stringify(lines)}`);
+});
+
+test('P0 形状契约：普通失败走 turn-failed，不再冒充 turn-timeout', async () => {
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  try {
+    await runWorkspaceWatchTurn({
+      userText: '跑一下',
+      runAgent: async () => { throw new Error('503 Service Unavailable'); },
+      thread: { id: 'swthread-abcd', entries: [] },
+      appendEntry: async () => {},
+      onTurnEvent: noteTurnEvent,
+      t: key => key,
+    });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+  assert.ok(lines.some(line => line.startsWith('turn-failed')),
+    `非超时失败要打 turn-failed，实际: ${JSON.stringify(lines)}`);
+  assert.equal(lines.some(line => line.startsWith('turn-timeout')), false,
+    `普通失败不得打成 turn-timeout（那会误导成「模型没响应」）: ${JSON.stringify(lines)}`);
+});
+
+test('P0 形状契约：一个完整工作区回合只发**一组**回合级事件（消除内外层重复）', async () => {
+  // 探针实测发现（任务书算式漏掉的一处）：内层 loop.js 也发 turn-start / turn-done，
+  // 于是「一个回合」在平面日志里出现 6 条 turn-*（2×start + 2×tool + 2×done），
+  // 而用户按「start + pre + post + done = 4 条」核对验收会永远对不上。
+  // 收口后：回合级边界事件**只由 runWorkspaceWatchTurn 发**。
+  // 模拟真实链路：runWorkspaceWatchTurn → (headlessAgent) → loop。
+  stubTools = [{ type: 'function', function: { name: 'set_app_setting', description: '', parameters: {} } }];
+  stubStreamPlan = [
+    { text: '', toolCalls: [{ id: 'c1', name: 'set_app_setting', arguments: '{"key":"k","value":true}' }] },
+    { text: '已改', toolCalls: [], model: 'm1' },
+  ];
+  const { runAgentTurn } = loadLoopExports();
+
+  const lines = [];
+  setTurnEventRecorder(line => lines.push(line));
+  try {
+    await runWorkspaceWatchTurn({
+      userText: '帮我打开语音播报',
+      mode: 'write',
+      thread: { id: 'swthread-abcd', entries: [] },
+      appendEntry: async () => {},
+      runAgent: async payload => {
+        const text = await runAgentTurn(
+          [{ role: 'user', content: payload.prompt }],
+          { mode: payload.mode, onTurnEvent: payload.onTurnEvent, onToolEvent: payload.onToolEvent }
+        );
+        return { text: text || '已改', steps: [] };
+      },
+      onTurnEvent: noteTurnEvent,
+      t: key => key,
+    });
+  } finally {
+    setTurnEventRecorder(null);
+  }
+
+  const turnLines = lines.filter(line => /^turn-(?!unknown)/.test(line));
+  const byName = name => turnLines.filter(line => line.startsWith(name)).length;
+  assert.equal(byName('turn-start'), 1, `turn-start 只能 1 条（内外层重复是本轮探针发现的）: ${JSON.stringify(lines)}`);
+  assert.equal(byName('turn-done'), 1, `turn-done 只能 1 条: ${JSON.stringify(lines)}`);
+  assert.equal(byName('turn-tool'), 2, `工具要两条（pre 带工具名 / post 带成败）: ${JSON.stringify(lines)}`);
+  // 内层 turn-done 带的 model 不能因为去重而丢失（信息合并进唯一那条）
+  const done = turnLines.find(line => line.startsWith('turn-done'));
+  assert.match(done, /model=m1/, '内层带回的 model 必须合并进唯一那条 turn-done（去重不等于丢信息）');
+  assert.equal(turnLines.some(line => line.startsWith('turn-unknown')), false,
+    `不得有 turn-unknown: ${JSON.stringify(lines)}`);
 });

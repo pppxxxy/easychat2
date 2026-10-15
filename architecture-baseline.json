@@ -40,7 +40,8 @@
     "src/workspace/screen/ChatPanel.js 1765 → 1772（2026-10-13，AS2 confirm_flow 宿主接线）：净增 7 行全是真实逻辑——runAgentTurn options 里 spread confirmFlowHostOptions(characters)（多题确认钩子 + 角色列表源注入）与 handleSend deps 的 characters。接线本体（题卡渲染/桥/结算）都落在子模块（ConfirmFlowSheet/confirmFlowBridge/SessionSidePanels），这 7 行是模型循环与宿主 UI 之间唯一必要的桥点，非凑数。棘轮阈值等于新实测值。",
     "src/workspace/screen/GithubPanel.js 911 → 744（2026-10-12，六大文件第七刀，m1012m31）：当前仓库树区（树内搜索、逐层下钻、快速检出、分支 chip、拉取进度/跳过清单、新建条目表单）外提为展示组件 screen/github/RepoTreeSection.js（styles/theme/t + 状态与 handler 由面板注入）。GithubPanel 跌破 800，已从行数棘轮移除。",
     "src/character/CharacterDetailScreen.js 1714 → 1641（2026-10-12，六大文件第二目标第一刀，m1012m31）：面板内三个弹层（导入进度遮罩 + 世界书条目编辑 + 正则脚本编辑）外提为展示组件 character/CharacterEntryModals.js（styles/theme/t 与 state/handler 由主屏注入）。仍 > 800，基线随之下调到实际值。",
-    "src/character/CharacterDetailScreen.js 1641 → 1355（2026-10-12，六大文件第二目标第二刀，m1012m31）：卡片导入/导出/分享关注点外提为 character/useCardTransfer.js（hook）——PNG/JSON 文件导入 importCard、分享码剪贴板导入 importFromClipboard、开场白确认落库 confirmImport、导出 onExport/runExport、分享面板 onShare，及 importing/importStatus/pendingImport/exporting/shareOpen/shareAvatarBytes 状态。fileSystem 由主屏注入（新文件不得直接 import expo-file-system）。仍 > 800，基线随之下调到实际值。"
+    "src/character/CharacterDetailScreen.js 1641 → 1355（2026-10-12，六大文件第二目标第二刀，m1012m31）：卡片导入/导出/分享关注点外提为 character/useCardTransfer.js（hook）——PNG/JSON 文件导入 importCard、分享码剪贴板导入 importFromClipboard、开场白确认落库 confirmImport、导出 onExport/runExport、分享面板 onShare，及 importing/importStatus/pendingImport/exporting/shareOpen/shareAvatarBytes 状态。fileSystem 由主屏注入（新文件不得直接 import expo-file-system）。仍 > 800，基线随之下调到实际值。",
+    "src/workspace/screen/ChatPanel.js 1772 → 1769（2026-10-13，FEAT-AC9 P1，**下调**）：按棘轮协议【2】的正向出口——把「工具事件处理器」外提到 workspace/screen/agentTurnObservation.js（每次工具调用的 update_plan 进度条与 E4 会话事件流；行为逐字不变，参数由面板注入），腾出的行数用于接入主对话路径**缺失的回合打点**（P1 的证据：真机 02:51「关闭语音播报」走这条路径，日志零 turn-*，而它恰是七域工具的宿主）。**净减 3 行**，阈值随之下调到实测值 1769，仍不留空转余量。选外提而非抬上限：该文件本就卡在阈值上，抬它会让棘轮对这里形同虚设。"
   ],
   "fileLineBaseline": {
     "src/CardForgeEditor.js": 1073,
@@ -50,7 +51,7 @@
     "src/character/CharacterDetailScreen.js": 1355,
     "src/chat/chatStyles.js": 1375,
     "src/chat/useChatSend.js": 1972,
-    "src/workspace/screen/ChatPanel.js": 1772,
+    "src/workspace/screen/ChatPanel.js": 1769,
     "src/workspace/screen/FilesPanel.js": 1080
   },
   "allowedCycles": []

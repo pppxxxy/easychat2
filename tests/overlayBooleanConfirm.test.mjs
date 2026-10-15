@@ -29,6 +29,7 @@ import {
   TURN_EVENTS,
   formatTurnEvent,
 } from '../src/screenWatch/turnDiagnostics.js';
+import { summarizeToolCall } from '../src/screenWatch/overlaySummary.js';
 import {
   subscribeThreadsChanged,
   notifyThreadsChanged,
@@ -310,9 +311,11 @@ test('BUG-C：落库留痕只记 id 尾 4 位 + role + ok（不含正文）', ()
 
 // ---------- ⑤ BUG-D：打点补全（真因：onTurnEvent 从未被注入）----------
 
-test('BUG-D：formatTurnEvent 保留 falsy 有意义值（ok=false / elapsed=0）', () => {
+test('BUG-D：formatTurnEvent 保留 falsy 有意义值（ok=false 归一成 fail / elapsed=0）', () => {
+  // FEAT-AC9 P0-3：ok 由 true/false 归一成 'ok' / 'fail' 字面量。
+  // 重点不变——成败**不能因为取值是 falsy 而消失**。
   assert.equal(formatTurnEvent('turn-tool', { tool: 'set_app_setting', ok: false }),
-    'turn-tool tool=set_app_setting ok=false');
+    'turn-tool tool=set_app_setting ok=fail');
   assert.equal(formatTurnEvent('turn-done', { elapsed: 0 }), 'turn-done elapsed=0ms');
   // 缺字段仍然省略
   assert.equal(formatTurnEvent('turn-tool', { tool: 'x' }), 'turn-tool tool=x');
@@ -332,10 +335,13 @@ test('BUG-D：onTurnEvent 从宿主一路贯通到 agent 循环（真因是它�
   assert.match(headless, /\.\.\.\(typeof onTurnEvent === 'function' \? \{ onTurnEvent \} : \{\}\)/,
     'headlessAgent 必须把它透传给 runAgentTurn');
   // ② runWorkspaceWatchTurn 必须接受并透传（两条驱动路径的共同收口）
+  // ⚠️ FEAT-AC9：透传的不再是 noteTurnEvent 本身，而是**回合级去重器**
+  // forwardTurnEvent——内层 loop.js 也发 turn-start / turn-done，直接透传会让
+  // 一个回合在日志里出现两组边界事件（探针实测 6 条而非 4 条）。
   const turn = stripComments(read('src/screenWatch/workspaceWatchTurn.js'));
   assert.match(turn, /onTurnEvent = null,/, 'runWorkspaceWatchTurn 必须接受 onTurnEvent');
-  assert.match(turn, /\.\.\.\(typeof onTurnEvent === 'function' \? \{ onTurnEvent \} : \{\}\)/,
-    'runWorkspaceWatchTurn 必须透传给 runAgent');
+  assert.match(turn, /\.\.\.\(typeof onTurnEvent === 'function' \? \{ onTurnEvent: forwardTurnEvent \} : \{\}\)/,
+    'runWorkspaceWatchTurn 必须经去重器透传给 runAgent（回合级事件由本层独占）');
   // ③ 两条驱动路径都必须真的注入
   assert.match(stripComments(read('src/screenWatch/overlayWorkspaceTurn.js')), /onTurnEvent: noteTurnEvent/,
     '悬浮窗路径必须注入打点器');
@@ -349,9 +355,13 @@ test('BUG-D：真实轮数贯通（round 不再硬编码 0）', () => {
   assert.match(turn, /maxRound = Math\.max\(maxRound, Number\(event\.round\)\)/,
     '必须从 onToolEvent 累积真实轮数');
   assert.match(turn, /onToolEvent: forwardToolEvent/, '必须用包装器转发工具事件');
-  // 打点必须带这个真实轮数（emitTurn 统一带 round: maxRound）
-  assert.match(turn, /onTurnEvent\(\{ event, round: maxRound, elapsed: Date\.now\(\) - startedAt, \.\.\.fields \}\)/,
-    '打点必须带累积出的真实轮数');
+  // 打点必须带这个真实轮数（emitTurn 统一带 round: maxRound）。
+  // ⚠️ FEAT-AC9 P0-2：这里原先钉的是**单对象形状**
+  // `onTurnEvent({ event, round: maxRound, ... })` —— 那条断言正是把 BUG-E 的
+  // 错误形状**锁死**的原因（发射方单对象 vs 接收方两参 ⇒ turn-unknown）。
+  // 现在钉**两参契约**：event 名 + fields 对象。
+  assert.match(turn, /onTurnEvent\(event, \{ round: maxRound, elapsed: Date\.now\(\) - startedAt, \.\.\.fields \}\)/,
+    '打点必须走两参契约且带累积出的真实轮数');
   // 悬浮窗路径不得再硬编码 round: 0
   const overlayTurn = stripComments(read('src/screenWatch/overlayWorkspaceTurn.js'));
   assert.equal(/round: 0/.test(overlayTurn), false, '悬浮窗路径不得再硬编码 round: 0');
@@ -362,8 +372,9 @@ test('BUG-D：turn-done 只由 runWorkspaceWatchTurn 发（避免两条路径各
   const overlayTurn = stripComments(read('src/screenWatch/overlayWorkspaceTurn.js'));
   assert.equal(/noteTurnEvent\('turn-done'/.test(overlayTurn), false,
     '悬浮窗路径不得自己发 turn-done（已收口到 runWorkspaceWatchTurn）');
-  // 异常路径仍要留痕（那条不走 runWorkspaceWatchTurn 的内部收尾）
-  assert.match(overlayTurn, /noteTurnEvent\('turn-timeout'/, '异常路径要留痕');
+  // 异常路径仍要留痕。FEAT-AC9 P0-3：这条路径是**准备阶段失败**（取线程 / 读设置），
+  // 从来不是超时——原先打 turn-timeout 会把「线程存储读失败」说成「模型没响应」。
+  assert.match(overlayTurn, /noteTurnEvent\('turn-failed'/, '准备阶段失败要如实留痕（不是 timeout）');
   // 落库留痕的注入（两条路径都要）
   const panel = stripComments(read('src/workspace/screen/ScreenWatchPanel.js'));
   assert.match(panel, /onThreadAppend: info => noteTurnEvent\('thread-append', info\)/,
@@ -372,7 +383,75 @@ test('BUG-D：turn-done 只由 runWorkspaceWatchTurn 发（避免两条路径各
     '悬浮窗路径要注入落库留痕');
 });
 
-// ---------- ⑥ 行数棘轮 ----------
+// ---------- ⑥ FEAT-AC9 P1/P2 与行数棘轮 ----------
+
+test('AC9 P1：主对话（「对话」tab）路径接入回合打点（此前完全隐形）', () => {
+  // 证据（任务书 §三 P1）：真机 02:51「关闭语音播报」走主对话路径，
+  // 日志里零 turn-* 痕迹（只有一行 [app-setting]）——用户最常用的路径在诊断日志里
+  // 完全看不见，而它恰是 P1 七域工具（FEAT-AC6）的宿主。
+  //
+  // ⚠️ 对任务书的一处更正：它说这条路径经 `runHeadlessAgent 直连`。
+  // 核实：**不是**——「对话」tab 是 ChatPanel.js，它**直接**调 runAgentTurn
+  //（ChatPanel.js 的 `await runAgentTurn(request, {...})`），不经过 headlessAgent
+  //（headlessAgent 是「看屏幕」工作区会话与本地 API 端点的执行器）。
+  // 所以「在 headlessAgent 层收口」那条建议对本路径无效，必须接在 ChatPanel 的调用点。
+  const panel = stripComments(read('src/workspace/screen/ChatPanel.js'));
+  assert.match(panel, /\.\.\.turnEventHostOptions\(\)/,
+    '主对话必须接入回合打点（P1：此前完全没有 onTurnEvent）');
+  // 收口点写清楚（任务书要求「在提交说明里写清收口点」——代码里也留一行）
+  const observation = read('src/workspace/screen/agentTurnObservation.js');
+  assert.match(observation, /export function turnEventHostOptions\(\)/,
+    '收口点：ChatPanel → agentTurnObservation.turnEventHostOptions → noteTurnEvent');
+  assert.match(observation, /return \{ onTurnEvent: noteTurnEvent \};/,
+    '收口点把 onTurnEvent 接成 noteTurnEvent（两参契约）');
+  // thread-append 不得接进主对话：那是 screenWatch 线程专属（工作区对话走 chats.js）
+  assert.equal(/thread-append/.test(stripComments(observation)), false,
+    '主对话不得注入 thread-append（线程留痕是 screenWatch 专属，硬接会记出含义错误的行）');
+});
+
+test('AC9 P2-1：确认卡文案不再视觉嵌套（键移到问句之后）', () => {
+  const text = summarizeToolCall({ name: 'set_app_setting', args: { key: 'tts.autoBroadcast', value: true } });
+  // 键仍然要在（用户靠它回设置页核对）——只是不再紧贴描述的右括号
+  assert.match(text, /tts\.autoBroadcast/, '键必须保留（是用户核对的把手）');
+  assert.equal(text.includes('）」（'), false,
+    `描述的右括号不得紧邻键的左括号（原事故形态）: ${text}`);
+  // 描述自带括号时，键移到问句末尾
+  assert.match(text, /允许吗？（tts\.autoBroadcast）/, `键应在问句之后: ${text}`);
+  // 未知键（describeSetting 回落成键本身）→ 不再拼出「键（键）」
+  const fallback = summarizeToolCall({ name: 'set_app_setting', args: { key: 'unknown.key', value: 1 } });
+  assert.equal(fallback.includes('unknown.key（unknown.key）'), false,
+    `未知键不得拼成「键（键）」: ${fallback}`);
+});
+test('AC9 P2-2：遗留空线程只滤显示、不删数据，且判据可直测', async () => {
+  const {
+    STALE_EMPTY_THREAD_MS,
+    filterStaleEmptyThreads,
+    isStaleEmptyThread,
+  } = await import('../src/screenWatch/threadEntries.js');
+  const now = Date.now();
+  const old = { id: 't1', entries: [], updatedAt: now - STALE_EMPTY_THREAD_MS - 1000 };
+  const fresh = { id: 't2', entries: [], updatedAt: now - 1000 };
+  const hasContent = { id: 't3', entries: [{ id: 'e', text: '有内容' }], updatedAt: now - STALE_EMPTY_THREAD_MS - 1000 };
+  assert.equal(isStaleEmptyThread(old, now), true, '旧的空线程 = 遗留');
+  assert.equal(isStaleEmptyThread(fresh, now), false, '新的空线程不滤（可能还在用）');
+  assert.equal(isStaleEmptyThread(hasContent, now), false, '有内容的一律不滤');
+  assert.equal(isStaleEmptyThread(null, now), false, '空值不抛');
+  assert.deepEqual(filterStaleEmptyThreads([old, fresh, hasContent], now).map(t => t.id), ['t2', 't3']);
+  // 面板真的用了它（不是只定义）
+  const panel = stripComments(read('src/workspace/screen/ScreenWatchPanel.js'));
+  assert.match(panel, /setThreads\(filterStaleEmptyThreads\(/,
+    '面板列表必须过遗留空线程过滤（否则 pre-AC7 的「（暂无内容）0」继续挂着）');
+  // 「只滤显示不删数据」这条纪律的落点：**过滤模块自身不得碰存储**——
+  // 判据（多久算遗留）会随产品调整，拿它做不可逆删除，改错判据就是数据损失。
+  const entriesCode = stripComments(read('src/screenWatch/threadEntries.js'));
+  for (const forbidden of ['deleteScreenWatchThread', 'clearScreenWatchThreads', 'removeItem']) {
+    assert.equal(entriesCode.includes(forbidden), false,
+      `展示层过滤不得删除数据（不得出现 ${forbidden}）`);
+  }
+  // 用户手动删除的入口仍在（面板自己那条），所以「滤掉」不等于「删不掉」
+  assert.match(panel, /deleteScreenWatchThread\(item\.id\)/,
+    '面板仍保留用户手动删除线程的入口');
+});
 
 test('行数：本轮新增/修改文件都在 800 硬上限内', () => {
   const count = source => source.split('\n').length - (source.endsWith('\n') ? 1 : 0);
@@ -387,7 +466,11 @@ test('行数：本轮新增/修改文件都在 800 硬上限内', () => {
     'src/screenWatch/overlayWorkspaceTurn.js',
     'src/screenWatch/turnDiagnostics.js',
     'src/screenWatch/threadEvents.js',
+    'src/screenWatch/threadEntries.js',
+    'src/screenWatch/overlaySummary.js',
     'src/workspace/screen/ScreenWatchPanel.js',
+    // FEAT-AC9 新增/外提文件
+    'src/workspace/screen/agentTurnObservation.js',
   ]) {
     const lines = count(read(file));
     assert.ok(lines <= 800, `${file}: ${lines} > 800（棘轮纪律：拆文件，不抬上限）`);

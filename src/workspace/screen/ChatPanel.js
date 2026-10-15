@@ -69,6 +69,9 @@ import { promptUserChoice } from '../../chat/askUserPrompt.js';
 // AS2：confirm_flow 多题确认——请求进模块级桥（confirmFlowBridge），卡组由
 // SessionSidePanels 订阅渲染（ChatPanel 顶格，装配落在子模块）。
 import { confirmFlowHostOptions } from './confirmFlowBridge.js';
+// FEAT-AC9 P1：回合观测接线（打点 + 工具事件）外提——补上主对话路径缺失的 onTurnEvent，
+// 同时把本文件的行数降回基线以下（纪律：拆文件，不抬上限）。
+import { createAgentToolEventHandler, turnEventHostOptions } from './agentTurnObservation.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
 import { filterRequestMedia } from '../../prompt/chatPipeline.js';
@@ -1283,22 +1286,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           if (!mountedRef.current || controller.signal.aborted) return;
           updateAssistant(assistantId, { content: fullText, isError: false });
         },
-        onToolEvent: event => {
-          if (!mountedRef.current || !event) return;
-          if (event.phase === 'start') {
-            // E4：事件流（旁路）——工具调用事实（含轮次，审计「第几步做了什么」）。
-            appendSessionEvent(storeRef.current, ownerId, chatId, 'tool_call', {
-              name: event.name,
-              round: event.round,
-            });
-            // A3 二期：update_plan 的清单推进度条（状态展示；传空清单 = 清空）。
-            if (event.name === 'update_plan') {
-              const steps = normalizePlanSteps(event.args && event.args.plan);
-              setAgentPlan(steps);
-            }
-          }
-          setLiveTool(event.phase === 'start' ? { name: event.name, round: event.round, startedAt: Date.now() } : null);
-        },
+        onToolEvent: createAgentToolEventHandler({
+          mountedRef, storeRef, ownerId, chatId, setAgentPlan, setLiveTool,
+        }),
         // 先查已记住的权限规则（本次会话 / 永远允许），没命中才弹三选项框。
         // 钩子规则（hooks.json 的 before_shell / before_tool）**不走这里**：它们改由
         // permissionRules 单独喂给 runTool（见下），因为审批钩子只在「需要确认的工具」
@@ -1340,6 +1330,13 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
         context: { characterId },
         // P5：本轮 agent 追加消息（含 tool）回抛，提取工具轨迹持久化。
         onTranscript: msgs => { turnTrace = extractToolTrace(msgs); },
+        // FEAT-AC9 P1：**主对话路径接入回合打点**。
+        //
+        // 事故：这条路径此前完全没有 onTurnEvent ⇒ 用户最常用的「对话」页在诊断日志里
+        // 完全隐形（真机 02:51「关闭语音播报」那轮只留下一行 [app-setting]，零 turn-*）。
+        // 它又是 P1 七域工具的宿主，最该可观测的地方反而最瞎。
+        // thread-append 不接：那是 screenWatch 线程专属（工作区对话走 chats.js 持久化）。
+        ...turnEventHostOptions(),
           });
           break;
         } catch (error) {
