@@ -46,10 +46,13 @@ export function startOverlayConfirmBridge() {
   unsubscribe = addConfirmResultListener(({ id, approved, reason }) => {
     const settled = ensureRegistry().settleById(id, { approved, reason });
     // 留痕：允许/拒绝/超时各打一条（验收第 5 条要求全程可追）。
+    // FEAT-AC5 P0-C：改传 { message } 对象——这是**例行打点**，不是错误，
+    // 不该带 JS 堆栈（原先 new Error 让每条都写成「Error: [overlay-confirm] denied」，
+    // 用户真机日志里满屏 Error 前缀，真错误反而被埋掉）。
     try {
       recordDiagnostic(
         'log',
-        new Error(`[overlay-confirm] ${reason}`),
+        { message: `[overlay-confirm] ${reason}` },
         `id=${id} settled=${settled}`
       );
     } catch (error) {}
@@ -80,8 +83,10 @@ export function createOverlayConfirmHandler({ summarize = null } = {}) {
     // 悬浮窗只在 app 前台时对用户可见；后台时推卡片毫无意义 → 直接拒绝。
     const foreground = AppState.currentState === 'active';
     if (!foreground) {
+      // FEAT-AC5 P0-C：例行打点改传 { message }（无堆栈）。
+      // 这条是**预期内的拒绝**（后台不推卡片是设计），不是错误。
       try {
-        recordDiagnostic('log', new Error('[overlay-confirm] rejected'), `id=- reason=background tool=${name}`);
+        recordDiagnostic('log', { message: '[overlay-confirm] rejected' }, `id=- reason=background tool=${name}`);
       } catch (error) {}
       resolve(false);
       return;

@@ -154,6 +154,28 @@ export async function isOverlayActive() {
   }
 }
 
+/**
+ * FEAT-AC5 P0-B：**三态**读悬浮窗真实状态（true / false / null）。
+ *
+ * 为什么不能复用 isOverlayActive：它把「查询异常」和「确实没开」都压成 false
+ *（那是给「能不能点开启」用的，false 是安全方向）。但对账场景里这两者必须分开——
+ * 把一次查询失败当成「悬浮窗关了」，界面会主动把真实开启的悬浮窗显示成关闭，
+ * 用户点一下「开启」就会撞上「已在运行」。与本仓「读不出来 ≠ 没有」同型
+ *（threads.js 三态、memory.screenWatch.readFailed）。
+ *
+ * null 表示读不到（老构建没有该方法 / 调用抛错）→ 调用方维持现状。
+ */
+export async function readOverlayActive() {
+  const module = nativeModule();
+  if (!module || typeof module.isOverlayActive !== 'function') return null;
+  try {
+    const value = await module.isOverlayActive();
+    return value === true ? true : (value === false ? false : null);
+  } catch (error) {
+    return null;
+  }
+}
+
 // 请求原生抓一帧；结果经 onCapture 事件异步回传，本调用只表示「已受理」。
 export async function captureOverlayFrame() {
   const module = nativeModule();
@@ -404,7 +426,13 @@ export function addTraceListener(handler) {
   const subscription = DeviceEventEmitter.addListener(OVERLAY_EVENT_TRACE, payload => {
     const parsed = parseTraceEvent(payload);
     if (!parsed) return;
-    recordDiagnostic('storage', new Error(`[screen-overlay] ${parsed.stage}`), parsed.detail);
+    // FEAT-AC5 P0-C：例行打点**不带堆栈**。
+    // 原先这里 `new Error(...)` 只为借一个 message 字段，代价是每条例行打点都被写成
+    // 「Error: [screen-overlay] xxx」+ 一大段毫无信息量的 JS 堆栈——用户真机日志里
+    // 满屏 Error 前缀，真正的错误反而被埋掉（用户 20:08 的反馈正是这个）。
+    // recordDiagnostic 本来就支持传 { message } 对象（runDiary 一直这么用），
+    // 那条路径 stack 为空 ⇒ 日志分级恢复：例行打点是纯文本，真错误才带堆栈。
+    recordDiagnostic('storage', { message: `[screen-overlay] ${parsed.stage}` }, parsed.detail);
     if (typeof handler === 'function') handler(parsed);
   });
   return () => subscription.remove();

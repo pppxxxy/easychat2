@@ -270,10 +270,14 @@ export async function readChunkedText({
 
 // 读取阶段的诊断留痕（任务书第 4 条）：URI、size、方式、分片数、耗时。
 // 下次「一直等」或「导入失败」时，日志能直接指出卡在读取的哪一步、用了哪条路径。
+//
+// FEAT-AC5 P0-C：改传 { message } 对象（无堆栈）——这是**成功的读取留痕**，不是错误。
+// 原先 new Error 只为借 message 字段，代价是每条都写成「Error: [backup-read] ...」+
+// 一段无信息量的堆栈（用户日志被 Error 前缀灌满的同型病灶）。
 function recordReadTrace(uri, result) {
   recordDiagnostic(
     'storage',
-    new Error(`[backup-read] ${result.strategy} ${result.chunkCount} chunk(s)`),
+    { message: `[backup-read] ${result.strategy} ${result.chunkCount} chunk(s)` },
     `${uri} size=${result.bytes == null ? '?' : result.bytes} elapsed=${result.elapsedMs}ms`
   );
 }

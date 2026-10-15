@@ -432,8 +432,13 @@ test('diaryStartup：跨天判定与执行（注入式，RN-free 可直测）', 
 });
 
 test('R4 可见化：运行摘要进诊断 + 面板状态行（源码锚）', () => {
-  // 行首调用锚：注入态（void 0 && recordDiagnostic(）不得再命中
-  assert.ok(/^\s{4}recordDiagnostic\(/m.test(RUNNER_SOURCE), '运行结果应进诊断（真实调用，非死代码）');
+  // 行首调用锚：注入态（void 0 && recordDiagnostic(）不得再命中。
+  // ⚠️ 不再写死缩进宽度：FEAT-AC5 P0-C 把这条调用包进了
+  // `if (outcome.written > 0 || outcome.failed > 0)` 判据体内，缩进由 4 变 6。
+  // 钉死缩进数会把「结构变了」误报成「调用没了」（本轮真实踩到），
+  // 而真正要防的是**前缀注入**（`void 0 && recordDiagnostic(`）——`^\s*` 恰好
+  // 挡住带前缀的写法，同时不关心缩进深度。
+  assert.ok(/^\s*recordDiagnostic\(/m.test(RUNNER_SOURCE), '运行结果应进诊断（真实调用，非死代码）');
   assert.ok(/recordDiagnostic\(\s*\n\s*'startup',/.test(RUNNER_SOURCE), 'kind 用既有白名单（startup）');
   assert.ok(RUNNER_SOURCE.includes('written=${outcome.written} skipped=${outcome.skipped} failed=${outcome.failed}'));
   const panel = read('DiaryPanel.js');

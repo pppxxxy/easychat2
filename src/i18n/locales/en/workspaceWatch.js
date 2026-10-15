@@ -30,6 +30,19 @@ export const workspaceWatch = {
   'workspace.watch.modeRead': 'Read-only',
   'workspace.watch.modeWrite': 'Writable',
   'workspace.watch.writeHint': 'In "Writable" mode every destructive step (write file / run command / commit) asks for confirmation first, so you can allow or deny each one.',
+  // FEAT-AC5 P0-A: expanding a thread row (tap to read the full conversation / long-press to delete).
+  // The speaker is called the workspace assistant, not "Character" — in this context the
+  // Memory page's role label would name the wrong party.
+  'workspace.watch.roleUser': 'You',
+  'workspace.watch.roleAssistant': 'Workspace assistant',
+  'workspace.watch.expandA11y': 'Expand this conversation',
+  'workspace.watch.collapseA11y': 'Collapse this conversation',
+  'workspace.watch.deleteThread': 'Delete this conversation',
+  'workspace.watch.deleteThread.a11y': 'Delete the watch conversation with {name}',
+  'workspace.watch.deleteThread.title': 'Delete watch conversation',
+  'workspace.watch.deleteThread.body': 'Delete the watch conversation with “{name}”? Captured files are kept.',
+  'workspace.watch.entryImage': '(with screenshot)',
+  'workspace.watch.noEntries': 'This conversation has no content yet.',
 };
 
 export default workspaceWatch;

@@ -135,14 +135,22 @@ export async function runDiaryForNewDay({ now = Date.now() } = {}) {
       ? setDiaryLastRunDate(withSummary, dayKey)
       : withSummary;
     await saveDiarySettings(finalSettings);
-    // 运行结果进诊断（kind=startup 属既有白名单；内容仅计数与日期，无隐私文本）。
-    // 面板状态行读设置里的 lastRun，诊断供排查用——用户终于能区分「没触发」与
-    // 「触发了没写」。
-    recordDiagnostic(
-      'startup',
-      { message: `diary run ${dayKey}: written=${outcome.written} skipped=${outcome.skipped} failed=${outcome.failed}` },
-      'diary-run'
-    );
+    // FEAT-AC5 P0-C：**纯跳过不记日志**。
+    // 原先无论有没有做事都记一条，于是用户一下午十几次冷启动就刷了十几条
+    // 「diary run ...: written=0 skipped=1」——什么都没发生却留下一串记录，
+    // 真错误被埋掉（用户反馈的「日志刷屏」）。
+    // 判据：written>0（真写了）或 failed>0（真失败了）才记；纯跳过（全角色昨天无对话）
+    // 是**正常且高频**的状态，不是事件。
+    // 面板状态行读的是设置里的 lastRun（上一行已写），不受本判定影响——
+    // 用户仍能区分「没触发」与「触发了没写」。
+    // kind=startup 属既有白名单；内容仅计数与日期，无隐私文本。
+    if (outcome.written > 0 || outcome.failed > 0) {
+      recordDiagnostic(
+        'startup',
+        { message: `diary run ${dayKey}: written=${outcome.written} skipped=${outcome.skipped} failed=${outcome.failed}` },
+        'diary-run'
+      );
+    }
     return written;
   } catch (error) {
     // 静默失败：日记是增值功能，不能影响启动。

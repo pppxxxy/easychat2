@@ -33,17 +33,16 @@ import FrameRecognitionCard from './FrameRecognitionCard.js';
 import { captureAppScreen } from './capture.js';
 import { reportCaptureFailure, reportOverlayCrashReports } from './screenWatchDiagnostics.js';
 import { useOverlayChatSend } from './useOverlayChatSend.js';
+import useOverlayActive from './useOverlayActive.js';
 import {
   addCaptureFailedListener,
   addCaptureListener,
   addChatSendListener,
   addRequestCaptureListener,
-  addStateListener,
   addTraceListener,
   captureOverlayFrame,
   ensurePermissionThenStart,
   isIgnoringBatteryOptimizations,
-  isOverlayActive,
   isOverlaySupported,
   openBatteryOptimizationSettings,
   setOverlayCharacterName,
@@ -93,7 +92,6 @@ export default function ScreenWatchScreen() {
 
   // ---- 悬浮窗（跨应用看屏幕）----
   const overlaySupported = useMemo(() => isOverlaySupported(), []);
-  const [overlayActive, setOverlayActive] = useState(false);
   const [overlayBusy, setOverlayBusy] = useState(false);
   const [commentsExpanded, setCommentsExpanded] = useState(false);
   const overlayBusyRef = useRef(false);
@@ -120,15 +118,14 @@ export default function ScreenWatchScreen() {
     waiter.resolve(String(path || '') || null);
   }, []);
 
-  useEffect(() => {
-    if (!overlaySupported) return undefined;
-    let cancelled = false;
-    (async () => {
-      const active = await isOverlayActive();
-      if (!cancelled) setOverlayActive(active);
-    })();
-    return () => { cancelled = true; };
-  }, [overlaySupported]);
+  // FEAT-AC5 P0-B：悬浮窗状态改为共用 hook——挂载查询 + 事件推送 + **回前台对账**。
+  // 原先这里只在挂载时查一次（下面那段被本 hook 取代），用户从悬浮窗自己的「关闭」
+  // 关掉后（app 在后台，原生事件被 ROM 冻结丢失），状态行会永久停在「关闭悬浮窗」，
+  // 点一下反而撞上「已在运行」。工作区面板同一个病，两处共用一份实现。
+  const {
+    active: overlayActive,
+    setActive: setOverlayActive,
+  } = useOverlayActive();
 
   // FIX-SW5 P1-4：把上一次进程死亡的第一现场送进诊断日志。
   // 读取 / 上报 / 删除都在 screenWatchDiagnostics（读完即删 → 只报一次）。
@@ -242,14 +239,15 @@ export default function ScreenWatchScreen() {
       settleCapture('');
     });
     const offRequest = addRequestCaptureListener(() => { overlayRequestHandlerRef.current(); });
-    const offState = addStateListener(({ active }) => setOverlayActive(active));
+    // 状态订阅（含回前台对账）已在 useOverlayActive 里挂好——这里不再重复订阅
+    // addStateListener：两个监听器写同一份状态只会让「谁才是权威」变模糊。
     // FIX-4：采集链路打点 → 诊断日志（addTraceListener 内部已写，这里无需额外处理；
     // 订阅本身保证即使无人关心也会落盘，便于「一直等」类故障事后定位卡在哪一环）。
     const offTrace = addTraceListener();
     // SW3：悬浮窗里发来的话——按 scope 走对应管线（聊天角色 / 工作区 agent），
     // 结果经 pushOverlayChatMessage 推回悬浮窗渲染（原生只做嘴和眼）。
     const offChat = addChatSendListener(payload => { overlayChatHandlerRef.current(payload); });
-    return () => { offCapture(); offFailed(); offRequest(); offState(); offTrace(); offChat(); };
+    return () => { offCapture(); offFailed(); offRequest(); offTrace(); offChat(); };
   }, [overlaySupported, settleCapture]);
 
   // 小窗标题跟随当前角色（用户要求顶部显示角色名，而不是固定的「看屏幕」）。

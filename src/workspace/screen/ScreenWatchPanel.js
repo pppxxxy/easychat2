@@ -18,6 +18,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,17 +33,19 @@ import { useTranslation } from '../../i18n/I18nContext.js';
 import {
   canDrawOverlays,
   ensurePermissionThenStart,
-  isOverlayActive,
   isOverlaySupported,
   OVERLAY_START_RESULT,
   stopOverlay,
 } from '../../screenWatch/overlay.js';
+import useOverlayActive from '../../screenWatch/useOverlayActive.js';
 import {
   appendThreadEntry,
+  deleteScreenWatchThread,
   getOrCreateActiveThread,
   getScreenWatchThreads,
   THREAD_SCOPE_WORKSPACE,
 } from '../../screenWatch/threads.js';
+import { formatThreadEntryTime, threadEntryRoleKey } from '../../screenWatch/threadEntries.js';
 import { screenThreadPreview } from '../../memory/memoryBuckets.js';
 import { readImageDataUri } from '../../chat/attachments.js';
 import { approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
@@ -63,7 +66,10 @@ export default function ScreenWatchPanel({ storeRef }) {
 
   const [supported, setSupported] = useState(true);
   const [permitted, setPermitted] = useState(true);
-  const [active, setActive] = useState(false);
+  // FEAT-AC5 P0-B：悬浮窗状态改为共用 hook——挂载查询 + 事件推送 + **回前台对账**。
+  // 原先这里只在挂载时查一次，用户从悬浮窗自己的「关闭」关掉后（app 在后台，
+  // 原生事件被 ROM 冻结丢失），状态行会永久停在「关闭悬浮窗」。
+  const { active, setActive, reconcile } = useOverlayActive();
   const [threads, setThreads] = useState([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
@@ -73,6 +79,10 @@ export default function ScreenWatchPanel({ storeRef }) {
   const [running, setRunning] = useState(false);
   const [reply, setReply] = useState('');
   const [mode, setMode] = useState('read');
+  // FEAT-AC5 P0-A：展开了哪一场对话（null = 全部收起）。
+  // 面板内展开而非独立路由：记忆页 MemoryScreen 的会话详情展开是仓内先例，
+  // 而工作区面板本就是「回看」性质，跳走再回来会丢掉指令输入框里的草稿。
+  const [expandedId, setExpandedId] = useState('');
   const abortRef = useRef(null);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -91,11 +101,8 @@ export default function ScreenWatchPanel({ storeRef }) {
     } catch (error) {
       setPermitted(false);
     }
-    try {
-      setActive(await isOverlayActive());
-    } catch (error) {
-      setActive(false);
-    }
+    // 状态走 hook 的对账（三态：读不到就维持现状，不把「查失败」画成「未开启」）。
+    await reconcile();
     try {
       const list = await getScreenWatchThreads();
       setThreads((Array.isArray(list) ? list : []).filter(item => item && item.scope === THREAD_SCOPE_WORKSPACE));
@@ -104,7 +111,7 @@ export default function ScreenWatchPanel({ storeRef }) {
       setThreads([]);
       setNote(t('workspace.watch.readFailed'));
     }
-  }, [t]);
+  }, [reconcile, t]);
 
   useEffect(() => {
     let alive = true;
@@ -146,6 +153,45 @@ export default function ScreenWatchPanel({ storeRef }) {
   }, [active, busy, permitted, refresh, t]);
 
   const unsupported = !supported;
+
+  // FEAT-AC5 P0-A：点一下展开/收起这一场对话（面板内展开，不跳路由）。
+  const toggleThread = useCallback(threadId => {
+    const id = String(threadId || '');
+    if (!id) return;
+    setExpandedId(current => (current === id ? '' : id));
+  }, []);
+
+  // FEAT-AC5 P0-A：删除一场对话。
+  // 破坏性操作走 Alert 二次确认——这里是 **app 面板内**，不受悬浮窗「不弹全屏框」的限制
+  //（那条限制只对悬浮窗成立，见 overlayConfirm.js 的文件头）。
+  // 失败必须说出来：静默失败会让用户以为删掉了（useScreenWatchThreads 的既有口径同此）。
+  const confirmDeleteThread = useCallback(item => {
+    if (!item || !item.id) return;
+    const name = String(item.characterName || '').trim() || t('workspace.watch.assistantName');
+    Alert.alert(
+      t('workspace.watch.deleteThread.title'),
+      t('workspace.watch.deleteThread.body', { name }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            deleteScreenWatchThread(item.id)
+              .then(() => {
+                // 删掉的正好是展开中的那场 → 收起，否则展开态指向一个已不存在的 id。
+                setExpandedId(current => (current === item.id ? '' : current));
+                return refresh();
+              })
+              .catch(error => {
+                if (!mountedRef.current) return;
+                setNote((error && error.message) || t('common.error.deleteFailed'));
+              });
+          },
+        },
+      ]
+    );
+  }, [refresh, t]);
 
   // SW2：跑一轮工作区看屏幕会话——接 agent 管线（工具集 + 权限门控），
   // 破坏性操作经 approveToolCall 弹确认（无确认 = 拒绝，绝不放行）。
@@ -298,25 +344,71 @@ export default function ScreenWatchPanel({ storeRef }) {
       ) : null}
       <Text style={styles.footnote}>{t('workspace.watch.writeHint')}</Text>
 
-      {/* ② 工作区线程列表（scope='workspace'）：与聊天线程分开，不串上下文。 */}
+      {/* ② 工作区线程列表（scope='workspace'）：与聊天线程分开，不串上下文。
+          FEAT-AC5 P0-A：点行展开完整对话（此前是裸 View，看着像卡片其实点不动）。 */}
       <Text style={styles.sectionTitle}>{t('workspace.watch.threads')}</Text>
       {threads.length === 0 ? (
         <Text style={styles.hint}>{t('workspace.watch.empty')}</Text>
       ) : (
-        threads.map(thread => (
-          <View key={thread.id} style={styles.threadRow}>
-            <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.textMuted} />
-            <View style={styles.threadInfo}>
-              <Text style={styles.threadName} numberOfLines={1}>
-                {String(thread.characterName || '').trim() || t('common.characterFallback')}
-              </Text>
-              <Text style={styles.threadPreview} numberOfLines={1}>
-                {screenThreadPreview(thread) || t('workspace.watch.emptyPreview')}
-              </Text>
+        threads.map(thread => {
+          const expanded = expandedId === thread.id;
+          const name = String(thread.characterName || '').trim() || t('common.characterFallback');
+          const entries = Array.isArray(thread.entries) ? thread.entries : [];
+          return (
+            <View key={thread.id}>
+              <TouchableOpacity
+                style={styles.threadRow}
+                onPress={() => toggleThread(thread.id)}
+                onLongPress={() => confirmDeleteThread(thread)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
+                accessibilityLabel={`${name} · ${expanded
+                  ? t('workspace.watch.collapseA11y')
+                  : t('workspace.watch.expandA11y')}`}
+                accessibilityHint={t('workspace.watch.deleteThread')}
+              >
+                <Ionicons
+                  name={expanded ? 'chevron-down' : 'chevron-forward'}
+                  size={16}
+                  color={theme.colors.textMuted}
+                />
+                <View style={styles.threadInfo}>
+                  <Text style={styles.threadName} numberOfLines={1}>{name}</Text>
+                  <Text style={styles.threadPreview} numberOfLines={expanded ? 2 : 1}>
+                    {screenThreadPreview(thread) || t('workspace.watch.emptyPreview')}
+                  </Text>
+                </View>
+                <Text style={styles.threadCount}>{entries.length}</Text>
+              </TouchableOpacity>
+              {expanded ? (
+                <View style={styles.entryBox}>
+                  {entries.length === 0 ? (
+                    <Text style={styles.hint}>{t('workspace.watch.noEntries')}</Text>
+                  ) : (
+                    entries.map(entry => (
+                      <View key={entry.id} style={styles.entryRow}>
+                        <Text style={styles.entryMeta}>
+                          {`${t(threadEntryRoleKey(entry.role))}${formatThreadEntryTime(entry.at) ? ` · ${formatThreadEntryTime(entry.at)}` : ''}${entry.imageUri ? ` ${t('workspace.watch.entryImage')}` : ''}`}
+                        </Text>
+                        {/* selectable：用户要能复制出错信息去搜（任务书 §二 第 2 条）。 */}
+                        <Text style={styles.entryText} selectable>{entry.text}</Text>
+                      </View>
+                    ))
+                  )}
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => confirmDeleteThread(thread)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('workspace.watch.deleteThread.a11y', { name })}
+                  >
+                    <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
+                    <Text style={styles.deleteText}>{t('workspace.watch.deleteThread')}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </View>
-            <Text style={styles.threadCount}>{thread.entries.length}</Text>
-          </View>
-        ))
+          );
+        })
       )}
 
       {/* SW2 待办如实标注：会话管线尚未切到工作区 agent（当前仍走聊天角色管线）。 */}
@@ -366,6 +458,17 @@ const createStyles = (theme, fonts, tokens) => StyleSheet.create({
   threadName: { color: theme.colors.text, fontSize: fonts.scaled(13), fontWeight: '600' },
   threadPreview: { color: theme.colors.textMuted, fontSize: fonts.scaled(11.5), marginTop: 2 },
   threadCount: { color: theme.colors.textFaint, fontSize: fonts.scaled(11) },
+  // FEAT-AC5 P0-A：展开态（完整对话条目 + 删除入口）。
+  // 左侧留出与行首 chevron 对齐的缩进，让展开内容视觉上从属于上面那一行。
+  entryBox: {
+    paddingLeft: 24, paddingBottom: 8,
+    borderBottomWidth: tokens.border.thin, borderBottomColor: theme.colors.surfaceBorder,
+  },
+  entryRow: { marginTop: 6 },
+  entryMeta: { color: theme.colors.textFaint, fontSize: fonts.scaled(10.5) },
+  entryText: { color: theme.colors.text, fontSize: fonts.scaled(12), lineHeight: fonts.scaled(17), marginTop: 1 },
+  deleteButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10, alignSelf: 'flex-start' },
+  deleteText: { color: theme.colors.danger, fontSize: fonts.scaled(11.5), fontWeight: '600' },
   // SW2：指令区（模式 chips + 输入框 + 发送/停止 + 回复卡）。
   modeRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
   modeChip: {

@@ -573,9 +573,12 @@ function OverlayConfigBridge() {
     setOverlaySnapshotRefresher(() => writeOverlayConfigSnapshot({ character: characterRef.current }));
     setMusicToolRecorder({
       noteMusicTool(action, target) {
+        // FEAT-AC5 P0-C：例行打点改传 { message }（无堆栈）。
+        // 音乐工具的每次调用是**成功留痕**，不是错误——原先 new Error 让它带一段
+        // 毫无信息量的堆栈，用户日志里满屏 Error 前缀（正是本轮在治的病）。
         recordDiagnostic(
           'log',
-          new Error(`[music-tool] action=${action} target=${target || 'none'}`),
+          { message: `[music-tool] action=${action} target=${target || 'none'}` },
           'music'
         );
       },

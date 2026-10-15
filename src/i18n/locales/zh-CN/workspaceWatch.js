@@ -29,6 +29,19 @@ export const workspaceWatch = {
   'workspace.watch.modeRead': '只读',
   'workspace.watch.modeWrite': '可改',
   'workspace.watch.writeHint': '「可改」模式下，破坏性操作（写文件 / 跑命令 / 提交）执行前都会弹确认，你可以逐条允许或拒绝。',
+  // FEAT-AC5 P0-A：线程条目展开（点开看完整对话 / 长按删除）。
+  // 角色名不叫「角色」——工作区线程里说话的是工作区助手，不是聊天角色
+  //（记忆页的 memory.provenance.evidence.roleAssistant 在这个语境里指错人）。
+  'workspace.watch.roleUser': '你',
+  'workspace.watch.roleAssistant': '工作区助手',
+  'workspace.watch.expandA11y': '展开这场对话',
+  'workspace.watch.collapseA11y': '收起这场对话',
+  'workspace.watch.deleteThread': '删除这场对话',
+  'workspace.watch.deleteThread.a11y': '删除与 {name} 的看屏幕对话',
+  'workspace.watch.deleteThread.title': '删除看屏幕对话',
+  'workspace.watch.deleteThread.body': '确定删除与「{name}」的这场看屏幕对话吗？截图文件不会一并删除。',
+  'workspace.watch.entryImage': '（含截图）',
+  'workspace.watch.noEntries': '这场对话还没有内容。',
 };
 
 export default workspaceWatch;
