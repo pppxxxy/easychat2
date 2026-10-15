@@ -289,26 +289,46 @@ test('解锁：ScreenWatchScreen 已把该块外提（行数棘轮），且不�
   assert.equal(/runHeadlessAgent/.test(screen), false, '屏幕文件不该再直接调 agent');
 });
 
-test('确认桥：后台 / 老构建 / 推送失败 一律按拒绝（问不到用户 = 不执行）', () => {
+test('确认桥：老构建 / 推送失败 / 注册失败 一律按拒绝（问不到用户 = 不执行）', () => {
   const bridge = read('src/screenWatch/overlayConfirmBridge.js');
-  // 后台不推（推了也没人看）。
-  // ⚠️ 必须断言**分支体内**的行为，不能只靠邻近正则——早先写的
-  // `/AppState\.currentState === 'active'[\s\S]{0,400}?resolve\(false\)/` 是空转的：
-  // 把 `if (!foreground)` 改成 `if (false)` 之后，那行 `foreground = ...` 还在、
-  // 别处也有 resolve(false)，正则照样匹配（注入验证抓到的）。
-  assert.match(bridge, /const foreground = AppState\.currentState === 'active';/,
-    '读取前台状态');
-  assert.match(bridge, /if \(!foreground\) \{[\s\S]{0,500}?resolve\(false\);[\s\S]{0,120}?return;/,
-    '不在前台必须 resolve(false) 并 return（不挂起、不推卡片）');
-  // 推送失败 → 立刻结算为拒绝，不把 agent 悬着
+  // ⚠️ FEAT-AC5 P0-D 有意**删除**了「app 不在前台就拒绝」这条判据，原断言随之作废。
+  // 理由（不是为了让测试变绿，而是原判据本身是错的）：
+  //   · 悬浮窗**本来就是给「用户在看别的 app」用的**——我们的 Activity 在后台恰恰是它的
+  //     主场景；而确认卡由 OverlayService 经 WindowManager 渲染，**与 Activity 前后台无关**，
+  //     app 在后台时用户照样看得见、点得到。
+  //   · 旧判据把主场景一律拒掉 ⇒ 窗内确认卡在最需要它的时刻永不出现（截图 #257 被拒的
+  //     第二层原因）。
+  //   · 安全语义**一字未松**：该判据从来只产生拒绝、从不产生放行；删掉它只是把
+  //     「无条件拒绝」换回「去问用户」，而「必须有一次显式点击，否则超时即拒绝」
+  //     这条真正的安全保证仍在 registry 里（本文件上面的纯层测试钉着）。
+  // 因此这里改为**反向**断言：不得再引入基于 AppState 的前台门控（防回归）。
+  assert.equal(/AppState/.test(bridge), false,
+    '不得再按 AppState 前台门控确认（悬浮窗主场景就是 app 在后台）');
+  assert.equal(/foreground/.test(bridge), false, '不得再有 foreground 判据');
+  // 真正保留的拒绝路径：推送失败 / 注册失败 / 空工具名
   assert.match(bridge, /if \(!ok\) ensureRegistry\(\)\.settleById\(id, \{ approved: false, reason: 'unavailable' \}\)/,
-    '推卡片失败要立刻按拒绝结算');
-  // 注册失败（同 id 已挂起 / 载荷不可用）也要结算
+    '推卡片失败要立刻按拒绝结算（不白等 60 秒）');
   assert.match(bridge, /if \(!registered\) \{[\s\S]{0,120}?resolve\(false\);/,
     '注册失败要按拒绝');
+  assert.match(bridge, /if \(!name\) \{[\s\S]{0,80}?resolve\(false\);/,
+    '空工具名要按拒绝');
   // 兜底文案走 i18n（纯层不许硬编码中文）
   assert.ok(bridge.includes("tActive('screenWatch.overlay.confirm.fallback')"),
     '兜底文案走 i18n');
+});
+
+test('确认桥：删除前台门控是**有意**的，且推送失败能真的被原生回报', () => {
+  // 这条与上一条配对：上一条钉「门控不再存在」，这条钉「替代它的机制真的成立」——
+  // 否则删掉门控只是把「一律拒绝」换成「一律白等 60 秒」。
+  const service = read('plugins/screenOverlay/android/OverlayService.kt');
+  // 原生返回值必须有意义：悬浮窗收起（chatList == null）时如实返回 false，
+  // 让 JS 立刻结算 unavailable。旧实现无条件 return true，那条路永远不触发。
+  assert.match(service, /if \(chatList == null\) return false/,
+    '卡片放不下时必须如实返回 false（否则 JS 白等 60 秒）');
+  // chatList 被跨线程读取，必须是 @Volatile（RN native-modules 线程调 pushConfirmCard，
+  // 主线程写该字段；不加会读到陈旧值，收起态被判成「放得下」）
+  assert.match(service, /@Volatile private var chatList: LinearLayout\? = null/,
+    'chatList 必须 @Volatile（跨线程读）');
 });
 
 // ---------- 原生（Kotlin 源码断言）----------

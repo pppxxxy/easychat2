@@ -254,7 +254,47 @@ test('i18n：新增词条中英齐备（缺任一条界面会显示原始键名�
   assert.ok(en.includes('{name}'), 'en 的删除文案要带 {name}');
 });
 
-// ---------- ⑦ 行数棘轮 ----------
+// ---------- ⑦ P0-D 悬浮窗路由（截图 #257 的真因）----------
+
+test('P0-D：工作区 scope 必须走 JS（原生大脑没有任何工具能力）', () => {
+  const service = read('plugins/screenOverlay/android/OverlayService.kt');
+  const code = stripComments(service);
+  // 根因：旧实现**先判 brain.hasConfig() 再看 scope**，于是只要用户配过 API，
+  // 工作区消息就被原生大脑截走——大脑是纯流式直连、没有工具，JS 工具层永远收不到。
+  // 用户看到的是助手如实说「我没有工具调用能力」（它确实没有），而不是「工具被拒绝了」。
+  // 断言：工作区分支必须**在 hasConfig 判据之前**就 return，且该分支里判的是 JS 存活。
+  const fnAt = code.indexOf('private fun sendChatFromInput()');
+  assert.ok(fnAt > 0, 'sendChatFromInput 定位失败');
+  const body = code.slice(fnAt, fnAt + 2000);
+  const scopeAt = body.indexOf('if (chatScope == SCOPE_WORKSPACE)');
+  const hasConfigAt = body.indexOf('if (brain.hasConfig())');
+  assert.ok(scopeAt > 0, '必须有工作区 scope 分支');
+  assert.ok(hasConfigAt > 0, '聊天 scope 的既有判据应保留');
+  assert.ok(scopeAt < hasConfigAt,
+    '工作区 scope 分支必须在 brain.hasConfig() **之前**（否则工作区消息被大脑截走，截图 #257）');
+  // 该分支内必须真的走 JS 存活判定 + emit
+  assert.match(body, /if \(chatScope == SCOPE_WORKSPACE\) \{[\s\S]{0,400}?ScreenOverlayModule\.isJsBridgeAlive\(\)[\s\S]{0,400}?EVENT_CHAT_SEND/,
+    '工作区分支要判 JS 存活并 emit 给 JS');
+  // JS 不可用时不得静默降级到大脑（那等于让助手说一段做不到的话）
+  assert.match(body, /if \(chatScope == SCOPE_WORKSPACE\) \{[\s\S]{0,900}?appendChatMessage\(\s*"assistant",\s*"（工具能力需要 App 在运行中/,
+    'JS 不可用时要如实说明，不得让无工具的大脑冒充');
+  // 聊天 scope 的既有行为逐字不变（M2 的核心目的：app 被杀也能聊）
+  assert.match(body, /if \(brain\.hasConfig\(\)\) \{[\s\S]{0,120}?sendViaBrain\(text\)/,
+    '聊天 scope 仍走大脑直连（既有行为不得被本次修复顺带改掉）');
+});
+
+test('P0-D：JS 存活判定用 RN 自己的 API，不自己维护标记', () => {
+  const module_ = read('plugins/screenOverlay/android/ScreenOverlayModule.kt');
+  assert.match(module_, /fun isJsBridgeAlive\(\): Boolean/, '存在 JS 存活判定');
+  // 用 ReactContext 的既有 API：自己维护「JS 活着」的标记需要与 RN 生命周期逐点对齐，必然漂移
+  assert.match(module_, /context\.hasActiveReactInstance\(\) \|\| context\.isBridgeless\(\)/,
+    '用 RN 自己的活跃判定（hasActiveReactInstance / isBridgeless）');
+  // 拿不到 context 时按「不可用」返回 false（保守：宁可如实说需要打开 App）
+  assert.match(module_, /fun isJsBridgeAlive\(\): Boolean \{[\s\S]{0,200}?\?: return false/,
+    '拿不到 context 时返回 false');
+});
+
+// ---------- ⑧ 行数棘轮 ----------
 
 test('行数：本轮新增/修改文件都在 800 硬上限内', () => {
   const count = source => source.split('\n').length - (source.endsWith('\n') ? 1 : 0);

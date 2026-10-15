@@ -631,6 +631,32 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
         }
 
         /**
+         * JS 侧是否**真的能收事件**（FEAT-AC5 P0-D）。
+         *
+         * 为什么必须有这个判据：悬浮窗的「工作区」scope 要走 JS 的 agent 管线（工具、权限门控、
+         * 确认卡全在 JS 侧）。而原生大脑（OverlayBrain）是纯流式直连、**没有任何工具能力**。
+         * 于是「有没有配置快照」曾被当成「走原生还是走 JS」的判据——那是错的：
+         * 只要用户配过 API，快照就存在，工作区消息会被大脑截走，JS 工具层**永远收不到**，
+         * 用户看到的是助手如实说「我没有工具调用能力」（因为它真的没有），
+         * 而不是「工具被拒绝了」。这正是用户截图 #257 的现象。
+         *
+         * 判据换成**JS 是否活着**：RN 实例活跃 ⇒ 事件能送达 ⇒ 工作区 scope 必须走 JS。
+         * 大脑只在 JS 不在时兜底（悬浮窗的主场景之一：app 被杀后悬浮窗仍在）。
+         *
+         * 用 RN 自己的 API（ReactContext.hasActiveReactInstance / isBridgeless），
+         * 不自己维护「JS 活着」的标记——那需要与 RN 生命周期逐点对齐，必然漂移。
+         */
+        @JvmStatic
+        fun isJsBridgeAlive(): Boolean {
+            val context = contextRef?.get() ?: return false
+            return try {
+                context.hasActiveReactInstance() || context.isBridgeless()
+            } catch (error: Exception) {
+                false
+            }
+        }
+
+        /**
          * 当前是否持有麦克风权限（供 OverlayService 决定「说话」按钮走录音还是提示）。
          *
          * **以系统状态为准**，缓存标记只作兜底：权限是持久的，进程重启后缓存会归零，

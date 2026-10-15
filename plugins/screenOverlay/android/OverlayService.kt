@@ -135,7 +135,12 @@ class OverlayService : Service() {
     // View——第二条 addView 必抛 IllegalStateException（真机四份崩溃栈同一死法：
     // "ScrollView can host only one direct child"）。所以 ScrollView 本体只做滚动，
     // 消息全部挂在这层 LinearLayout 上。chatMessages 与 chatList 同生共死（收起=null）。
-    private var chatList: LinearLayout? = null
+    //
+    // FEAT-AC5 P0-D：@Volatile——确认卡要**跨线程**判「现在能不能显示」
+    //（pushConfirmCard 在 RN 的 native-modules 线程被调用，而本字段在主线程写）。
+    // 不加 @Volatile 时那个读可能拿到陈旧值，于是收起态仍被判成「可显示」，
+    // 卡片发不出去却让 agent 白等 60 秒。
+    @Volatile private var chatList: LinearLayout? = null
     private var chatInput: EditText? = null
     private var scopeButton: TextView? = null
     // M3 耳朵：「说话」按钮（录音时文案切成「停止」）与在跑的录音器。
@@ -772,22 +777,48 @@ class OverlayService : Service() {
         }
     }
 
-    // 用户在悬浮窗里发了话：交给 JS（LLM/工具/确认全在 JS 侧），原生只做嘴和眼。
-    // 用户在悬浮窗里发了话（M2 大脑搬家）：
-    //   · 有配置快照 → **原生直连**（不依赖 JS 存活；这正是本次重设计的核心目的）；
-    //   · 无快照 → 回退旧的 JS 管线（app 在前台时仍可用；无快照说明用户还没打开过 App）。
-    // 两条路径互斥，不会出现两条回复。
+    // 用户在悬浮窗里发了话（M2 大脑搬家 + FEAT-AC5 P0-D 路由修正）：
+    //   · **工作区 scope** → 必须走 JS（工具/权限/确认卡全在 JS 侧）；
+    //   · 聊天 scope：有配置快照 → 原生直连（不依赖 JS 存活，M2 的核心目的，**逐字不变**）；
+    //                无快照 → 回退 JS 管线。
+    //
+    // ⚠️ FEAT-AC5 P0-D 修的就是判据顺序。旧实现对**两个 scope 一视同仁**地先看
+    // brain.hasConfig()：只要用户配过 API，快照就存在，工作区消息也被原生大脑截走——
+    // 而大脑是纯流式直连、没有任何工具能力，于是 JS 工具层永远收不到，
+    // 用户看到助手如实说「我没有工具调用能力」（它确实没有），而不是「工具被拒绝了」。
+    // 这正是用户截图 #257「帮我打开语音播报被拒」的真因：不是 AC4 P0-A 没修好，
+    // 而是这条消息根本没到 JS。
+    //
+    // 为什么只改工作区、不动聊天：聊天 scope 的既有行为（大脑直连，app 被杀也能聊）
+    // 是 M2 重设计的核心目的，没有任何用户反馈说它有问题——不在修 bug 的提交里顺手改它。
     private fun sendChatFromInput() {
         val text = chatInput?.text?.toString()?.trim().orEmpty()
         if (text.isEmpty()) return
         chatInput?.setText("")
         appendChatMessage("user", text)
         val brain = OverlayBrain.get(this)
+        // 工作区 scope 优先走 JS：那里的工具集是用户要的能力，大脑给不了。
+        if (chatScope == SCOPE_WORKSPACE) {
+            if (ScreenOverlayModule.isJsBridgeAlive()) {
+                ScreenOverlayModule.emit(EVENT_CHAT_SEND, Arguments.createMap().apply {
+                    putString("text", text)
+                    putString("scope", chatScope)
+                })
+            } else {
+                // JS 不可用时**不静默降级到大脑**：大脑没有工具，用它回复等于让助手
+                // 说一段做不到的话（那正是截图 #257 的误导）。如实说清缺什么。
+                appendChatMessage(
+                    "assistant",
+                    "（工具能力需要 App 在运行中：请先打开 App，再从悬浮窗发这条指令）"
+                )
+            }
+            return
+        }
+        // 聊天 scope：既有行为逐字不变。
         if (brain.hasConfig()) {
             sendViaBrain(text)
             return
         }
-        // 无配置快照：回退 JS 管线（与 M2 之前行为一致，app 在前台时可用）。
         ScreenOverlayModule.emit(EVENT_CHAT_SEND, Arguments.createMap().apply {
             putString("text", text)
             putString("scope", chatScope)
@@ -888,10 +919,20 @@ class OverlayService : Service() {
      *   · 允许/拒绝按钮点过 → 立刻禁用两键（防连点结算两次）；
      *   · 超时 → 按拒绝，并把卡片改成「已超时」；
      *   · 卡片被消息上限裁掉（长会话）→ 由超时兜底（不会永远悬着）。
+     *
+     * FEAT-AC5 P0-D：**返回值现在是有意义的**。
+     * 旧实现无条件 return true（真正的插入在 mainHandler.post 里，失败与否它不知道），
+     * 于是 JS 侧「推送失败 → 立刻按拒绝结算」那条路**永远不会触发**：卡片没地方放时
+     * agent 仍白等 60 秒才收到超时拒绝。现在先同步判一次「放得下吗」
+     *（chatList 是 @Volatile，本方法在 RN 的 native-modules 线程被调用），
+     * 放不下就如实返回 false，JS 立刻结算为 unavailable——用户马上看到结果，不等 60 秒。
      */
     fun pushConfirmCard(id: String, summary: String, timeoutMs: Long): Boolean {
         val cardId = id.trim()
         if (cardId.isEmpty()) return false
+        // 悬浮窗收起（chatList 已置空）时卡片无处可放：如实说不放得下，
+        // 让 JS 按「问不到用户 = 不执行」立刻结算，而不是让它挂 60 秒。
+        if (chatList == null) return false
         mainHandler.post {
             val list = chatList
             if (list != null) {

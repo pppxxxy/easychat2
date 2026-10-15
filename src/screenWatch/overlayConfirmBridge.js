@@ -7,8 +7,6 @@
 // 本文件只做**编排**（把纯层的注册表 + 原生桥接起来）；全部判定在
 // overlayConfirm.js（纯函数/纯类，Node 直测）。
 
-import { AppState } from 'react-native';
-
 import {
   OverlayConfirmRegistry,
   OVERLAY_CONFIRM_TIMEOUT_MS,
@@ -65,10 +63,22 @@ export function startOverlayConfirmBridge() {
  *
  * 语义完全照 registry 的既定纪律：**问不到用户 = 不执行**。
  *   · 原生不支持确认卡（老构建）→ 拒绝；
- *   · app 不在前台（悬浮窗不可见 / 进程被冻结）→ 拒绝（推了也没人看）；
- *   · 推送失败 → 拒绝；
+ *   · 推送失败 / 卡片无处可放（悬浮窗收起、服务不在）→ 拒绝；
  *   · 60 秒没点 → 拒绝。
  * 宁可少做一次操作，也绝不在无人应答时默默放行写操作。
+ *
+ * FEAT-AC5 P0-D：**删掉了「app 不在前台就拒绝」这条判据**（原 :83-93）。
+ * 它不是安全机制，而是个错误判据：
+ *   · 悬浮窗**本来就是给「用户在看别的 app」用的**——我们的 Activity 在后台恰恰是它的
+ *     主场景。而确认卡由 OverlayService 经 WindowManager 渲染，**与 Activity 前后台无关**：
+ *     app 在后台时用户照样看得见、点得到。
+ *   · 旧判据把主场景一律拒掉 ⇒ P0-A 的窗内确认卡在最需要它的时刻永不出现，
+ *     用户看到的就是「写操作被拒」（截图 #257 被拒的第二层原因）。
+ *   · 安全语义**一字未松**：本判据从来只会产生拒绝、从不产生放行；去掉它只是把
+ *     「无条件拒绝」换回「去问用户（允许/拒绝/超时按拒绝）」。真正的安全保证是
+ *     「必须有一次显式点击，否则超时即拒绝」，那条在 registry 里，未动。
+ * 「能不能问到用户」现在由**原生**给答案（它才知道卡片放不放得下），
+ * 单一事实源，不在 JS 侧猜。
  *
  * @returns {(call: {name: string, args?: object}) => Promise<boolean>}
  */
@@ -77,17 +87,6 @@ export function createOverlayConfirmHandler({ summarize = null } = {}) {
   return call => new Promise(resolve => {
     const name = String((call && call.name) || '').trim();
     if (!name) {
-      resolve(false);
-      return;
-    }
-    // 悬浮窗只在 app 前台时对用户可见；后台时推卡片毫无意义 → 直接拒绝。
-    const foreground = AppState.currentState === 'active';
-    if (!foreground) {
-      // FEAT-AC5 P0-C：例行打点改传 { message }（无堆栈）。
-      // 这条是**预期内的拒绝**（后台不推卡片是设计），不是错误。
-      try {
-        recordDiagnostic('log', { message: '[overlay-confirm] rejected' }, `id=- reason=background tool=${name}`);
-      } catch (error) {}
       resolve(false);
       return;
     }
@@ -107,7 +106,8 @@ export function createOverlayConfirmHandler({ summarize = null } = {}) {
       resolve(false);
       return;
     }
-    // 推卡片：失败（老构建 / 服务不在）→ 立刻按拒绝结算，不把 agent 悬着。
+    // 推卡片：失败（老构建 / 服务不在 / 悬浮窗收起放不下）→ 立刻按拒绝结算，不把 agent 悬着。
+    // 这条路径也是「问不到用户」的如实回答：助手会据此说明没能确认，而不是白等 60 秒。
     pushOverlayConfirm({ id, summary, timeoutMs: OVERLAY_CONFIRM_TIMEOUT_MS })
       .then(ok => {
         if (!ok) ensureRegistry().settleById(id, { approved: false, reason: 'unavailable' });
