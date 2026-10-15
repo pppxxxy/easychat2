@@ -10,6 +10,40 @@ import { formatReadLogLine } from './readLog.js';
 import { workspaceSkillsSection } from './skills.js';
 import { COMPACTION_AUTHORITY_NOTE } from '../chat/compaction.js';
 
+// FEAT-AC4 P1：**世界观边界**——APP 自身功能不是代码仓库的一部分。
+//
+// 为什么需要（真机实测的病灶）：用户问「你能帮我发动态吗」，助手去 `grep` 代码仓库
+// 找 `src/` 下的 Moments 文件——它把「APP 的功能」当成了「代码仓库里的功能」。
+// 工作区助手的世界观此前只有文件沙盒，没有任何「app 自身功能」的概念。
+//
+// 这段是**静态**的：它讲的是「去哪找」这个永远成立的约定，不点名任何具体工具
+//（点名了就必须有——见下方 APP_FEATURE_TOOL_HINTS 的条件注入纪律）。
+export const APP_FEATURE_BOUNDARY_PROMPT =
+  '重要：APP 自身的功能（设置、音乐、提醒、动态、日记、主动消息、书籍、插件等）'
+  + '**不是这个代码仓库的一部分**，不要用文件工具去 src/ 里搜索或修改它们——'
+  + '那些目录里只有实现代码，改了也不会生效。这类需求要用专门的「应用」工具；'
+  + '若当前没有对应的工具，请如实说明并指引用户到 App 界面上操作，不要假装改好了。';
+
+// 已实际注册的「应用」工具 → 提示词里的如实说明。
+//
+// **条件注入**（与 EXECUTION_TOOL_HINTS 同款纪律）：只在注册表真返回了该工具时才写进
+// 提示词。说了「可以放歌」但工具没注册，模型会反复尝试然后乱解释（本仓反复踩过）。
+export const APP_FEATURE_TOOL_HINTS = Object.freeze({
+  list_app_settings: '查看/修改 App 设置用 list_app_settings / get_app_setting / set_app_setting。',
+  list_music_library: '查看曲库与歌单用 list_music_library，控制播放用 control_music。',
+  list_reminders: '设置一次性提醒用 set_reminder（绝对时间），查看用 list_reminders，取消用 cancel_reminder。',
+});
+
+// 按实际注册的工具清单组装「应用工具」段；一个都没有时返回空串（不写空承诺）。
+export function appFeatureToolSection(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  const hints = Object.keys(APP_FEATURE_TOOL_HINTS)
+    .filter(name => list.includes(name))
+    .map(name => APP_FEATURE_TOOL_HINTS[name]);
+  if (hints.length === 0) return '';
+  return `[应用工具] 以下是可用的 App 功能工具：\n${hints.join('\n')}`;
+}
+
 export const WORKSPACE_AGENT_BASE_PROMPT = [
   '你是「工作区文件助手」，帮用户在本地沙盒里管理文本文件。',
   '所有路径都是相对沙盒根目录的相对路径，目录以 / 结尾。',
@@ -78,6 +112,8 @@ export function workspaceAgentModeHint(mode) {
 // agents：工作区定义的分身子弟清单（E3），只在 run_subagent 真注册时注入（同款纪律）。
 export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = '', tools, memory, skills, readLog, agents, teams, hookText } = {}) {
   const lines = [WORKSPACE_AGENT_BASE_PROMPT];
+  // FEAT-AC4 P1：世界观边界（静态，永远成立）——治「问发动态却去 grep src」。
+  lines.push(APP_FEATURE_BOUNDARY_PROMPT);
   const name = String(characterName || '').trim();
   if (name) lines.push(`你正在为角色「${name}」的工作区服务。`);
   // 记忆段放在模式说明之前：先讲「这个工作区的长期约定」，再讲「这一轮能做什么」。
@@ -101,6 +137,9 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     }
     // A3：计划工具引导——工具没注册就不提（说了调不动，模型会反复试然后乱解释）。
     if (Array.isArray(tools) && tools.includes('update_plan')) lines.push(PLAN_TOOL_HINT);
+    // FEAT-AC4 P1：应用工具段（按实际注册清单组装，一个都没有时不写）。
+    const appSection = appFeatureToolSection(tools);
+    if (appSection) lines.push(appSection);
   }
   lines.push(workspaceAgentModeHint(mode));
   if (mode === 'write') {
