@@ -105,6 +105,15 @@ export function formatScrubberTime(timestamp, t = tActive) {
 // 处理统一走这里，避免出现“生成的部分整条消失”或“永远停在正在思考”的僵尸气泡。
 // t：占位符与「未生成正文」都是用户可见文案，随语言变——比较与取值都必须用同一个 t
 // （拿写死的中文去比，英文界面下永远不相等，会把「Thinking...」当正文落盘）。
+//
+// P2 调研结论（2026-10-17，竞品警示 #7「只思考不说话」的呈现区分）——**现状已可，不改**：
+// 本函数只服务**用户主动中止**那几条路径（useChatSend 的 379/822/903/1165/1250）。
+// 中止且无正文时落 NO_BODY_TEXT_KEY「（未生成正文）」，而**非中止**的「只有思考、
+// 没有正文」走另一条路（replyFlow.replacePendingWithReply → chat.send.noReply）。
+// 两条路本就结构可分（signal.aborted / isCanceledError），且推理内容本身由
+// MessageBubble.js:362 的 reasoning 块渲染出来（用户折叠可见、可展开）——即用户看到的是
+// 「思考内容 + 一句无正文说明」，不是空白气泡，也不是笼统报错。因此不必新增
+// 「思考终止/思考中断」两套文案；真要区分措辞，属于「聊天后台运行」立项时的消息状态设计。
 export function settlePendingMessage(list, id, t) {
   const source = Array.isArray(list) ? list : [];
   return source.reduce((acc, item) => {

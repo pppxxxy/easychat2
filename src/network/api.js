@@ -20,7 +20,7 @@ import {
   parseStreamPayload,
 } from '../apiProtocols.js';
 import { tActive } from '../i18n/index.js';
-import { trimMessagesToContext } from '../localModel/localContext.js';
+import { repairToolPairing, trimMessagesToContext } from '../localModel/localContext.js';
 import { joinUrlQuery, splitUrlQuery } from '../utils/urlQuery.js';
 // 超时策略（纯函数，见 requestTimeout.js）：首字节 / 空闲 / 非流式三档。流式未吐字放宽，
 // 非流式（压缩摘要/记忆总结/制卡）另给阈值——它没有「首字节」这回事。
@@ -33,16 +33,17 @@ import { planFallbackChain, shouldFallback } from './fallbackModels.js';
 
 // F4：在线路径上下文硬裁剪（纯函数，可测）。仅当模型声明了 contextWindow > 0 且未
 // 显式关闭时生效；复用本地模型同款裁剪（系统提示恒保留）。未声明窗口 = 原样返回。
+// P1：**无论是否裁剪都要修工具配对**（中止留下的 assistant(tool_calls) 缺 tool 结果，原样上链即 400；见 localContext.js:30-33）。
 export function trimOnlineMessages(messages, { contextWindow = 0, reserveOutputTokens = 0, enabled = true } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const declared = Math.floor(Number(contextWindow) || 0);
-  if (!enabled || declared <= 0) return list;
+  if (!enabled || declared <= 0) return repairToolPairing(list);
   const result = trimMessagesToContext(list, {
     contextSize: declared,
     reserveOutputTokens: reserveOutputTokens > 0 ? reserveOutputTokens : 512,
     minKeep: 1,
   });
-  return result.removedCount > 0 ? result.messages : list;
+  return repairToolPairing(result.removedCount > 0 ? result.messages : list);
 }
 
 // 接口没有收到内容时的占位文本。调用方可用它区分“真的没回复”，
