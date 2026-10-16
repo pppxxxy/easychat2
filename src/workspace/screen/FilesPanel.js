@@ -36,7 +36,7 @@ import { isRichPreview } from '../filePreview.js';
 import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
-import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, parentDirectoryOf } from './buildTree.js';
+import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, mergeListing, parentDirectoryOf } from './buildTree.js';
 import { searchWorkspaceFiles } from '../fileSearch.js';
 import ConfirmBar from './ConfirmBar.js';
 import CatalogSheet from './files/CatalogSheet.js';
@@ -72,6 +72,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   // 根可能被用户在设置里改（应用内默认 ↔ 外部文件夹），故随设置变化而不是一次算死。
   const [root, setRoot] = useState(() => describeWorkspaceRoot(null));
   const [files, setFiles] = useState([]);
+  // AC12 P0-1：files 是否已是全量清单（搜索拉过置 true；切角色/重开面板重置）。
+  const filesRef = useRef({ full: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
@@ -113,7 +115,10 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   const canWrite = mode === 'write';
   const external = root.kind === WORKSPACE_ROOT_KINDS.SAF;
 
-  const refresh = useCallback(async (ownerId = characterId) => {
+  // AC12 P0-1：列表按「当前目录单层」加载（depth:1）——此前全树 walk，每 entry
+  // 一次 getInfo 原生调用，大项目下打开面板就卡十几秒。下钻/搜索/合并语义的完整
+  // 说明见 buildTree.js 的 mergeListing 与 tests/workspaceListDepth.test.mjs。
+  const refresh = useCallback(async (ownerId = characterId, { full = false, subdir: targetSubdir } = {}) => {
     const store = storeRef.current;
     if (!store) {
       setError(t('workspace.panel.err.fileSystem'));
@@ -121,9 +126,16 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     }
     setLoading(true);
     try {
-      const list = await store.listWorkspaceFiles({ characterId: ownerId });
+      // full：搜索要全量路径；否则单层（targetSubdir 供 enterDir 在 state 更新前指路）。
+      const scope = targetSubdir === undefined ? subdir : targetSubdir;
+      const list = await store.listWorkspaceFiles(
+        full
+          ? { characterId: ownerId }
+          : { characterId: ownerId, subdir: scope, depth: 1 }
+      );
       if (!mountedRef.current) return;
-      setFiles(list);
+      setFiles(prev => (full ? list : mergeListing(prev, list, scope)));
+      if (full) filesRef.current.full = true;
       setError('');
     } catch (caught) {
       if (!mountedRef.current) return;
@@ -131,7 +143,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [characterId, t]);
+  }, [characterId, subdir, t]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -194,6 +206,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             refreshAppData().catch(() => {});
           }
         }
+        // AC12 P0-1：面板重开 = 回到当前角色根层，旧清单与全量标记作废（防跨沙盒混表）。
+        setFiles([]);
+        filesRef.current.full = false;
         refresh(resolved.id || undefined);
       } catch (caught) {
         if (!mountedRef.current) return;
@@ -424,6 +439,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     setWorkspaceCharacter(item);
     setCharacterId(item.id);
     patchWorkspaceSettings({ assistantCharacterId: item.id }).catch(() => {});
+    // AC12 P0-1：切角色 = 换沙盒，旧清单与全量标记作废。
+    setFiles([]);
+    filesRef.current.full = false;
     refresh(item.id);
   }, [refresh]);
 
@@ -497,11 +515,18 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     if (!files.some(entry => String(entry).startsWith(subdir))) setSubdir('');
   }, [files, subdir]);
 
+  // AC12 P0-1：目录导航统一入口（下钻/项目卡/面包屑/返回上级）——切层并加载该层。
+  // 上面的退空保护在单层下仍成立：本级列表在 files 里，目录消失时兜底回根层。
+  const enterDir = useCallback(path => {
+    setSubdir(path || '');
+    refresh(undefined, { subdir: path || '' }).catch(() => {});
+  }, [refresh]);
+
   const renderEntryRow = entry => (
     <View key={entry.path} style={styles.fileRow}>
       <TouchableOpacity
         style={styles.fileMain}
-        onPress={() => (entry.isDirectory ? setSubdir(entry.path) : openFile(entry.path))}
+        onPress={() => (entry.isDirectory ? enterDir(entry.path) : openFile(entry.path))}
         activeOpacity={0.8}
       >
         <Ionicons
@@ -553,7 +578,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     <TouchableOpacity
       key={group.id}
       style={styles.projectCard}
-      onPress={() => setSubdir(group.prefix)}
+      onPress={() => enterDir(group.prefix)}
       activeOpacity={0.85}
     >
       <Ionicons
@@ -645,7 +670,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             {crumbs.map((crumb, index) => (
               <View key={crumb.path || 'root'} style={styles.crumbItem}>
                 {index > 0 ? <Ionicons name="chevron-forward" size={12} color={theme.colors.textFaint} /> : null}
-                <TouchableOpacity onPress={() => setSubdir(crumb.path)} activeOpacity={0.7}>
+                <TouchableOpacity onPress={() => enterDir(crumb.path)} activeOpacity={0.7}>
                   <Text
                     style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbTextActive]}
                     numberOfLines={1}
@@ -667,7 +692,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                 <GhostButton
                   title={t('workspace.panel.empty.dir.back')}
                   small
-                  onPress={() => setSubdir(parentDirectoryOf(subdir))}
+                  onPress={() => enterDir(parentDirectoryOf(subdir))}
                 />
               )}
             />
@@ -943,14 +968,22 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             </View>
           ) : null}
 
-          {/* P2-3：文件搜索框。空查询时下方仍是目录树，输入后才切成跨目录的平铺结果。 */}
+          {/* P2-3 搜索框：输入后切跨目录平铺结果。AC12 P0-1：单层模式下 files 非全量，
+              首次输入时拉一次全量，此后 files 即全量。 */}
           {files.length > 0 ? (
             <View style={styles.searchRow}>
               <Ionicons name="search" size={14} color={theme.colors.textFaint} />
               <TextInput
                 style={styles.searchInput}
                 value={fileQuery}
-                onChangeText={setFileQuery}
+                onChangeText={text => {
+                  setFileQuery(text);
+                  // AC12 P0-1：首次搜索时把单层清单升级成全量（此后 files 即全量）。
+                  if (text.trim() && !filesRef.current.full) {
+                    filesRef.current.full = true;
+                    refresh(undefined, { full: true }).catch(() => {});
+                  }
+                }}
                 placeholder={t('workspace.panel.search.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}
                 returnKeyType="search"

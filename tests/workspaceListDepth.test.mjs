@@ -1,0 +1,203 @@
+// AC12 P0-1：单层列举（depth）专项测试。
+// 病根：FilesPanel 每次 refresh 都全树 walk（每 entry 一次 getInfo 原生调用），
+// 大项目下打开文件面板就卡十几秒。止血：列表支持 depth:1 单层，面板按下钻加载。
+// 本文件钉住两个后端（legacy store.js / SAF safStore.js）的单层语义，
+// 并守住「不传 depth 时行为与从前完全一致」这条兼容底线（既有调用方全靠它）。
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { listWorkspaceFiles } from '../src/workspace/store.js';
+import { writeWorkspaceFile } from '../src/workspace/store.js';
+import { createSafWorkspaceStore } from '../src/workspace/safStore.js';
+
+// ── 内存 fileSystem（与 workspaceStore.test.mjs 同款约定）──────────────
+function createMemoryFs() {
+  const entries = new Map();
+  const api = {
+    documentDirectory: '/doc/',
+    async getInfoAsync(uri) {
+      const key = entries.has(uri) ? uri : (entries.has(`${uri}/`) ? `${uri}/` : null);
+      if (!key) return { exists: false };
+      return { exists: true, isDirectory: entries.get(key).type === 'dir' };
+    },
+    async makeDirectoryAsync(uri, options) {
+      const full = uri.endsWith('/') ? uri : `${uri}/`;
+      if (options && options.intermediates) {
+        let acc = '';
+        for (const part of full.split('/').filter(Boolean)) {
+          acc += `/${part}`;
+          entries.set(`${acc}/`, { type: 'dir' });
+        }
+        return;
+      }
+      entries.set(full, { type: 'dir' });
+    },
+    async readDirectoryAsync(uri) {
+      const prefix = uri.endsWith('/') ? uri : `${uri}/`;
+      if (!entries.has(prefix)) throw new Error('ENOENT');
+      const names = new Set();
+      for (const key of entries.keys()) {
+        if (!key.startsWith(prefix)) continue;
+        const rest = key.slice(prefix.length).replace(/\/$/, '');
+        if (!rest) continue;
+        names.add(rest.split('/')[0]);
+      }
+      return [...names];
+    },
+    async readAsStringAsync(uri) {
+      const entry = entries.get(uri);
+      if (!entry || entry.type !== 'file') throw new Error('ENOENT');
+      return entry.content;
+    },
+    async writeAsStringAsync(uri, text) {
+      entries.set(uri, { type: 'file', content: String(text) });
+    },
+    seedFile(uri, content) {
+      api.makeDirectoryAsync(uri.slice(0, uri.lastIndexOf('/') + 1), { intermediates: true });
+      entries.set(uri, { type: 'file', content });
+    },
+    async deleteAsync(uri, options) {
+      const full = uri.endsWith('/') ? uri : `${uri}/`;
+      const found = entries.has(uri) || entries.has(full);
+      if (!found && !(options && options.idempotent)) throw new Error('ENOENT');
+      entries.delete(uri);
+      entries.delete(full);
+    },
+  };
+  return api;
+}
+
+const root = '/doc/workspace/';
+
+async function seedTree() {
+  const fileSystem = createMemoryFs();
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'f1.txt', content: 'a', fileSystem });
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'a/b/f2.txt', content: 'b', fileSystem });
+  await writeWorkspaceFile({ root, characterId: 'c1', path: 'a/b/c/f3.txt', content: 'c', fileSystem });
+  return fileSystem;
+}
+
+// ── legacy 后端 ──────────────────────────────────────────────────────
+
+test('AC12 P0-1 legacy：depth:1 只列当前层（目录带斜杠、不递归）', async () => {
+  const fileSystem = await seedTree();
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem, depth: 1 });
+  assert.deepEqual(files, ['a/', 'f1.txt']);
+});
+
+test('AC12 P0-1 legacy：depth:1 + subdir 只列该层', async () => {
+  const fileSystem = await seedTree();
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem, subdir: 'a/b', depth: 1 });
+  assert.deepEqual(files, ['a/b/c/', 'a/b/f2.txt']);
+});
+
+test('AC12 P0-1 legacy：不传 depth = 全量（兼容底线，既有调用方不受影响）', async () => {
+  const fileSystem = await seedTree();
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem });
+  assert.deepEqual(files, ['a/', 'a/b/', 'a/b/c/', 'a/b/c/f3.txt', 'a/b/f2.txt', 'f1.txt']);
+});
+
+test('AC12 P0-1 legacy：depth 传垃圾值按 1 兜底（不 NaN、不放大）', async () => {
+  const fileSystem = await seedTree();
+  const files = await listWorkspaceFiles({ root, characterId: 'c1', fileSystem, depth: 'garbage' });
+  assert.deepEqual(files, ['a/', 'f1.txt']);
+});
+
+// ── SAF 后端（节点树 adapter，与 workspaceSafStore.test.mjs 的 createFakeSaf 同款）──────
+// SAF 的 uri 由 adapter（DocumentFile）分配，不能拼字符串——节点树才还原真实语义。
+
+const SAF_ROOT = 'content://tree/primary%3ADocs';
+
+function createFakeSaf() {
+  const nodes = new Map();
+  let counter = 0;
+  function seed(uri, name, isDirectory) {
+    nodes.set(uri, { uri, name, isDirectory });
+    return uri;
+  }
+  seed(SAF_ROOT, 'Docs', true);
+  return {
+    nodes,
+    seed,
+    async listChildren(uri) {
+      const node = nodes.get(uri);
+      if (!node || !node.isDirectory) throw new Error('not a directory');
+      const prefix = `${uri}/`;
+      return [...nodes.values()].filter(entry => (
+        entry.uri.startsWith(prefix) && !entry.uri.slice(prefix.length).includes('/')
+      ));
+    },
+    async createDirectory(parentUri, name) {
+      counter += 1;
+      return seed(`${parentUri}/dir-${counter}`, name, true);
+    },
+    async createFile(parentUri, name, mimeType) {
+      counter += 1;
+      const uri = `${parentUri}/file-${counter}`;
+      seed(uri, name, false);
+      nodes.get(uri).mimeType = mimeType;
+      nodes.get(uri).content = '';
+      return uri;
+    },
+    async readText(uri) {
+      const node = nodes.get(uri);
+      if (!node || node.isDirectory) throw new Error('not a file');
+      return node.content;
+    },
+    async writeText(uri, text) {
+      const node = nodes.get(uri);
+      if (!node || node.isDirectory) throw new Error('not a file');
+      node.content = String(text);
+    },
+    async writeBase64() {},
+    async delete() {},
+  };
+}
+
+async function seedSafTree() {
+  const adapter = createFakeSaf();
+  const store = createSafWorkspaceStore({ root: SAF_ROOT, adapter });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'f1.txt', content: 'a' });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'a/b/f2.txt', content: 'b' });
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'a/b/c/f3.txt', content: 'c' });
+  return { store, adapter };
+}
+
+test('AC12 P0-1 SAF：depth:1 只列当前层', async () => {
+  const { store } = await seedSafTree();
+  const files = await store.listWorkspaceFiles({ characterId: 'c1', depth: 1 });
+  assert.deepEqual(files, ['a/', 'f1.txt']);
+});
+
+test('AC12 P0-1 SAF：depth:1 + subdir 只列该层', async () => {
+  const { store } = await seedSafTree();
+  const files = await store.listWorkspaceFiles({ characterId: 'c1', subdir: 'a/b', depth: 1 });
+  assert.deepEqual(files, ['a/b/c/', 'a/b/f2.txt']);
+});
+
+test('AC12 P0-1 SAF：不传 depth = 全量（兼容底线）', async () => {
+  const { store } = await seedSafTree();
+  const files = await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.deepEqual(files, ['a/', 'a/b/', 'a/b/c/', 'a/b/c/f3.txt', 'a/b/f2.txt', 'f1.txt']);
+});
+
+// ── FilesPanel 单层加载接线（源码断言，AC12 P0-1）─────────────────────
+// FilesPanel.js 是 JSX 模块，Node 进不去（仓库先例：workspacePanel.test.mjs 的
+// readSource 模式）。mergeListing 的行为由 store 侧单层语义 + 下列接线断言共同钉住。
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+function readSource(relativePath) {
+  return fs.readFileSync(path.resolve(relativePath), 'utf8');
+}
+
+test('AC12 P0-1 FilesPanel：单层加载接线完整', () => {
+  const source = readSource('src/workspace/screen/FilesPanel.js');
+  assert.ok(source.includes('depth: 1'), '列表按 depth:1 单层请求');
+  assert.ok(source.includes('mergeListing(prev, list, scope)'), '单层结果并入已见清单');
+  assert.ok(source.includes('enterDir'), '目录导航统一走 enterDir（切层 + 加载该层）');
+  assert.ok(source.includes("full: true"), '搜索触发全量拉取');
+  assert.ok(source.includes('filesRef.current.full = false'), '切角色/重开面板重置全量标记');
+});

@@ -16,8 +16,8 @@ test('文件面板：根层按项目分组 + 逐层下钻（诉求④）', () =>
   assert.ok(source.includes('groupWorkspaceFiles'), '根层按项目分组');
   assert.ok(source.includes('directoryChildren'), '逐层列出当前目录的直接子项');
   assert.ok(source.includes('breadcrumbsOf'), '面包屑定位当前目录');
-  assert.ok(source.includes('setSubdir(group.prefix)'), '点项目卡进入该项目');
-  assert.ok(source.includes('setSubdir(crumb.path)'), '面包屑可回上层');
+  assert.ok(source.includes('enterDir(group.prefix)'), '点项目卡进入该项目（AC12 P0-1 后走 enterDir：切层 + 加载该层）');
+  assert.ok(source.includes('enterDir(crumb.path)'), '面包屑可回上层（AC12 P0-1 后走 enterDir）');
   assert.ok(source.includes('workspace.panel.group.projects'), '项目分组标题走 i18n');
   assert.ok(source.includes('workspace.panel.breadcrumb.root'), '面包屑根名走 i18n');
   assert.ok(!/files\.map\(name => renderFileRow/.test(source), '不再把整条长路径一维平铺');
@@ -31,7 +31,7 @@ test('WorkspacePanel：可改门控 + 沙盒分维度 + 复用 docx/store', () =
   assert.ok(source.includes("mode === 'write'"), '写操作必须仅可改模式');
   // 面板不再自己拼 uri：换成后端接口，角色隔离由 store 以 characterId 分沙盒保证；
 // ownerId 允许显式传入（打开面板解析出工作区角色后立即用新 id 刷新列表）。
-  assert.ok(/listWorkspaceFiles\(\{ characterId: ownerId \}\)/.test(source), '列表按 characterId 分沙盒');
+  assert.ok(/listWorkspaceFiles\(/.test(source) && /characterId: ownerId/.test(source), '列表按 characterId 分沙盒（AC12 P0-1 后按需单层/全量）');
   assert.ok(/readWorkspaceFile\(\{ characterId, path/.test(source), '读取按 characterId 分沙盒');
   assert.ok(source.includes('createWorkspaceStore') && source.includes('describeWorkspaceRoot'),
     '根与后端按当前设置解析（应用内 / 外部文件夹）');

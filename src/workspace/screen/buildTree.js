@@ -151,3 +151,26 @@ export function parentDirectoryOf(path) {
   const index = trimmed.lastIndexOf('/');
   return index < 0 ? '' : `${trimmed.slice(0, index)}/`;
 }
+
+
+// AC12 P0-1：单层列举结果合并进「已见清单」（FilesPanel 用，纯函数放这里可直测）。
+// 规则：当前目录（prefix）下的旧条目整段替换为新结果（增删都体现）；
+// 其他目录的已见条目保留（面包屑逐级返回时无需重新请求）。
+// prefix 为空 = 根层，此时直接整表替换（根层是导航起点，其他层都从它下钻而来）。
+export function mergeListing(prev, listing, prefix) {
+  const base = String(prefix || '');
+  if (!base) return [...listing];
+  const next = [];
+  let replaced = false;
+  for (const entry of prev) {
+    const path = String(entry || '');
+    const isUnder = path.startsWith(`${base}/`);
+    if (isUnder) {
+      if (!replaced) { next.push(...listing); replaced = true; }
+      continue;
+    }
+    next.push(entry);
+  }
+  if (!replaced) next.push(...listing);
+  return next;
+}

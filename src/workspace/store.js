@@ -48,7 +48,7 @@ async function ensureDirectory(fileSystem, uri) {
   await fileSystem.makeDirectoryAsync(uri, { intermediates: true });
 }
 
-async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter, state) {
+async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter, state, depthLimit) {
   if (results.length >= MAX_FILES) {
     state.truncated = true;
     return;
@@ -62,6 +62,10 @@ async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter
     state.truncated = true;
     return;
   }
+  // AC12 P0-1：单层列举模式（文件面板下钻用）。到层即停、不下钻、不置 truncated——
+  // 单层列表面板本来就不展示深层，未列出不构成「被当成完整事实」的风险（与 walk 的
+  // truncated 语义不同：那个是给模型当事实用的清单）。
+  const singleLevel = depthLimit === 1;
   let entries = [];
   try {
     entries = await fileSystem.readDirectoryAsync(directoryUri);
@@ -79,7 +83,9 @@ async function walk(fileSystem, directoryUri, prefix, results, depth, fileFilter
     if (info && info.isDirectory) {
       // match 模式下只列匹配的文件（目录不进结果，但仍继续下钻）——即「按名找文件」。
       if (!fileFilter) results.push(`${relative}/`);
-      await walk(fileSystem, `${uri}/`, relative, results, depth + 1, fileFilter, state);
+      if (!singleLevel) {
+        await walk(fileSystem, `${uri}/`, relative, results, depth + 1, fileFilter, state, depthLimit);
+      }
     } else if (isListableWorkspaceFile(relative) && (!fileFilter || fileFilter(relative))) {
       results.push(relative);
     }
@@ -94,18 +100,19 @@ function baseName(relative) {
 
 // 列表实现（带截断标记）：match 过滤在遍历时生效（先过滤再套 MAX_FILES/MAX_DEPTH 上限），
 // 使匹配文件不会被海量无关文件挤出上限。返回 { files, truncated }。
-export async function listWorkspaceFilesDetailed({ root, characterId, fileSystem, subdir = '', match = '' } = {}) {
+export async function listWorkspaceFilesDetailed({ root, characterId, fileSystem, subdir = '', match = '', depth } = {}) {
   assertFileSystem(fileSystem);
   const base = sandboxDirectory(root, characterId);
   const relBase = String(subdir || '').trim() ? normalizeWorkspacePath(subdir) : '';
   const start = relBase ? `${base}${relBase}/` : base;
+  const depthLimit = depth === undefined ? undefined : Math.max(1, Math.floor(Number(depth) || 1));
   const needle = String(match || '').trim().toLowerCase();
   const fileFilter = needle
     ? relative => baseName(relative).toLowerCase().includes(needle)
     : null;
   const results = [];
   const state = { truncated: false };
-  await walk(fileSystem, start, relBase, results, 0, fileFilter, state);
+  await walk(fileSystem, start, relBase, results, 0, fileFilter, state, depthLimit);
   // 内部目录隐形（J1 写前快照 / 跨会话黑板 / E4 事件流 / H3 回滚基线 / O1 落盘结果）：
   // 不进列表枚举，也不刷文件面板。判据集中在 paths.js 的 HIDDEN_LIST_PREFIXES——
   // 此前这里与 safStore.js 各有一份，且已经不一致（SAF 侧漏了 board）。
@@ -114,8 +121,8 @@ export async function listWorkspaceFilesDetailed({ root, characterId, fileSystem
   return { files, truncated: state.truncated };
 }
 
-export async function listWorkspaceFiles({ root, characterId, fileSystem, subdir = '', match = '' } = {}) {
-  const { files } = await listWorkspaceFilesDetailed({ root, characterId, fileSystem, subdir, match });
+export async function listWorkspaceFiles({ root, characterId, fileSystem, subdir = '', match = '', depth } = {}) {
+  const { files } = await listWorkspaceFilesDetailed({ root, characterId, fileSystem, subdir, match, depth });
   return files;
 }
 

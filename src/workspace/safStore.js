@@ -91,7 +91,7 @@ async function resolveDirectory(adapter, rootUri, segments, create) {
   return current;
 }
 
-async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, state) {
+async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, state, depthLimit) {
   if (results.length >= MAX_FILES) {
     state.truncated = true;
     return;
@@ -104,6 +104,8 @@ async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, s
     state.truncated = true;
     return;
   }
+  // AC12 P0-1：单层列举模式（文件面板下钻用，与 legacy 后端同款语义）。
+  const singleLevel = depthLimit === 1;
   const children = await listChildren(adapter, directoryUri);
   for (const child of children) {
     if (results.length >= MAX_FILES) {
@@ -114,7 +116,9 @@ async function walk(adapter, directoryUri, prefix, results, depth, fileFilter, s
     if (child.isDirectory) {
       // match 模式下只列匹配的文件（目录不进结果，但仍继续下钻）。
       if (!fileFilter) results.push(`${relative}/`);
-      await walk(adapter, child.uri, relative, results, depth + 1, fileFilter, state);
+      if (!singleLevel) {
+        await walk(adapter, child.uri, relative, results, depth + 1, fileFilter, state, depthLimit);
+      }
     } else if (isListableWorkspaceFile(relative) && (!fileFilter || fileFilter(relative))) {
       results.push(relative);
     }
@@ -199,13 +203,13 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
   return {
     rootKind: 'saf',
 
-    async listWorkspaceFiles({ characterId, subdir = '', match = '' } = {}) {
-      const { files } = await this.listWorkspaceFilesWithMeta({ characterId, subdir, match });
+    async listWorkspaceFiles({ characterId, subdir = '', match = '', depth } = {}) {
+      const { files } = await this.listWorkspaceFilesWithMeta({ characterId, subdir, match, depth });
       return files;
     },
 
     // 带截断标记的列表（与 legacy 后端同口径）：list_workspace_files 工具据此附告警行。
-    async listWorkspaceFilesWithMeta({ characterId, subdir = '', match = '' } = {}) {
+    async listWorkspaceFilesWithMeta({ characterId, subdir = '', match = '', depth } = {}) {
       const relBase = String(subdir || '').trim() ? normalizeWorkspacePath(subdir) : '';
       const start = await locateDirectory(characterId, relBase ? relBase.split('/') : [], false);
       if (!start) return { files: [], truncated: false };
@@ -213,9 +217,10 @@ export function createSafWorkspaceStore({ root, adapter } = {}) {
       const fileFilter = needle
         ? relative => baseName(relative).toLowerCase().includes(needle)
         : null;
+      const depthLimit = depth === undefined ? undefined : Math.max(1, Math.floor(Number(depth) || 1));
       const results = [];
       const state = { truncated: false };
-      await walk(adapter, start, relBase, results, 0, fileFilter, state);
+      await walk(adapter, start, relBase, results, 0, fileFilter, state, depthLimit);
       // 内部目录隐形（与 store.js 同一份判据，见 paths.js 的 HIDDEN_LIST_PREFIXES）——
       // 此前这里只藏了 file-history，漏了 board / sessions / rollback / .task_outputs。
       const files = results.filter(entry => !isHiddenListEntry(entry)).sort();
