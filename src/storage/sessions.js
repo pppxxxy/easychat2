@@ -64,4 +64,5 @@ export {
   migrateLegacyMessages,
   findOrphanSessions,
   markSessionModel,
+  markSessionRead,
 } from './sessionList.js';

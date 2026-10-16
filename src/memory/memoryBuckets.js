@@ -35,6 +35,22 @@ export function hasLocalSessions(sessions) {
     .some(item => item && item.modelKind === 'local');
 }
 
+// 会话是否有未读消息：**纯时间戳比较**，不引入显式的 unread 标记。
+// 理由：显式标记要求写入方知道「用户此刻在看哪个会话」，那要跨组件共享当前会话状态，
+// 侵入面比一个时间戳大得多；时间戳只有一个写入方（markSessionRead），不会漏更新。
+//
+// 判定为 updatedAt > lastReadAt：有新消息落盘时 saveMessagesBySessionInternal 会把
+// updatedAt 推到当前时刻，而 lastReadAt 只在「用户确实在看这个会话」时才前进。
+// 相等即已读（markSessionRead 记的就是那一刻）。
+// 缺 lastReadAt 的旧条目由 normalizeSession 回填 updatedAt ⇒ 升级后不全体冒红点。
+export function hasSessionUnread(session) {
+  if (!session || typeof session !== 'object') return false;
+  const updatedAt = Math.floor(Number(session.updatedAt)) || 0;
+  const lastReadAt = Math.floor(Number(session.lastReadAt)) || 0;
+  if (updatedAt <= 0) return false;
+  return updatedAt > lastReadAt;
+}
+
 export function isScreenWatchFilter(filterId) {
   return filterId === SCREEN_WATCH_FILTER.id;
 }

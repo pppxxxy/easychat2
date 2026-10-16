@@ -20,7 +20,7 @@ import {
   SCREEN_WATCH_FILTER,
   screenThreadPreview,
 } from './memory/memoryBuckets.js';
-import SessionRow, { SessionAvatar, formatSessionTime } from './memory/SessionRow.js';
+import SessionRow, { SessionAvatar, SessionRowAvatar, formatSessionTime } from './memory/SessionRow.js';
 import MemoryCheckupModal from './memory/MemoryCheckupModal.js';
 import useScreenWatchThreads from './memory/useScreenWatchThreads.js';
 import useOrphanRecovery from './memory/useOrphanRecovery.js';
@@ -563,11 +563,11 @@ export default function MemoryScreen({ navigation }) {
                 key={session.id}
                 mode="manage"
                 avatar={(
-                  <SessionAvatar
-                    isGroup={isGroup}
-                    uri={isGroup ? session.avatarUri : ((character && character.avatarUri) || '')}
+                  <SessionRowAvatar
+                    session={session}
+                    character={character}
+                    groupMembers={groupMembers}
                     name={name}
-                    members={groupMembers}
                   />
                 )}
                 name={name}

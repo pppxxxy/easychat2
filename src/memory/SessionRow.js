@@ -9,6 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useTheme } from '../theme/ThemeContext.js';
 import { tActive } from '../i18n/index.js';
+import { hasSessionUnread } from './memoryBuckets.js';
 
 // 相对时间：今天显示时分，昨天显示「昨天」，更早显示「M月D日」。
 // 原 MemoryScreen 内联实现，提到这里供三处复用。
@@ -35,29 +36,52 @@ export function formatSessionTime(timestamp, t) {
   return translate('memory.date.md', { m: date.getMonth() + 1, d: date.getDate() });
 }
 
-export function SessionAvatar({ isGroup = false, uri = '', name = '', members = [], size = 44 }) {
+// 未读小红点：头像右上角角标。**故意不进 badges 体系**——badges 是「副本/本地」这类
+// 中性属性文字标签，且被行组件截断到 2 个；未读是状态、要贴着头像，两者语义与位置都不同
+// （用户裁决 2026-10-17：会话行头像上加红点）。
+// 必须包一层相对定位容器：本组件的多数分支直接返回裸 <Image>/<View>，没有可挂绝对定位的父节点。
+function withUnreadDot(node, unread, styles) {
+  if (!unread) return node;
+  return (
+    <View style={styles.avatarWrap}>
+      {node}
+      <View style={styles.unreadDot} />
+    </View>
+  );
+}
+
+export function SessionAvatar({
+  isGroup = false,
+  uri = '',
+  name = '',
+  members = [],
+  size = 44,
+  unread = false,
+}) {
   const { theme, fonts } = useTheme();
   const styles = useMemo(() => createAvatarStyles(theme, fonts), [theme, fonts]);
   const radius = Math.round(size * 0.28);
   const boxStyle = { width: size, height: size, borderRadius: radius };
   if (isGroup) {
     if (uri) {
-      return <Image source={{ uri }} style={[styles.avatar, boxStyle]} />;
+      return withUnreadDot(<Image source={{ uri }} style={[styles.avatar, boxStyle]} />, unread, styles);
     }
     const list = (Array.isArray(members) ? members : []).filter(Boolean).slice(0, 3);
     // 群聊拿不到成员列表时（如搜索结果只带 sessionType）：退化为人群图标，
     // 与切换器既有的群兜底视觉一致。
     if (list.length === 0) {
-      return (
+      return withUnreadDot(
         <View style={[styles.avatar, styles.fallback, boxStyle]}>
           <Ionicons name="people" size={Math.round(size * 0.38)} color={theme.colors.accentText} />
-        </View>
+        </View>,
+        unread,
+        styles
       );
     }
     const itemSize = Math.round(size * 0.7);
     const itemRadius = Math.round(itemSize * 0.22);
     const offset = Math.round(size * 0.25);
-    return (
+    return withUnreadDot(
       <View style={{ width: size, height: size }}>
         {list.map((member, index) => (
           member.avatarUri ? (
@@ -85,18 +109,39 @@ export function SessionAvatar({ isGroup = false, uri = '', name = '', members = 
             </View>
           )
         ))}
-      </View>
+      </View>,
+      unread,
+      styles
     );
   }
   if (uri) {
-    return <Image source={{ uri }} style={[styles.avatar, boxStyle]} />;
+    return withUnreadDot(<Image source={{ uri }} style={[styles.avatar, boxStyle]} />, unread, styles);
   }
-  return (
+  return withUnreadDot(
     <View style={[styles.avatar, styles.fallback, boxStyle]}>
       <Text style={[styles.fallbackText, { fontSize: fonts.scaled(Math.round(size * 0.38)) }]}>
         {String(name || '?').charAt(0)}
       </Text>
-    </View>
+    </View>,
+    unread,
+    styles
+  );
+}
+
+// 会话行头像：把「群/单聊、头像图、首字兜底」的装配与未读红点收在一处。
+// 从 MemoryScreen 的 renderItem 外提——那里是行数基线冻结文件（803/803，零余量），
+// 且未读判定必须与头像同处，否则每个调用方都要自己拼一遍。
+// 未读只认 hasSessionUnread（updatedAt > lastReadAt），不看 badges。
+export function SessionRowAvatar({ session, character, groupMembers = [], name = '' }) {
+  const isGroup = session && session.type === 'group';
+  return (
+    <SessionAvatar
+      isGroup={isGroup}
+      uri={isGroup ? (session && session.avatarUri) : ((character && character.avatarUri) || '')}
+      name={name}
+      members={groupMembers}
+      unread={hasSessionUnread(session)}
+    />
   );
 }
 
@@ -115,6 +160,7 @@ export default function SessionRow({
   active = false,
   selectable = false,
   selected = false,
+  unread = false,
   onPress,
   onLongPress,
 }) {
@@ -136,7 +182,9 @@ export default function SessionRow({
       onLongPress={typeof onLongPress === 'function' ? onLongPress : undefined}
       delayLongPress={320}
       accessibilityRole="button"
-      accessibilityLabel={String(name || '')}
+      accessibilityLabel={
+        unread ? `${String(name || '')} ${tActive('memory.unreadBadge')}`.trim() : String(name || '')
+      }
     >
       {selectable ? (
         <Ionicons
@@ -189,6 +237,20 @@ const createAvatarStyles = (theme, fonts) => StyleSheet.create({
   avatar: { backgroundColor: theme.colors.surfaceBorder },
   fallback: { alignItems: 'center', justifyContent: 'center' },
   fallbackText: { color: theme.colors.textMuted, fontWeight: '700' },
+  // 未读角标：相对定位容器包住头像本体，红点贴右上角并描一圈背景色边，
+  // 让它在浅色/深色头像上都分得清边界（直径 ~10）。
+  avatarWrap: { position: 'relative' },
+  unreadDot: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.colors.danger,
+    borderWidth: 1.5,
+    borderColor: theme.colors.surface,
+  },
   groupItem: {
     position: 'absolute',
     top: 0,

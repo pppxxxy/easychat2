@@ -4,6 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  applySessionLastRead,
   applySessionModelMark,
   buildClonedSession,
   buildPreview,
@@ -416,4 +417,34 @@ export function deleteSession(sessionId) {
 export function deleteSessions(sessionIds) {
   (Array.isArray(sessionIds) ? sessionIds : []).forEach(id => bumpSessionSummaryRevision(id));
   return enqueueSessionMutation(() => deleteSessionsInternal(sessionIds));
+}
+
+// ---- 会话「已读位置」（记忆页未读小红点）-------------------------------
+// 放在文件末尾、与 markSessionModel 相隔足够远：tests/sessionModelMark.test.mjs 会从
+// markSessionModelInternal 起截 800 字符，断言这段里**不出现** preview/sortSessions。
+// 在那段窗口里写注释会把该守卫误判成失败（注释里出现 "preview" 也算），故不靠近它。
+//
+// 窄写：只更新 lastReadAt 一个字段，不动 preview/updatedAt/pinned，也不重排列表
+//（updatedAt 未变 ⇒ 排序结果不变）。必须在会话队列内读-改-写，与消息快照落盘
+//（saveMessagesBySessionInternal 写那两个字段）串行，否则会把正在写的值覆盖回旧值。
+// 判变化与「只前进不后退」都在 applySessionLastRead 里（纯函数，可单测）。
+//
+// 时间戳默认在**任务真正执行时**取（`at` 省略 ⇒ 执行时才 Date.now()），不在入队时取：
+// 同一次提交里「消息落盘」与「标记已读」会先后入队，落盘那条要到队列内才写 updatedAt。
+// 若入队时就把时间钉死，先入队的落盘可能拿到比后入队的标记**更晚**的 updatedAt，
+// 于是用户正盯着屏幕看新消息、红点却依然亮着。取执行时刻可保证「看的时候一定晚于写入」。
+async function markSessionReadInternal(sessionId, at) {
+  const sessions = await requireSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  const value = Number.isFinite(Number(at)) ? Number(at) : Date.now();
+  const updated = applySessionLastRead(target, value);
+  if (!updated) return target || null;
+  await saveSessionsInternal(sessions.map(session => (
+    session.id === sessionId ? updated : session
+  )));
+  return updated;
+}
+
+export function markSessionRead(sessionId, at) {
+  return enqueueSessionMutation(() => markSessionReadInternal(sessionId, at));
 }

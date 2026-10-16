@@ -97,6 +97,7 @@ export const memory = {
   'memory.groupChat': '群聊',
   'memory.unnamedCharacter': '未命名角色',
   'memory.cloneBadge': '副本',
+  'memory.unreadBadge': '有未读消息',
   'memory.emptyPreview': '（空会话，可删除）',
   'memory.pin': '置顶',
   'memory.unpin': '取消置顶',

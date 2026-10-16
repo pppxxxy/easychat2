@@ -96,6 +96,7 @@ export const memory = {
   'memory.groupChat': 'Group Chat',
   'memory.unnamedCharacter': 'Unnamed Character',
   'memory.cloneBadge': 'Copy',
+  'memory.unreadBadge': 'Unread messages',
   'memory.emptyPreview': '(Empty chat, safe to delete)',
   'memory.pin': 'Pin',
   'memory.unpin': 'Unpin',

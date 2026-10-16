@@ -28,7 +28,16 @@ export function normalizeSession(raw, index = 0) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const createdAt = Number(source.createdAt);
   const updatedAt = Number(source.updatedAt);
+  const normalizedUpdatedAt = Number.isFinite(updatedAt) ? updatedAt : 0;
   const type = source.type === 'group' ? 'group' : 'single';
+  // 已读位置（ms）：**缺省/非法时回填 updatedAt**，这是「旧数据首启迁移」的全部实现。
+  // 老条目没有这个字段，若一律当 0（=从未读过），升级后 updatedAt > 0 会让**所有**会话
+  // 同时亮红点。补成 updatedAt 等于「干净起步」：历史一笔不算未读，只有之后再来的
+  // 新消息（updatedAt 前进而 lastReadAt 不动）才亮。不做单独刷盘，跟下一次写路径落盘。
+  const lastReadRaw = Number(source.lastReadAt);
+  const lastReadAt = Number.isFinite(lastReadRaw) && lastReadRaw > 0
+    ? lastReadRaw
+    : normalizedUpdatedAt;
   return {
     id: String(source.id || `session-${index}`),
     type,
@@ -48,9 +57,17 @@ export function normalizeSession(raw, index = 0) {
     //（ask 是默认态，不必存）。老数据无此字段 → ''，零迁移。
     agentMode: source.agentMode === 'read' || source.agentMode === 'write' ? source.agentMode : '',
     createdAt: Number.isFinite(createdAt) ? createdAt : 0,
-    updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+    updatedAt: normalizedUpdatedAt,
     clonedFrom: String(source.clonedFrom || ''),
     summarizedUpTo: source.summarizedUpTo ? String(source.summarizedUpTo) : '',
+    // 本函数是**白名单**：没列在这里的字段在读写两个方向都会被丢掉
+    //（saveSessionsInternal 与 readSessionsStatus 都经此收敛）。modelKind/modelName 曾因此
+    // 只活在内存里——markSessionModel 返回带 modelKind 的对象、界面当次会话就显示
+    // 「本地」badge/chip，但落盘 JSON 里没有，冷启动即消失（2026-10-17 实锤：
+    // hasLocalSessions 本次会话 true、冷启动后 false）。新增可持久化字段必须同时补进这里。
+    modelKind: source.modelKind === 'local' ? 'local' : (source.modelKind === 'api' ? 'api' : ''),
+    modelName: String(source.modelName || '').trim().slice(0, 120),
+    lastReadAt,
   };
 }
 
@@ -91,6 +108,20 @@ export function applySessionModelMark(session, mark) {
     return null;
   }
   return { ...session, modelKind, modelName };
+}
+
+// 「已读」窄写：只改 lastReadAt，**不碰 preview/updatedAt/pinned，也不重排列表**
+//（updatedAt 未变 ⇒ sortSessions 结果不变）。与 applySessionModelMark 同形状：
+// 无变化返回 null，调用方据此跳过写盘。
+export function applySessionLastRead(session, at = Date.now()) {
+  if (!session || typeof session !== 'object') return null;
+  const value = Math.floor(Number(at));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const current = Math.floor(Number(session.lastReadAt)) || 0;
+  // 只前进不后退：并发/乱序调用（例如流式过程中连续 mark）不得把已读位置往回拨，
+  // 否则刚看完的消息会重新变回未读、红点复亮。
+  if (current >= value) return null;
+  return { ...session, lastReadAt: value };
 }
 
 export function buildPreview(messages, maxLength = 60) {

@@ -12,6 +12,7 @@ export {
   updateSessionInfo,
   setSessionPinned,
   markSessionModel,
+  markSessionRead,
   updateSessionMemberProfiles,
   cloneSession,
   deleteSession,

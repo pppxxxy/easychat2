@@ -29,6 +29,7 @@ import {
   saveMessagesBySession,
   saveSessionDraft,
   clearSessionDraft,
+  markSessionRead,
   setSessionGreetingSelected,
 } from '../storage/sessions.js';
 import { getUserProfile } from '../storage/personas.js';
@@ -417,6 +418,28 @@ export default function useSessionMessages({
       });
     return () => { cancelled = true; };
   }, [activeSessionId, loaded, chatOptions.keepDraft]);
+
+  // 未读小红点的**清除时机**（记忆页行头像角标）。一个 effect 覆盖两种情形，
+  // 都归到同一个判据「这个会话的当前消息内容已经摆在用户眼前了」：
+  //   ① 打开会话 —— 加载完成（ready）即视为看过；
+  //   ② 正在看的会话收到新消息（含流式结束落盘）—— persistableSnapshot 变化。
+  // 第 ② 种不能省：否则「看着对方回完、退出」之后，最后一条会把红点重新点亮，
+  // 用户点进来却看到没有新东西。
+  //
+  // 入队顺序很关键：本 effect 在 useSessionMessages 内部，与下面负责写盘的那个 effect
+  // 是**兄弟**——React 按声明顺序跑，所以这里先入队 markSessionRead、再入队
+  // saveMessagesBySession；两者都进 sessionStore 的同一条队列，按序执行。
+  // 落盘那条会在队列内写 updatedAt = 此刻，而 markSessionRead 的 lastReadAt 取的是
+  // **它自己执行时**的 Date.now()（见 mutations.markSessionRead 的注释）⇒ 时间必然 ≥
+  // updatedAt，标记生效、红点不残留。写入磁盘位置反过来（先标记、后落盘）就会白做。
+  //
+  // 只前进不后退由 applySessionLastRead 兜住，所以这里的重复触发无副作用；
+  // 失败静默：读标记是「顺带清理」，绝不能因为写不进去而打断聊天主链路。
+  useEffect(() => {
+    if (!ready) return;
+    if (!activeSessionId) return;
+    markSessionRead(activeSessionId).catch(() => {});
+  }, [activeSessionId, ready, persistableSnapshot]);
 
   useEffect(() => {
     if (!ready) return;

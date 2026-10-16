@@ -228,6 +228,7 @@ export {
   invalidateSessionSummaries,
   isSessionSummaryRevisionCurrent,
   markSessionModel,
+  markSessionRead,
   migrateLegacyMessages,
   reconcileVectorIndexes,
   reconcileWorldMemories,
