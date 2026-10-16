@@ -202,6 +202,42 @@ const PROTECTED_WRITE_FILES = Object.freeze([
   '.easychat/plugins.json',
   '.easychat/hooks.json',
 ]);
+
+// FEAT-AC12 P0-3：**属于 git 检查点噪声、但 agent 仍可写**的文件。
+//
+// 与上面的 PROTECTED_WRITE_FILES **不是一回事**，别合并：
+//   · PROTECTED_WRITE_FILES = 「agent 的写工具不许写」（安全边界，写入会抛错）；
+//   · 本清单 = 「允许写，但不该**独自**凑成一次提交」（历史的信噪比）。
+//
+// 为什么需要它（真机发现的喂料源头）：`.easychat/.shell-cwd` 是 shell 会话每次
+// 执行后写的「命令跑完在哪个目录」捕获文件（shellSession.js:112 的 `pwd > …`）。
+// 它**每条 run_shell 都会被重写**，于是：
+//   · 回合检查点（ChatPanel 每轮末 commitAll）永远有内容可提交 ⇒ 每轮都多一条
+//     毫无信息量的提交（用户历史被「写入 .easychat/.shell-cwd」刷屏）；
+//   · 回合小结卡片（TurnSummaryPanel 以「最近一次提交」为数据源）永远显示
+//     「最近一次提交改了什么 (1 个文件)」——即使那一轮只跑了 `cd`。
+//
+// 处理方式：**写文件但不计入提交**（从 git 的 ignored 语义：文件仍在磁盘上、
+// 状态仍可读，只是不参与 statusMatrix/commitAll）。这是最小改动——
+// 会话记忆功能一字不动（shell.js 照常读写它），只是它不再污染历史。
+//
+// ⚠️ 与 HIDDEN_LIST_PREFIXES 也不是一回事：那条是「不进列表枚举」，
+// 而 `.shell-cwd` 本来就在隐藏目录 `.easychat/` 下（有独立判据），
+// 这里只管「不进 git 提交」。
+export const GIT_IGNORED_WORKSPACE_FILES = Object.freeze([
+  '.easychat/.shell-cwd',
+]);
+
+export function isGitIgnoredWorkspacePath(path) {
+  const clean = String(path == null ? '' : path)
+    .replace(/\\/g, '/')
+    .trim()
+    .split('/')
+    .filter(segment => segment && segment !== '.')
+    .join('/')
+    .toLowerCase();
+  return clean ? GIT_IGNORED_WORKSPACE_FILES.includes(clean) : false;
+}
 export function isProtectedWorkspacePath(path) {
   const clean = String(path == null ? '' : path)
     .replace(/\\/g, '/')

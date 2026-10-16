@@ -97,8 +97,10 @@ test('回合小结标题与数据源一致（提交口径不再冒充「本轮�
   assert.ok(source.includes("'workspace.chat.summary.titleCommit'"), '提交口径有自己的词条');
   assert.ok(source.includes('const fromCommit = '), '数据源判定要显式化（标题据此选词条）');
   // 两个词条都必须在，且占位符一致（缺一个就是一边在说谎）
-  const zh = read('src/i18n/locales/zh-CN/workspace.js');
-  const en = read('src/i18n/locales/en/workspace.js');
+  // FEAT-AC12：workspace.chat.* 整域已抽到 workspaceChat.js（workspace.js 贴 800 行上限）。
+  // 两文件合读，判据不变（词条中英都要有）。
+  const zh = read('src/i18n/locales/zh-CN/workspace.js') + read('src/i18n/locales/zh-CN/workspaceChat.js');
+  const en = read('src/i18n/locales/en/workspace.js') + read('src/i18n/locales/en/workspaceChat.js');
   for (const file of [zh, en]) {
     assert.ok(file.includes("'workspace.chat.summary.titleCommit'"), '词条中英都要有');
   }

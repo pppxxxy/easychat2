@@ -115,9 +115,11 @@ test('run_team：缺 team / 找不到 / 无步骤报错；有步骤则按团队�
 
 test('接线契约：ChatPanel 每轮直读团队并传入；设置面板可安装示例；i18n 中英齐', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('readWorkspaceTeams(storeRef.current, ownerId)'), '发消息时直读团队清单');
+  // FEAT-AC12：请求装配外提后，「每轮直读团队」的调用点搬到 chatPanelRequest.js。
+  const turn = fs.readFileSync(path.resolve('src/workspace/screen/chatPanelRequest.js'), 'utf8');
+  assert.ok(turn.includes('readWorkspaceTeams(store, ownerId)'), '发消息时直读团队清单');
   assert.ok(panel.includes('installSampleTeams(storeRef.current, characterId)'), '安装示例接线');
-  assert.ok(panel.includes('teams,'), 'teams 传进提示组装');
+  assert.ok(turn.includes('teams,'), 'teams 传进提示组装');
 
   const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
   // 设置行元数据已外提，行 id 断言读新文件。

@@ -41,6 +41,17 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [gitOn, setGitOn] = useState(false);
+  // FEAT-AC12 P0-3：**关闭出口**（第三个出口）。
+  //
+  // 事故（用户截图 #462）：卡片只有「收起」与「撤销」两个出口，没有关闭——
+  // 收起后仍占一行标题，于是它一直挡在对话区底部。加上 `.shell-cwd` 每轮都产生
+  // 提交（见 paths.js 的说明），这张卡片**永远有内容、永远显示**，用户没有出路。
+  //
+  // 语义（任务书 §二 P0-3「会话内存态，本轮不再出现；下一轮新提交/新轨迹才重新出现」）：
+  // dismissed 记录被关掉的那份数据指纹；数据变了（新一轮有了新提交/新轨迹）
+  // 指纹就变，卡片自动重新出现。**不落盘**——重启后回到显示态（那张卡是有用信息，
+  // 不该永久消失；用户只是这一轮不想看）。
+  const [dismissedFor, setDismissedFor] = useState('');
   // Q1：明细默认折叠成「前 40 条」（批量提交 0 条），完整清单进 Sheet 的 FlatList。
   // 没有这层，一次快照拉取就能把消息滚动区挤到 0 高（本面板在 ScrollView 外面）。
   const [allOpen, setAllOpen] = useState(false);
@@ -100,6 +111,16 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
     ? t('workspace.chat.summary.titleCommit', { count: files.length })
     : t('workspace.chat.summary.title', { count: files.length });
 
+  // FEAT-AC12 P0-3：**数据指纹**——「这份清单是哪一份」。
+  // 用户关掉卡片后，只要清单内容变了（新一轮提交/新轨迹），指纹就变，
+  // 卡片自动重新出现（实现任务书要求的「本轮不再出现；下一轮重新出现」）。
+  // 用数据源 + 路径清单拼指纹：同一份清单重复渲染时指纹稳定（不会自己弹回来）。
+  const fingerprint = useMemo(
+    () => `${fromCommit ? 'commit' : 'trace'}|${files.map(item => `${item.op}:${item.path}`).join(',')}`,
+    [files, fromCommit]
+  );
+  const dismissed = dismissedFor !== '' && dismissedFor === fingerprint;
+
   const undo = useCallback(async () => {
     if (busy) return;
     setBusy(true);
@@ -134,6 +155,9 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
   }, [busy, characterId, files, t]);
 
   if (files.length === 0) return null;
+  // FEAT-AC12 P0-3：用户关掉了**这一份**清单 → 本轮不再出现。
+  // 放在 files.length 判空之后：没有内容时本来就不渲染，不必区分。
+  if (dismissed) return null;
 
   // Q1：面板本体的高度必须有界——它挂在消息 ScrollView 外面，撑高就是「两头都不能滑」。
   // bulk（>100）时内联 0 条，只在面板里报总数；完整清单走 Sheet 的 FlatList（虚拟化）。
@@ -148,6 +172,11 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
 
   return (
     <View style={styles.panel}>
+      {/* FEAT-AC12 P0-3：标题行现在是**两个平级按钮**的容器——
+          左边整块是「展开/收起」，右边是「关闭」。
+          ⚠️ 不能把 × 嵌进左边那个 TouchableOpacity：Android 上父级会吃掉子级点击
+          （点 × 会变成展开/收起，用户永远关不掉这张卡）。 */}
+      <View style={styles.headerRow}>
       <TouchableOpacity
         style={styles.header}
         onPress={() => setCollapsed(value => !value)}
@@ -169,6 +198,18 @@ export default function TurnSummaryPanel({ characterId = 'default', messages = n
           importantForAccessibility="no"
         />
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.dismiss}
+        onPress={() => setDismissedFor(fingerprint)}
+        activeOpacity={0.7}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={t('workspace.chat.summary.dismiss')}
+      >
+        <Ionicons name="close" size={15} color={theme.colors.textMuted} />
+      </TouchableOpacity>
+      </View>
 
       {collapsed ? null : (
         <>
@@ -243,7 +284,12 @@ const createStyles = (theme, fonts) => StyleSheet.create({
     marginHorizontal: 12, marginBottom: 4, paddingHorizontal: 10, paddingVertical: 8,
     borderRadius: 10, backgroundColor: theme.colors.surface,
   },
-  header: { flexDirection: 'row', alignItems: 'center' },
+  // FEAT-AC12 P0-3：标题行容器——左「展开/收起」右「关闭」，两个按钮平级。
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  // header 占满剩余宽度（title 自己 flex:1 撑开），× 才不会被挤出去。
+  header: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  // × 的点击区：视觉 15px，加 hitSlop 后够手指点（与分隔条同一条可点性纪律）。
+  dismiss: { paddingLeft: 8, paddingVertical: 4 },
   title: { flex: 1, color: theme.colors.text, fontSize: fonts.scaled(12.5), fontWeight: '600', marginLeft: 6 },
   // Q1：内联明细的高度上限（配合 ScrollView）——面板在消息滚动区外面，
   // 高度不设界就会把消息区挤成 0 高，而它自己又不滚动。

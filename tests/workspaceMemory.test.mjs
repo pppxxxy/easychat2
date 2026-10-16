@@ -142,11 +142,14 @@ test('模板自解释：说明自己会被注入、能删、交代项目与约�
 
 test('接线契约：ChatPanel 每轮直读 + 首次创建；能力说明与 i18n 齐', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('readWorkspaceMemory(storeRef.current, ownerId)'), '每轮组装提示前直读记忆');
+  // FEAT-AC12：回合请求装配外提到 chatPanelRequest.js（行数棘轮），
+  // 「每轮直读记忆」的调用点随之搬过去。两文件合读，判据不变。
+  const turn = fs.readFileSync(path.resolve('src/workspace/screen/chatPanelRequest.js'), 'utf8');
+  assert.ok(turn.includes('readWorkspaceMemory(store, ownerId)'), '每轮组装提示前直读记忆');
   assert.ok(panel.includes('ensureWorkspaceMemory(storeRef.current, ownerId, settings.mode)'), '首次打开时创建模板');
-  assert.ok(/memory,\n\s*\}\);/.test(panel) || panel.includes('memory,'), 'memory 传进 buildWorkspaceAgentSystemPrompt');
+  assert.ok(/memory,\n\s*\}\);/.test(turn) || turn.includes('memory,'), 'memory 传进 buildWorkspaceAgentSystemPrompt');
   // 不按 mtime 缓存：源码里不得出现 mtime 缓存相关调用（防未来「顺手优化」引入陈旧指令）
-  assert.equal(panel.includes('mtime'), false, '不缓存：agent 自我演进后必须立刻生效');
+  assert.equal((panel + turn).includes('mtime'), false, '不缓存：agent 自我演进后必须立刻生效');
 
   const ids = CAPABILITY_LIMITS.map(item => item.id);
   assert.ok(ids.includes('memory'), '能力说明里要如实写 AGENTS.md 机制（可被 agent 改写 → 用户必须知情）');

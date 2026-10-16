@@ -165,9 +165,12 @@ test('SAMPLE_COMMANDS：4 个（含 A6 的 /remember）、名字唯一且是 slu
 
 test('接线契约：ChatPanel 建议条 + 发送时展开；设置面板命令行；i18n 中英齐', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  // FEAT-AC12：请求装配外提后，`userText: outgoingText`（展开文本进请求）在新文件里；
+  // 而「气泡用原文」仍在 ChatPanel。两文件合读，两条判据都保住。
+  const turn = fs.readFileSync(path.resolve('src/workspace/screen/chatPanelRequest.js'), 'utf8');
   assert.ok(panel.includes('slashQuery(input)'), '建议条按输入过滤');
   assert.ok(panel.includes('expandSlashCommand(userText, freshCommands)'), '发送时按最新命令表展开');
-  assert.ok(panel.includes('userText: outgoingText'), '请求用展开文本、气泡用原文');
+  assert.ok(turn.includes('userText: outgoingText'), '请求用展开文本、气泡用原文');
   assert.ok(panel.includes('installSampleCommands(storeRef.current, characterId)'), '安装示例接线');
 
   // 设置行的元数据（含 id）已外提到 settingsRows.js，行 id 断言读新文件。

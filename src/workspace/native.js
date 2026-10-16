@@ -13,6 +13,7 @@ import { createExpoSafAdapter, createSafWorkspaceStore } from './safStore.js';
 import { createShellRunner, getShellNative, isShellAvailable, sandboxPathFromUri } from './shell.js';
 import { createPythonRunner, getPythonNative, isPythonBridgePresent } from './python.js';
 import { createHistoryRecordingStore } from './history.js';
+import { createListCachingStore } from './listCache.js';
 import { createLegacyWorkspaceStore } from './store.js';
 import { registerWorkspaceTools } from './tools.js';
 import { createWorkspaceGit } from './git.js';
@@ -57,7 +58,21 @@ export function createWorkspaceStore(settings) {
     });
   // 改动历史记录装饰器：面板与聊天工具共用这条后端路径，记录点唯一。
   // 记录失败被装饰器吞掉，绝不影响文件操作本身。
-  const store = createHistoryRecordingStore(base);
+  const recorded = createHistoryRecordingStore(base);
+  // FEAT-AC12 P0-1：**清单缓存**装饰器（真机卡顿主因的修复）。
+  //
+  // 为什么必须包在 store 外面：walk() 逐条目串行（每个文件一次 getInfo），
+  // 用户克隆了数千文件的仓库后，**每次进文件/GitHub 面板都重跑全树遍历**。
+  // 而清单在两次写之间根本不变——缓存命中即 0 次 IO。
+  //
+  // rootKey 必须带上：换了根（应用私有 ⇄ 用户选的 SAF 文件夹）却命中旧缓存，
+  // 会让用户看到**另一个文件夹**的内容——比慢严重得多。键里带 location 即可分辨。
+  //
+  // 顺序：缓存**在最外层**（history 在内）——这样一次写只打脏一次，
+  // 而 history 的记录逻辑与缓存无关，两层各管各的批状态。
+  const store = createListCachingStore(recorded, {
+    rootKey: `${location.kind}:${location.kind === WORKSPACE_ROOT_KINDS.SAF ? location.uri || location.name || '' : defaultWorkspaceRoot()}`,
+  });
   // P1-11：保留口径随 store 带下去（fileHistory / rollbackBaseline / sessionEvents 三处
   // 旁路各自读 `store.retention`，缺失即默认）。放在这里是因为这三个模块的调用点分散
   // （写系工具、推送面板、聊天面板），store 是它们唯一的公共输入。

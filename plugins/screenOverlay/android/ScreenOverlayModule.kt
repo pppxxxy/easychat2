@@ -115,6 +115,19 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     private fun requestCapturePermissionInternal(onResult: (Boolean) -> Unit) {
         if (hasValidCaptureToken()) {
             // 已有有效 token：立即成功，不弹窗（幂等语义的第一条）。
+            //
+            // FEAT-AC12 P1-5：**这条静默 return 必须留痕**。
+            // 真机 8m52s 那次「第二次授权没有 settle」的现场里，epoch 两次都是 1——
+            // 这说明**第二次调用根本没走到自增那一行**。能在自增前 return 的路径只有三条，
+            // 其中两条已有打点（② 起 Activity 抛异常 → activity-start-failed；
+            // ③ 排队复用 → queued=true），**只有这一条是静默的**。
+            // 静默的后果：「token 还在所以没弹窗」（正常幂等）与「弹了但结果没回来」（缺陷）
+            // 在日志上长得一模一样。补上它，一次 grep 就能把两者分开。
+            // 两个值都是 @Volatile，锁外读安全（本就是诊断快照，不需要强一致）。
+            recordPermissionTrace(
+                "overlay-permission-token-hit",
+                "epoch=$capturePermissionEpoch inFlight=$capturePermissionInFlight"
+            )
             onResult(true)
             return
         }
@@ -225,18 +238,39 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
     fun startOverlay(promise: Promise) {
         try {
             if (!Settings.canDrawOverlays(reactContext)) {
+                // FEAT-AC12 P1-5：这条也是**静默**的——「悬浮窗权限没给」与
+                // 「授权链挂了」在日志上无法区分，补一条把两者分开。
+                recordPermissionTrace("overlay-start-result", "reason=no-draw-overlay-permission")
                 promise.resolve(false)
                 return
             }
             if (hasValidCaptureToken()) {
-                promise.resolve(launchOverlayService())
+                // FEAT-AC12 P1-5：**这条是「epoch 两次都是 1」最可能的解释**。
+                // 有 token 时 startOverlay 直接起服务，**根本不碰授权链**——于是
+                // 不会有新的 overlay-permission-request，epoch 当然不自增。
+                // 用户看到的现象（「第二次授权没有 settle」）如果发生在这里，
+                // 那根本不是授权悬挂，而是**起服务之后**的事：真凶在 launchOverlayService
+                // 或其下游（服务 onCreate / setupProjection）。没有这条打点就会一直
+                // 往授权链上查——方向错了，查多久都不会有结果。
+                val started = launchOverlayService()
+                recordPermissionTrace(
+                    "overlay-start-result",
+                    "reason=token-hit started=$started epoch=$capturePermissionEpoch"
+                )
+                promise.resolve(started)
                 return
             }
             // 无有效授权：走同一条授权链路，拿到结果后再启动。
             requestCapturePermissionInternal { granted ->
-                promise.resolve(if (granted && hasValidCaptureToken()) launchOverlayService() else false)
+                val started = granted && hasValidCaptureToken() && launchOverlayService()
+                recordPermissionTrace(
+                    "overlay-start-result",
+                    "reason=after-permission granted=$granted started=$started"
+                )
+                promise.resolve(started)
             }
         } catch (e: Exception) {
+            recordPermissionTrace("overlay-start-result", "reason=exception ${e.message}")
             promise.reject("ERR_START_OVERLAY", e.message, e)
         }
     }

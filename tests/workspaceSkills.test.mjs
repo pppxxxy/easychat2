@@ -239,9 +239,11 @@ test('提示词集成：read/write 注入技能清单；ask 不注入（没有�
 
 test('接线契约：ChatPanel 每轮直读技能并传入；设置面板可安装示例；i18n 中英齐', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
-  assert.ok(panel.includes('readWorkspaceSkills(storeRef.current, ownerId)'), '发消息时直读技能清单');
+  // FEAT-AC12：请求装配外提后，「每轮直读技能」的调用点搬到 chatPanelRequest.js。
+  const turn = fs.readFileSync(path.resolve('src/workspace/screen/chatPanelRequest.js'), 'utf8');
+  assert.ok(turn.includes('readWorkspaceSkills(store, ownerId)'), '发消息时直读技能清单');
   assert.ok(panel.includes('installSampleSkills(storeRef.current, characterId)'), '安装示例接线');
-  assert.ok(/skills,\n\s*\}\);/.test(panel) || panel.includes('skills,'), 'skills 传进提示组装');
+  assert.ok(/skills,\n\s*\}\);/.test(turn) || turn.includes('skills,'), 'skills 传进提示组装');
 
   const sheet = fs.readFileSync(path.resolve('src/workspace/WorkspaceSettingsSheet.js'), 'utf8');
   // 设置行元数据已外提，行 id 断言读新文件。

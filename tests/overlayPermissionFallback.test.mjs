@@ -295,6 +295,80 @@ test('P0-4：授权链打点用**独立命名空间**，不与采集链的 captu
 
 // ---------- ③ native 兜底（P0-1）——源码结构断言（沙箱无 Kotlin 编译器）----------
 
+// ---------- FEAT-AC12 P1-5：未 settle 路径的**理由打点** ----------
+//
+// 真机现场：第二次授权等了 8m52s 没有任何 settle，且两次日志里 epoch 都是 1。
+// epoch 没自增 ⇒ 第二次调用**根本没走到自增那一行**（见 requestCapturePermissionInternal）。
+// 能在自增前 return 的路径一共三条，其中一条此前**完全静默**：
+//   ① hasValidCaptureToken() 命中 → 正常幂等（token 还在，本就不该再弹窗）；
+//   ② 起 Activity 抛异常 → 已有 activity-start-failed 打点；
+//   ③ 排队复用 → 已有 queued=true 打点。
+// ① 静默的后果：「token 还在所以没弹窗」（正常）与「弹了但结果没回来」（缺陷）
+// 在日志上长得一模一样。任务书要求**先补理由追踪、不盲目修**——这正是那一步。
+test('P1-5：token 命中这条静默 return 必须留痕（否则无法区分幂等与悬挂）', () => {
+  const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
+  const requestFn = kotlinBody(moduleSrc, 'private fun requestCapturePermissionInternal(');
+  assert.ok(requestFn.includes('hasValidCaptureToken()'), '前提：token 判定还在');
+  // 关键：命中分支里必须有打点，且**在 onResult(true) 之前**
+  const hitAt = requestFn.indexOf('hasValidCaptureToken()');
+  const callAt = requestFn.indexOf('onResult(true)', hitAt);
+  assert.ok(callAt > hitAt, '前提：命中分支调 onResult(true)');
+  const branch = requestFn.slice(hitAt, callAt);
+  assert.match(branch, /recordPermissionTrace\(\s*"overlay-permission-token-hit"/,
+    'token 命中必须留痕——它是「epoch 没自增」的头号候选原因');
+});
+
+test('P1-5：打点必须带 epoch / inFlight（才能解释「两次 epoch 都是 1」）', () => {
+  const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
+  const requestFn = kotlinBody(moduleSrc, 'private fun requestCapturePermissionInternal(');
+  const hitAt = requestFn.indexOf('"overlay-permission-token-hit"');
+  assert.ok(hitAt > 0, '前提：token-hit 打点存在');
+  const detail = requestFn.slice(hitAt, hitAt + 300);
+  assert.match(detail, /epoch=\$capturePermissionEpoch/,
+    '要记当前 epoch——真机正是靠「两次都是 1」判定第二次没进自增分支');
+  assert.match(detail, /inFlight=\$capturePermissionInFlight/,
+    '要记 in-flight——区分「上一轮还挂着」与「干净地命中 token」');
+});
+
+test('P1-5：JS 侧复用 in-flight 也要留痕（分辨「复用了旧链」与「真发起新一轮」）', () => {
+  // 与 native 的 token-hit 配对：JS 说「复用了」，native 就该**没有**新的 request 打点。
+  // 两边时间线一对，就能回答「第二次点击到底有没有真的发起」。
+  const overlaySrc = fs.readFileSync(path.resolve('src/screenWatch/overlay.js'), 'utf8');
+  const fnAt = overlaySrc.indexOf('export function ensurePermissionThenStart()');
+  assert.ok(fnAt > 0, '前提：ensurePermissionThenStart 存在');
+  const head = overlaySrc.slice(fnAt, fnAt + 400);
+  assert.match(head, /traceStartChain\('overlay-start-chain-reuse'/,
+    '复用分支必须留痕（否则「复用旧 Promise」与「真发起」在日志上无法分辨）');
+  // 复用分支必须在**返回之前**打点
+  const traceAt = head.indexOf('overlay-start-chain-reuse');
+  const returnAt = head.indexOf('return startChainInFlight');
+  assert.ok(traceAt > 0 && returnAt > traceAt, '打点要在返回之前');
+});
+
+// 真机 8m52s 现场的**关键推论**：epoch 两次都是 1 ⇒ 第二次调用没进自增分支。
+// 而在 startOverlay 这条入口上，还有一条比 token-hit 更靠前的静默出口：
+//   有 token ⇒ 直接 launchOverlayService()，**根本不碰授权链**。
+// 若现场走的正是它，那「第二次授权没有 settle」这个描述本身就是**误判**——
+// 真凶在起服务之后（服务 onCreate / setupProjection），不在授权链上。
+// 所以这里必须留痕，否则排查方向从第一步就错了。
+test('P1-5：startOverlay 的三条出口都要留痕（含「有 token 直起服务」这条）', () => {
+  const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
+  const startFn = kotlinBody(moduleSrc, 'fun startOverlay(');
+  assert.match(startFn, /"overlay-start-result"/,
+    'startOverlay 必须记结果（否则无法分辨走到了哪条出口）');
+  // 三条出口各自带 reason，且可区分
+  for (const reason of ['no-draw-overlay-permission', 'token-hit', 'after-permission']) {
+    assert.ok(startFn.includes(`reason=${reason}`),
+      `出口 reason=${reason} 必须可辨（否则三条路在日志里长得一样）`);
+  }
+  // token-hit 分支必须同时记 started（用户看到的「没反应」到底是起没起来）
+  const hitAt = startFn.indexOf('reason=token-hit');
+  assert.ok(hitAt > 0, '前提：token-hit 打点存在');
+  const detail = startFn.slice(hitAt, hitAt + 200);
+  assert.match(detail, /started=\$started/, 'token-hit 必须带 started');
+  assert.match(detail, /epoch=\$capturePermissionEpoch/, 'token-hit 必须带 epoch');
+});
+
 test('P0-1：授权 Activity 有**死亡兜底**（onDestroy 结算 + 一次性标志 + 排除配置变更）', () => {
   const activitySrc = kotlinSource('OverlayPermissionActivity.kt');
   // 一次性标志：正常路径（onActivityResult → deliver → finish → onDestroy）不得重复投递
@@ -354,8 +428,11 @@ test('P0-2：看门狗只在**新请求进来时**惰性检查（不额外起计
   const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
   assert.match(moduleSrc, /fun recoverStaleCaptureRequestIfNeeded\(\)/,
     '必须有看门狗函数');
-  // 在请求入口处调用（而不是起 Timer/HandlerThread 常驻线程）
-  assert.match(moduleSrc, /requestCapturePermissionInternal[\s\S]{0,900}?recoverStaleCaptureRequestIfNeeded\(\)/,
+  // 在请求入口处调用（而不是起 Timer/HandlerThread 常驻线程）。
+  // ⚠️ 用**函数体**判定，不用「入口到调用点的字符距离」：距离窗口会被中间新增的
+  // 注释挤爆（FEAT-AC12 加 P1-5 注释时就误报过一次），而意图是「在这个函数里调用」。
+  const requestFn = kotlinBody(moduleSrc, 'private fun requestCapturePermissionInternal(');
+  assert.ok(requestFn.includes('recoverStaleCaptureRequestIfNeeded()'),
     '看门狗必须在 requestCapturePermissionInternal 里被调用');
   // 不得引入常驻计时线程
   assert.equal(/Timer\(|scheduleAtFixedRate|HandlerThread\("permission/.test(moduleSrc), false,

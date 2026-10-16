@@ -53,6 +53,8 @@ import { tutorial } from './zh-CN/tutorial.js';
 import { ui } from './zh-CN/ui.js';
 import { vectorProvider } from './zh-CN/vectorProvider.js';
 import { workspace } from './zh-CN/workspace.js';
+// FEAT-AC12：workspace.chat.* 整域抽到独立文件（workspace.js 已贴 800 行上限）。
+import { workspaceChat } from './zh-CN/workspaceChat.js';
 import { workspaceWatch } from './zh-CN/workspaceWatch.js';
 import { world } from './zh-CN/world.js';
 export const zhCN = {
@@ -98,6 +100,7 @@ export const zhCN = {
   ...ui,
   ...vectorProvider,
   ...workspace,
+  ...workspaceChat,
   ...workspaceWatch,
   ...world,
 };

@@ -128,9 +128,20 @@ test('FIX-3：授权申请幂等（排队复用同一次弹窗，绝不叠窗）
   assert.ok(moduleSrc.includes('capturePermissionInFlight'), 'in-flight 标记存在');
   assert.ok(/if \(capturePermissionInFlight\) \{[\s\S]{0,200}?capturePermissionWaiters\.add/.test(moduleSrc),
     '弹窗进行中要排队复用，不叠第二个弹窗');
-  // 已有有效 token 时不再弹窗
-  assert.ok(/if \(hasValidCaptureToken\(\)\) \{[\s\S]{0,120}?onResult\(true\)/.test(moduleSrc),
+  // 已有有效 token 时不再弹窗。
+  // ⚠️ 用**分支体**判定，不用「到 onResult 的字符距离」：距离窗口会被中间新增的
+  // 注释挤爆（FEAT-AC12 加 P1-5 打点时就误报过一次），而意图是
+  // 「token 命中分支里直接成功、不走弹窗」。
+  const hitAt = moduleSrc.indexOf('if (hasValidCaptureToken()) {');
+  assert.ok(hitAt >= 0, '必须有 token 命中分支');
+  // 取到该 if 块的闭合（同缩进 8 空格的 `}` 加换行）
+  const hitEnd = moduleSrc.indexOf('\n        }\n', hitAt);
+  assert.ok(hitEnd > hitAt, 'token 命中分支要有闭合');
+  const hitBranch = moduleSrc.slice(hitAt, hitEnd);
+  assert.ok(hitBranch.includes('onResult(true)'),
     '已有有效 token 时直接成功，不再弹窗');
+  assert.equal(/startActivity|Intent\(/.test(hitBranch), false,
+    'token 命中分支不得起授权 Activity（那就是叠第二个弹窗）');
 });
 
 test('FIX-3：startOverlay 在无 token 时**自动先要授权**（双入口统一的关键）', () => {

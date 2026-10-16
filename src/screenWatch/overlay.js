@@ -176,7 +176,13 @@ function traceStartChain(stage, detail) {
 // 超时后**必须清掉 in-flight**，让下一次点击真正重新发起（这是「能点却永远转圈」
 // 的解药）；本次调用则拿到一个明确的超时结果（界面提示「启动超时，请重试」）。
 export function ensurePermissionThenStart() {
-  if (startChainInFlight) return startChainInFlight;
+  if (startChainInFlight) {
+    // FEAT-AC12 P1-5：复用 in-flight 时也要留痕。真机「第二次授权没有 settle」的现场
+    // 需要回答的第一个问题是「这第二次点击到底有没有真的发起新一轮」——复用旧 Promise
+    // 与真发起在新一轮在日志上必须可分辨（前者不该有 native 侧的新 request 打点）。
+    traceStartChain('overlay-start-chain-reuse', 'joined in-flight chain (no new attempt)');
+    return startChainInFlight;
+  }
   const chain = runStartChain();
   let timer = null;
   // 超时分支：只负责让本次调用拿到一个明确结果。释放 in-flight 由下面的 clear 统一做

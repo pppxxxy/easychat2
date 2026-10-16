@@ -19,7 +19,7 @@ import { Buffer } from 'buffer';
 
 import { createGitFs } from './gitFs.js';
 import { buildLineDiff } from './lineDiff.js';
-import { isProtectedWorkspacePath } from './paths.js';
+import { isGitIgnoredWorkspacePath, isProtectedWorkspacePath } from './paths.js';
 
 // 仓库根固定为 '/'：路径映射由 gitFs 独占（见其注释），调用方不要再拼沙盒前缀。
 const REPO_DIR = '/';
@@ -129,7 +129,13 @@ export function createWorkspaceGit({ root, characterId, fileSystem, author = GIT
     // 的唯一入口，过滤一次，四条路径同时正确。
     async changedFiles() {
       return (await statusRows()).filter(row => (
-        row.status !== 'unmodified' && !isProtectedWorkspacePath(row.path)
+        row.status !== 'unmodified'
+        && !isProtectedWorkspacePath(row.path)
+        // FEAT-AC12 P0-3：`.easychat/.shell-cwd` 这类**每条命令都被重写**的
+        // 会话状态文件不入提交——否则每轮都多一条无信息量的提交，
+        // 而「最近一次提交改了什么」卡片因此永远有货、永远挡视野。
+        // 过滤点与上面同源（唯一入口），status/discard/commitAll/UI 一次全对。
+        && !isGitIgnoredWorkspacePath(row.path)
       ));
     },
     async log({ depth = GIT_DEFAULT_DEPTH } = {}) {

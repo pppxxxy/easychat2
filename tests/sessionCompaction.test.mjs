@@ -209,7 +209,11 @@ test('回归 P1-7：buildSessionCompactionDeps 覆盖宿主原先内联的五项
 });
 
 test('回归 P1-7：ChatPanel 不再内联压缩 deps 装配（宿主侧只留一处）', () => {
-  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  // FEAT-AC12：压缩的**执行逻辑**已从 ChatPanel 外提到 chatPanelCompaction.js
+  //（行数棘轮）。判据不变——「必须换用共用装配函数、不得内联 deps 副本」——
+  // 但要看**真正执行压缩的那个文件**。两文件都查，防有人把内联副本搬回去。
+  const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8')
+    + fs.readFileSync(path.resolve('src/workspace/screen/chatPanelCompaction.js'), 'utf8');
   assert.ok(panel.includes('buildSessionCompactionDeps('), 'ChatPanel 必须换用共用装配函数');
   // 内联的痕迹：在宿主里再写这些 deps 键（那正是会漂移的副本）。
   assert.equal(/retainTokens:\s*Math\.max\(0, Math\.floor\(windowSize/.test(panel), false, '不得再内联 retainTokens');

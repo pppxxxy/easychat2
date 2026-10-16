@@ -49,6 +49,9 @@ import { tutorial } from './en/tutorial.js';
 import { ui } from './en/ui.js';
 import { vectorProvider } from './en/vectorProvider.js';
 import { workspace } from './en/workspace.js';
+// FEAT-AC12: the whole workspace.chat.* domain moved to its own file
+// (workspace.js sits right at the 800-line cap).
+import { workspaceChat } from './en/workspaceChat.js';
 import { workspaceWatch } from './en/workspaceWatch.js';
 import { world } from './en/world.js';
 export const en = {
@@ -94,6 +97,7 @@ export const en = {
   ...ui,
   ...vectorProvider,
   ...workspace,
+  ...workspaceChat,
   ...workspaceWatch,
   ...world,
 };

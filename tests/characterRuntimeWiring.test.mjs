@@ -393,8 +393,11 @@ test('接线：四类消费点都从唯一解析层取，且不再自己读全�
 
   const chatPanel = read('src/workspace/screen/ChatPanel.js');
   assert.ok(chatPanel.includes('resolveCharacterTranscription('), '工作区转写走解析层');
-  assert.ok(chatPanel.includes('getCharacterApiConfigs('), '工作区对话走解析层');
-  assert.equal(chatPanel.includes('getTranscriptionSettings'), false, '不得再自己读全局转写设置');
+  // FEAT-AC12：工作区回合的**请求装配**已外提到 chatPanelRequest.js（行数棘轮），
+  // 所以解析层调用点在新文件里。两文件合读，判据不变（仍要求走解析层）。
+  const chatPanelTurn = chatPanel + read('src/workspace/screen/chatPanelRequest.js');
+  assert.ok(chatPanelTurn.includes('getCharacterApiConfigs('), '工作区对话走解析层');
+  assert.equal(chatPanelTurn.includes('getTranscriptionSettings'), false, '不得再自己读全局转写设置');
 
   const chatTts = read('src/chat/useChatTts.js');
   assert.ok(chatTts.includes('resolveCharacterTtsSpeak('), 'TTS 走解析层');

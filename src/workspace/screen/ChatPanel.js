@@ -43,24 +43,22 @@ import {
   setActiveWorkspaceChat,
 } from '../../storage/workspace.js';
 import {
-  capabilitiesForModel,
   getActiveModel,
   getApiConfigs,
   saveApiConfigs,
 } from '../../storage/apiConfigs.js';
-import { getActiveLocalModel } from '../../storage/localModels.js';
 import { getCharacterLibrary } from '../../storage/characters.js';
 import {
   getThinkingSettings,
   saveThinkingSettings,
 } from '../../storage/settings.js';
 // 角色专属配置的唯一解析层（聊天 API / OCR / TTS+音声 / 转写）。
-import { getCharacterApiConfigs, resolveCharacterTranscription } from '../../character/runtimeConfig.js';
-import { AUTO_COMPACT_RATIO, resolveContextWindow } from '../../chat/contextUsage.js';
-import { resolveAutoCompactPolicy } from '../../chat/compactionPolicy.js';
-import { runCompactionPipeline } from '../../chat/compactionPipeline.js';
+import { resolveCharacterTranscription } from '../../character/runtimeConfig.js';
+// FEAT-AC12：AUTO_COMPACT_RATIO / resolveContextWindow / resolveAutoCompactPolicy /
+// runCompactionPipeline / buildSessionCompactionDeps 随压缩逻辑外提到
+// chatPanelCompaction.js；capabilitiesForModel / getActiveLocalModel 同样只在那边用。
 import { isContextOverflowError, runReactiveCompact } from '../../chat/reactiveCompact.js';
-import { buildReactiveCompactDeps, buildSessionCompactionDeps } from '../../chat/sessionCompaction.js';
+import { buildReactiveCompactDeps } from '../../chat/sessionCompaction.js';
 import { extractToolTrace } from '../../chat/toolTrace.js';
 // P2-1：消息检索（就地过滤会话行）——判定全在纯函数 chat/messageSearch.js。
 import { searchChatMessages } from '../../chat/messageSearch.js';
@@ -73,7 +71,6 @@ import { confirmFlowHostOptions } from './confirmFlowBridge.js';
 import { createAgentToolEventHandler, turnEventHostOptions } from './agentTurnObservation.js';
 // 样式表已抽出（这个文件卡在架构棘轮基线上，样式是纯数据、搬走最安全）。
 import createStyles from './chatPanelStyles.js';
-import { filterRequestMedia } from '../../prompt/chatPipeline.js';
 import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../network/api.js';
 import { transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
@@ -82,6 +79,12 @@ import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
 // 见 turnAbort.js —— AbortController 与 controller.signal 是两个对象，
 // 写入方必须同时写两处，读取方（loop.js）才读得到。
 import { abortWithReason as abortTurn } from '../../agent/turnAbort.js';
+// FEAT-AC12 P0-2：发送闸门（同步 ref 锁 + 3 秒相同文本去重）。纯逻辑，Node 直测。
+import { createSendGate, SEND_DECISIONS } from '../sendGuard.js';
+// FEAT-AC12：回合请求装配外提（逐字搬运；同时把本文件行数降回棘轮基线之下）。
+import { assembleWorkspaceTurn } from './chatPanelRequest.js';
+// FEAT-AC12：会话压缩的执行逻辑同样外提（逐字搬运）。
+import { runWorkspaceCompaction } from './chatPanelCompaction.js';
 // FEAT-AC11：输入草稿缓存外提（模块级纯函数；同时把本文件行数降回棘轮基线之下）。
 import { persistDraft, readDraft, rememberDraft } from './chatPanelDrafts.js';
 import { approvalOptionsFromToolCall, approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
@@ -108,9 +111,8 @@ import {
 } from '../sessionEvents.js';
 import { normalizePlanSteps, shouldOfferPlanApproval } from '../toolDefs/planTool.js';
 import { createWorkspaceStore, resolveGitRunner } from '../native.js';
-import { registerWorkspaceAgentTools } from '../agentToolSetup.js';
 import { runTurnCheckpoint } from '../gitCheckpoint.js';
-import { ensureWorkspaceMemory, readWorkspaceMemory } from '../memory.js';
+import { ensureWorkspaceMemory } from '../memory.js';
 import { createReadLog } from '../readLog.js';
 import { materializeRepoFile, parseRepoFilePath } from '../repoMaterialize.js';
 import { readRepoManifest } from '../repoImport.js';
@@ -138,7 +140,7 @@ import {
 import { installWorkspaceTemplate } from '../templates.js';
 import { upsertWorkspaceChat } from '../chats.js';
 import { loadWorkspaceContextUsage } from '../usage.js';
-import { getSessionPlan, saveSessionPlan } from '../../storage/sessionPlan.js';
+import { getSessionPlan } from '../../storage/sessionPlan.js';
 import {
   addPermissionRule,
   clearPermissionRules,
@@ -151,11 +153,9 @@ import SessionSidePanels from './SessionSidePanels.js';
 import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import ToolCallRow from './ToolCallRow.js';
 import { buildConversationRows } from '../conversation.js';
-import {
-  buildWorkspaceAgentMessages,
-  buildWorkspaceAgentSystemPrompt, resolveSendText,
-  projectWorkspaceChatHistory,
-} from '../chat.js';
+// FEAT-AC12：buildWorkspaceAgentMessages / buildWorkspaceAgentSystemPrompt /
+// projectWorkspaceChatHistory 随请求装配一起外提到 chatPanelRequest.js。
+import { resolveSendText } from '../chat.js';
 
 const MAX_ATTACHMENTS = 3;
 
@@ -309,6 +309,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
 
   const recorder = useChatRecorder();
   const controllerRef = useRef(null);
+  // FEAT-AC12 P0-2：发送闸门（**同步** ref 锁 + 3 秒相同文本去重）。
+  //
+  // 为什么不能继续用 `if (sending)`：sending 是 useState，setState 异步批处理，
+  // 连点/JS 忙时后续点击全部穿透守卫 ⇒ 截图 #462 的三条重复消息
+  //（同时段日志零 turn-start——消息落了库，回合一个都没启动）。
+  // 闸门是 ref 上的同步翻位，与 React 批处理无关；state 退回只管 UI 显示。
+  const sendGateRef = useRef(null);
+  if (sendGateRef.current === null) sendGateRef.current = createSendGate();
   const mountedRef = useRef(true);
   const scrollRef = useRef(null);
   const storeRef = useRef(null);
@@ -428,9 +436,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     } catch (error) {}
   }, []);
 
-  // N2：工作区会话压缩（四档管线）。展示历史里没有 tool 消息，L0/L1 自然空转，
-  // 实际走 L2 摘要 + L3 归档——即「摘要旧史 + 保留尾部」。silent=true 时按 compactionPolicy 阈值自判
-  //（每轮自动调用）；手动时 autoRatio=0 强制压缩。失败一律不改会话（压缩是增强）。
+  // N2：工作区会话压缩（四档管线）。执行逻辑外提到 chatPanelCompaction.js
+  //（逐字搬运、行为不变；外提理由同 chatPanelRequest.js：棘轮 + 可测性）。
+  // 这里只留「重入锁 + 写回会话」这两件必须碰组件状态的事。
   const compactWorkspaceNow = useCallback(async ({ silent = false, list: overrideList = null } = {}) => {
     if (compactingRef.current) return { ok: false, reason: 'busy' };
     const list = Array.isArray(overrideList)
@@ -439,46 +447,16 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     if (list.length < 2) return { ok: false, reason: 'too-short' };
     compactingRef.current = true;
     try {
-      const [{ configs, activeId }, localItem] = await Promise.all([
-        getApiConfigs(),
-        getActiveLocalModel().catch(() => null),
-      ]);
-      const current = configs.find(item => item.id === activeId) || configs[0];
-      if (!current) return { ok: false, reason: 'failed' };
-      const model = getActiveModel(current);
-      const caps = capabilitiesForModel(current, model);
-      const localContextSize = Number(localItem && localItem.contextSize) || 0;
-      const windowSize = resolveContextWindow({ declared: caps.contextWindow, localContextSize, model });
-      // 阈值统一走 compactionPolicy（Z 系采纳 #5：模型感知 + 输出预留 + 缓冲）。
-      const policy = resolveAutoCompactPolicy({ contextWindow: windowSize });
-      const autoRatio = windowSize > 0 ? policy.thresholdTokens / windowSize : AUTO_COMPACT_RATIO;
-      const chatId = activeChatIdRef.current;
-      const ownerId = characterIdRef.current;
-      // deps 换用 Z 线自己写的 buildSessionCompactionDeps（P1-7）：原先这里**内联**了一份
-      // 五项装配（estimateRatio / summarize / writeTranscript / retainTokens / estimateTokens），
-      // 与那个函数逐字相同——两份近似代码的下场必然是「只改一处」（本次合并里
-      // estimateTokens 的正文口径、minMessages 的键名就都踩过）。宿主侧装配只留一处。
-      const result = await runCompactionPipeline(list, {
-        autoRatio: silent ? autoRatio : 0,
-        deps: buildSessionCompactionDeps({
-          windowSize,
-          store: storeRef.current,
-          characterId: ownerId,
-          summarize: request => sendChatMessage(request, {
-            stream: false,
-            expectedConfigId: String(current.id || ''),
-            expectedConfigFingerprint: getConfigFingerprint(current),
-          }),
-        }),
+      const result = await runWorkspaceCompaction({
+        list,
+        silent,
+        store: storeRef.current,
+        characterId: characterIdRef.current,
       });
-      if (result.applied.length > 0 && result.messages !== list) {
-        if (mountedRef.current) setMessages(result.messages);
-        await replaceWorkspaceChatMessages(ownerId, chatId, result.messages);
-        return { ok: true, applied: result.applied };
-      }
-      return { ok: false, reason: 'noop' };
-    } catch (error) {
-      return { ok: false, reason: 'failed' };
+      if (!result.ok) return { ok: false, reason: result.reason };
+      if (mountedRef.current) setMessages(result.messages);
+      await replaceWorkspaceChatMessages(activeChatIdRef.current, characterIdRef.current, result.messages);
+      return { ok: true, applied: result.applied };
     } finally {
       compactingRef.current = false;
     }
@@ -1153,6 +1131,36 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
       pendingHookNoticesRef.current = collectTurnEndNotices(hooks);
     } catch (error) {}
 
+    // FEAT-AC12 P0-2：**同步闸门**（ref 锁 + 3 秒相同文本去重）。设计说明见 sendGuard.js。
+    // 位置：所有校验/钩子都过了、马上要落库开回合的那一点（上面的 early return 不该占闸门）；
+    // 从这行到 finally 之间没有 early return，故「begin 之后必然 release」是结构性成立的。
+    // 为什么必须同步：旧守卫 `if (sending)` 读 React state，而 setState 异步批处理
+    // ——第一次点击尚未翻位时后续连点全部穿透（截图 #462 三条重复消息的成因）。
+    const gate = sendGateRef.current;
+    const decision = gate.begin(text);
+    if (decision === SEND_DECISIONS.DUPLICATE) {
+      // **不静默丢弃**：静默会让用户以为「点了没反应」，那正是本轮要消灭的观感。
+      Alert.alert(t('workspace.chat.duplicate.title'), t('workspace.chat.duplicate.body'));
+      return;
+    }
+    // IN_FLIGHT：**我们没拿到锁**（已有一轮在跑），所以绝不能在这里 end()——
+    // end() 会把**真正持有者**的锁放掉，于是闸门在一轮运行期间敞开，
+    // 后续连点又能穿透（正是本轮要修的那类错）。只返回，让持有者自己释放。
+    // 走到这里说明 `sending` 那个 state 还没翻位（异步批处理的窗口期）——
+    // 闸门在这个窗口里替它挡住了重复发送，这正是它存在的意义。
+    if (decision !== SEND_DECISIONS.OK) return;
+    let gateHeld = true;
+    const releaseGate = () => {
+      if (gateHeld) {
+        gateHeld = false;
+        gate.end();
+      }
+    };
+    // FEAT-AC12 P0-2：闸门在下面**第一个 await 之前**就已拿到，而原来的 try 在装配之后才开。
+    // 于是「装配阶段抛错」会让 finally 永不执行 ⇒ 闸门永久锁死 ⇒ 用户再也发不出消息
+    //（比重复消息严重得多）。这里补一层外层 try/catch 兜住装配段：出错也**必须**放锁。
+    // releaseGate 幂等，两条路径都调不会重复释放。
+    try {
     const userMessage = {
       id: nextId(),
       role: 'user',
@@ -1191,61 +1199,29 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     steeringRef.current = createSteeringQueue();
     setSteeringNote('');
 
-    // 先注册工具、再拼提示词（顺序契约与漂移判据见 agentToolSetup.js 的注释）。
-    let tools = [];
-    if (mode !== 'ask') {
-      try {
-        const setup = await registerWorkspaceAgentTools({
-          settings: wsSettingsRef.current || wsSettings, mode,
-          readLog: readLogRef.current, materializer: materializeForAgent,
-          // W3②：计划随会话落盘（此前只存在内存里，切面板/切会话就丢）。
-          onPlan: steps => saveSessionPlan(chatId, steps),
-          previous: toolOrderRef.current,
-        });
-        tools = setup.tools;
-        // E1：顺序漂移 = 前缀缓存全 miss。开发期告警、生产静默；mode 切换不算漂移。
-        if (setup.drifted && typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.warn('[cache] 工具顺序在会话内发生变化（会打碎前缀缓存）：', setup.prevSignature, '→', setup.signature);
-        }
-        toolOrderRef.current[mode] = setup.signature;
-      } catch (error) {}
-    }
-    // 工作区记忆（AGENTS.md）：每轮直读、不缓存——agent 可能刚在上一轮里改过它
-    //（自我演进通路），缓存一旦判断失误模型就会按旧指令工作；读失败当没有，不打扰聊天。
-    const memory = await readWorkspaceMemory(storeRef.current, ownerId);
-    // 技能清单（渐进披露第一层）：同样每轮直读——技能目录不存在时只有一次 list IO。
-    const skills = mode === 'ask' ? [] : await readWorkspaceSkills(storeRef.current, ownerId);
-    // E3：分身档案清单（渐进披露第一层）——同样每轮直读；run_subagent 没注册时
-    // 提示词自动不注入（buildWorkspaceAgentSystemPrompt 内部判据）。
-    const agents = mode === 'ask' ? [] : await readWorkspaceAgents(storeRef.current, ownerId);
-    // 团队清单（持久化团队）：同样每轮直读；run_team 没注册时提示词自动不注入。
-    const teams = mode === 'ask' ? [] : await readWorkspaceTeams(storeRef.current, ownerId);
-    const systemPrompt = buildWorkspaceAgentSystemPrompt({
+    // FEAT-AC12：请求装配外提到 chatPanelRequest.js（逐字搬运、行为不变）。
+    // 外提理由：① 本文件卡在行数棘轮上，本轮要给发送链路加同步闸门（P0-2），
+    // 按纪律「拆文件，不抬上限」；② 这段是纯装配，抽出去就能被直接断言，
+    // 而埋在 1600 行组件里只能靠源码正则（那种断言会空转）。
+    const assembled = await assembleWorkspaceTurn({
+      store: storeRef.current,
+      characterId,
+      ownerId,
       mode,
       characterName,
-      tools: tools.map(item => item.function.name),
-      memory,
-      skills,
-      agents,
-      teams,
-      // A5：本会话已读清单（本轮注入的 read 结果里，上一轮读过的会出现在这行）。
-      readLog: readLogRef.current ? readLogRef.current.list() : [],
-      // P0-8：hooks.json 的注入类事件（放在 readLog 之前，见该函数的缓存契约）。
-      hookText,
-    });
-    let request = buildWorkspaceAgentMessages({
-      systemPrompt,
-      history: projectWorkspaceChatHistory(history),
-      // 斜杠命令在这里生效：outgoingText = 用户输入原文，或命令展开后的文本。
-      userText: outgoingText,
+      history,
+      outgoingText,
       images,
+      hookText,
+      readLog: readLogRef.current,
+      toolOrder: toolOrderRef.current,
+      settings: wsSettingsRef.current || wsSettings,
+      materializer: materializeForAgent,
+      chatId,
     });
-    // 工作区对话同样走角色专属聊天 API：activeId 已按角色覆盖解析，专属模型也写进了
-    // 该条配置的 activeModel，故下面的媒体裁剪按专属口径。chatRequestOptions 只在
-    // 专属配置生效时非空（无覆盖时 = 既有「按全局激活项解析」路径）。
-    const chatRuntime = await getCharacterApiConfigs(characterId).catch(() => ({ configs: [], activeId: '', chatRequestOptions: {} }));
-    const cfg = chatRuntime.configs.find(item => item.id === chatRuntime.activeId) || chatRuntime.configs[0] || null;
-    request = filterRequestMedia(request, { allowVision: Boolean(cfg && cfg.supportsVision), allowAudio: false });
+    const tools = assembled.tools;
+    let request = assembled.request;
+    const chatRuntime = assembled.chatRuntime;
 
     try {
       let overflowRetried = false;
@@ -1394,6 +1370,14 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
           list: [...history, userMessage, { ...assistantFinal, at: Date.now() }],
         }).catch(() => {});
       }
+      // FEAT-AC12 P0-2：放锁。放在内层 try 的 finally 末尾——成功/中止/报错都必然执行到这里。
+      releaseGate();
+    }
+    } catch (error) {
+      // 装配段（注册工具 / 读记忆 / 拼提示词）抛错时走到这里：那时内层 try 还没开，
+      // 上面的 finally 覆盖不到 ⇒ 闸门必须在这里放掉，否则用户**再也发不出消息**。
+      releaseGate();
+      throw error;
     }
   }, [activeChatId, attachments, characterId, characterName, characters, compactWorkspaceNow, input, loadUsage, materializeForAgent, messages, mode, persistMessages, sending, t, updateAssistant, wsSettings]);
 

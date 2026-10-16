@@ -105,11 +105,13 @@ test('提示词注入：read/write 模式带已读行；ask 不带；空不注�
 
 test('接线契约：ChatPanel 建登记器 / 切对话清空 / 两处传参', () => {
   const panel = fs.readFileSync(path.resolve('src/workspace/screen/ChatPanel.js'), 'utf8');
+  // FEAT-AC12：请求装配外提后，「每轮注入已读行」的调用点搬到了 chatPanelRequest.js。
+  const turn = fs.readFileSync(path.resolve('src/workspace/screen/chatPanelRequest.js'), 'utf8');
   assert.ok(panel.includes('createReadLog()'), '会话登记器在这里创建');
   const clearCount = (panel.match(/readLogRef\.current\.clear\(\)/g) || []).length;
   assert.equal(clearCount, 2, '新建对话与切对话都要清（「本会话」的语义边界）');
   assert.ok(panel.includes('readLog: readLogRef.current'), '注册工具时注入');
-  assert.ok(panel.includes('readLog: readLogRef.current ? readLogRef.current.list() : []'), '每轮注入已读行');
+  assert.ok(turn.includes('readLog ? readLog.list() : []'), '每轮注入已读行');
   const native = fs.readFileSync(path.resolve('src/workspace/native.js'), 'utf8');
   assert.ok(native.includes('extras.readLog'), '注册入口透传 extras');
   // D4-1：结果增强钩子（on_tool_result）注入在工作区宿主
