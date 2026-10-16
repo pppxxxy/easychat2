@@ -48,6 +48,10 @@ export const imageGen = {
   'imageGen.alert.extraInvalid.bodyJson': 'Please enter valid JSON.',
   'imageGen.alert.unsupportedFile.title': 'Unsupported file',
   'imageGen.alert.unsupportedFile.body': 'Please choose an image file.',
+  // FEAT-AC13 P0-2: HEIC/HEIF pre-flight rejection. Must say which formats to use —
+  // "unsupported" alone leaves the user with no next step.
+  'imageGen.alert.referenceFormatUnsupported.title': 'Reference image format not supported',
+  'imageGen.alert.referenceFormatUnsupported.body': 'The edit service accepts only PNG, JPG and WebP. HEIC/HEIF (the iPhone camera default) is not supported yet — please convert to PNG or JPG first.',
   'imageGen.alert.imageTooLarge.title': 'Image too large',
   'imageGen.alert.imageTooLarge.body': 'Reference images must be under 20 MB.',
   'imageGen.alert.imageTooManyPixels.title': 'Image resolution too high',

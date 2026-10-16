@@ -103,6 +103,9 @@ export const error = {
   'error.imageGen.apiKeyRequired': 'Please fill in the API key first.',
   'error.imageGen.promptRequired': 'Please enter a prompt.',
   'error.imageGen.i2iUnsupported': 'This service does not support image-to-image.',
+  // FEAT-AC13 P2-5: fail-fast when i2i gets only an https image URL (the multipart
+  // attachment channel does not accept it).
+  'error.imageGen.imageUrlUnsupported': 'This image source cannot be used for editing: editing needs a local file (pick from gallery or take a photo). Please choose a local image.',
   'error.imageGen.requestIncomplete': 'The request configuration is incomplete.',
   'error.imageGen.noImagesParsed': 'No image could be parsed from the response.',
   'error.imageGen.failed': 'Generation failed.',
@@ -111,6 +114,9 @@ export const error = {
   'error.imageGen.httpAuth': 'Invalid or unauthorized API key.',
   'error.imageGen.httpRateLimited': 'Too many requests. Please try again later.',
   'error.imageGen.httpFailed': 'Generation failed (HTTP {status}).',
+  // FEAT-AC13 P1-3: endpoint self-check (caught locally, with the correct shape).
+  'error.imageGen.endpointMissingImagesPath': 'The API address must point at a concrete endpoint, e.g. {placeholder}. The current address is missing the /images/generations part, so the request goes to the wrong place. (The "Detect" button probes the model-list endpoint — passing detection does not mean the generation endpoint is correct.)',
+  'error.imageGen.endpointEditsOnly': 'The current address points at the edit endpoint (/images/edits), so text-to-image will fail. For text-to-image use {placeholder}; if you only edit images, you can ignore this.',
   'error.imageGen.listUnavailable': 'The model list endpoint is unavailable.',
   'error.localDream.unreachable': 'Cannot reach the local Local Dream (default 127.0.0.1:8081). Open Local Dream, load a model, make sure its HTTP API is enabled, then retry.',
   'error.localDream.requestFailed': 'Local image generation request failed.',

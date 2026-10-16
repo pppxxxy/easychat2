@@ -48,6 +48,10 @@ export const imageGen = {
   'imageGen.alert.extraInvalid.bodyJson': '请输入合法的 JSON。',
   'imageGen.alert.unsupportedFile.title': '不支持的文件',
   'imageGen.alert.unsupportedFile.body': '请选择图片文件。',
+  // FEAT-AC13 P0-2：HEIC/HEIF 前置拦截。必须说明「换什么格式」，
+  // 只说「不支持」用户仍不知道下一步做什么。
+  'imageGen.alert.referenceFormatUnsupported.title': '参考图格式暂不支持',
+  'imageGen.alert.referenceFormatUnsupported.body': '改图服务只接受 PNG、JPG 与 WebP。HEIC/HEIF（iPhone 相册默认格式）暂不被支持，请先转成 PNG 或 JPG 再选。',
   'imageGen.alert.imageTooLarge.title': '图片过大',
   'imageGen.alert.imageTooLarge.body': '参考图片不能超过 20 MB。',
   'imageGen.alert.imageTooManyPixels.title': '图片分辨率过高',

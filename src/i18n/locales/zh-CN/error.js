@@ -104,6 +104,8 @@ export const error = {
   'error.imageGen.apiKeyRequired': '请先填写 API 密钥',
   'error.imageGen.promptRequired': '请输入提示词',
   'error.imageGen.i2iUnsupported': '该服务不支持图生图',
+  // FEAT-AC13 P2-5：i2i 只给 https 图片地址时的 fail-fast（multipart 附件通道不认它）。
+  'error.imageGen.imageUrlUnsupported': '该图片来源不支持改图：改图需要本地文件（相册选图或拍照）。请改选本地图片。',
   'error.imageGen.requestIncomplete': '请求配置不完整',
   'error.imageGen.noImagesParsed': '未从响应中解析到图片',
   'error.imageGen.failed': '生成失败',
@@ -112,6 +114,9 @@ export const error = {
   'error.imageGen.httpAuth': '密钥无效或未授权',
   'error.imageGen.httpRateLimited': '请求过于频繁，请稍后重试',
   'error.imageGen.httpFailed': '生成失败（HTTP {status}）',
+  // FEAT-AC13 P1-3：端点写法自检（本地拦，带正确形状指引）。
+  'error.imageGen.endpointMissingImagesPath': 'API 地址必须指向具体端点，形如 {placeholder}。当前地址缺少 /images/generations 这一段，请求会打到错误的地方（设置页的「检测」探的是模型列表接口，检测通过不代表生成端点正确）。',
+  'error.imageGen.endpointEditsOnly': '当前地址指向改图端点（/images/edits），文生图会失败。文生图请填 {placeholder}；若只用改图，可以忽略这条。',
   'error.imageGen.listUnavailable': '列表接口不可用',
   'error.localDream.unreachable': '无法连接本地 Local Dream（默认 127.0.0.1:8081）。请先打开 Local Dream、加载一个模型，确认 HTTP API 已开启后重试。',
   'error.localDream.requestFailed': '本地生图请求失败',

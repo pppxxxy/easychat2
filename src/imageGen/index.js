@@ -11,6 +11,10 @@ import {
   LOCAL_DREAM_TOKENIZE_PATH,
 } from './localDream.js';
 import { tActive } from '../i18n/index.js';
+// FEAT-AC13 P0-1：HTTP 错误体细节提取（与 SSE 路径共用的唯一实现）。
+import { composeHttpErrorMessage, describeHttpErrorBody } from './httpError.js';
+// FEAT-AC13 P1-3/P1-4：端点写法自检 + gpt-image 参数兼容（纯函数）。
+import { ENDPOINT_ISSUES, inspectImageEndpoint, skipsResponseFormat, withoutResponseFormat } from './endpointCheck.js';
 import { isReservedPathKey as isReservedPathKeyShared } from '../utils/reservedPathKeys.js';
 import { splitUrlQuery } from '../utils/urlQuery.js';
 
@@ -140,7 +144,24 @@ export function buildRequest({ provider, config, prompt, image, imageUri, model,
     seed: seed === undefined || seed === null ? '' : seed,
     mime: imageMime || 'image/png',
   };
-  const payload = substitute(deepClone(spec.template), placeholders);
+  let payload = substitute(deepClone(spec.template), placeholders);
+  // FEAT-AC13 P1-4：gpt-image-1 系模型不接受 `response_format`，传了报
+  // `400 Unknown parameter`。openai-relay 的模板里硬编码了 `response_format: 'b64_json'`，
+  // 于是这类模型**文生图与改图全中**。按模型名跳过注入（把模板带来的那个键摘掉）。
+  //
+  // 为什么在这里按模型名判、而不是在 provider 表里加开关：模型名是**用户填的运行时值**
+  //（设置页可改），provider 表是静态声明——判据必须跟着实际要发的模型走。
+  //
+  // ⚠️ 只摘**顶层** response_format（见 endpointCheck.js）：OpenAI 图像接口就是顶层参数；
+  // 深层同名字段不属于本规则范围，动了就越权。
+  //
+  // ⚠️ 只摘**模板带来**的那一个：用户若在「额外参数(JSON)」里显式写了 response_format，
+  // 那是他的明确选择，下面 extra 那几步照旧会写回去——**不替用户做决定**。
+  //
+  // ⚠️ 核实更正：任务书称 `extraDefaults`（providers.js L214）也注入该参数——
+  // 实测**不成立**：`extraDefaults` 在全仓没有任何消费点，是死数据。故此处只处理模板。
+  const effectiveModel = model || resolved.model || '';
+  if (skipsResponseFormat(effectiveModel)) payload = withoutResponseFormat(payload);
   const params = provider.params || {};
   const mapping = [
     ['size', size],
@@ -415,8 +436,11 @@ function createAbortError() {
   return error;
 }
 
-function createHttpError(status) {
-  const error = new Error(mapHttpError(status));
+function createHttpError(status, xhr) {
+  // FEAT-AC13 P0-1：带上上游响应体细节（此前整个丢弃，用户只看到「生成失败（HTTP 400）」）。
+  // 状态码文案在前、上游 message 在后（composeHttpErrorMessage 的契约）。
+  const message = composeHttpErrorMessage(mapHttpError(status), xhr && xhr.responseText);
+  const error = new Error(message);
   error.status = status;
   error.retryable = status === 429;
   return error;
@@ -441,7 +465,7 @@ function xhrRequest({ method, url, headers, body, timeoutMs, signal }) {
     onAbortError: () => createAbortError(),
     onAbortEventError: canceled => (canceled ? createAbortError() : new Error(tActive('error.imageGen.aborted'))),
     onNetworkError: () => new Error(tActive('error.imageGen.networkFailed')),
-    onHttpError: status => createHttpError(status),
+    onHttpError: (status, xhr) => createHttpError(status, xhr),
     parse: xhr => JSON.parse(xhr.responseText || '{}'),
     onParseError: () => new Error(tActive('error.imageGen.parseFailed')),
   });
@@ -464,6 +488,33 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
   if (hasImage) {
     if (!resolvedProvider.i2i) throw new Error(tActive('error.imageGen.i2iUnsupported'));
   }
+  // FEAT-AC13 P1-3：**端点写法自检**（只对声明了 baseUrlSuffixes 的 provider，即
+  // openai-relay 这类「地址必须落在具体端点上」的自定义服务）。
+  //
+  // 为什么必须本地拦：它的 endpointFromBaseUrl 只在 baseUrl 含 `/images/generations`
+  // 时才换 `/images/edits`。用户填 `/v1`、`/images/edits` 或裸域名时，请求会打到
+  // 错的地方——而设置页的「检测」探的是 `/models`，**检测通过不代表生成端点对**。
+  // 错误本来要等一次真生成才以远端 404 暴露；现在提前到本地，并给出正确形状。
+  //
+  // 边界：只查**声明了 baseUrlSuffixes 的 provider**。别家 provider（gitee/agnes 等）
+  // 的 baseUrl 本来就是完整端点，对它们做同样的检查会误报——不在本轮范围。
+  //
+  // ⚠️ 位置在 hasImage 之后：EDITS_ONLY 分支要按「有没有参考图」分流（改图场景下
+  // `/images/edits` 是对的，不该拦），所以必须先知道 hasImage。
+  if (Array.isArray(resolvedProvider.baseUrlSuffixes) && resolvedProvider.baseUrlSuffixes.length > 0) {
+    const issue = inspectImageEndpoint(normalized.baseUrl);
+    if (issue === ENDPOINT_ISSUES.MISSING_IMAGES_PATH) {
+      throw new Error(tActive('error.imageGen.endpointMissingImagesPath', {
+        placeholder: resolvedProvider.baseUrlPlaceholder || 'https://…/v1/images/generations',
+      }));
+    }
+    if (issue === ENDPOINT_ISSUES.EDITS_ONLY && !hasImage) {
+      // 改图能用，但文生图会打到 edits 端点——如实告知，不假装没问题。
+      throw new Error(tActive('error.imageGen.endpointEditsOnly', {
+        placeholder: resolvedProvider.baseUrlPlaceholder || 'https://…/v1/images/generations',
+      }));
+    }
+  }
   // Local Dream 端侧生图：走专用 SSE 分支（裸 RGB → PNG），不走声明式模板。
   if (resolvedProvider.localDream) {
     return generateLocalDreamImage({
@@ -481,6 +532,21 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
     });
   }
   const imageValue = image || imageFile || imageUrl || imageUri || '';
+  // FEAT-AC13 P2-5：**契约防御**——i2i 场景只给了 imageUrl（https 地址）时 fail-fast。
+  //
+  // 为什么必败：multipart 附件通道只认 imageUri 的
+  // `file|content|ph|assets-library|blob:` 前缀（见 buildRequest 里的 imageAttachment），
+  // https URL 不在白名单里，于是它会退化成**一个 multipart 字符串字段**——
+  // 上游收到的是 `image="https://…"` 而不是文件，必然失败（且报错很难懂）。
+  //
+  // 当前无调用方（休眠契约缺陷）：ImageGenScreen 传的是 imageFile + imageUri，
+  // ChatScreen 走纯文生图。但契约留着就是个坑——将来谁按签名传 imageUrl 就会踩。
+  // 在这里明确拒绝，好过让它悄悄退化。
+  //
+  // 边界：**不改** multipart 附件白名单本身（任务书明确不许动）；只是在此之前 fail-fast。
+  if (hasImage && !imageFile && !imageUri && !image && imageUrl) {
+    throw new Error(tActive('error.imageGen.imageUrlUnsupported'));
+  }
   const request = buildRequest({
     provider: resolvedProvider,
     config: resolvedConfig,
@@ -501,11 +567,40 @@ export async function generateImage({ provider, prompt, imageFile, imageUrl, ima
   const retries = resolvedProvider.allowAutomaticRetries === true
     ? Math.max(0, configuredRetries)
     : 0;
+  // FEAT-AC13 P2-6：**每次尝试重建请求体**。
+  //
+  // 为什么必须重建：multipart 场景下 buildRequest 返回的 body 是 **FormData 实例**，
+  // 而 FormData 是「一次性」的——同一个实例重复 send 在 RN 上行为不确定
+  //（部分实现会把已消费的 part 丢掉，重试实际发的是残缺体）。重试循环复用同一对象
+  // 等于把「重试」变成「发坏请求」。
+  //
+  // 当前 `allowAutomaticRetries` 未开（retries 恒为 0，循环只跑一次），所以这条
+  // 缺陷**尚未暴露**——但一旦有人打开开关就会踩。与其留个「打开就坏」的开关，
+  // 不如现在把循环改成每次重建（对 retries=0 的现状零行为变化）。
+  //
+  // 为什么把构建放进闭包而不是循环体里直接调：JSON 路径下重建结果逐字相同
+  //（无副作用），multipart 路径下每次拿到**新的** FormData——两条路都正确。
+  const buildFreshRequest = () => buildRequest({
+    provider: resolvedProvider,
+    config: resolvedConfig,
+    prompt: text,
+    image: hasImage ? imageValue : '',
+    imageUri: hasImage ? imageUri : '',
+    model,
+    size,
+    seed,
+    extra,
+    imageMime,
+  });
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
+      // 首次用上面已构建好的（早失败一次，别等到这里才发现配置不完整）；
+      // 重试才重建——这样 retries=0 时与旧行为逐字一致。
+      const attemptRequest = attempt === 0 ? request : buildFreshRequest();
+      if (!attemptRequest) throw new Error(tActive('error.imageGen.requestIncomplete'));
       const data = await xhrRequest({
-        ...request,
+        ...attemptRequest,
         timeoutMs: resolvedProvider.timeoutMs || DEFAULT_TIMEOUT_MS,
         signal,
       });
@@ -620,12 +715,10 @@ function generateLocalDreamImage({ provider, config, prompt, image, imageFile, i
       parser.flush();
       if (xhr.status < 200 || xhr.status >= 300) {
         // 客户端错误（无效 JSON、缺 prompt 等）后端可能返回非 SSE 的 JSON 体。
-        let detail = '';
-        try {
-          detail = JSON.parse(xhr.responseText || '{}')?.error?.message
-            || JSON.parse(xhr.responseText || '{}')?.message
-            || '';
-        } catch (error) {}
+        // FEAT-AC13 P0-1：提取逻辑**收口到共用纯函数**（此前是这里内联的一份，
+        // 主传输路径没有——两条路径各写一份必然漂移）。语义不变：
+        // 取到细节就用细节，取不到才回落到按状态码的文案。
+        const detail = describeHttpErrorBody(xhr.responseText);
         finishReject(new Error(detail || mapHttpError(xhr.status)));
         return;
       }

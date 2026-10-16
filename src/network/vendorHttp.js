@@ -39,7 +39,9 @@ function setHeaders(xhr, headers) {
  *        事件（可能由超时/外部 abort 触发）的错误构造，默认同 onAbortError。
  *        tts 用它区分「signal 取消=AbortError」与「服务端中断=播报已中断」。
  * @param {() => Error} options.onNetworkError onerror 错误构造
- * @param {(status:number) => Error} options.onHttpError 非 2xx 错误构造
+ * @param {(status:number, xhr?:XMLHttpRequest) => Error} options.onHttpError 非 2xx 错误构造。
+ *        第二参为 xhr 本身（FEAT-AC13 起传入），供需要读响应体细节的调用方使用；
+ *        既有只声明一个形参的调用方不受影响。
  * @param {(xhr) => *} options.parse 200 时从 xhr 解析成功值，可抛错
  * @param {() => Error} options.onParseError parse 抛错时的错误构造
  * @param {'finishThenAbort'|'abortThenReject'} [options.timeoutAbortOrder]
@@ -158,7 +160,11 @@ export default function xhrRequest(options) {
 
     xhr.onload = () => {
       if (xhr.status < 200 || xhr.status >= 300) {
-        const httpError = onHttpError(xhr.status);
+        // FEAT-AC13 P0-1：把 **xhr 本身**作为第二参传给 onHttpError，让调用方能读到
+        // 响应体（上游的 error.message 往往就在里面，此前被整个丢弃）。
+        // 向后兼容：既有调用方都只声明一个形参（status），多传一个实参对它们是透明的。
+        // 有意不在这里预先解析/传 responseText：各厂商的错误体形状不同，解析归调用方。
+        const httpError = onHttpError(xhr.status, xhr);
         // 结构化状态码：**判定必须看 `httpStatus`，不能看本地化文案**。
         // onHttpError 的错误文案由调用方用 tActive 生成，随语言切换而变（同一输入
         // 在不同语言下行为不同），拿它做正则匹配就是「文案即协议」。先例：

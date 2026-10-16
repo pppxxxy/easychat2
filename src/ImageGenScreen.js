@@ -24,6 +24,8 @@ import { IMAGE_PROVIDERS, getImageProvider, providerRequiresApiKey } from './ima
 import { generateImage, detectImageProvider, probeImageProvider } from './imageGen/index.js';
 import { getImageGenSettings, saveImageGenSettings } from './storage/settings.js';
 import { resolveImageFormat } from './imageGen/imageResultFormat.js';
+// FEAT-AC13 P0-2：参考图格式前置校验（纯函数，Node 直测）。
+import { isRejectedReferenceFormat } from './imageGen/referenceFormat.js';
 import createStyles from './imageGen/imageGenScreenStyles.js';
 import ProviderSettingsModal from './imageGen/ProviderSettingsModal.js';
 import ChapterModal from './books/ChapterModal.js';
@@ -339,6 +341,25 @@ export default function ImageGenScreen() {
   // 参考图落地：相册选图与拍照共用同一套校验与状态写入（尺寸/大小校验失败只提示、
   // 不落地；校验异常降级为跳过，不阻断已选中的图）。
   const applyReferenceImage = useCallback(async ({ uri, mime, name, size }) => {
+    // FEAT-AC13 P0-2：HEIC/HEIF 前置拦截。**必须在 isImageLike 之前**——顺序是有意的：
+    //
+    // ① isImageLike 的扩展名清单是 `png|jpe?g|webp|bmp|gif`（**不含 heic**），所以
+    //    「有 mime=image/heic」的图会被它放行（`image/` 前缀命中）→ 需要本检查兜住；
+    // ② 而「只有文件名 .heic、没 mime」的图会被 isImageLike 拦下，但给的是笼统的
+    //    「不支持的文件 / 请选择图片文件」——用户拿不到「换 PNG/JPG」这个下一步。
+    // 把本检查放前面，两种形态都拿到**可操作**的提示（HEIC 是 iPhone 相册默认格式，
+    // 用户极可能就是这么选进来的，说清楚比笼统拒绝重要）。
+    //
+    // 为什么拦：isImageLike 只查 `image/` 前缀，HEIC 会一路走到上游——而
+    // /v1/images/edits 只收 png/jpg/webp，回来的是 400，用户只看到「生成失败（HTTP 400）」。
+    // **宁可拒绝得明白，不要放行后收 400**（转码另立案，本轮不做）。
+    if (isRejectedReferenceFormat({ mime, name })) {
+      Alert.alert(
+        t('imageGen.alert.referenceFormatUnsupported.title'),
+        t('imageGen.alert.referenceFormatUnsupported.body')
+      );
+      return;
+    }
     if (!isImageLike(name, mime)) {
       Alert.alert(t('imageGen.alert.unsupportedFile.title'), t('imageGen.alert.unsupportedFile.body'));
       return;
