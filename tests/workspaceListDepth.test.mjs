@@ -238,7 +238,7 @@ test('AC12 P0-1 缓存键含 depth：单层与全量互不污染', async () => {
 
   // 写操作后两个语义都失效（写后失效不区分 depth——目录内容变了都该重算）。
   await store.writeWorkspaceFile({ characterId: 'c1', path: 'new.txt', content: 'x' });
-  const after = await store.listWorkspaceFiles({ characterId: 'c1' });
+  await store.listWorkspaceFiles({ characterId: 'c1' });
   assert.equal(loads, 3, '写后全量重算');
   assert.deepEqual(calls, [1, undefined, undefined], 'depth 语义透传到底层 store');
 });
