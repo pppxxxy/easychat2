@@ -447,7 +447,89 @@ test('超时文案：两入口都用独立词条（不与「投屏授权失败�
     '扩展页必须单独处理超时');
 });
 
-// ---------- ⑦ 行数棘轮 ----------
+// ---------- ⑧ 静态可判定的**编译期**风险（CI 抓到的两类，本地必须提前拦）----------
+//
+// 这一组是 CI 教训的直接产物：本轮第一次推送 `Kotlin compile (prebuild)` **失败**，
+// 而本地 lint/测试/结构门禁全绿。原因是 settleCapturePermissionWaiters 加了第三个参数
+// 后，有一处旧调用点仍按两参调用——Kotlin 编译错误，而文本层的大括号/重复函数检查
+// 都看不见。沙箱无编译器，所以按**可文本判定**的规则把这两类补成守卫。
+
+test('编译期风险：所有 settleCapturePermissionWaiters 调用都必须满足参数个数', () => {
+  const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
+  // ⚠️ 必须从**签名**算出「必填个数」与「上限个数」，不能写死常量：
+  // 本轮 CI 失败的原因正是「签名加了第三个参数（无默认值），而旧调用点仍传两个」。
+  // 只封一个 1..3 的区间是抓不到这种错的——必须知道哪几个参数**没有默认值**。
+  const signature = /private fun settleCapturePermissionWaiters\(([\s\S]*?)\)\s*:\s*Boolean/.exec(moduleSrc);
+  assert.ok(signature, '必须能解析 settleCapturePermissionWaiters 的签名');
+  const params = signature[1].split(',').map(s => s.trim()).filter(Boolean)
+    .map(param => ({ text: param, hasDefault: /=/.test(param) }));
+  const required = params.filter(p => !p.hasDefault).length;
+  const max = params.length;
+  assert.ok(required >= 1, `签名的必填参数个数异常: ${required}`);
+
+  const calls = [...moduleSrc.matchAll(/settleCapturePermissionWaiters\(([^)]*)\)/g)]
+    .filter(m => !m[0].includes('private fun'));
+  assert.ok(calls.length >= 3, `应至少有 3 处调用点，实际 ${calls.length}`);
+  for (const call of calls) {
+    const args = call[1].split(',').map(s => s.trim()).filter(Boolean);
+    const line = moduleSrc.slice(0, call.index).split('\n').length;
+    assert.ok(args.length >= required && args.length <= max,
+      `第 ${line} 行调用传了 ${args.length} 个参数，签名要求 ${required}~${max} 个`
+      + `（必填 ${required} 个：${params.filter(p => !p.hasDefault).map(p => p.text).join(' | ')}）: ${call[0]}`);
+  }
+});
+
+test('编译期风险：参数有默认值的形参必须排在无默认值之后（Kotlin 要求）', () => {
+  const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
+  // 逐个多行参数表检查：一旦出现「有默认值」后面又跟「无默认值」，Kotlin 编译失败。
+  const decls = [...moduleSrc.matchAll(/(?:private |public |internal )?fun \w+\(([\s\S]*?)\)\s*[:{]/g)];
+  for (const decl of decls) {
+    const params = decl[1].split(',').map(s => s.trim()).filter(Boolean)
+      // 跳过嵌套注解/泛型里可能的逗号：本项目参数表简单，按顶层逗号切分足够
+      .filter(s => !s.startsWith('@'));
+    let sawDefault = false;
+    for (const param of params) {
+      const hasDefault = /=\s*[^=]/.test(param) || /=\s*null/.test(param);
+      if (hasDefault) { sawDefault = true; continue; }
+      const line = moduleSrc.slice(0, decl.index).split('\n').length;
+      assert.equal(sawDefault, false,
+        `第 ${line} 行函数参数「${param}」无默认值却排在有默认值的参数之后（Kotlin 会编译失败）`);
+    }
+  }
+});
+
+test('线程纪律：持有 capturePermissionLock 时**不得**调打点（会跳进 JS，跨线程）', () => {
+  const moduleSrc = kotlinSource('ScreenOverlayModule.kt');
+  // 逐个 synchronized(capturePermissionLock) 块检查块内是否出现 recordTrace / recordPermissionTrace。
+  const marker = 'synchronized(capturePermissionLock)';
+  let from = 0;
+  let checked = 0;
+  while (true) {
+    const start = moduleSrc.indexOf(marker, from);
+    if (start < 0) break;
+    const open = moduleSrc.indexOf('{', start);
+    // 配对大括号，取出块体
+    let depth = 0;
+    let end = open;
+    for (let i = open; i < moduleSrc.length; i += 1) {
+      if (moduleSrc[i] === '{') depth += 1;
+      else if (moduleSrc[i] === '}') {
+        depth -= 1;
+        if (depth === 0) { end = i; break; }
+      }
+    }
+    const body = moduleSrc.slice(open, end);
+    const line = moduleSrc.slice(0, start).split('\n').length;
+    assert.equal(/record(?:Permission)?Trace\(/.test(body), false,
+      `第 ${line} 行的 synchronized 块里调了打点：打点走 emit → JS（跨线程），`
+      + '持锁执行会把自己挂在别的线程上。必须先出锁再打点。');
+    checked += 1;
+    from = start + marker.length;
+  }
+  assert.ok(checked >= 2, `应检查到至少 2 个同步块，实际 ${checked}`);
+});
+
+// ---------- ⑨ 行数棘轮 ----------
 
 test('行数：本轮修改文件仍在 800 硬上限内', () => {
   const count = source => source.split('\n').length - (source.endsWith('\n') ? 1 : 0);

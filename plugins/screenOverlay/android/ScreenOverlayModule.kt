@@ -190,6 +190,9 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
      * 一个跨线程的活压在锁里。
      */
     private fun recoverStaleCaptureRequestIfNeeded(): List<(Boolean) -> Unit>? {
+        var recoveredAge = 0L
+        var recoveredCount = 0
+        val waiters: List<(Boolean) -> Unit>
         synchronized(capturePermissionLock) {
             if (!capturePermissionInFlight) return null
             val startedAt = captureRequestStartedAt
@@ -201,11 +204,14 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             capturePermissionEpoch += 1
             capturePermissionInFlight = false
             captureRequestStartedAt = 0
-            val waiters = capturePermissionWaiters.toList()
+            waiters = capturePermissionWaiters.toList()
             capturePermissionWaiters.clear()
-            recordPermissionTrace("overlay-permission-watchdog", "age=${age}ms recovered=${waiters.size}")
-            return waiters
+            recoveredAge = age
+            recoveredCount = waiters.size
         }
+        // 锁外打点：打点走 emit → JS（跨线程），持锁执行会把自己挂在别的线程上。
+        recordPermissionTrace("overlay-permission-watchdog", "age=${recoveredAge}ms recovered=$recoveredCount")
+        return waiters
     }
 
     /**
@@ -684,23 +690,31 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
          */
         private fun settleCapturePermissionWaiters(
             granted: Boolean,
-            reason: String?,
-            expectEpoch: Long,
+            reason: String? = null,
+            expectEpoch: Long = 0L,
         ): Boolean {
             val waiters: List<(Boolean) -> Unit>
+            // 迟到判定的结果带出锁外再打点：打点会走到 JS（跨线程），**不能持锁执行**
+            //（与下面「锁外结算」同一条纪律；持锁调 JS 是把自己挂死在别的线程上）。
+            var staleEpoch = 0L
             synchronized(capturePermissionLock) {
                 if (expectEpoch != 0L && expectEpoch != capturePermissionEpoch) {
                     // 迟到结果：当前轮次已经不是它那一轮了，丢弃。
-                    recordPermissionTrace(
-                        "overlay-permission-stale-result",
-                        "epoch=$expectEpoch current=$capturePermissionEpoch"
-                    )
-                    return false
+                    staleEpoch = expectEpoch
+                    waiters = emptyList()
+                } else {
+                    capturePermissionInFlight = false
+                    captureRequestStartedAt = 0
+                    waiters = capturePermissionWaiters.toList()
+                    capturePermissionWaiters.clear()
                 }
-                capturePermissionInFlight = false
-                captureRequestStartedAt = 0
-                waiters = capturePermissionWaiters.toList()
-                capturePermissionWaiters.clear()
+            }
+            if (staleEpoch != 0L) {
+                recordPermissionTrace(
+                    "overlay-permission-stale-result",
+                    "epoch=$staleEpoch current=$capturePermissionEpoch"
+                )
+                return false
             }
             // 锁外结算：回调会回到 JS，持锁执行等于把一个跨线程的活压在锁里。
             waiters.forEach { it(granted) }
