@@ -37,7 +37,8 @@ import AssistantMessageBody from '../../chat/AssistantMessageBody.js';
 import { ensureDocxFileName, ensureDirectoryName, ensureTextFileName, isDocxName, sanitizeWorkspaceFileName } from '../naming.js';
 import { WORKSPACE_ROOT_KINDS } from '../location.js';
 import { breadcrumbsOf, directoryChildren, groupWorkspaceFiles, mergeListing, parentDirectoryOf } from './buildTree.js';
-import { searchWorkspaceFiles } from '../fileSearch.js';
+// AC12 P1：搜索的防抖接线（含结果扫描与全量升级）收在 hook 里，见该模块的说明。
+import { useWorkspaceFileSearch } from './useWorkspaceFileSearch.js';
 import ConfirmBar from './ConfirmBar.js';
 import CatalogSheet from './files/CatalogSheet.js';
 import useCatalogDownloads from './files/useCatalogDownloads.js';
@@ -504,7 +505,14 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
   const { rootEntries, groups } = useMemo(() => groupWorkspaceFiles(files), [files]);
   const children = useMemo(() => directoryChildren(files, subdir), [files, subdir]);
   // P2-3：命中结果与总数（界面要说「还有 N 条未显示」，所以不能只拿截断后的数组）。
-  const fileSearch = useMemo(() => searchWorkspaceFiles(files, fileQuery), [files, fileQuery]);
+  // AC12 P1：搜索消费路径改为**防抖**——fileSearch 与全量加载都挂在窗口结束后，
+  // 输入框本身仍即时受控。接线与判据见 useWorkspaceFileSearch.js / fileSearchDebounce.js。
+  const { debouncedQuery, fileSearch } = useWorkspaceFileSearch({
+    query: fileQuery,
+    files,
+    filesRef,
+    refresh,
+  });
   const crumbs = useMemo(
     () => breadcrumbsOf(subdir, t('workspace.panel.breadcrumb.root')),
     [subdir, t]
@@ -611,7 +619,7 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
         <EmptyState
           icon="search-outline"
           title={t('workspace.panel.search.empty')}
-          description={t('workspace.panel.search.emptyHint', { query: fileQuery.trim() })}
+          description={t('workspace.panel.search.emptyHint', { query: debouncedQuery.trim() })}
         />
       );
     }
@@ -662,7 +670,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
       );
     }
     // P2-3：有搜索词就用平铺结果替代目录树（搜索的价值就在跨目录）。
-    if (fileQuery.trim()) return renderSearchResults();
+    // AC12 P1：判据用**防抖值**——否则界面会在结果还是旧的那一刻先切成「搜索态」，
+    // 与数据不同拍（切换要跟着数据走）。
+    if (debouncedQuery.trim()) return renderSearchResults();
     if (subdir) {
       return (
         <>
@@ -977,12 +987,9 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
                 style={styles.searchInput}
                 value={fileQuery}
                 onChangeText={text => {
+                  // AC12 P1：只更新即时受控值。全量升级与结果扫描都等防抖窗口结束
+                  //（此前首个非空字符就发起整树 walk，恰是 P0-1 优化掉的重 IO）。
                   setFileQuery(text);
-                  // AC12 P0-1：首次搜索时把单层清单升级成全量（此后 files 即全量）。
-                  if (text.trim() && !filesRef.current.full) {
-                    filesRef.current.full = true;
-                    refresh(undefined, { full: true }).catch(() => {});
-                  }
                 }}
                 placeholder={t('workspace.panel.search.placeholder')}
                 placeholderTextColor={theme.colors.textFaint}

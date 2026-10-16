@@ -198,7 +198,12 @@ test('AC12 P0-1 FilesPanel：单层加载接线完整', () => {
   assert.ok(source.includes('depth: 1'), '列表按 depth:1 单层请求');
   assert.ok(source.includes('mergeListing(prev, list, scope)'), '单层结果并入已见清单');
   assert.ok(source.includes('enterDir'), '目录导航统一走 enterDir（切层 + 加载该层）');
-  assert.ok(source.includes("full: true"), '搜索触发全量拉取');
+  // FEAT-AC12 P1：搜索的「全量拉取」与「清单还原」接线随防抖一起收进了
+  // useWorkspaceFileSearch.js（防抖判据在 fileSearchDebounce.js）。判据不变
+  // ——搜索仍必须触发全量拉取、切角色仍必须作废全量标记——只是调用点搬了家。
+  // 两个文件合读，避免「搬家=断言空转」。
+  const searchHook = readSource('src/workspace/screen/useWorkspaceFileSearch.js');
+  assert.ok(searchHook.includes('full: true'), '搜索触发全量拉取（window 结束后）');
   assert.ok(source.includes('filesRef.current.full = false'), '切角色/重开面板重置全量标记');
 });
 
