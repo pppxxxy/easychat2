@@ -22,6 +22,9 @@ import OverlayEventBridge from './src/screenWatch/overlayEventBridge.js';
 import { installWorkspaceRecorders } from './src/startup/workspaceRecorders.js';
 import DisclaimerModal from './src/onboarding/disclaimer.js';
 import OnboardingModal from './src/OnboardingModal.js';
+// 应用内公告（任务书 6）：Modal 与接线都在 announcements/ 域内，
+// App.js 只挂一个启动组件（按 800 硬上限管，不在此堆逻辑）。
+import AnnouncementStartup from './src/announcements/AnnouncementStartup.js';
 import {
   acknowledgeDisclaimer,
   completeOnboarding,
@@ -706,6 +709,7 @@ export default function App() {
                 {startupReady ? <DownloadQueueStartup /> : null}
                 {startupReady ? <AgentTaskStartup /> : null}
                 {startupReady ? <AutoBackupStartup /> : null}
+                {startupReady ? <AnnouncementStartup /> : null}
                 {/* OverlayEventBridge（FEAT-AC7 P0-A）：悬浮窗事件监听的 app 级常驻，
                     与页面解耦（原先挂在看屏幕页里，页面不在栈顶就无人接）。 */}
                 {startupReady ? <><OverlayConfigBridge /><OverlayEventBridge /></> : null}

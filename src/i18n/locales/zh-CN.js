@@ -15,6 +15,7 @@ import { apiPreset } from './zh-CN/apiPreset.js';
 import { apiVendor } from './zh-CN/apiVendor.js';
 import { app } from './zh-CN/app.js';
 import { agentTask } from './zh-CN/agentTask.js';
+import { announcement } from './zh-CN/announcement.js';
 import { backup } from './zh-CN/backup.js';
 import { books } from './zh-CN/books.js';
 import { character } from './zh-CN/character.js';
@@ -58,6 +59,7 @@ import { workspaceChat } from './zh-CN/workspaceChat.js';
 import { workspaceWatch } from './zh-CN/workspaceWatch.js';
 import { world } from './zh-CN/world.js';
 export const zhCN = {
+  ...announcement,
   ...apiPreset,
   ...apiVendor,
   ...app,

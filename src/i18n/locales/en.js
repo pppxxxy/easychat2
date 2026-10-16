@@ -11,6 +11,7 @@ import { apiPreset } from './en/apiPreset.js';
 import { apiVendor } from './en/apiVendor.js';
 import { app } from './en/app.js';
 import { agentTask } from './en/agentTask.js';
+import { announcement } from './en/announcement.js';
 import { backup } from './en/backup.js';
 import { books } from './en/books.js';
 import { character } from './en/character.js';
@@ -55,6 +56,7 @@ import { workspaceChat } from './en/workspaceChat.js';
 import { workspaceWatch } from './en/workspaceWatch.js';
 import { world } from './en/world.js';
 export const en = {
+  ...announcement,
   ...apiPreset,
   ...apiVendor,
   ...app,
