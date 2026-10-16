@@ -24,12 +24,17 @@
 
 // 键：同一角色在不同根（应用私有 / 用户选的 SAF 文件夹）下的清单必须分开——
 // 换了根却命中旧缓存会让用户看到**另一个文件夹**的内容（比慢更糟）。
-export function listCacheKey({ root = '', characterId = '', subdir = '', match = '' } = {}) {
+// depth 必须进键（FEAT-AC12 P0-1 补充）：单层（depth:1，文件面板下钻用）与
+// 全量（不传，聊天工具 list_workspace_files 用）是**不同的清单语义**——若共用键，
+// 面板先请求的单层结果会被工具侧当完整清单命中，模型把不完整清单当完整事实
+// 推理（G1.7 要防的事故形态）。undefined 与 '' 都归一为空段（全量语义）。
+export function listCacheKey({ root = '', characterId = '', subdir = '', match = '', depth } = {}) {
   return [
     String(root || ''),
     String(characterId || ''),
     String(subdir || ''),
     String(match || ''),
+    depth === undefined || depth === null ? '' : String(depth),
   ].join('\u0000');
 }
 
@@ -210,12 +215,14 @@ export function createListCachingStore(store, { rootKey = '', cache = workspaceL
 
     // 读穿缓存：命中即 0 次 IO。两个列表入口共用同一份缓存条目
     //（listWorkspaceFiles 是 WithMeta 的降级包装，缓存键完全相同）。
+    // depth 随 args 进键（见 listCacheKey 注释）：单层与全量互不污染。
     listWorkspaceFilesWithMeta(args = {}) {
       const key = listCacheKey({
         root: rootKey,
         characterId: args.characterId,
         subdir: args.subdir,
         match: args.match,
+        depth: args.depth,
       });
       return cache.withCache(key, () => store.listWorkspaceFilesWithMeta(args));
     },

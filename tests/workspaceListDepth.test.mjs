@@ -201,3 +201,44 @@ test('AC12 P0-1 FilesPanel：单层加载接线完整', () => {
   assert.ok(source.includes("full: true"), '搜索触发全量拉取');
   assert.ok(source.includes('filesRef.current.full = false'), '切角色/重开面板重置全量标记');
 });
+
+// ── 缓存键含 depth（与 b8ddbfa listCache 的叠加点，P0-1 补充）──────────
+// 事故形态：FilesPanel 先请求单层（depth:1）→ 缓存；聊天工具 list_workspace_files
+// 不带 depth（全量语义）→ 若键不含 depth 会命中单层清单 → 模型把不完整清单当
+// 完整事实推理（G1.7）。此测试钉住两者互不污染、各自缓存。
+test('AC12 P0-1 缓存键含 depth：单层与全量互不污染', async () => {
+  const { createListCachingStore } = await import('../src/workspace/listCache.js');
+  let loads = 0;
+  const calls = [];
+  const base = {
+    async listWorkspaceFilesWithMeta(args = {}) {
+      loads += 1;
+      calls.push(args.depth);
+      return args.depth === 1
+        ? { files: ['a/'], truncated: false }            // 单层：只报目录
+        : { files: ['a/', 'a/f1.txt', 'a/b/f2.txt'], truncated: false }; // 全量
+    },
+    // 写路径桩：装饰器包装它做缓存失效，本身不需要真写。
+    async writeWorkspaceFile() { return { path: 'new.txt', length: 1 }; },
+  };
+  const store = createListCachingStore(base, { rootKey: 'app:private' });
+
+  const single = await store.listWorkspaceFiles({ characterId: 'c1', depth: 1 });
+  assert.deepEqual(single, ['a/'], '单层请求返回单层结果');
+
+  // 关键断言：全量请求不得命中单层缓存。
+  const full = await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.deepEqual(full, ['a/', 'a/f1.txt', 'a/b/f2.txt'], '全量请求必须真实遍历（不吃单层缓存）');
+  assert.equal(loads, 2, '两次不同语义各算一次');
+
+  // 各自缓存：同语义重复请求 0 次新增遍历。
+  await store.listWorkspaceFiles({ characterId: 'c1', depth: 1 });
+  await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.equal(loads, 2, '同语义重复请求命中各自缓存');
+
+  // 写操作后两个语义都失效（写后失效不区分 depth——目录内容变了都该重算）。
+  await store.writeWorkspaceFile({ characterId: 'c1', path: 'new.txt', content: 'x' });
+  const after = await store.listWorkspaceFiles({ characterId: 'c1' });
+  assert.equal(loads, 3, '写后全量重算');
+  assert.deepEqual(calls, [1, undefined, undefined], 'depth 语义透传到底层 store');
+});
