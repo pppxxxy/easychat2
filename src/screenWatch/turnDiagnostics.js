@@ -32,11 +32,13 @@ export const TURN_EVENTS = Object.freeze([
 ]);
 
 // 允许的字段（白名单）：打点是给排查用的，不该把工具参数（可能含用户内容/路径）整包写进去。
-// 只留「模型 / 轮数 / 工具名 / 成败 / 耗时 / 线程尾号 / 角色」——足以定位挂点，且不含隐私正文。
+// 只留「模型 / 轮数 / 工具名 / 成败 / 中止理由 / 耗时 / 线程尾号 / 角色」——足以定位挂点，且不含隐私正文。
 // ok 只写 'ok' / 'fail' 两个字面量（不是 true/false，也不是任意值）——
 // 见 formatTurnEvent 里对 ok 的归一；这样「成败」在日志里是一个词，与工具结果正文无关。
+// reason 是聚合字段（FEAT-AC11）：中止理由（panel-switch / screen-close / user-stop…）。
+// 只放**调用方给的短标签**，不是自由文本——它是枚举式的原因码，不是正文通道。
 // threadTail 只取线程 id **尾 4 位**（够认出是哪一场，又不把 id 全文写进日志）。
-const FIELDS = Object.freeze(['model', 'round', 'tool', 'ok', 'threadTail', 'role', 'elapsed', 'error']);
+const FIELDS = Object.freeze(['model', 'round', 'tool', 'ok', 'reason', 'threadTail', 'role', 'elapsed', 'error']);
 
 /**
  * FEAT-AC9 P0-1：**形状归一**——把两种调用形状统一成 `{ name, fields }`。

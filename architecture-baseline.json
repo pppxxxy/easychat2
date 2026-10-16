@@ -41,7 +41,8 @@
     "src/workspace/screen/GithubPanel.js 911 → 744（2026-10-12，六大文件第七刀，m1012m31）：当前仓库树区（树内搜索、逐层下钻、快速检出、分支 chip、拉取进度/跳过清单、新建条目表单）外提为展示组件 screen/github/RepoTreeSection.js（styles/theme/t + 状态与 handler 由面板注入）。GithubPanel 跌破 800，已从行数棘轮移除。",
     "src/character/CharacterDetailScreen.js 1714 → 1641（2026-10-12，六大文件第二目标第一刀，m1012m31）：面板内三个弹层（导入进度遮罩 + 世界书条目编辑 + 正则脚本编辑）外提为展示组件 character/CharacterEntryModals.js（styles/theme/t 与 state/handler 由主屏注入）。仍 > 800，基线随之下调到实际值。",
     "src/character/CharacterDetailScreen.js 1641 → 1355（2026-10-12，六大文件第二目标第二刀，m1012m31）：卡片导入/导出/分享关注点外提为 character/useCardTransfer.js（hook）——PNG/JSON 文件导入 importCard、分享码剪贴板导入 importFromClipboard、开场白确认落库 confirmImport、导出 onExport/runExport、分享面板 onShare，及 importing/importStatus/pendingImport/exporting/shareOpen/shareAvatarBytes 状态。fileSystem 由主屏注入（新文件不得直接 import expo-file-system）。仍 > 800，基线随之下调到实际值。",
-    "src/workspace/screen/ChatPanel.js 1772 → 1769（2026-10-13，FEAT-AC9 P1，**下调**）：按棘轮协议【2】的正向出口——把「工具事件处理器」外提到 workspace/screen/agentTurnObservation.js（每次工具调用的 update_plan 进度条与 E4 会话事件流；行为逐字不变，参数由面板注入），腾出的行数用于接入主对话路径**缺失的回合打点**（P1 的证据：真机 02:51「关闭语音播报」走这条路径，日志零 turn-*，而它恰是七域工具的宿主）。**净减 3 行**，阈值随之下调到实测值 1769，仍不留空转余量。选外提而非抬上限：该文件本就卡在阈值上，抬它会让棘轮对这里形同虚设。"
+    "src/workspace/screen/ChatPanel.js 1772 → 1769（2026-10-13，FEAT-AC9 P1，**下调**）：按棘轮协议【2】的正向出口——把「工具事件处理器」外提到 workspace/screen/agentTurnObservation.js（每次工具调用的 update_plan 进度条与 E4 会话事件流；行为逐字不变，参数由面板注入），腾出的行数用于接入主对话路径**缺失的回合打点**（P1 的证据：真机 02:51「关闭语音播报」走这条路径，日志零 turn-*，而它恰是七域工具的宿主）。**净减 3 行**，阈值随之下调到实测值 1769，仍不留空转余量。选外提而非抬上限：该文件本就卡在阈值上，抬它会让棘轮对这里形同虚设。",
+    "src/workspace/screen/ChatPanel.js 1769 → 1747、src/chat/useChatSend.js 1972 → 1971（2026-10-16，FEAT-AC11，**双下调**）：两处都是「拆文件」而非「抬上限」的结果。① ChatPanel：输入草稿三函数（remember/persist/read）外提到 workspace/screen/chatPanelDrafts.js——它们本就是模块级纯函数（只碰模块级 cache 与存储入口），此前裹在组件里用 useCallback 包一层是多余的；同时接入中止理由边车（abortTurn）。② useChatSend：两个宿主（工作区面板 / 聊天页）重复构造的 confirm 载荷映射收口为 toolApprovalFlow 的 approvalOptionsFromToolCall（本轮加 attempt / batchRemaining 时正是「两处一起改」，漏一处就会只在某个入口复现缺陷）。阈值一律等于新实测值，不留空转余量。"
   ],
   "fileLineBaseline": {
     "src/CardForgeEditor.js": 1073,
@@ -50,8 +51,8 @@
     "src/SettingsScreen.js": 2365,
     "src/character/CharacterDetailScreen.js": 1355,
     "src/chat/chatStyles.js": 1375,
-    "src/chat/useChatSend.js": 1972,
-    "src/workspace/screen/ChatPanel.js": 1769,
+    "src/chat/useChatSend.js": 1971,
+    "src/workspace/screen/ChatPanel.js": 1747,
     "src/workspace/screen/FilesPanel.js": 1080
   },
   "allowedCycles": []

@@ -2,9 +2,13 @@
 // 背景（2026-10-09 用户报告）：
 //  ① 工作区聊天/文件正文长按无「复制/选择文字」——RN 的 Text 在 Android 默认不可选，
 //     必须显式 selectable；工作区相关组件此前一次都没写过（主聊天页早就有了）。
-//  ② 输入框草稿切面板即丢——WorkspaceScreen 条件渲染，切面板卸载 ChatPanel，
+//  ② 输入框草稿切面板即丢——当时 WorkspaceScreen 条件渲染，切面板卸载 ChatPanel，
 //     而 input 是组件内 useState，卸载即销毁；草稿改存会话（chat.draft + 内存缓存）。
-// 逻辑本体在 storage/workspace.js（tests/workspaceChats.test.mjs 覆盖），这里守接线。
+//     ⚠️ FEAT-AC11 起窄屏也已常驻（切 tab 只 display:'none'，不再卸载），所以这条
+//     现在描述的是**关掉整个工作区**（Modal 销毁）时的兜底——历史成因如实保留，
+//     但不能再让后人以为「切面板会卸载」。
+// 逻辑本体在 storage/workspace.js（tests/workspaceChats.test.mjs 覆盖），这里守接线；
+// 草稿三函数 FEAT-AC11 起在 workspace/screen/chatPanelDrafts.js。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -43,8 +47,15 @@ test('selectable：消息气泡与文件正文可选中；列表行/状态行保
 });
 
 test('草稿落盘时机：卸载 / 关屏 / 切对话 / 新建 / 发送五处都要写回', () => {
-  assert.ok(chatSrc.includes('saveWorkspaceChatDraft'), '存储函数已接线');
-  assert.ok(chatSrc.includes('const draftCache = new Map()'),
+  // ⚠️ FEAT-AC11：三个草稿函数（remember/persist/read）已外提到
+  // workspace/screen/chatPanelDrafts.js —— 它们本就是模块级纯函数
+  //（只碰模块级 cache 与存储入口），裹在 ChatPanel 里用 useCallback 包一层是多余的；
+  // 同时把 ChatPanel 的行数降回棘轮基线之下（纪律：拆文件，不抬上限）。
+  // 断言的**行为**不变，只是位置变了：存储函数已接线 + 内存缓存存在。
+  // 位置会变、行为不会——故这里同时接受两处，避免下次搬家又打自己。
+  const draftsSrc = read('src/workspace/screen/chatPanelDrafts.js');
+  assert.ok(draftsSrc.includes('saveWorkspaceChatDraft'), '存储函数已接线');
+  assert.ok(draftsSrc.includes('const draftCache = new Map()'),
     '内存缓存：切面板卸载后重新挂载要立刻有（不等异步落盘）');
 
   // 卸载兜底（切面板）与关屏：用 ref 取值落盘
@@ -71,8 +82,12 @@ test('草稿载入：挂载与切对话都要读回（内存优先、盘上兜�
     '载入会话时恢复草稿（内存优先，盘上 chat.draft 兜底）');
   assert.ok(chatSrc.includes('setInput(readDraft(characterId, id, target.draft))'),
     '切到历史会话时载入该会话的草稿');
-  assert.ok(chatSrc.includes('draftCache.get(draftCacheKey(ownerId, id))'),
+  // 读顺序（内存缓存优先于盘上 fallback）的实现在外提后的模块里。
+  const draftsSrc = read('src/workspace/screen/chatPanelDrafts.js');
+  assert.ok(draftsSrc.includes('draftCache.get(draftCacheKey(ownerId, id))'),
     '读顺序：内存缓存优先');
+  assert.match(draftsSrc, /const cached = draftCache\.get\([\s\S]{0,120}?if \(cached !== undefined\) return cached/,
+    '内存命中必须直接返回（不得再去看 fallback）');
 });
 
 test('存储层与归一化：draft 字段就位且不参与排序', () => {

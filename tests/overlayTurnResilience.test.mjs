@@ -291,8 +291,19 @@ test('P0-B：回合预算在 loop 里真的生效（派生信号 + 到点 abort 
 
 test('P0-B：超时错误在 loop 里被识别并打点（turn-timeout 带耗时与轮数）', () => {
   const loop = read('src/agent/loop.js');
-  assert.match(loop, /if \(error && error\.timedOut === true\) \{[\s\S]{0,300}?emitTurnEvent\('turn-timeout'/,
-    '超时要打 turn-timeout 事件');
+  // ⚠️ FEAT-AC11 改了形态：三分法（超时/中止/失败）抽成 turnEndingEvent 一处判定，
+  // 被**两处** catch 共用（无工具单轮分支 + 有工具多轮循环）。原断言钉的是内联的
+  // `if (error.timedOut === true) { … emitTurnEvent('turn-timeout'` —— 那条形态已不存在，
+  // 但**行为**必须保留：超时仍要打 turn-timeout 并带耗时/轮数。
+  // 故改钉「分类函数里的超时分支」，并保留其余事件断言（行为不变，位置变了）。
+  assert.match(loop, /function turnEndingEvent\([\s\S]{0,400}?error\.timedOut === true[\s\S]{0,200}?return \['turn-timeout'/,
+    '超时要映射成 turn-timeout 事件');
+  assert.match(loop, /'turn-timeout', \{ round, model, elapsed, error \}/,
+    '超时事件要带轮数、模型与耗时');
+  // 两处 catch 都必须走同一个分类函数（否则又回到「一条路径有打点、另一条没有」）
+  const endings = [...loop.matchAll(/emitTurnEvent\(\.\.\.turnEndingEvent\(/g)].length;
+  assert.ok(endings >= 2,
+    `无工具单轮分支与多轮循环**两处**收尾都要用同一分类函数，当前 ${endings} 处`);
   assert.match(loop, /emitTurnEvent\('turn-start'/, '回合开始要打点');
   assert.match(loop, /emitTurnEvent\('turn-done'/, '成功结束要打点');
   assert.match(loop, /emitTurnEvent\('turn-tool'/, '工具调用要打点');

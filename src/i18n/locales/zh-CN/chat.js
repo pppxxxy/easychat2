@@ -91,6 +91,12 @@ export const chat = {
   'chat.tool.approval.once': '允许这一次',
   'chat.tool.approval.askRuleNote': '有一条「必须先问」的规则覆盖了这次调用，所以这里只能允许这一次（不会记住）。要改的话，去工作区设置 →「已记住的授权」里删掉那条规则。',
   'chat.tool.approval.allow': '允许',
+  // FEAT-AC11 P1-4：同命令的重试标注。用户看到连续两个一样的弹窗会以为界面坏了
+  //（截图反馈「两个一样的允许……吓人」）——这行说明它其实是重试，且最多再来一次。
+  'chat.tool.approval.retryNote': '（这是同一条命令的第 {n} 次请求：上次尚未成功，模型在按参数重试。同一操作本轮最多询问 2 次，之后会自动拒绝并转手动指引。）',
+  // FEAT-AC11 P1-4：进度感。刻意说「工具调用」而不是「待确认」——后者不可知
+  //（要等权限规则求值才知道会不会问），不能编数（任务书 §三 的明确要求）。
+  'chat.tool.approval.progressNote': '（本批还有约 {n} 条工具调用待执行——不是每一条都会询问，只读操作按设计不打扰你。可点「本次会话允许」减少重复确认。）',
   'chat.tool.approval.bodyArgs': '即将执行（参数如下，请确认后再允许）：\n{args}',
   'chat.summary.unavailable.title': '无法总结',
   'chat.summary.unavailable.none': '当前没有新的可总结消息。',

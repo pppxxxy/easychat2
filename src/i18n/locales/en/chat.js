@@ -91,6 +91,12 @@ export const chat = {
   'chat.tool.approval.once': 'Allow once',
   'chat.tool.approval.askRuleNote': 'An "always ask first" rule covers this call, so it can only be allowed once (nothing is remembered). To change that, remove the rule in Workspace settings → Remembered approvals.',
   'chat.tool.approval.allow': 'Allow',
+  // FEAT-AC11 P1-4: retry annotation for the same command. Two identical dialogs in a row
+  // look like a broken UI; this says it is a retry and there will be at most one more.
+  'chat.tool.approval.retryNote': '(This is request #{n} for the same command: the previous attempt has not succeeded and the model is retrying with the same arguments. Each operation is asked at most twice per turn; after that it is auto-denied with manual instructions.)',
+  // FEAT-AC11 P1-4: sense of progress. Deliberately "tool calls", not "confirmations" —
+  // the latter is unknowable (it depends on rule evaluation), so we never invent a number.
+  'chat.tool.approval.progressNote': '(About {n} more tool calls remain in this batch — not all of them ask; read-only calls do not interrupt by design. Choose "Allow for this session" to cut down repeated confirmations.)',
   'chat.tool.approval.bodyArgs': 'About to run with these arguments — confirm before allowing:\n{args}',
   'chat.summary.unavailable.title': 'Cannot Summarize',
   'chat.summary.unavailable.none': 'There are no new messages to summarize.',

@@ -8,6 +8,13 @@ import { createAbortError, isCanceledError, streamChatCompletion } from '../netw
 // 2026-10-10 前两处各写 16*1024，改一处漏一处不会报错（审查报告 §0.4 第 2 条）。
 // M 系 O1 起序列化是异步的（超限先落盘再头尾预览），用 serializeToolResultAsync。
 import { TOOL_RESULT_LIMIT, serializeToolResultAsync, toAssistantMessage } from './messages.js';
+// FEAT-AC11 P0-2：中止理由的读写契约收口在 turnAbort.js（纯逻辑、零依赖）。
+// 为什么必须共用一处：AbortController 与 controller.signal 是两个对象，
+// 写入方要同时写两处、读取方才读得到——两边各写一份必然漂移。
+import { readAbortReason as readTurnAbortReason } from './turnAbort.js';
+// FEAT-AC11 P1-3：工具失败摘要（纯逻辑，Node 直测——见 toolFailure.js 的说明：
+// 留在本文件里只能靠源码正则断言，而那种断言会空转）。
+import { describeToolFailure } from './toolFailure.js';
 
 // 再导出：loop.js 曾是 TOOL_RESULT_LIMIT 的对外出口（M 系测试从 runAgentTurn 的模块取它）。
 // D 系把唯一定义收敛到 messages.js 后，这里保留 re-export 以免调用点/测试拿到 undefined。
@@ -136,6 +143,33 @@ function safeCallback(callback, ...args) {
   } catch (error) {
     // 信息性 UI 回调抛错不得打断循环。
   }
+}
+
+/**
+ * FEAT-AC11 P1-3：工具失败摘要 —— 实现在 toolFailure.js（纯逻辑，Node 直测）。
+ *
+ * ⚠️ 为什么抽出去：留在本文件里只能靠**源码正则**断言，而正则断言会空转——
+ * 本轮注入验证实测到：把「取首行」改成「取全文」，日志断言照样通过（因为
+ * turnDiagnostics 的渲染层对 error 字段也会取首行，两层都做同一件事，
+ * 坏掉上面那层在日志上看不出来）。抽成纯函数后可以直接断言它的行为。
+ */
+
+/**
+ * FEAT-AC11：把「怎么结束的」映射成**一对** `[事件名, 字段]`（供 emitTurnEvent 展开）。
+ *
+ * 为什么抽成函数：本轮有**两处**收尾 catch（无工具单轮分支 + 有工具的多轮循环）。
+ * 两处各写一遍三分法必然漂移（本轮修的正是「一条路径有打点、另一条没有」这类病）。
+ * 一处判定，两处共用。
+ */
+function turnEndingEvent(error, { round, model, elapsed, signal }) {
+  if (error && error.timedOut === true) {
+    return ['turn-timeout', { round, model, elapsed, error }];
+  }
+  if (isCanceledError(error)) {
+    const reason = readTurnAbortReason(signal);
+    return ['turn-aborted', { round, model, elapsed, ...(reason ? { reason } : {}) }];
+  }
+  return ['turn-failed', { round, model, elapsed, error }];
 }
 
 export async function runAgentTurn(messages, options = {}) {
@@ -295,21 +329,38 @@ export async function runAgentTurn(messages, options = {}) {
   if (effectiveSignal && effectiveSignal.aborted) throwIfStopped();
 
   if (!tools.length) {
-    machine.startModelRequest();
-    const result = await streamChatCompletion(history, {
-      ...requestOptions,
-      signal: effectiveSignal,
-      onChunk: text => safeCallback(onToken, text),
-      onReasoning: text => safeCallback(onReasoning, text),
-      ...(onModelFallback ? { onModelFallback } : {}),
-    });
-    const text = typeof result.text === 'string' ? result.text : '';
-    machine.receiveModelResponse(text);
-    machine.complete(text);
-    if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, model: result.model, ...result.usage });
-    clearBudget();
-    emitTurnEvent('turn-done', { round: 1, model: (result && result.model) || undefined, elapsed: Date.now() - turnStartedAt });
-    return text;
+    // FEAT-AC11：这条**无工具单轮分支**此前完全在收尾 catch 之外——它出错或中止时
+    // 一条收尾事件都不发，与 BUG-B（有工具路径的 abort 隐形）是同一类盲区。
+    // 真机最常见的无工具场景是只读问答与「ask 档」对话，占了绝大多数回合。
+    // 故这一小段自带收尾：成功 turn-done / 中止 turn-aborted / 失败 turn-failed。
+    try {
+      machine.startModelRequest();
+      const result = await streamChatCompletion(history, {
+        ...requestOptions,
+        signal: effectiveSignal,
+        onChunk: text => safeCallback(onToken, text),
+        onReasoning: text => safeCallback(onReasoning, text),
+        ...(onModelFallback ? { onModelFallback } : {}),
+      });
+      const text = typeof result.text === 'string' ? result.text : '';
+      machine.receiveModelResponse(text);
+      machine.complete(text);
+      if (result && result.usage && onUsage) safeCallback(onUsage, { round: 1, model: result.model, ...result.usage });
+      clearBudget();
+      emitTurnEvent('turn-done', { round: 1, model: (result && result.model) || undefined, elapsed: Date.now() - turnStartedAt });
+      return text;
+    } catch (error) {
+      // 与工具路径同样的三分法：超时 / 中止 / 失败各自如实落盘。
+      emitTurnEvent(...turnEndingEvent(error, {
+        round: currentRound,
+        model: currentModel || undefined,
+        elapsed: Date.now() - turnStartedAt,
+        signal,
+      }));
+      throw error;
+    } finally {
+      clearBudget();
+    }
   }
 
   let streamedText = '';
@@ -392,6 +443,11 @@ export async function runAgentTurn(messages, options = {}) {
       let hasRepeatedCall = false;
       let planUpdatedThisRound = false;
       const signaturesThisRound = new Set();
+      // FEAT-AC11 P1-4：本批已处理/剩余计数（用于确认弹窗的进度感）。
+      // ⚠️ 必须用**独立的计数器**，不能拿 signaturesThisRound.size 顶替：
+      // 那是**去重后的签名数**，同一轮里重复调用同一工具时它会小于实际处理条数，
+      // 算出来的「剩余」会偏大（对进度提示这种用途是错的方向）。
+      let batchProcessed = 0;
       for (const call of toolCalls) {
         if (effectiveSignal && effectiveSignal.aborted) throwIfStopped();
         const signature = toolCallSignature(call);
@@ -400,6 +456,16 @@ export async function runAgentTurn(messages, options = {}) {
         }
         signaturesThisRound.add(signature);
         const toolRound = round;
+        // FEAT-AC11 P1-4：本批**还剩几个工具调用**（不含当前这个），供确认弹窗
+        // 给出进度感（用户真机反馈「连续 5 弹不知道还要点几次」）。
+        //
+        // ⚠️ 为什么不叫「剩余待确认 N 条」：那个数**不可知**——某条调用是否需要确认，
+        // 要等 registry 求值权限规则之后才知道（本循环看不到那一层）。
+        // 本批剩余调用数则是**确定可知**的（就在这里），而且它是「还需点几次」的
+        // **上界**，足以给出进度感。任务书 §三 P1-4 明确要求「不可得时不显示，不编数」，
+        // 所以这里只报可知的那个数，并在文案里如实说成「工具调用」而不是「确认」。
+        const batchRemaining = toolCalls.length - (batchProcessed + 1);
+        batchProcessed += 1;
         // P0-D：工具打点（info 级）——「卡在哪个工具」是排查的第一步。
         const toolStartedAt = Date.now();
         emitTurnEvent('turn-tool', { round: toolRound, tool: call.name });
@@ -420,6 +486,8 @@ export async function runAgentTurn(messages, options = {}) {
             sessionId: context.sessionId,
             // FEAT-AC8 P0-B：把本回合的确认预算传下去（registry 据此防连环弹卡）。
             confirmBudget,
+            // FEAT-AC11 P1-4：本批剩余工具调用数（进度感；0 表示这是本批最后一个）。
+            batchRemaining,
             // 只有接了钩子才把 confirm 传下去：传 undefined 时 runTool 会拒绝需要
             // 确认的工具，这正是「没有 UI 可以问用户 → 不许执行」的默认。
             ...(onToolApproval ? { confirm: onToolApproval } : {}),
@@ -439,10 +507,16 @@ export async function runAgentTurn(messages, options = {}) {
         // FEAT-AC8 P0-D：带上成败——当晚 5 次 set_app_setting 若有一条
         // 「turn-tool tool=set_app_setting ok=fail」，BUG-A 当场就能读出来，
         // 不必对着截图推演（那正是「打点先行」的意义）。
+        // FEAT-AC11 P1-3：**失败要带原因**。AC9 起有了 ok=fail，但「为什么失败」
+        // 仍然答不上来——真机 round 7 两条 read_workspace_file 在 ~100ms 内失败，
+        // 日志只写 ok=fail，无法分辨「路径不存在」「越界」「被规则拒绝」。
+        // 取错误文本首段并截断（口径同 turnDiagnostics 对 error 字段的处理），
+        // 且经 maskSecrets 脱敏——工具结果可能夹带密钥（与诊断落盘同一条纪律）。
         emitTurnEvent('turn-tool', {
           round: toolRound,
           tool: call.name,
           ok,
+          ...(ok ? {} : { error: describeToolFailure(outcome) }),
           elapsed: Date.now() - toolStartedAt,
         });
         // O0.2：记录计划更新（成功调用了 update_plan）——重置「未更新」计数。
@@ -532,15 +606,21 @@ export async function runAgentTurn(messages, options = {}) {
     // 中止（或任何抛出）之前已经发生的工具调用与结果都是事实，必须回抛给宿主持久化。
     // emitTranscript 自身不抛（safeCallback 包着），不会把原错误盖掉。
     emitTranscript();
-    // P0-D：把「这轮怎么结束的」写进打点——超时与中止都带耗时，日志里能直接看出卡了多久。
-    if (error && error.timedOut === true) {
-      emitTurnEvent('turn-timeout', {
-        round: currentRound,
-        model: currentModel || undefined,
-        elapsed: Date.now() - turnStartedAt,
-        error,
-      });
-    }
+    // FEAT-AC11 P0-2：收尾**三分法**如实落盘（超时 / 中止 / 失败）。
+    //
+    // 事故（真机 17:38/17:40）：两个回合都只有 turn-start / turn-tool，**没有任何
+    // 收尾事件**——因为这里此前只在 timedOut 时发事件，用户停止 / 面板卸载 abort
+    // 一个都不发 ⇒ 回合从诊断里彻底蒸发。当时只能靠「日志里 31 秒空洞正好对上
+    // 用户切面板的动作」反推根因，代价是一轮真机 + 一次人工推演。
+    //
+    // 现在：中止带**理由边车**（user-stop / screen-close / panel-switch…）。
+    // P0-1 让窄屏切 tab 不再卸载之后，reason=panel-switch 不应再出现——出现即回归信号。
+    emitTurnEvent(...turnEndingEvent(error, {
+      round: currentRound,
+      model: currentModel || undefined,
+      elapsed: Date.now() - turnStartedAt,
+      signal,
+    }));
     throw error;
   } finally {
     // 无论如何都要清掉回合预算计时器：留着会让一个已结束的回合在 180s 后

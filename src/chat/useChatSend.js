@@ -35,7 +35,7 @@ import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
 // 工具过程气泡：事件→状态映射、隐藏判定与状态变换都在 toolBubbleView.js（唯一来源）。
 import { createToolBubbleApplier, toolBubbleState } from './toolBubbleView.js';
-import { approveToolCall, readToolPermissionRules } from './toolApprovalFlow.js';
+import { approvalOptionsFromToolCall, approveToolCall, readToolPermissionRules } from './toolApprovalFlow.js';
 import { createWorkspaceStore, registerDefaultWorkspaceTools } from '../workspace/native.js';
 // O1 超限结果落盘（M 系）+ 工作区钩子事件面（D 系：注入/预置禁令，取代旧的 shellHookDenyRules）。
 import { persistToolResult } from '../workspace/taskOutputs.js';
@@ -693,8 +693,7 @@ export default function useChatSend({
               // 由 permissionRules 单独喂给 runTool（见下）——审批只在「需要确认的工具」上被
               // 调用，而钩子要拦下**任意**工具，写工具按设计不逐条确认（2026-10-11 P1）。
               onToolApproval: call => approveToolCall({
-                name: call && call.name,
-                args: call && call.args,
+                ...approvalOptionsFromToolCall(call),
                 t: tRef.current,
                 // 用户点「停止生成」时立刻按拒绝结算，不留悬挂的弹框 Promise。
                 signal: controller.signal,

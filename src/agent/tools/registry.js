@@ -310,6 +310,16 @@ export async function runTool(call, ctx = {}) {
     if (budget && !budget.shouldAsk(confirmSignature(tool.name, args))) {
       return toErrorResult(repeatGuardMessage(tool.name, { budget: budget.budget }));
     }
+    // FEAT-AC11 P1-4：把「这是同签名的第几次询问」交给宿主，弹窗据此标注
+    // 「同命令第 2 次请求」——用户真机看到连续两个一模一样的弹窗会以为界面坏了
+    // （截图反馈「两个一样的允许」）。只加信息，**不改放行语义**。
+    // askedCount 在 shouldAsk 记过之后读，故首次 = 1、重试 = 2。
+    const confirmAttempt = budget ? budget.askedCount(confirmSignature(tool.name, args)) : 0;
+    // FEAT-AC11 P1-4：本批剩余工具调用数（进度感）。宿主没传就是 0，
+    // 弹窗据此**不显示**进度行——不编数（任务书 §三 的明确要求）。
+    const batchRemaining = Number.isInteger(ctx.batchRemaining) && ctx.batchRemaining > 0
+      ? ctx.batchRemaining
+      : 0;
     if (signal && signal.aborted) throw makeAbortError();
     // 审批也要能被中止竞速：用户点「停止生成」时弹框可能还开着，弹框的按钮回调
     // 不会因为 abort 而触发，只 await confirm 会让循环卡在一个永远等不到答案的
@@ -324,7 +334,7 @@ export async function runTool(call, ctx = {}) {
     let approved;
     try {
       approved = await Promise.race([
-        Promise.resolve().then(() => ctx.confirm({ name: tool.name, args })),
+        Promise.resolve().then(() => ctx.confirm({ name: tool.name, args, attempt: confirmAttempt, batchRemaining })),
         approvalAbort,
       ]);
     } catch (error) {

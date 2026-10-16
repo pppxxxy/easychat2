@@ -42,7 +42,13 @@ function getAlert() {
 }
 
 // 文案构造（纯函数，便于单测）：模型给的参数可能缺字段，这里一律兜底成可读文本。
-export function describeToolApproval({ name, args, t, askOnly = false } = {}) {
+//
+// attempt（FEAT-AC11 P1-4）：同一工具**同参数**的第几次询问（1 = 首次，≥2 = 重试）。
+// 为什么需要它：用户真机看到连续两个一模一样的弹窗，反馈是「两个一样的允许……吓人」。
+// 根因是 AC8 的同签名重试预算（首次 + 1 次重试）在正常工作——机制本来就收敛
+//（第 3 次起自动拒绝不再打扰），但弹窗上看不出「这是重试」，于是像是界面坏了。
+// 这里**只加一行说明**，三选项与「拒绝优先」的结算规则一字不动。
+export function describeToolApproval({ name, args, t, askOnly = false, attempt = 0, batchRemaining = 0 } = {}) {
   const translate = typeof t === 'function' ? t : key => key;
   const values = args && typeof args === 'object' ? args : {};
   const command = String(values.command === undefined || values.command === null ? '' : values.command);
@@ -70,10 +76,28 @@ export function describeToolApproval({ name, args, t, askOnly = false } = {}) {
   } else {
     body = translate('chat.tool.approval.bodyEmpty');
   }
+  // FEAT-AC11 P1-4：重试标注（只加信息，不加放行）。
+  // attempt >= 2 才标注——首次弹窗（attempt 1）加「第 1 次」纯属噪音。
+  // attempt 缺失/非法（0，例如宿主没传）→ 不标注，**不编数**（任务书 §三 P1-4 的要求）。
+  const retryNote = Number.isInteger(attempt) && attempt >= 2
+    ? translate('chat.tool.approval.retryNote', { n: attempt })
+    : '';
+  // FEAT-AC11 P1-4：进度感——本批还剩几条工具调用（**上界**，可能不需要逐条确认）。
+  // 只在确实 >0 时显示；不可得（0/未传）就不显示，**不编数**。
+  // 文案刻意说「工具调用」而不是「待确认」：后者不可知（见 loop.js 的说明）。
+  const progressNote = Number.isInteger(batchRemaining) && batchRemaining > 0
+    ? translate('chat.tool.approval.progressNote', { n: batchRemaining })
+    : '';
   return {
     title: translate('chat.tool.approval.title', { name }),
     // ask 档：在正文前说明「为什么这里没有『永远允许』」，否则用户会以为界面坏了。
-    body: askOnly ? `${translate('chat.tool.approval.askRuleNote')}\n\n${body}` : body,
+    // 重试/进度标注排在最后：先让用户看到要批准什么（正文），再看上下文。
+    body: [
+      askOnly ? translate('chat.tool.approval.askRuleNote') : '',
+      body,
+      retryNote,
+      progressNote,
+    ].filter(Boolean).join('\n\n'),
     deny: translate('chat.tool.approval.deny'),
     allow: translate('chat.tool.approval.allow'),
     session: translate('chat.tool.approval.session'),
@@ -94,9 +118,11 @@ export function requestToolApproval({
   signal = null,
   showAlert = null,
   askOnly = false,
+  attempt = 0,
+  batchRemaining = 0,
 } = {}) {
   const alert = showAlert || getAlert();
-  const copy = describeToolApproval({ name, args, t, askOnly });
+  const copy = describeToolApproval({ name, args, t, askOnly, attempt, batchRemaining });
 
   // 没有弹框能力 = 问不到用户 = 拒绝（与 registry 的「无 confirm 即拒绝」同一条原则）。
   if (!alert || typeof alert.alert !== 'function') return Promise.resolve(APPROVAL_DENIED);

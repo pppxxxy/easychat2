@@ -246,9 +246,13 @@ export default function WorkspaceScreen({ visible, onClose }) {
           </ScrollView>
 
           <View style={styles.content}>
-            {/* P1：宽屏两栏。窄屏**逐字不变**（下面的 else 分支就是原来的条件渲染）；
-                宽屏时树形保持稳定——对话永远挂在同一个位置，切侧栏不会把 ChatPanel 卸载重建
-                （否则输入框里打了一半的话会丢）。 */}
+            {/* P1：宽屏两栏。宽屏时树形保持稳定——对话永远挂在同一个位置，切侧栏不会把
+                ChatPanel 卸载重建（否则输入框里打了一半的话会丢）。
+
+                ⚠️ FEAT-AC11 P0-1 更新：窄屏**也已改为常驻**（见下面的 else 分支）。
+                这里此前写着「窄屏逐字不变（就是原来的条件渲染）」——那句话在 AC11 之后
+                已不成立，留着会误导后人以为窄屏仍走条件渲染。窄屏之所以必须一起改：
+                条件渲染的卸载会连带 abort 运行中的回合（切个 tab 就杀任务）。 */}
             {layout.wide ? (
               <View style={styles.paneRow}>
                 <View style={twoPane ? { width: columns.left } : (panel === 'chat' ? styles.paneFill : styles.paneHidden)}>
@@ -284,7 +288,30 @@ export default function WorkspaceScreen({ visible, onClose }) {
                   <View style={styles.paneFill}>{renderDomainPanel(panel)}</View>
                 ))}
               </View>
-            ) : (panel === 'chat' ? renderChatPanel() : renderDomainPanel(panel))}
+            ) : (
+              /* FEAT-AC11 P0-1：窄屏也**常驻**对话面板（对齐宽屏做法）。
+                走 paneHidden（display:'none'）而不是条件渲染。
+
+                为什么必须改（真机 17:38/17:40 两次「(已停止)」的根因）：
+                这里此前是 `panel === 'chat' ? renderChatPanel() : renderDomainPanel(panel)`
+                ——条件渲染，切任何 tab 都把 ChatPanel **整个卸载**，而它的卸载清理里
+                无条件 abort 了正在跑的回合控制器 ⇒ **手机上切个 tab 就把运行中的任务杀掉**。
+                用户看到的是「(已停止)」，且日志里连收尾事件都没有（abort 路径此前零打点）。
+
+                最讽刺的对照：宽屏分支当年正是为了「切侧栏不卸载 ChatPanel（打了一半的话会丢）」
+                而做常驻的——**平板修了打字丢失，手机连字带任务一起丢**，且没人发现 abort 这层。
+
+                ⚠️ 不得退回 `{false && ...}` 之类写法：那仍然是卸载，只是隐藏了 JSX。
+                display:'none' 让组件保持挂载（state/effect/进行中的请求都不受影响）。 */
+              <>
+                <View style={panel === 'chat' ? styles.paneFill : styles.paneHidden}>
+                  {renderChatPanel()}
+                </View>
+                {panel === 'chat' ? null : (
+                  <View style={styles.paneFill}>{renderDomainPanel(panel)}</View>
+                )}
+              </>
+            )}
           </View>
         </View>
       </View>

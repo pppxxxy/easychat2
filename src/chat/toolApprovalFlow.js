@@ -32,6 +32,11 @@ function defaultApprovalHandler(request) {
     showAlert: request.showAlert,
     // D 系 ask 档：broker 把 askOnly 透传给应答方（只给「拒绝/允许这一次」）。
     askOnly: request.askOnly === true,
+    // FEAT-AC11 P1-4：同签名第几次询问（弹窗据此标注「同命令第 2 次请求」）。
+    // 缺失时是 0 → 不标注（不编数）。
+    attempt: request.attempt,
+    // 同批剩余工具调用数（进度感；0/缺失 → 不显示，不编数）。
+    batchRemaining: request.batchRemaining,
   });
 }
 
@@ -39,6 +44,28 @@ let approvalRequestSeq = 0;
 function nextApprovalRequestId() {
   approvalRequestSeq += 1;
   return `approval-${approvalRequestSeq}`;
+}
+
+/**
+ * FEAT-AC11：把 registry 传下来的 **confirm 载荷**映射成 approveToolCall 的参数。
+ *
+ * 为什么要有它（DRY + 防漂移）：两个宿主（工作区 ChatPanel 与聊天页 useChatSend）
+ * 各写一份同样的 `{ name, args, attempt, batchRemaining }` 映射。本轮加
+ * attempt / batchRemaining 时就是**两处一起改**——漏一处会出现「一个页面有重试标注、
+ * 另一个没有」这种只在特定入口复现的缺陷（本仓反复踩过同型病）。
+ * 映射收口在这里，宿主只负责补自己的 t / signal。
+ *
+ * @param {object} call registry 传给 ctx.confirm 的载荷 { name, args, attempt, batchRemaining }
+ * @returns {{ name: string, args: object, attempt: number, batchRemaining: number }}
+ */
+export function approvalOptionsFromToolCall(call = {}) {
+  return {
+    name: call && call.name,
+    args: call && call.args,
+    // 缺失/非法 → 0，弹窗据此**不标注**（不编数）。
+    attempt: call && call.attempt,
+    batchRemaining: call && call.batchRemaining,
+  };
 }
 
 // 宿主接 registry.runTool 的 `ctx.permissionRules` 用的**合并入口**：钩子规则 + 用户存储规则。
@@ -79,6 +106,10 @@ export async function approveToolCall({
   t,
   signal = null,
   showAlert = null,
+  // FEAT-AC11 P1-4：同签名第几次询问（registry 传下来的 attempt；0/缺失 = 不标注）。
+  attempt = 0,
+  // 同批剩余工具调用数（进度感；0/缺失 = 不显示，不编数）。
+  batchRemaining = 0,
   // 本次调用的附加规则（工作区 hooks.json 的 before_shell 预置禁令翻译而来）。
   // 与存储规则合并求值：deny 优先由 evaluate 保证，与来源和顺序无关。
   extraRules = [],
@@ -105,7 +136,7 @@ export async function approveToolCall({
   const askOnly = verdict === 'ask';
   // 走 broker（Z 系 #3）：生命周期与「谁来答」解耦；ask 档随请求带下去。
   const decision = await broker.requestPermission(
-    { requestId: nextApprovalRequestId(), toolName: name, args, t, signal, showAlert, askOnly },
+    { requestId: nextApprovalRequestId(), toolName: name, args, t, signal, showAlert, askOnly, attempt, batchRemaining },
     { signal, handler: handler || defaultApprovalHandler }
   );
   const value = typeof decision === 'string'

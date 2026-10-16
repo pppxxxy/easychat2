@@ -341,7 +341,16 @@ test('允许时正常执行，且 confirm 收到工具名与原参数', async ()
     { mode: AGENT_MODES.WRITE, confirm: async call => { seen.push(call); return true; } },
   );
   assert.deepEqual(result, { content: 'ran:ls -al', isError: false });
-  assert.deepEqual(seen, [{ name: 'shell', args: { command: 'ls -al' } }]);
+  // FEAT-AC11 P1-4：confirm 载荷新增两个**信息性**字段（弹窗用来标注重试与进度）：
+  //   · attempt：同签名第几次询问（无 confirmBudget 时恒 0 = 不标注）
+  //   · batchRemaining：本批剩余工具调用数（宿主没传时恒 0 = 不显示）
+  // 二者都只影响文案，不参与放行判定——三选项与拒绝优先的结算一字未改。
+  assert.deepEqual(seen, [{
+    name: 'shell',
+    args: { command: 'ls -al' },
+    attempt: 0,
+    batchRemaining: 0,
+  }]);
 });
 
 test('没接审批钩子 = 拒绝，绝不是放行', async () => {

@@ -40,7 +40,6 @@ import {
   getWorkspaceSettings,
   patchWorkspaceSettings,
   replaceWorkspaceChatMessages,
-  saveWorkspaceChatDraft,
   setActiveWorkspaceChat,
 } from '../../storage/workspace.js';
 import {
@@ -79,7 +78,13 @@ import { getConfigFingerprint, isCanceledError, sendChatMessage } from '../../ne
 import { transcribeAudio } from '../../transcription.js';
 import { maskSecrets } from '../../storage/secrets.js';
 import { runAgentTurn, workspaceRoundBudget } from '../../agent/loop.js';
-import { approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
+// FEAT-AC11 P0-2：中止理由边车（纯逻辑，零依赖）。契约与「为什么不能自己写一份」
+// 见 turnAbort.js —— AbortController 与 controller.signal 是两个对象，
+// 写入方必须同时写两处，读取方（loop.js）才读得到。
+import { abortWithReason as abortTurn } from '../../agent/turnAbort.js';
+// FEAT-AC11：输入草稿缓存外提（模块级纯函数；同时把本文件行数降回棘轮基线之下）。
+import { persistDraft, readDraft, rememberDraft } from './chatPanelDrafts.js';
+import { approvalOptionsFromToolCall, approveToolCall, readToolPermissionRules } from '../../chat/toolApprovalFlow.js';
 import {
   isImage,
   isTextLike,
@@ -158,15 +163,6 @@ let messageSeq = 0;
 function nextId() {
   messageSeq += 1;
   return `wsc-${Date.now().toString(36)}-${messageSeq}`;
-}
-
-// 输入草稿的内存缓存（模块级，键 `${characterId}:${chatId}`）。
-// 为什么要有它：切面板会卸载整个聊天组件（WorkspaceScreen 条件渲染），
-// 卸载时落盘是异步的——重新挂载若直接读盘，可能读到落盘前的旧值；
-// 内存缓存同步生效，负责「切回来立刻有」，盘上的 chat.draft 负责跨重启。
-const draftCache = new Map();
-function draftCacheKey(ownerId, chatId) {
-  return `${String(ownerId || '')}:${String(chatId || '')}`;
 }
 
 export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHistory = null }) {
@@ -333,37 +329,15 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   characterIdRef.current = characterId;
 
   // 打字时只写内存（零 IO、不卡输入）；落盘发生在「离开这个输入框」的时点——
-  // 卸载（切面板 / 关屏）、切对话、新建对话、发送（清空）。
-  const rememberDraft = useCallback((ownerId, chatId, text) => {
-    const id = String(chatId || '');
-    if (!id) return;
-    draftCache.set(draftCacheKey(ownerId, id), String(text === undefined || text === null ? '' : text));
-  }, []);
-
-  const persistDraft = useCallback((ownerId, chatId, text) => {
-    const id = String(chatId || '');
-    if (!id) return;
-    const value = String(text === undefined || text === null ? '' : text);
-    draftCache.set(draftCacheKey(ownerId, id), value);
-    // 落盘失败静默：草稿不值得打断用户（内存缓存还在，切回来照常有）。
-    saveWorkspaceChatDraft(ownerId, id, value).catch(() => {});
-  }, []);
-
-  // 读草稿：内存优先（同进程内即时、无 IO 竞态），其次盘上的 chat.draft（跨重启）。
-  const readDraft = useCallback((ownerId, chatId, fallback) => {
-    const id = String(chatId || '');
-    if (!id) return '';
-    const cached = draftCache.get(draftCacheKey(ownerId, id));
-    if (cached !== undefined) return cached;
-    return String(fallback === undefined || fallback === null ? '' : fallback);
-  }, []);
+  // 卸载（关工作区）、切对话、新建对话、发送（清空）。
+  // FEAT-AC11：三个函数外提到 chatPanelDrafts.js（模块级纯函数，无需 useCallback 包装）。
 
   // 输入变化：更新界面 + 写内存草稿。落盘刻意不在这里——
   // 每次按键写 AsyncStorage 会拖慢输入，落盘统一放到「离开」的时点。
   const handleInputChange = useCallback(text => {
     setInput(text);
     rememberDraft(characterId, activeChatId, text);
-  }, [activeChatId, characterId, rememberDraft]);
+  }, [activeChatId, characterId]);
 
   // 跨面板交接：GitHub 工作台的「让助手推送」把一条指令填进输入框。
   // 用 token 判定是否已消费——同一段文本也能重复交接（用户可能连点两次）。
@@ -385,9 +359,10 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (controllerRef.current) controllerRef.current.abort();
-      // 切面板 / 关屏会卸载本组件（WorkspaceScreen 条件渲染）：把最后一次输入落盘。
-      // 打字期间不写盘，这里是「防丢」的主兜底（内存缓存负责即时恢复的体验）。
+      // FEAT-AC11 P0-2：带理由中止（'panel-unmount'）。P0-1 让窄屏切 tab 不再卸载，
+      // 所以这条现在只剩「整个工作区 Modal 被销毁」会走到——出现它说明常驻失效了。
+      abortTurn(controllerRef.current, 'panel-unmount');
+      // 卸载时把最后一次输入落盘（打字期间不写盘，这里是「防丢」的主兜底）。
       persistDraft(characterIdRef.current, activeChatIdRef.current, inputRef.current);
     };
   }, [persistDraft]);
@@ -397,7 +372,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   // 输入草稿跟着陪葬是连带误伤（用户切个面板回来就得重打）。
   useEffect(() => {
     if (visible) return;
-    if (controllerRef.current) controllerRef.current.abort();
+    // FEAT-AC11 P0-2：关屏即停是**有意设计**（不回退），但必须带理由——
+    // 这样日志能区分「用户关了工作区」（预期）与「切面板把任务杀了」（回归）。
+    abortTurn(controllerRef.current, 'screen-close');
     persistDraft(characterIdRef.current, activeChatIdRef.current, inputRef.current);
     setMessages([]);
     setInput('');
@@ -630,7 +607,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
 
   // 新建对话：另开一条会话（旧的留在历史里，随时切回来），而不是把上一条清掉。
   const handleNewChat = useCallback(async () => {
-    if (controllerRef.current) controllerRef.current.abort();
+    abortTurn(controllerRef.current, 'new-chat');
     // 先把当前输入存回原会话，再开新的（新会话的输入框是干净的）。
     persistDraft(characterId, activeChatId, input);
     setMessages([]);
@@ -656,7 +633,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   const handleSelectChat = useCallback(async id => {
     const target = chatList.find(item => item.id === id);
     if (!target) return;
-    if (controllerRef.current) controllerRef.current.abort();
+    abortTurn(controllerRef.current, 'switch-chat');
     persistDraft(characterId, activeChatId, input);
     setActiveChatId(id);
     setMessages(target.messages);
@@ -1092,7 +1069,9 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
   }, [recorder, t, voiceBusy]);
 
   const handleStop = useCallback(() => {
-    if (controllerRef.current) controllerRef.current.abort();
+    // FEAT-AC11 P0-2：用户主动停止 = 'user-stop'（与面板/关屏区分开，
+    // 这样日志能直接答「这轮是谁停的」——本轮的核心可观测性目标）。
+    abortTurn(controllerRef.current, 'user-stop');
   }, []);
 
   // I2：overrideText——批准链路带确认文本发起。判据必须是「是不是字符串」而不是「是不是 undefined」：
@@ -1294,8 +1273,7 @@ export default function ChatPanel({ visible, onOpenPanel, draft = null, onOpenHi
         // permissionRules 单独喂给 runTool（见下），因为审批钩子只在「需要确认的工具」
         // 上被调用，而钩子要拦下**任意**工具——写工具按设计不逐条确认（2026-10-11 P1）。
         onToolApproval: call => approveToolCall({
-          name: call && call.name,
-          args: call && call.args,
+          ...approvalOptionsFromToolCall(call),
           t,
           signal: controller.signal,
         }),

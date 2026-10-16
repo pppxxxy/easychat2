@@ -232,7 +232,10 @@ test('接线：runTool 里预算用尽 → 按**拒绝**结算（方向不是放
   const registry = stripComments(read('src/agent/tools/registry.js'));
   // 预算判定必须在 confirm 调用**之前**（用尽就不该弹卡）
   const budgetAt = registry.indexOf('budget.shouldAsk(confirmSignature(tool.name, args))');
-  const confirmAt = registry.indexOf('ctx.confirm({ name: tool.name, args })');
+  // ⚠️ FEAT-AC11 P1-4：confirm 载荷新增 attempt / batchRemaining（弹窗标注重试与进度）。
+  // 断言不再钉死整串参数表，而是钉「调用点存在」+「位置在预算判定之后」——
+  // 钉死整串会让每次给弹窗加信息字段都要改这条断言（而它想守的只是**先后顺序**）。
+  const confirmAt = registry.indexOf('ctx.confirm({ name: tool.name, args,');
   assert.ok(budgetAt > 0, 'runTool 必须做预算判定');
   assert.ok(confirmAt > budgetAt, '预算判定必须在弹卡之前（用尽即不弹）');
   // 用尽时必须返回**错误结果**（toErrorResult = 未执行），绝不是放行
