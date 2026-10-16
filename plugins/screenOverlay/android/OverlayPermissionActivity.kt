@@ -32,8 +32,27 @@ import androidx.core.content.ContextCompat
  */
 class OverlayPermissionActivity : Activity() {
 
+    /**
+     * FEAT-AC10 P0-1：本轮是否**已经交付过结果**（一次性标志）。
+     *
+     * 为什么必须有它：本 Activity 此前只有 onActivityResult 一个出口。用户真机
+     * 14:57 的现象是「投屏授权框闪现即逝 → 永久加载」，日志里连 permission-denied
+     * 都没有 ⇒ deliver 从未运行 ⇒ 等待者永远悬挂（native 队列 in-flight 永真）。
+     * 现在 onDestroy 会兜底结算，而正常路径（onActivityResult → deliver → finish）
+     * 也会走到 onDestroy —— 这个标志保证**只结算一次**，不会重复投递。
+     */
+    private var delivered = false
+
+    /** 本轮授权尝试的序号（从 Module 的 Intent extra 取，见 EXTRA_CAPTURE_EPOCH）。 */
+    private var permissionEpoch = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // M1.3 + FEAT-AC10：记下本轮尝试序号。**从 Intent 取而不是从实例状态取**：
+        // 配置变更后系统会用**同一个 Intent** 重建实例，extra 仍在；而看门狗若已把本轮
+        // 判死并发起了新一轮，序号比对能防止「迟到的旧结果」结算掉新一批等待者。
+        permissionEpoch = intent.getLongExtra(ScreenOverlayModule.EXTRA_CAPTURE_EPOCH, 0L)
+
         // 重建（配置变更等）：**不要**再弹一次授权框。上一次的 startActivityForResult
         // 仍然挂着，系统会把结果投递给重建后的实例，重复发起反而会叠出两个系统弹窗。
         if (savedInstanceState != null) return
@@ -46,6 +65,33 @@ class OverlayPermissionActivity : Activity() {
             return
         }
         startCapturePermissionFlow()
+    }
+
+    /**
+     * FEAT-AC10 P0-1：**Activity 死亡兜底**（本轮主修）。
+     *
+     * 无出口的死亡路径（真机「授权框闪现即逝」就是其中一种）：
+     *   · onCreate 在 savedInstanceState != null 时静默 return 等「系统重投结果」，
+     *     而部分 ROM 杀掉 Activity 后根本不重投；
+     *   · 透明 Activity 被系统/ROM 直接回收，未经 onActivityResult。
+     * 两条都会让 deliver 永不执行 ⇒ 进程级等待者悬挂、capturePermissionInFlight 永真
+     * ⇒ 之后所有 startOverlay 都在排队等一个已死的弹窗（用户只能杀进程恢复）。
+     *
+     * 为什么这里**一个兜底覆盖麦克风 + 投屏两环节**：两个环节共用本 Activity、共用
+     * 「先 deliver 后 finish」这一个出口，任何环节中死亡时 delivered 都还是 false。
+     *
+     * ⚠️ 配置变更必须排除：那种销毁后系统会把结果重投给新实例，此刻结算会把
+     * 正常流程误判成失败（isChangingConfigurations）。
+     */
+    override fun onDestroy() {
+        super.onDestroy()
+        if (delivered || isChangingConfigurations) return
+        try {
+            ScreenOverlayModule.onPermissionActivityDestroyed(permissionEpoch)
+        } catch (error: Exception) {
+            // 兜底本身抛错绝不能把进程带走（本 Activity 只是空壳，且此刻正在销毁）。
+            Log.w(TAG, "settle on destroy failed: ${error.message}")
+        }
     }
 
     private fun hasRecordAudioPermission(): Boolean =
@@ -114,9 +160,11 @@ class OverlayPermissionActivity : Activity() {
      * 而它只是个空壳，没有任何值得为之崩溃的东西。
      */
     private fun deliver(resultCode: Int, data: Intent?, failure: String?) {
+        // FEAT-AC10 P0-1：先置一次性标志（onDestroy 据此不再重复结算）。
+        delivered = true
         if (failure != null) Log.w(TAG, "capture permission failed: $failure")
         try {
-            ScreenOverlayModule.onCapturePermissionResult(resultCode, data, failure)
+            ScreenOverlayModule.onCapturePermissionResult(resultCode, data, failure, permissionEpoch)
         } catch (error: Exception) {
             Log.w(TAG, "deliver capture result failed: ${error.message}")
         }

@@ -118,14 +118,46 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
             onResult(true)
             return
         }
+        // FEAT-AC10 P0-2：**看门狗**——新请求进来时，若上一轮 in-flight 已明显超时，
+        // 先把它判死（结算所有等待者），再走正常流程发起新一轮。
+        //
+        // 为什么只在「有新请求进来时」检查、不额外起计时线程：悬浮窗是常驻的，
+        // 为一个可能永不发生的故障养一条常驻计时线程不划算；而用户「再点一次」
+        // 正是这个故障唯一的暴露时机（点了永远转圈 ⇒ 用户一定会再点）。
+        // 这一步让「点了还有救」，而不是只能杀进程。
+        val recovered = recoverStaleCaptureRequestIfNeeded()
+        recovered?.forEach { it(false) }
+
+        // 排队/发起的分支判定与打点分开：打点会走到 JS（跨线程），**不能持锁执行**
+        //（与 settleCapturePermissionWaiters「锁外结算」同一条纪律）。
+        var queued = false
+        var queuedEpoch = 0L
+        var queuedWaiters = 0
+        var epoch = 0L
         synchronized(capturePermissionLock) {
             if (capturePermissionInFlight) {
                 // 弹窗进行中：排队复用同一次结果，**绝不叠第二个弹窗**。
                 capturePermissionWaiters.add(onResult)
-                return
+                queued = true
+                queuedEpoch = capturePermissionEpoch
+                queuedWaiters = capturePermissionWaiters.size
+            } else {
+                capturePermissionInFlight = true
+                // 轮次自增 → 旧 Activity 的迟到结果会因 epoch 不符而被忽略（见 onCapturePermissionResult）。
+                capturePermissionEpoch += 1
+                epoch = capturePermissionEpoch
+                captureRequestStartedAt = System.currentTimeMillis()
+                capturePermissionWaiters.add(onResult)
             }
-            capturePermissionInFlight = true
-            capturePermissionWaiters.add(onResult)
+        }
+        if (queued) {
+            // FEAT-AC10 P0-4：排在队伍里也要留痕——否则「我点了但什么都没发生」
+            // 与「点了、正在等授权」在日志上无法分辨。
+            recordPermissionTrace(
+                "overlay-permission-request",
+                "queued=true epoch=$queuedEpoch waiters=$queuedWaiters"
+            )
+            return
         }
         // 用**独立 Activity** 承接授权（M1.3）。旧实现是
         // reactContext.currentActivity.startActivityForResult(...)，它要求 RN 主 Activity
@@ -138,12 +170,41 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
         try {
             val intent = Intent(reactContext, OverlayPermissionActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // 把本轮序号交给 Activity：它原样带回给结果入口，用于丢弃迟到结果。
+                putExtra(EXTRA_CAPTURE_EPOCH, epoch)
             }
+            recordPermissionTrace("overlay-permission-request", "epoch=$epoch")
             reactContext.startActivity(intent)
         } catch (e: Exception) {
             Log.w(TAG, "capture permission activity failed to start: ${e.message}")
             // 起不来：把所有排队者按「拒绝」结算，不能让他们永远挂着。
-            flushCapturePermissionWaiters(false)
+            settleCapturePermissionWaiters(false, "activity-start-failed")
+        }
+    }
+
+    /**
+     * FEAT-AC10 P0-2：把「已明显超时」的 in-flight 轮判死，返回需要按失败结算的回调。
+     *
+     * 返回 null 表示不需要恢复（没有 in-flight，或还没超时）。
+     * **在锁外调用回调**（与 flush 同纪律）：回调链会回到 JS，持锁执行会把
+     * 一个跨线程的活压在锁里。
+     */
+    private fun recoverStaleCaptureRequestIfNeeded(): List<(Boolean) -> Unit>? {
+        synchronized(capturePermissionLock) {
+            if (!capturePermissionInFlight) return null
+            val startedAt = captureRequestStartedAt
+            if (startedAt <= 0) return null
+            val age = System.currentTimeMillis() - startedAt
+            if (age <= CAPTURE_PERMISSION_WATCHDOG_MS) return null
+            // 判死：清 in-flight + 取走等待者。epoch 自增使本轮迟到结果彻底失效
+            //（否则系统稍后重投结果时，会把已经结算过的这一批**再结算一次**）。
+            capturePermissionEpoch += 1
+            capturePermissionInFlight = false
+            captureRequestStartedAt = 0
+            val waiters = capturePermissionWaiters.toList()
+            capturePermissionWaiters.clear()
+            recordPermissionTrace("overlay-permission-watchdog", "age=${age}ms recovered=${waiters.size}")
+            return waiters
         }
     }
 
@@ -579,14 +640,105 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
         private val capturePermissionWaiters = mutableListOf<(Boolean) -> Unit>()
         @Volatile private var capturePermissionInFlight = false
 
-        private fun flushCapturePermissionWaiters(granted: Boolean) {
+        /**
+         * FEAT-AC10 P0-2：本轮授权请求的**发起时刻**（ms）。看门狗据此判「超时」。
+         * 0 表示没有进行中的轮次。
+         */
+        @Volatile private var captureRequestStartedAt = 0L
+
+        /**
+         * FEAT-AC10 P0-1/P0-2：**轮次序号**。每次发起新一轮自增；结果入口比对序号，
+         * 不符即丢弃。
+         *
+         * 为什么需要它（本轮最重要的一处防错）：看门狗把超时轮判死、用户又发起了新一轮
+         * 之后，**旧 Activity 仍可能迟到地投回结果**（系统重投、或它其实没死只是慢）。
+         * 没有序号时那条迟到结果会结算掉**新一批**等待者——把用户刚点出来的授权框
+         * 当成已拒绝，界面恢复正常却拿不到凭据，变成更难查的错。
+         */
+        @Volatile private var capturePermissionEpoch = 0L
+
+        /**
+         * FEAT-AC10 P0-2：看门狗阈值——in-flight 超过它就被下一次请求判死。
+         *
+         * 取值理由（拍板值，写进注释以免后人随手改）：上限必须覆盖用户在系统授权框上
+         * **合法停留**的思考时间（读文案、犹豫、去确认这是不是自己想要的），
+         * 又要短到「点了没反应时用户再点一次」就能救回来。3 分钟远大于正常授权耗时
+         *（通常数秒），也远小于用户放弃重试的耐心。
+         *
+         * ⚠️ 与 JS 侧的 START_CHAIN_TIMEOUT_MS 有**比例关系**：JS 超时必须 > 本值，
+         * 否则 JS 会先于 native 看门狗放弃，看门狗永远轮不到生效（见 overlay.js 的说明）。
+         */
+        const val CAPTURE_PERMISSION_WATCHDOG_MS = 3 * 60 * 1000L
+
+        /** 超时阈值：见 CAPTURE_PERMISSION_WATCHDOG_MS 的说明。 */
+        const val EXTRA_CAPTURE_EPOCH = "captureEpoch"
+
+        /**
+         * FEAT-AC10 P0-1/P0-2：**唯一的结算出口**（清 in-flight + 唤醒全部等待者）。
+         *
+         * @param reason 非空时写进打点（watchdog-recovered / activity-destroyed / ...），
+         *   便于下次真机一眼看出「这批等待者是被谁结算的」。
+         * @param expectEpoch 非 0 时要求与当前轮次一致；不一致说明这是**上一轮的迟到结果**，
+         *   必须忽略（否则会误结算新一轮，见 capturePermissionEpoch 的说明）。
+         * @return true 表示确实结算了（幂等：重复调用不会重复投递）
+         */
+        private fun settleCapturePermissionWaiters(
+            granted: Boolean,
+            reason: String?,
+            expectEpoch: Long,
+        ): Boolean {
             val waiters: List<(Boolean) -> Unit>
             synchronized(capturePermissionLock) {
+                if (expectEpoch != 0L && expectEpoch != capturePermissionEpoch) {
+                    // 迟到结果：当前轮次已经不是它那一轮了，丢弃。
+                    recordPermissionTrace(
+                        "overlay-permission-stale-result",
+                        "epoch=$expectEpoch current=$capturePermissionEpoch"
+                    )
+                    return false
+                }
                 capturePermissionInFlight = false
+                captureRequestStartedAt = 0
                 waiters = capturePermissionWaiters.toList()
                 capturePermissionWaiters.clear()
             }
+            // 锁外结算：回调会回到 JS，持锁执行等于把一个跨线程的活压在锁里。
             waiters.forEach { it(granted) }
+            if (reason != null) {
+                recordPermissionTrace("overlay-permission-settled", "granted=$granted reason=$reason waiters=${waiters.size}")
+            }
+            return true
+        }
+
+        /**
+         * FEAT-AC10 P0-1：授权 Activity **死亡且从未交付结果**时的兜底结算。
+         *
+         * 由 [OverlayPermissionActivity.onDestroy] 调用（它已排除配置变更与已交付两种
+         * 正常情形）。这是「授权框闪现即逝 → 永久加载」的直接解药：以前这条路径
+         * 没有任何结算，等待者悬挂、in-flight 永真，只能杀进程恢复。
+         *
+         * 判决为**拒绝**而不是放行：问不到用户 = 不执行（本仓既有纪律）。
+         */
+        @JvmStatic
+        fun onPermissionActivityDestroyed(epoch: Long) {
+            val settled = settleCapturePermissionWaiters(false, "activity-destroyed-without-result", epoch)
+            if (settled) {
+                // 麦克风环节同源（该 Activity 兼管两环）：一并复位，否则「说话」会拿旧标记。
+                recordPermissionTrace("record-audio", "unknown-activity-destroyed")
+            }
+        }
+
+        /**
+         * FEAT-AC10 P0-4：授权链**专用**打点入口。
+         *
+         * 为什么不直接复用 recordTrace：那条的事件名是采集链路的（capture-*）。
+         * 本轮的教训恰恰是「这条链路一行日志都没有」，若把授权事件混进采集命名空间，
+         * 下次读日志仍要猜某条 capture-request 到底是采集还是授权。
+         * 统一加 `overlay-permission-` 前缀，一次 grep 就能看完整条授权链。
+         */
+        @JvmStatic
+        fun recordPermissionTrace(stage: String, detail: String) {
+            recordTrace(stage, detail)
         }
 
         /**
@@ -600,18 +752,35 @@ class ScreenOverlayModule(private val reactContext: ReactApplicationContext) :
          *
          * 为什么必须是静态入口：授权 Activity 不持有 Module 实例（它可能在 RN 未启动时
          * 就存在——这正是本设计的目的）。凭据与队列都放在 companion，两者本就同源。
+         *
+         * @param epoch FEAT-AC10：本轮授权尝试的序号（由 Activity 从 Intent extra 带回）。
+         *   与当前轮次不符时说明这是**上一轮的迟到结果**（看门狗已判死并可能有新一轮在跑），
+         *   必须忽略，否则会误结算用户刚点出来的那一轮。默认 0 = 不校验（兼容旧调用）。
          */
         @JvmStatic
-        fun onCapturePermissionResult(resultCode: Int, data: Intent?, failure: String? = null) {
+        fun onCapturePermissionResult(
+            resultCode: Int,
+            data: Intent?,
+            failure: String? = null,
+            epoch: Long = 0L,
+        ) {
             val granted = failure == null && resultCode == Activity.RESULT_OK && data != null
+            // 先判迟到：迟到的成功结果也绝不能覆盖掉新一轮的 in-flight 状态。
+            if (epoch != 0L && epoch != capturePermissionEpoch) {
+                recordPermissionTrace(
+                    "overlay-permission-stale-result",
+                    "epoch=$epoch current=$capturePermissionEpoch granted=$granted"
+                )
+                return
+            }
             if (granted) {
                 setCaptureToken(resultCode, data)
-                recordTrace("permission-granted", "via OverlayPermissionActivity")
+                recordPermissionTrace("permission-granted", "via OverlayPermissionActivity epoch=$epoch")
             } else {
                 clearCaptureToken()
-                recordTrace("permission-denied", failure ?: "resultCode=$resultCode")
+                recordPermissionTrace("permission-denied", "${failure ?: "resultCode=$resultCode"} epoch=$epoch")
             }
-            flushCapturePermissionWaiters(granted)
+            settleCapturePermissionWaiters(granted, null, epoch)
             // 服务还开着但没有投影（token 失效/被回收后的重授权）：把新凭据直接交给它
             // 重建采集。app 在后台时没有 RN/JS 可用，这条是悬浮窗恢复工作的唯一路径。
             if (granted) OverlayService.instance?.attachProjection(resultCode, data)

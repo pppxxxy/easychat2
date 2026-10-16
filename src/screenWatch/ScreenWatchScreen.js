@@ -278,6 +278,12 @@ export default function ScreenWatchScreen() {
     try {
       const result = await ensurePermissionThenStart();
       if (!result.ok) {
+        // FEAT-AC10 P0-3：超时是独立一档——in-flight 已被回收，再点一次确实有效；
+        // 若与「投屏授权失败」混为一谈，用户会被指去重新授权（而授权并无问题）。
+        if (result.timeout === true) {
+          Alert.alert(t('screenWatch.overlay.startFailed'), t('workspace.watch.startTimeout'));
+          return;
+        }
         // 失败档位 → 文案（映射抽到 overlayEvents，两入口共用同一份，见那里的说明）。
         const alertCopy = overlayStartFailureAlert(result.reason);
         Alert.alert(

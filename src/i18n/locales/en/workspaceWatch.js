@@ -14,6 +14,9 @@ export const workspaceWatch = {
   // permission; lumping them together sends the user to fix the wrong setting.
   'workspace.watch.capturePermissionRequired': 'Screen recording must be allowed in the system dialog: tap "Turn on floating window" again and confirm the prompt.',
   'workspace.watch.startFailed': 'Failed to start the floating window. Try again.',
+  // FEAT-AC10 P0-3: the startup chain's failsafe timeout — the permission flow never
+  // returned. Retrying is meaningful here (the stuck queue has been reclaimed).
+  'workspace.watch.startTimeout': 'Startup timed out (the permission flow never returned). It has been cleaned up — tap "Turn on floating window" again.',
   'workspace.watch.threads': 'Workspace watch conversations',
   'workspace.watch.empty': 'No workspace watch conversations yet. Turn on the floating window and talk to your screen — records show up here.',
   'workspace.watch.emptyPreview': '(no content yet)',

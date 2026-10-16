@@ -90,6 +90,29 @@ export const OVERLAY_START_RESULT = Object.freeze({
   START_FAILED: 'start-failed',
 });
 
+/**
+ * FEAT-AC10 P0-3：JS 侧启动链的**兜底超时**（5 分钟，见下方取值理由）。
+ *
+ * 为什么 native 已有兜底还需要这一层：native 的两层（Activity onDestroy +
+ * 队列看门狗）都在**原生侧**。若 native 也有漏网之鱼（ROM 行为差异、模块被部分回收），
+ * 模块级 in-flight 会把**重挂载后的重试**一起吞掉——面板的 busy 是组件 state，
+ * 重挂载即归零（按钮看起来能点），但再点拿到的是那个悬挂的旧 Promise ⇒ busy 再次永真。
+ * 真机 14:57「切回来能点、点了照样永远加载」正是这个形态。
+ *
+ * 取值必须 **> native 看门狗（CAPTURE_PERMISSION_WATCHDOG_MS = 3 分钟）**：
+ * 反过来的话 JS 先放弃并清掉 in-flight，而原生队列还挂着，用户重试会排队进那个
+ * 死轮次——比现状更难查。比例关系不能倒，故取 5 分钟。
+ */
+export const START_CHAIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+// 超时结算的结果：沿用 START_FAILED 档（界面文案已是「启动失败，请重试」，
+// 正是超时后该说的话），另带 timeout 标记供调用方/测试区分「超时」与「真失败」。
+const startChainTimeoutResult = () => ({
+  ok: false,
+  reason: OVERLAY_START_RESULT.START_FAILED,
+  timeout: true,
+});
+
 async function runStartChain() {
   if (!nativeModule()) return { ok: false, reason: OVERLAY_START_RESULT.UNSUPPORTED };
   let overlayReady = false;
@@ -108,12 +131,35 @@ async function runStartChain() {
     // 真实失败（服务起不来、SecurityException 降级后仍失败）会被误报成
     // 「投屏授权」档，界面就把用户指去重新授权——而授权根本不是问题所在。
     // 允许异常穿透到下面的 catch，才能如实区分「权限没给」与「启动真失败」。
+    //
+    // FEAT-AC10 P0-4：这一步是**整条链唯一会跨到原生授权 Activity 的地方**，
+    // 也是真机 14:57 悬挂的那一米（Native 队列永真 ⇒ 这个 await 永不返回）。
+    // native 侧已有 overlay-permission-* 打点；这里再记一条 JS 侧的「已发起 / 已返回」，
+    // 两边时间线一对，就能立刻分辨是「没发起」「没返回」还是「返回了但 JS 没收」。
+    traceStartChain('overlay-start-chain-native', 'dispatching startOverlay');
     const started = !!(await nativeModule().startOverlay());
+    traceStartChain('overlay-start-chain-native', `returned started=${started}`);
     return started
       ? { ok: true, reason: OVERLAY_START_RESULT.OK }
       : { ok: false, reason: OVERLAY_START_RESULT.CAPTURE_PERMISSION };
   } catch (error) {
+    traceStartChain('overlay-start-chain-error', String((error && error.message) || error));
     return { ok: false, reason: OVERLAY_START_RESULT.START_FAILED };
+  }
+}
+
+/**
+ * FEAT-AC10 P0-4：启动链的 JS 侧打点（info 级、无堆栈——与既有诊断纪律一致）。
+ *
+ * 为什么需要 JS 侧这一份：native 的打点只在**原生能发事件**时才有（它走
+ * DeviceEventEmitter，需要 RN 实例活着）。而悬挂恰恰可能伴随 RN 侧异常。
+ * 两处都记，才能回答「这条链到底走到哪一米断的」。
+ */
+function traceStartChain(stage, detail) {
+  try {
+    recordDiagnostic('storage', { message: `[screen-overlay] ${stage}` }, String(detail || ''));
+  } catch (error) {
+    // 打点失败绝不挡启动链（与既有纪律一致）。
   }
 }
 
@@ -123,15 +169,39 @@ async function runStartChain() {
 // `finally { startChainInFlight = null }`：后者的同步提前返回分支（无原生模块时）
 // 会在赋值 `startChainInFlight = chain` **之前**就把标记清成 null，随后赋值又把它
 // 钉成一个已结算的 promise ⇒ 之后所有调用永远拿到那份旧结果，再也不会真正启动。
+//
+// FEAT-AC10 P0-3：再加一层**兜底超时**。原生侧已有 onDestroy 兜底与队列看门狗，
+// 但若那条链也没兜住（或 native 模块被部分回收），一个悬挂的 chain 会永久占住
+// in-flight——组件重挂载让按钮重新可点，可点下去拿到的还是这份旧 Promise。
+// 超时后**必须清掉 in-flight**，让下一次点击真正重新发起（这是「能点却永远转圈」
+// 的解药）；本次调用则拿到一个明确的超时结果（界面提示「启动超时，请重试」）。
 export function ensurePermissionThenStart() {
   if (startChainInFlight) return startChainInFlight;
   const chain = runStartChain();
-  startChainInFlight = chain;
+  let timer = null;
+  // 超时分支：只负责让本次调用拿到一个明确结果。释放 in-flight 由下面的 clear 统一做
+  //（结果一结算就释放）——**只有一处**释放逻辑，避免两条路径各写一次而漂移。
+  const raced = new Promise(resolve => {
+    timer = setTimeout(() => {
+      timer = null;
+      // FEAT-AC10 P0-4：超时必须留痕——它是「JS 先于 native 放弃」的唯一证据。
+      traceStartChain('overlay-start-chain-timeout', `after ${START_CHAIN_TIMEOUT_MS}ms`);
+      resolve(startChainTimeoutResult());
+    }, START_CHAIN_TIMEOUT_MS);
+  });
+  const result = Promise.race([chain, raced]);
+  // 复用语义不变：并发/连点拿到的是**同一个**包装 Promise（不会叠系统弹窗）。
+  startChainInFlight = result;
   const clear = () => {
-    if (startChainInFlight === chain) startChainInFlight = null;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    // 身份比对：超时后若已换了新一轮，这里不得把新一轮的 in-flight 清掉。
+    if (startChainInFlight === result) startChainInFlight = null;
   };
-  chain.then(clear, clear);
-  return chain;
+  result.then(clear, clear);
+  return result;
 }
 
 export async function stopOverlay() {

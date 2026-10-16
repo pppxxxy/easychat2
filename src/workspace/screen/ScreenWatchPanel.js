@@ -149,6 +149,13 @@ export default function ScreenWatchPanel({ storeRef }) {
         // 调用方据此给出具体原因码和可处置的提示（授权失效/未开启等）。
         const result = await ensurePermissionThenStart();
         if (!result.ok) {
+          // FEAT-AC10 P0-3：超时单独说——它与「权限没给」是两回事，而用户的动作
+          // （再点一次）在超时后**确实有效**（in-flight 已回收）。混进通用失败文案
+          // 会让用户以为要重新走一遍权限流程。
+          if (result.timeout === true) {
+            setNote(t('workspace.watch.startTimeout'));
+            return;
+          }
           // 失败原因分档 → 对应的文案键（i18n 词条待补）。
           const reasonKey = {
             [OVERLAY_START_RESULT.UNSUPPORTED]: 'workspace.watch.unsupported',

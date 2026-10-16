@@ -13,6 +13,9 @@ export const workspaceWatch = {
   // FIX-3：投屏授权失败与「悬浮窗权限不足」是两回事，混在一句里会让用户去改错的地方。
   'workspace.watch.capturePermissionRequired': '需要在系统弹窗里允许录屏才能开启：请再点一次「开启悬浮窗」并在弹窗中确认。',
   'workspace.watch.startFailed': '悬浮窗启动失败，请重试。',
+  // FEAT-AC10 P0-3：启动链兜底超时（5 分钟）。与一般失败分开说——超时意味着
+  // 「授权流程没有回来」（可能是系统授权框异常），用户的重试动作是有效的（队列已回收）。
+  'workspace.watch.startTimeout': '启动超时（授权流程没有返回）。已自动清理，请再点一次「开启悬浮窗」。',
   'workspace.watch.threads': '工作区看屏幕对话',
   'workspace.watch.empty': '还没有工作区的看屏幕对话。开启悬浮窗后对着屏幕说话，这里会出现记录。',
   'workspace.watch.emptyPreview': '（暂无内容）',
