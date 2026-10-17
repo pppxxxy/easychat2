@@ -78,6 +78,47 @@ export function estimateMessagesBytes(messages) {
   }
 }
 
+// 增量体积估算器（性能修复，2026-10-17）。
+// 旧路径 compactionStatus(messages) 直接对**整个消息数组**做 JSON.stringify，而
+// ChatScreen 的 `useMemo(..., [messages])` 在**每一个流式 token** 都会失效（messages 换新
+// 引用）⇒ 一条 2000 条的历史，每 token 全量序列化一次，几 MB/次、每秒数次，随会话变长
+// 线性恶化。这正是「同一条会话越聊越卡」的机制（与设备档次无关，中高端机一样卡）。
+//
+// 做法：按「消息引用」缓存每条已序列化长度，只有引用变了的条目重新 stringify。
+// 流式期间只有最后一条 pending 消息在变，其余命中缓存 ⇒ 每 token 只序列化 1 条。
+// 注意：JSON.stringify 的数组体积 ≈ 各条体积之和 + 分隔符，所以逐条累加再加分隔符
+// 与整体序列化同量级（用于阈值比较足够；阈值本身是「近似」口径，见上面的注释）。
+export function createMessageBytesEstimator() {
+  const lengths = new Map(); // message 引用 → 序列化长度（WeakMap 语义，但需可清空）
+  return function estimate(messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    let total = list.length > 1 ? list.length - 1 : 0; // 逗号分隔符
+    for (let index = 0; index < list.length; index += 1) {
+      const item = list[index];
+      if (!item) { total += 4; continue; } // null
+      const cached = lengths.get(item);
+      if (cached !== undefined) { total += cached; continue; }
+      let size = 0;
+      try {
+        size = JSON.stringify(item).length;
+      } catch (error) {
+        size = 0;
+      }
+      lengths.set(item, size);
+      total += size;
+    }
+    // 缓存只增不减会随编辑/重载无限长：超过一定规模就整体重建一次（成本可忽略）。
+    if (lengths.size > 4096) {
+      lengths.clear();
+      for (const item of list) {
+        if (!item) continue;
+        try { lengths.set(item, JSON.stringify(item).length); } catch (error) {}
+      }
+    }
+    return total;
+  };
+}
+
 // 人类可读体积（设置页显示；MB/KB 是通用记法，不走 i18n）。
 export function formatBytes(bytes) {
   const value = Math.max(0, Number(bytes) || 0);
@@ -210,4 +251,23 @@ export function applyCompaction(messages, summary, recentCount = COMPACTION_KEEP
 export function compactionStatus(messages, threshold = COMPACTION_THRESHOLD_BYTES) {
   const bytes = estimateMessagesBytes(messages);
   return { bytes, sizeText: formatBytes(bytes), due: bytes > threshold, threshold };
+}
+
+// 增量版：与 compactionStatus 返回同形状，但体积走引用缓存（模块级单例）。
+// ChatScreen 用它替掉每 token 的全量 stringify——见 createMessageBytesEstimator 的说明。
+// 单例是安全的：缓存键是「消息对象的引用」，不同会话的消息是不同对象，混用只会
+// 多占一点条目数（超 4096 会自动重建），不会算错——体积按条累加，与所属会话无关。
+let sharedEstimator = null;
+export function compactionStatusIncremental(estimate, messages, threshold = COMPACTION_THRESHOLD_BYTES) {
+  const fn = typeof estimate === 'function'
+    ? estimate
+    : (sharedEstimator || (sharedEstimator = createMessageBytesEstimator()));
+  const bytes = fn(messages);
+  return { bytes, sizeText: formatBytes(bytes), due: bytes > threshold, threshold };
+}
+
+// 只算体积（调用方已持有估算器时用；ChatScreen 走这条，避免每次 render 新建闭包）。
+export function messageBytesIncremental(messages) {
+  if (!sharedEstimator) sharedEstimator = createMessageBytesEstimator();
+  return sharedEstimator(messages);
 }

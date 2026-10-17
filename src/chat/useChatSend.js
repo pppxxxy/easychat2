@@ -96,12 +96,11 @@ import {
   buildReplyErrorMessage,
   classifyReplyError,
   mergeErrorMessage,
-  mergeStreamedReasoning,
   mergeStreamedText,
   replacePendingWithReply,
 } from './replyFlow.js';
 import { resolveHistoryWindow } from './historyWindow.js';
-import { createTextStreamThrottle } from './streamThrottle.js';
+import { createReasoningStreamThrottle, createTextStreamThrottle } from './streamThrottle.js';
 import {
   buildEnsemblePrompt,
   buildGroupRequest,
@@ -358,6 +357,8 @@ export default function useChatSend({
     };
     // 流式节流（口径见 streamThrottle.js）：与 recordStats 同理声明在 try 之外——catch 的停止/失败分支要 flush 它。
     const streamThrottle = createTextStreamThrottle({ isCurrentSession, setMessages, pendingId: pendingAssistantMessage.id });
+    // reasoning 同口径节流：不加它，推理模型每个思考 token 都整表重渲一次（见 streamThrottle.js）。
+    const reasoningThrottle = createReasoningStreamThrottle({ isCurrentSession, setMessages, pendingId: pendingAssistantMessage.id });
     // 本会话统计打点：声明在 try 之外（catch 的失败/取消分支也要记账）；异常一律吞掉——统计绝不能影响聊天主链路。
     let recordStats = () => {};
 
@@ -674,10 +675,7 @@ export default function useChatSend({
               },
               onReasoning: fullReasoning => {
                 if (!isCurrentSession() || controller.signal.aborted) return;
-                setMessages(current => {
-                  if (!isCurrentSession()) return current;
-                  return mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning);
-                });
+                reasoningThrottle.push(fullReasoning);
               },
               onToolEvent: event => {
                 // 可见的工具过程气泡：start 挂出「正在…」，end 原地改成「完成/失败」。
@@ -740,10 +738,7 @@ export default function useChatSend({
            },
            onReasoning: fullReasoning => {
              if (!isCurrentSession() || controller.signal.aborted) return;
-             setMessages(current => {
-               if (!isCurrentSession()) return current;
-               return mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning);
-             });
+             reasoningThrottle.push(fullReasoning);
             }
         }));
         // 路由结果由 provider 回调告知（本地成功=local，回退/未启用=api）：
@@ -782,10 +777,7 @@ export default function useChatSend({
           // 与在线路径的 onReasoning 同构：覆写 reasoning 字段，不动 pending。
           onReasoning: fullReasoning => {
             if (!isCurrentSession() || controller.signal.aborted) return;
-            setMessages(current => {
-              if (!isCurrentSession()) return current;
-              return mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning);
-            });
+            reasoningThrottle.push(fullReasoning);
           },
           onlineSend,
             });

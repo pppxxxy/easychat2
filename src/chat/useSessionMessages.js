@@ -38,6 +38,7 @@ import { indexMessages } from '../vectorMemory/index.js';
 import { getVectorOwnerId, shouldIndexSession } from '../vectorMemory/scope.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createAppLogger } from '../logging/index.js';
+import { measureAsync, PERF_THRESHOLDS } from '../logging/perfProbe.js';
 import {
   clearStreamDraft,
   readStreamDraft,
@@ -232,7 +233,9 @@ export default function useSessionMessages({
       userNameRef.current = String(profile.userName || '').trim();
       onProfileLoaded(profile);
     }).catch(() => {});
-    getMessagesBySessionStatus(activeSessionId)
+    // 会话读数耗时进性能探针（默认关闭，只在超过阈值时留一条诊断）。
+    // 「切会话卡」与「越用越卡」若源于单个会话的历史过大，这里会先暴露出来。
+    measureAsync('session.loadMessages', () => getMessagesBySessionStatus(activeSessionId), PERF_THRESHOLDS.storageRead)
       .then(async result => {
         if (cancelled) return;
         await profilePromise;

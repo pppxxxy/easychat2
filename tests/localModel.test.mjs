@@ -426,14 +426,23 @@ test('适配器：跨对话清 KV cache、思考流拆分与面板加载按钮�
   // 会话标识与本地 onReasoning 已随 requestReply 外提至 useChatSend
   const chat = read('chat/useChatSend.js');
   assert.ok(chat.includes('conversationKey: String((sessionGuard && sessionGuard.sessionId)'), '本地推理应传会话标识');
-  // 本地思考与在线 onReasoning 同构：覆写 reasoning、不动 pending
-  // （外提后覆写经 replyFlow 的 mergeStreamedReasoning 纯函数完成）
+  // 本地思考与在线 onReasoning 同构：覆写 reasoning、不动 pending。
+  // 2026-10-17 性能修复后，覆写改走 reasoning 节流器（reasoningThrottle.push）——
+  // 意图不变（仍然只写 reasoning 字段），但**不再**每 token 直接 setMessages。
+  // 所以这里接受两种形态：节流器 push，或旧的直写 mergeStreamedReasoning。
   const localReasoning = chat.match(/onReasoning: fullReasoning => \{[\s\S]{0,600}?\},\n\s*onlineSend/);
   assert.ok(localReasoning, '本地路径应有 onReasoning 处理器');
   assert.ok(
-    localReasoning[0].includes('reasoning: fullReasoning')
+    localReasoning[0].includes('reasoningThrottle.push(fullReasoning)')
+      || localReasoning[0].includes('reasoning: fullReasoning')
       || localReasoning[0].includes('mergeStreamedReasoning(current, pendingAssistantMessage.id, fullReasoning)'),
-    '本地思考应写入 reasoning 字段'
+    '本地思考应写入 reasoning 字段（经节流器 push，语义不变）'
+  );
+  // 节流器本体确实只改 reasoning、不动 text/pending（同一文件内已装配）。
+  const throttle = read('chat/streamThrottle.js');
+  assert.ok(
+    throttle.includes('mergeStreamedReasoning(current, pendingId, reasoning)'),
+    'reasoning 节流器必须走 mergeStreamedReasoning，只覆写 reasoning 字段'
   );
 
   // Phase 2 拆分后加载逻辑在 usePanelModels，行渲染在 ModelCard（v5 Stage C）

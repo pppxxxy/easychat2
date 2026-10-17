@@ -47,7 +47,8 @@
     "src/workspace/screen/ChatPanel.js 1747 → 1731（2026-10-16，FEAT-AC12，**下调**）：本轮要给发送链路加**同步闸门**（P0-2，连点去重）——按纪律「拆文件，不抬上限」，把两段内聚逻辑外提腾空间：① 回合请求装配（读记忆/技能/分身/团队 → 拼系统提示 → 拼消息 → 裁媒体）到 screen/chatPanelRequest.js；② 会话压缩的执行逻辑（读配置 → 定阈值 → 跑管线）到 screen/chatPanelCompaction.js。两段都是**逐字搬运、行为不变**，且抽出去后能被直接断言（此前埋在 1700 行组件里只能靠源码正则，那种断言会空转）。**净减 16 行**，阈值随之下调到实测值 1731，不留空转余量。",
     "src/workspace/screen/ChatPanel.js 1731 → 1731（2026-10-16，FEAT-AC12 自查修复，**持平**）：闸门拿到之后、内层 try 之前有一段装配（注册工具/读记忆/拼提示词），它抛错时 finally 不执行 ⇒ 闸门永锁 ⇒ 用户再也发不出消息。补一层外层 catch 放锁。净行数不变（靠同批精简注释抵消），阈值不动。",
     "src/workspace/screen/FilesPanel.js 1114 → 1113（2026-10-16，FEAT-AC12 P0-1 收尾校正，**下调 1**）：AC12 那笔把阈值记为 1114，而合并后实测为 1113——差 1 行是计数口径的 off-by-one（`npm test` 的「基线不留空转余量」不变量据此判红）。按棘轮协议把基线下调到实测值 1113，不留余量。代码未改，仅对齐数字。",
-    "src/workspace/screen/FilesPanel.js 1113 → 1120（2026-10-16，FEAT-AC12 P1，**上调 7**）：搜索防抖。按棘轮协议【1】（优先拆子模块）先做了外提——新增两个模块共 169 行：fileSearchDebounce.js（99 行，纯调度器，注入时钟、Node 直测）与 screen/useWorkspaceFileSearch.js（70 行，React 接线：即时值→防抖值、结果扫描、全量升级、卸载清计时器）。面板里只剩**真实接线** +7 行：import 一行、hook 调用四行（含参数展开）、两处消费点改口（搜索态判据与空结果提示改用防抖值，各带一行说明为什么必须跟着数据走）。不是挪代码、不是压注释凑数：注入的注释都在解释**为什么这里必须是防抖值**（界面切换与数据不同拍是本类缺陷的复发形态）。先试过把接线也塞进 hook（面板可净减 3 行），但那样 hook 要同时接收 filesRef 与 refresh，耦合更深、可测性更差，故取「面板 7 行接线 + hook 无状态依赖」这一版。阈值等于新实测值 1120，不留余量。"
+    "src/workspace/screen/FilesPanel.js 1113 → 1120（2026-10-16，FEAT-AC12 P1，**上调 7**）：搜索防抖。按棘轮协议【1】（优先拆子模块）先做了外提——新增两个模块共 169 行：fileSearchDebounce.js（99 行，纯调度器，注入时钟、Node 直测）与 screen/useWorkspaceFileSearch.js（70 行，React 接线：即时值→防抖值、结果扫描、全量升级、卸载清计时器）。面板里只剩**真实接线** +7 行：import 一行、hook 调用四行（含参数展开）、两处消费点改口（搜索态判据与空结果提示改用防抖值，各带一行说明为什么必须跟着数据走）。不是挪代码、不是压注释凑数：注入的注释都在解释**为什么这里必须是防抖值**（界面切换与数据不同拍是本类缺陷的复发形态）。先试过把接线也塞进 hook（面板可净减 3 行），但那样 hook 要同时接收 filesRef 与 refresh，耦合更深、可测性更差，故取「面板 7 行接线 + hook 无状态依赖」这一版。阈值等于新实测值 1120，不留余量。",
+    "src/chat/useChatSend.js 1971 → 1963（2026-10-17，性能修复，**下调 8**）：reasoning 流式改走节流器（streamThrottle.js 的 createReasoningStreamThrottle），三处 onReasoning 里「setMessages + 内层 isCurrentSession 守卫 + mergeStreamedReasoning」共 8 行被一行 reasoningThrottle.push 取代，净减 8 行。行为不变：仍只覆写 reasoning 字段、不动 text/pending；节流口径与文本完全一致（前沿放行/窗口内留最后一份/后沿兜底）。顺带修掉「推理模型每 token 整表重渲」的掉帧源。阈值随实际值下调，不留空转余量。"
   ],
   "fileLineBaseline": {
     "src/CardForgeEditor.js": 1073,
@@ -56,7 +57,7 @@
     "src/SettingsScreen.js": 2365,
     "src/character/CharacterDetailScreen.js": 1355,
     "src/chat/chatStyles.js": 1375,
-    "src/chat/useChatSend.js": 1971,
+    "src/chat/useChatSend.js": 1963,
     "src/workspace/screen/ChatPanel.js": 1731,
     "src/workspace/screen/FilesPanel.js": 1120
   },

@@ -56,6 +56,7 @@ import {
 import { resolveActiveSessionId, shouldPersistResolvedId, sortSessions } from './sessionLibrary.js';
 import { normalizePendingQuote, normalizePendingTarget } from './pendingPayloads.js';
 import { materializeDefaultArtwork } from '../character/defaultCharacterAssets.js';
+import { measureAsync, PERF_THRESHOLDS } from '../logging/perfProbe.js';
 import { ingestProactiveMessagesInto } from './proactiveIngest.js';
 // 状态守卫文案走 tActive（同步取词）：这些 throw 的 message 会被调用方 catch 后
 // 经 error.message 直通 Alert/提示条，硬编码中文会让英文界面弹中文。
@@ -466,10 +467,8 @@ export function AppProvider({ children }) {
     // 先等存储层会话写入（含旧消息迁移）排空：迁移在 storage 的队列里，
     // 与这里的 mutation 队列不是同一个；不等待会在迁移写盘中途读到中间态。
     await whenSessionMutationsSettled();
-    const [sessionList, storedActiveSession] = await Promise.all([
-      getSessions(),
-      getActiveSessionIdStatus(),
-    ]);
+    // 会话表读数进性能探针（默认关闭）：会话多/单条大时这里是「切 Tab 卡」的第一现场。
+    const [sessionList, storedActiveSession] = await measureAsync('app.refreshSessions', () => Promise.all([getSessions(), getActiveSessionIdStatus()]), PERF_THRESHOLDS.storageRead);
     const sorted = applySessions(sessionList);
     const resolved = resolveActiveSessionId(sorted, storedActiveSession.value);
     applyActiveSessionId(resolved);

@@ -126,7 +126,7 @@ import { resolveAutoCompactPolicy, resolveCompactHintTokens } from './chat/compa
 import useAutoCompact from './chat/useAutoCompact.js';
 import {
   COMPACTION_MIN_MESSAGES,
-  compactionStatus,
+  compactionStatusIncremental,
   normalizeCompactionFocus,
 } from './chat/compaction.js';
 import { runSessionCompaction, countCompactionMessages, resolveCompactionFocus } from './chat/sessionCompaction.js';
@@ -1527,7 +1527,7 @@ export default function ChatScreen() {
   // { silent: true } 静默模式（85% 自动触发用）——不弹任何 Alert，返回 { ok, before?, after? }
   // 供调用方决策；手动路径行为与旧版逐字一致。N2 整合：走 M 的四档管线（L0 修剪/L1 K1 清除/L2
   // 摘要/L3 归档 + 权威分离），与工作区 ChatPanel 同一套；「该不该压」仍由本页判（useAutoCompact / 手动），故管线 autoRatio=0。
-  const compactInfo = useMemo(() => compactionStatus(messages), [messages]);
+  const compactInfo = useMemo(() => compactionStatusIncremental(messages), [messages]);
   const handleCompactSession = useCallback(async (options = {}) => {
     const silent = options && options.silent === true;
     // 防重入：检查 + 占位必须在**任何 await 之前**成对完成，否则并发触发会重复发摘要请求（P1-5）。

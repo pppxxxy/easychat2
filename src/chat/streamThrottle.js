@@ -1,4 +1,4 @@
-// 流式写界面的最小节流（只用于**文本增量**，reasoning 不节流）。
+// 流式写界面的最小节流（文本与 reasoning 共用同一套口径；见文件末尾两个装配函数）。
 //
 // 为什么需要：token 可能比屏幕刷新还密（本地模型尤其，一个 chunk 一个 token），
 // 每个 token 都 setMessages 会让 MessageList 的整表 .map() 重跑一遍。配合
@@ -13,7 +13,7 @@
 //
 // 依赖 now / schedule 可注入：定时器行为才能被直测（不注入就得靠真实时钟，测试会变慢且易抖）。
 
-import { mergeStreamedText } from './replyFlow.js';
+import { mergeStreamedReasoning, mergeStreamedText } from './replyFlow.js';
 
 export const STREAM_THROTTLE_INTERVAL_MS = 16;
 
@@ -72,6 +72,23 @@ export function createTextStreamThrottle({ isCurrentSession, setMessages, pendin
     if (!isCurrentSession()) return;
     setMessages(current => (
       isCurrentSession() ? mergeStreamedText(current, pendingId, text) : current
+    ));
+  }, { intervalMs });
+}
+
+// reasoning（思考过程）同口径节流（2026-10-17 性能修复）。
+//
+// 以前 reasoning 明确**不**节流（见本文件第 1 行原注释），代价是：推理模型（Qwen3 /
+// DeepSeek-R1 / o 系）每个思考 token 都 setMessages 一次 ⇒ 每次 ChatScreen 全量重渲 +
+// 消息表整表 map。而思考内容同样是**全量累积**的（onReasoning 每次给完整 fullReasoning），
+// 中间值没有任何信息量，丢掉不损失内容 —— 与文本完全同构，所以可以共用同一套节流口径
+//（前沿立即放行、窗口内只留最后一份、后沿定时器兜底）。
+// 与文本节流的唯一区别：只改 reasoning 字段，不动 text / pending。
+export function createReasoningStreamThrottle({ isCurrentSession, setMessages, pendingId, intervalMs }) {
+  return createStreamThrottle(reasoning => {
+    if (!isCurrentSession()) return;
+    setMessages(current => (
+      isCurrentSession() ? mergeStreamedReasoning(current, pendingId, reasoning) : current
     ));
   }, { intervalMs });
 }
