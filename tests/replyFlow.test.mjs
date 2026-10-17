@@ -262,6 +262,26 @@ test('mergeErrorMessage：有部分内容则追加，否则整条替换', () => 
   assert.equal(replaced[1].role, 'system_error');
 });
 
+test('mergeErrorMessage：任何分支都必须返回**新数组**（MessageList 的 memo 靠这条不变量）', () => {
+  // 为什么这条不能少：MessageList 现在是 React.memo（见 src/chat/MessageList.js 头部），
+  // 它只在 props 变化时重渲染；而错误气泡的原文（rawError）走 errorRawRef 这个**ref**
+  // 传递、ref 本身不会让 memo 失效。之所以仍然安全，是因为每次写 errorRawRef 都紧跟着
+  // 一次 setMessages，而这条不变量保证那次 setMessages 必然换掉数组引用 ⇒ 列表必然重渲染。
+  // 一旦哪天有人「顺手」让本函数在无事可做时 return 原数组，错误气泡就会静默不更新
+  // （界面看着正常，只是报错详情永远出不来）——所以把它钉死在这里。
+  const p = pending('x');
+  const errBubble = { id: 'x-error', role: 'system_error', text: '请求失败' };
+  const partial = [{ id: 'u' }, { ...p, text: '一半', waitingForResponse: false }];
+  const bare = [{ id: 'u' }, p];
+  for (const input of [partial, bare]) {
+    const out = mergeErrorMessage(input, 'x', errBubble, t);
+    assert.notEqual(out, input, '必须返回新数组（同引用会让 memo 跳过错误气泡更新）');
+  }
+  // 连「x 根本不在列表里」这种空转也要换引用：否则同一批写入里有一条走空转分支就漏更新。
+  const unrelated = [{ id: 'u' }, { id: 'other' }];
+  assert.notEqual(mergeErrorMessage(unrelated, 'x', errBubble, t), unrelated);
+});
+
 test('buildAutoSummaryInput：空回复以「没有收到回复。」参与摘要', () => {
   const p = pending('x');
   const base = [{ id: 'u', text: 'hi' }];

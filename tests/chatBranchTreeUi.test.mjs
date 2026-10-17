@@ -75,6 +75,29 @@ test('回归：ErrorBubble 的三个死属性不得回来（它一个都不接�
   );
 });
 
+test('回归：MessageList 必须是 memo，且 memo 必须在 forwardRef 外层（否则定位句柄失效）', () => {
+  // 这条是**已修复回归的钉子**（仓库约定：源码字符串断言只用于钉住这类回归；RN 组件在
+  // 本仓库没有渲染器，无法做真正的渲染行为测试）。
+  // 失效模式：ChatScreen 每敲一个字符都重渲染（input 状态在 useSessionMessages 里），
+  // 列表若没有 memo 就每次都跟着跑整个 renderItem（含 containsHtml 的全文本正则）。
+  // 包裹顺序必须一致：memo 只比 props，ref 由内层 forwardRef 接管——包反了
+  // scrollToMessage 句柄就没了（而这个句柄同时服务搜索定位/引用跳转/定位条）。
+  assert.ok(
+    MESSAGE_LIST.includes('const MessageList = React.memo(React.forwardRef(function MessageList({'),
+    '必须 memo(forwardRef(...))'
+  );
+  assert.ok(MESSAGE_LIST.includes('export default MessageList;'), '导出名不得变（ChatScreen 依赖它）');
+  assert.equal(
+    MESSAGE_LIST.includes('刻意不做 React.memo'),
+    false,
+    '旧注释「刻意不做 React.memo」必须删除：它的理由（errorRawRef 会被跳过）经核实不成立'
+  );
+  // memo 的安全性依据必须留档（否则下一个人会以为它是无理由加上去的）：
+  // errorRawRef 的每处写入都紧跟一次会换掉 messages 引用的状态更新。
+  assert.ok(MESSAGE_LIST.includes('useChatSend.js:916'), '必须记录 errorRawRef 写入点与 setMessages 的配对证据');
+  assert.ok(MESSAGE_LIST.includes('mergeErrorMessage'), '必须记录「必返回新数组」这条不变量');
+});
+
 test('useChatBranches：切会话/刷新计数变化时重载，仅读索引', () => {
   assert.ok(USE_BRANCHES.includes('getBranchIndexStatus(sessionId)'), '只读轻量索引');
   assert.ok(USE_BRANCHES.includes('groupBranchesByFork(branches)'));

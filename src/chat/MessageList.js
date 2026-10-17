@@ -1,7 +1,29 @@
 // 从 ChatScreen.js 原样外提（无行为变化）：消息列表渲染段。
 // 含空状态引导（有/无背景图两分支）与 renderedMessages 的逐条渲染
 // （AnimatedEntry 入场、ErrorBubble/MessageBubble、多选 Pressable 包装）。
-// 刻意不做 React.memo：errorRawRef.current 在渲染期读取，memo 会跳过其更新。
+//
+// 2026-10-17：**加回 React.memo**（此前注释写「刻意不做」，理由是
+// errorRawRef.current 在渲染期读取、memo 会跳过它的更新）。这个理由经核实**不成立**：
+// errorRawRef 的每一处写入都与一次「必然改变 messages 引用」的状态更新同时发生——
+//   · useChatSend.js:916 → 紧接着 :917 的 setMessages；
+//   · useChatSend.js:930 → 紧接着 :932 的 setMessages；
+//   · ChatScreen.js:1456（删除消息）→ 同上一条同步块里的 :1454 setMessages；
+//   · errorRawRef.current = {} 的会话切换重置（useSessionMessages.js:219、
+//     useSessionSwitch.js:300/398）→ 各自都紧跟 setMessages / setReady。
+// 而 mergeErrorMessage（replyFlow.js:152-158）两条分支（concat / map）**都返回新数组**，
+// 不会出现「写了 ref 但 messages 引用没变」的窗口。所以 memo 不会漏掉错误气泡。
+//
+// 为什么值得加：ChatScreen 每敲一个字符都会重渲染（input 状态在 useSessionMessages 里，
+// 见该文件 :105/:127），此前每次都会连带整个列表跑一遍 renderItem。
+// 收益要说准（避免把这条写成大救星）：renderItem 里那两处全文本正则**很便宜**——
+// 本机实测 containsHtml 扫 40/80/200 条 × 300 字分别约 0.038/0.014/0.042 ms，可忽略；
+// 真正被省掉的是「整段 renderItem 的元素树构建 + 每条约 30 个属性的浅比较」× 窗口内条数，
+// 以及「父级重渲染不再连带历史消息」这一保证本身。流式期间的大头不在这里——
+// 那是 MessageBubble 的 memo 曾被内联箭头击穿（已修，见 MessageBubble.js:204 附近）。
+// 前提是 props 稳定，已逐项核对：styles / characterMap / groupCharacters /
+// selectedMessageIdSet / regenerableIds / searchMatches / branchesByFork 都是 useMemo，
+// 回调都是 useCallback 或 useRef 的 ref 对象（ChatScreen.js:215/267/274/320/658 等）。
+// 注意 memo **不会**挡住 context 更新：换语言/换主题仍会经 useTranslation/useTheme 重渲染。
 //
 // 2026-10-12 虚拟化：滚动容器 ScrollView → FlatList（data = 尾部窗口 visibleMessages）。
 // 原来「每条消息 onLayout 把 y 累积进 ChatScreen 的 messageOffsetsRef」在虚拟化下不成立
@@ -36,7 +58,9 @@ import { useTranslation } from '../i18n/I18nContext.js';
 
 const keyExtractor = message => String((message && message.id) || '');
 
-const MessageList = React.forwardRef(function MessageList({
+// memo 包在 forwardRef 外面（顺序不能反）：memo 只比较 props，ref 是 React 的特殊属性、
+// 由内层 forwardRef 接管，包反了定位句柄（scrollToMessage）就会失效。
+const MessageList = React.memo(React.forwardRef(function MessageList({
   scrollRef,
   styles,
   autoScrollToBottom,
@@ -368,6 +392,6 @@ const MessageList = React.forwardRef(function MessageList({
         ListEmptyComponent={listEmpty}
       />
   );
-});
+}));
 
 export default MessageList;
