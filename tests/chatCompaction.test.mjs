@@ -15,8 +15,10 @@ import {
   buildCompactionSummaryRequest,
   buildCompactionSystemPrompt,
   compactionStatus,
+  compactionStatusIncremental,
   estimateMessagesBytes,
   formatBytes,
+  messageBytesIncremental,
   normalizeCompactionFocus,
   parseCompactionSummary,
 } from '../src/chat/compaction.js';
@@ -301,4 +303,77 @@ test('buildCompactionSummaryRequest：focus 只影响 system，转写内容不�
   assert.notEqual(focused[0].content, plain[0].content);
   assert.ok(focused[0].content.includes('保留报错原文'));
   assert.deepEqual(buildCompactionSummaryRequest(messages)[0], plain[0], '不传 options 走基础提示词');
+});
+
+// ---- 增量口径与接线（2026-10-17 补：这一批新增的三个导出此前**零测试覆盖**）----
+//
+// 真实事故：d5fcd165 把 ChatScreen 的体积计算换成增量版时写成了单参
+// `compactionStatusIncremental(messages)`，而签名是 (estimate, messages, threshold)。
+// 于是 estimate 收到数组、messages 收到 undefined ⇒ 估算器 list=[] ⇒ 体积**恒为 0**
+// 且不报任何错：聊天页「历史体积」恒显示 0B、due 恒 false、useAutoCompact 的字节规则
+// 永不触发（token 规则不受影响）。当时测不到的原因有两个，都是「测试够不着」：
+// ① 这三个导出没有任何用例；② 唯一调用点 src/ChatScreen.js 在 .c8rc.json 的排除表里。
+
+test('compactionStatusIncremental：与全量口径一致（增量只是省 stringify，不能改变结论）', () => {
+  const messages = Array.from({ length: 40 }, (_, i) => ({
+    id: `m${i}`, role: i % 2 ? 'assistant' : 'user', text: `第 ${i} 条正文`.repeat(6), at: i,
+  }));
+  const full = compactionStatus(messages);
+  const incremental = compactionStatusIncremental(null, messages);
+  // 增量口径 = 各条长度之和 + (n-1) 个逗号，**不含**数组的 `[` `]` 两个字节
+  //（createMessageBytesEstimator 的注释写明这是刻意的近似：阈值比较足够）。
+  // 所以这里钉的是「恰好差这 2 个字节」——多一分是算多了，少一分是漏了分隔符。
+  assert.equal(full.bytes - incremental.bytes, 2, '差额只应是数组括号的 2 字节');
+  assert.ok(incremental.bytes > 0, '体积不得为 0（回归：单参误用会让它恒为 0）');
+  assert.equal(incremental.sizeText, full.sizeText, '人类可读口径必须一致');
+  assert.equal(incremental.threshold, full.threshold);
+  assert.equal(incremental.due, full.due);
+});
+
+test('compactionStatusIncremental：超过阈值时 due 必须为真（这正是聊天页曾经恒假的那一位）', () => {
+  // 阈值默认 1.5MB：造一份必然超阈值的消息，确认 due 真的会亮。
+  const big = [{ id: 'b1', role: 'user', text: 'x'.repeat(COMPACTION_THRESHOLD_BYTES + 1000), at: 1 }];
+  const status = compactionStatusIncremental(null, big);
+  assert.ok(status.bytes > 0, '体积不得为 0（回归：单参误用会让它恒为 0）');
+  assert.equal(status.due, true, '超阈值必须 due=true（否则聊天页的压缩提示永不出现）');
+  assert.equal(status.due, compactionStatus(big).due, '两条口径的触发结论必须一致');
+  // 空列表：增量口径不去数 `[` `]`，所以是 0 而不是 2——两者都远低于阈值，结论一致。
+  assert.equal(compactionStatusIncremental(null, []).bytes, 0);
+  assert.equal(compactionStatusIncremental(null, []).due, false);
+});
+
+test('compactionStatusIncremental：单参误用必须被纠正为 messages，而不是静默返回 0', () => {
+  // 0 是错得最隐蔽的形式（界面显示 0B、规则不触发、不报错），所以函数内做了防误用纠正。
+  const messages = [{ id: 'a', role: 'user', text: '你好'.repeat(20), at: 1 }];
+  const misused = compactionStatusIncremental(messages);
+  const correct = compactionStatusIncremental(null, messages);
+  assert.equal(misused.bytes, correct.bytes, '单参调用必须得到与正确调用相同的体积');
+  assert.ok(misused.bytes > 2, '绝不能退化成 0');
+  // 真的传了估算器时仍然按注入的用（防误用分支不得吃掉这个能力）。
+  const injected = compactionStatusIncremental(() => 12345, messages);
+  assert.equal(injected.bytes, 12345);
+  assert.equal(injected.due, false, '12345 字节远低于阈值');
+});
+
+test('messageBytesIncremental：与 estimateMessagesBytes 同口径（差额只应是数组括号）', () => {
+  const messages = [msg('user', '甲'), msg('assistant', '乙'.repeat(50))];
+  assert.equal(estimateMessagesBytes(messages) - messageBytesIncremental(messages), 2);
+  assert.equal(messageBytesIncremental([]), 0, '与全量口径差的就是那 2 个括号字节');
+  assert.equal(messageBytesIncremental(null), 0, '非数组按空处理，不得抛');
+});
+
+test('接线：ChatScreen 调用 compactionStatusIncremental 必须传两个实参（不得回退成单参）', () => {
+  // 这一条是**已修复回归的钉子**（仓库约定：源码字符串断言只用于钉住这类回归）。
+  // 为什么必须用源码断言：调用点在 ChatScreen.js 里，本仓库没有 RN 渲染器，
+  // 无法把 ChatScreen 跑起来做行为断言；而这次事故恰好是「测了函数、没测接线」的盲区。
+  const screen = fs.readFileSync(path.resolve('src/ChatScreen.js'), 'utf8');
+  assert.ok(
+    /compactionStatusIncremental\(\s*null\s*,\s*messages\s*\)/.test(screen),
+    '必须写成 compactionStatusIncremental(null, messages)：第一参是可注入估算器，第二参才是消息数组'
+  );
+  assert.equal(
+    /compactionStatusIncremental\(\s*messages\s*\)/.test(screen),
+    false,
+    '不得回退成单参调用（会让体积恒为 0：历史体积显示 0B、字节压缩规则静默失效）'
+  );
 });

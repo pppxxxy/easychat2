@@ -259,6 +259,23 @@ export function compactionStatus(messages, threshold = COMPACTION_THRESHOLD_BYTE
 // 多占一点条目数（超 4096 会自动重建），不会算错——体积按条累加，与所属会话无关。
 let sharedEstimator = null;
 export function compactionStatusIncremental(estimate, messages, threshold = COMPACTION_THRESHOLD_BYTES) {
+  // 防误用（2026-10-17 的真实事故，静默失效、无任何报错）：
+  // 第一参是**可注入的估算器**、第二参才是消息数组。ChatScreen 曾写成单参
+  // `compactionStatusIncremental(messages)` —— 于是 estimate 收到数组（typeof 不是 function
+  // ⇒ 静默走 sharedEstimator 兜底），messages 收到 undefined ⇒ 估算器里
+  // `Array.isArray(undefined) === false` ⇒ list = [] ⇒ **体积恒为 0**。
+  // 后果全是「看起来正常」的那种：聊天页「历史体积」恒显示 0B、due 恒 false、
+  // useAutoCompact 的**字节规则**永不触发（token 预算规则不受影响，两条规则取更严者，
+  // 见 compactionPolicy.js:100-105）。
+  // 所以这里把「单参传数组」纠正成 messages——而不是照旧返回 0：0 是错得最隐蔽的形式。
+  // 「为什么没被测试抓住」也一并留档：这一批新增的三个导出（本函数 / messageBytesIncremental /
+  // createMessageBytesEstimator）此前**零测试覆盖**，而唯一的调用点又在覆盖率排除表里
+  //（.c8rc.json 排除 src/ChatScreen.js），两边都够不着它。现在 tests/chatCompaction.test.mjs
+  // 既有行为用例（增量与全量口径必须一致）也有接线守卫（调用点必须传两个实参）。
+  if (Array.isArray(estimate) && messages === undefined) {
+    messages = estimate;
+    estimate = null;
+  }
   const fn = typeof estimate === 'function'
     ? estimate
     : (sharedEstimator || (sharedEstimator = createMessageBytesEstimator()));
