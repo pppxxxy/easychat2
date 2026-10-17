@@ -13,6 +13,15 @@ import {
   setJsonWithSecrets,
 } from './io.js';
 import { tActive } from '../i18n/index.js';
+// 分片与紧凑编码（纯函数，零原生依赖）：把 embedding 从「单个几十 MB 的 JSON 键」里拆出来。
+// 见 vectorCodec.js 的文件头——那里的实测数字解释了为什么必须拆。
+import {
+  VECTOR_SHARD_COUNT,
+  decodeVector,
+  encodeVector,
+  vectorShardIndex,
+  vectorShardKey,
+} from './vectorCodec.js';
 // provider 默认值只认 providers.js 的目录（唯一真源）：此前这里手抄了一份
 // 'openai-embeddings' / 'https://api.openai.com/v1' / 'text-embedding-3-small'，
 // 目录一改就悄悄漂移。providers.js 只依赖 i18n（纯 JS），不构成循环依赖。
@@ -152,38 +161,97 @@ function enqueueVectorIndexMutation(characterId, task) {
   return vectorIndexMutation.enqueue(task, vectorIndexKey(characterId) || 'vector:no-owner');
 }
 
+function normalizeVectorEntry(item) {
+  // 刻意**不复制**向量数组（此前是 item.vector.map(Number)）：
+  // ① 向量数组的引用就是分片缓存的新鲜度判据——写入侧用它判断「这一条的向量是否已存在
+  //    片里」（见 planShardWrites）。map(Number) 每次都造新数组，引用比较永远不等，
+  //    结果是每次写入都重写全部分片（实测 26/26 片，分片等于白分）。
+  // ② 读路径上它还会把整份向量再复制一遍（1000 条 × 1024 维 = 一份多余的大数组）。
+  // 值本身已经是数字：来自 decodeVector（Float32 → number）或 embedTexts 的 JSON 数字。
+  // 安全性：全仓没有一处就地修改 item.vector（无 .vector[i] = / push / splice / sort）。
+  const vector = Array.isArray(item.vector) ? item.vector : [];
+  const storedDim = Math.floor(Number(item.dim));
+  return {
+    id: String(item.id),
+    messageId: String(item.messageId || ''),
+    sessionId: String(item.sessionId || ''),
+    role: String(item.role || ''),
+    at: Number(item.at) || 0,
+    text: String(item.text),
+    vector,
+    // dim = 「这一条应该有多少维」。分片布局下元数据里**不再内联向量**，只留 dim：
+    // ① 判断要不要去分片取（dim > 0 且内存里没有向量）；
+    // ② 让「这条到底嵌过没有」不必碰分片就能回答（写入侧据此决定要不要重新嵌入）。
+    // 内联向量（旧布局 / 刚从分片读回）存在时以实际长度为准——那是唯一真源。
+    dim: vector.length > 0
+      ? vector.length
+      : (Number.isFinite(storedDim) && storedDim > 0 ? storedDim : 0),
+    signature: String(item.signature || ''),
+    // 溯源字段（记忆溯源）：普通记忆由某条消息切出，来源就是 messageId；
+    // AI 合并出来的记忆（origin='merged'）来源的两条原文已被删除，只能靠
+    // mergedFrom 快照留证，否则证据链会随合并一起断掉。
+    origin: item.origin === 'merged' ? 'merged' : 'message',
+    mergedFrom: Array.isArray(item.mergedFrom)
+      ? item.mergedFrom
+        .filter(entry => entry && entry.id)
+        .map(entry => ({
+          id: String(entry.id),
+          sessionId: String(entry.sessionId || ''),
+          messageId: String(entry.messageId || ''),
+          text: String(entry.text || ''),
+          at: Number(entry.at) || 0,
+        }))
+      : [],
+  };
+}
+
 function normalizeVectorIndex(index) {
   return (Array.isArray(index) ? index : [])
     .filter(item => item && item.id && typeof item.text === 'string')
-    .map(item => ({
-      id: String(item.id),
-      messageId: String(item.messageId || ''),
-      sessionId: String(item.sessionId || ''),
-      role: String(item.role || ''),
-      at: Number(item.at) || 0,
-      text: String(item.text),
-      vector: Array.isArray(item.vector) ? item.vector.map(Number) : [],
-      signature: String(item.signature || ''),
-      // 溯源字段（记忆溯源）：普通记忆由某条消息切出，来源就是 messageId；
-      // AI 合并出来的记忆（origin='merged'）来源的两条原文已被删除，只能靠
-      // mergedFrom 快照留证，否则证据链会随合并一起断掉。
-      origin: item.origin === 'merged' ? 'merged' : 'message',
-      mergedFrom: Array.isArray(item.mergedFrom)
-        ? item.mergedFrom
-          .filter(entry => entry && entry.id)
-          .map(entry => ({
-            id: String(entry.id),
-            sessionId: String(entry.sessionId || ''),
-            messageId: String(entry.messageId || ''),
-            text: String(entry.text || ''),
-            at: Number(entry.at) || 0,
-          }))
-        : [],
-    }));
+    .map(normalizeVectorEntry);
 }
 
 function vectorSegmentKey(item) {
   return `${String(item && item.sessionId || '')}\u0000${String(item && item.id || '')}`;
+}
+
+// 分片载荷的形状：{ [分段键]: base64 }。读到任何别的形状（数组 / 原语 / 坏值）都当空片——
+// 缺向量的分段会被重新嵌入（写入侧的 emptyVectors 判据），属于自愈，不是静默丢数据。
+function shardPayloadOf(stored) {
+  if (stored.status !== 'ok') return {};
+  const value = stored.value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value;
+}
+
+// 把存在分片里的向量按需取回，拼成调用方熟悉的形状（每条都带 vector）。
+async function fillVectorsFromShards(characterId, meta) {
+  const neededShards = new Set();
+  for (const item of meta) {
+    if (item.dim > 0 && item.vector.length === 0) {
+      neededShards.add(vectorShardIndex(vectorSegmentKey(item)));
+    }
+  }
+  if (neededShards.size === 0) return meta;
+  const loaded = new Map();
+  await Promise.all([...neededShards].map(async shard => {
+    const shardKey = vectorShardKey(characterId, shard);
+    const stored = await readJsonStatus(shardKey);
+    // 坏片先备份再当空片：backupCorruptValue 自己会留一条诊断（io.js:202），
+    // 所以这里不必再记一遍。丢掉的向量会被重新嵌入。
+    if (stored.status === 'corrupt') {
+      await backupCorruptValue(shardKey);
+      loaded.set(shard, {});
+      return;
+    }
+    loaded.set(shard, shardPayloadOf(stored));
+  }));
+  return meta.map(item => {
+    if (item.dim <= 0 || item.vector.length > 0) return item;
+    const payload = loaded.get(vectorShardIndex(vectorSegmentKey(item)));
+    const vector = decodeVector(payload ? payload[vectorSegmentKey(item)] : '');
+    return vector.length > 0 ? { ...item, vector } : item;
+  });
 }
 
 export async function readVectorIndexStatus(characterId) {
@@ -195,7 +263,13 @@ export async function readVectorIndexStatus(characterId) {
     return { status: 'corrupt', index: [] };
   }
   if (stored.status === 'missing') return { status: 'missing', index: [] };
-  return { status: 'ok', index: normalizeVectorIndex(stored.value) };
+  // 旧布局判定（升级迁移用）：只要有一条**内联着向量**，这份元数据就是分片化之前写的。
+  // 写入侧必须知道这件事——旧布局下「按引用判断没变化」会把向量丢在元数据里，
+  // 而元数据即将被改写成不含向量的形状（那批向量就再也没有地方存了）。见 planShardWrites。
+  const inlineVectors = (Array.isArray(stored.value) ? stored.value : [])
+    .some(item => item && Array.isArray(item.vector) && item.vector.length > 0);
+  const index = await fillVectorsFromShards(characterId, normalizeVectorIndex(stored.value));
+  return { status: 'ok', index, inlineVectors };
 }
 
 export async function getVectorIndexStatus(characterId) {
@@ -207,14 +281,96 @@ export async function getVectorIndex(characterId) {
   return index;
 }
 
-async function saveVectorIndexInternal(characterId, index) {
+// 删除某个角色的全部分片键。分片数固定，所以这里是确定性循环——不需要 getAllKeys
+// （那条路要枚举整库的键，代价远大于 32 次 removeItem）。
+async function removeAllVectorShards(characterId) {
+  const keys = [];
+  for (let shard = 0; shard < VECTOR_SHARD_COUNT; shard += 1) {
+    const shardKey = vectorShardKey(characterId, shard);
+    if (shardKey) keys.push(shardKey);
+  }
+  await Promise.all(keys.map(shardKey => AsyncStorage.removeItem(shardKey).catch(() => {})));
+}
+
+// 增量写入计划：算出「哪几片要重写」以及「每片里哪些分段要更新 / 删除」。
+//
+// previous 是**刚读出来的上一份索引**（含向量），previousInline 表示那份还是旧布局。
+// 「向量没变」的判据是**向量数组的引用相等**：normalizeVectorEntry 刻意不复制向量数组，
+// 而 indexMessages 对未改动的分段原样返回同一个对象（vectorMemory/index.js:356 的
+// `embeddedById.get(key) || item`）、pruneMergedSources 是 `{ ...item }`（数组仍是同一个
+// 引用）。所以引用相等 ⇒ 片里那份还是对的 ⇒ 这一片不必重写。
+//
+// 注意 previous 必须用**原始**数组（不能先 normalize）：normalize 会为每条造新对象，
+// 拿它做基准就永远比不出「没变」。
+//
+// previousInline 为真时**所有**带向量的分段都必须落片：旧布局的向量内联在元数据里，
+// 而元数据这次会被改写成不含向量的形状——不落片那些向量就再没有地方存了（等于丢数据）。
+function planShardWrites(list, previous, previousInline) {
+  const prevByKey = new Map();
+  for (const item of (Array.isArray(previous) ? previous : [])) {
+    if (!item) continue;
+    if (!Array.isArray(item.vector) || item.vector.length === 0) continue;
+    prevByKey.set(vectorSegmentKey(item), item);
+  }
+  const upserts = new Map();
+  const add = (shard, segKey, value) => {
+    if (!upserts.has(shard)) upserts.set(shard, new Map());
+    upserts.get(shard).set(segKey, value);
+  };
+  const nextWithVector = new Set();
+  for (const item of list) {
+    const segKey = vectorSegmentKey(item);
+    if (item.vector.length === 0) continue;
+    nextWithVector.add(segKey);
+    const before = prevByKey.get(segKey);
+    const unchanged = !previousInline && before && before.vector === item.vector;
+    if (unchanged) continue;
+    add(vectorShardIndex(segKey), segKey, item.vector);
+  }
+  // 上一份里有、这一份里已经没有向量的分段：必须从片里删掉。否则片只增不减，
+  // 而且分段键是「会话 + 消息 id」——消息重新生成时 id 可能复用，残留的旧向量会被
+  // 当成新分段的向量读出来（张冠李戴）。
+  for (const [segKey] of prevByKey) {
+    if (nextWithVector.has(segKey)) continue;
+    add(vectorShardIndex(segKey), segKey, null);
+  }
+  return upserts;
+}
+
+async function saveVectorIndexInternal(characterId, index, previousState = null) {
   const key = vectorIndexKey(characterId);
   const list = normalizeVectorIndex(index);
   if (!key) return list; // 空 id：不写盘（上层 getVectorOwnerId 已守卫，这里是纵深防御）
-  const json = JSON.stringify(list);
-  // 整条索引（含每条记忆的 embedding 向量）塞在**单键**里，是最容易越过单值预算的写入点：
-  // 越过之后 Android 的 getItem 会直接抛错，只能靠 SQLite 分块兜底读回。
-  // 这里只留痕不改行为（见 io.js assertValueBudget）。
+  const previous = previousState && Array.isArray(previousState.index) ? previousState.index : [];
+  const previousInline = !!(previousState && previousState.inlineVectors === true);
+  const plan = planShardWrites(list, previous, previousInline);
+
+  // 顺序是硬约束：**先写分片，最后写元数据**。元数据是权威索引（谁存在、多少维），
+  // 分片只是它的附属数据。反过来先写元数据的话，中间被杀就会出现「元数据说有向量、
+  // 分片里还没有」的窗口——那一段会永久缺向量（虽然下次会被重新嵌入，但要白付一次
+  // 嵌入调用）；按现在的顺序，最坏只是留下一片没人引用的多余分片，下次写入即清掉。
+  for (const [shard, updates] of plan) {
+    const shardKey = vectorShardKey(characterId, shard);
+    if (!shardKey) continue;
+    // 片内是 {分段键: base64}，所以是读-改-写：只覆盖本次变化的那几条，
+    // 同一片里其它分段的向量必须原样保留。
+    const current = { ...shardPayloadOf(await readJsonStatus(shardKey)) };
+    for (const [segKey, vector] of updates) {
+      if (vector === null) delete current[segKey];
+      else current[segKey] = encodeVector(vector);
+    }
+    if (Object.keys(current).length === 0) await AsyncStorage.removeItem(shardKey);
+    else await AsyncStorage.setItem(shardKey, JSON.stringify(current));
+  }
+
+  // 元数据：只留 dim（= 这一条应有多少维），不再内联向量本体。
+  // 这样这个键的大小只与**条数**有关（每条约 130 字节文本），与维度无关：
+  // 1000 条约 130KB（此前含向量是 19.8MB），不再越过单值预算与 CursorWindow 上限。
+  const meta = list.map(item => {
+    const { vector, ...rest } = item;
+    return rest;
+  });
+  const json = JSON.stringify(meta);
   assertValueBudget(key, json);
   await AsyncStorage.setItem(key, json);
   return list;
@@ -229,7 +385,9 @@ export function saveVectorIndex(characterId, index) {
     }
     const byKey = new Map(status.index.map(item => [vectorSegmentKey(item), item]));
     normalizeVectorIndex(index).forEach(item => byKey.set(vectorSegmentKey(item), item));
-    return saveVectorIndexInternal(characterId, [...byKey.values()]);
+    // 把刚读到的那一份作为「上一份」传下去：写入侧据此判断哪些分段的向量真的变了
+    // （引用相等即未变），只重写涉及到的分片。inlineVectors 一并传：旧布局必须全量落片。
+    return saveVectorIndexInternal(characterId, [...byKey.values()], status);
   });
 }
 
@@ -244,7 +402,10 @@ export function updateVectorIndex(characterId, updater) {
     const next = typeof updater === 'function' ? await updater(status.index) : status.index;
     if (next === undefined) return status.index;
     if (next === null) {
+      // 整条清掉：元数据键与**所有**分片键都要走，否则片会永远留在盘上
+      // （清空索引的语义是「这个角色不再有记忆」，不是「元数据看不见了」）。
       await AsyncStorage.removeItem(key);
+      await removeAllVectorShards(characterId);
       return [];
     }
     // 无变化就不写。**契约**：updater 没改动内容时必须**原样返回同一个数组引用**
@@ -260,7 +421,7 @@ export function updateVectorIndex(characterId, updater) {
     // 哪怕内容一个字节都没变（向量记忆关闭时也照写，因为 indexMessages 会原样返回
     // current 而被当成「新内容」）。取消这次写入后，同一条路径只剩读盘成本。
     if (next === status.index) return status.index;
-    return saveVectorIndexInternal(characterId, next);
+    return saveVectorIndexInternal(characterId, next, status);
   });
 }
 
@@ -353,5 +514,10 @@ export function removeVectorIndexForSession(characterId, sessionId, options = {}
 export function clearVectorIndex(characterId) {
   const key = vectorIndexKey(characterId);
   if (!key) return Promise.resolve();
-  return enqueueVectorIndexMutation(characterId, () => AsyncStorage.removeItem(key));
+  return enqueueVectorIndexMutation(characterId, async () => {
+    await AsyncStorage.removeItem(key);
+    // 元数据键删掉不等于索引没了：向量本体在分片键里。删角色时必须一并清干净，
+    // 否则整份 embedding 会永久留在盘上（用户以为已经删了记忆）。
+    await removeAllVectorShards(characterId);
+  });
 }
