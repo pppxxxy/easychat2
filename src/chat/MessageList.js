@@ -34,7 +34,7 @@
 // 不给 MessageBubble 硬编码 getItemLayout：消息高度可变（长文/图片/WebView 富文本），
 // 写死高度会让 scrollToIndex 的落点整体错位。
 
-import React, { useCallback, useImperativeHandle, useRef } from 'react';
+import React, { useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import { FlatList, Pressable, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -126,6 +126,10 @@ const MessageList = React.memo(React.forwardRef(function MessageList({
     : renderedMessages;
   const hiddenCount = totalCount - visibleMessages.length;
   const forkMap = branchesByFork instanceof Map ? branchesByFork : null;
+  // 命中集合改成 Set：此前 renderItem 里对每条消息做 `searchMatches.includes(id)`，
+  // 是「命中数 × 窗口内条数」的线性扫（实测 80 条窗口 × 500 命中约 0.03ms/tick）。
+  // 用 Set 后是 O(1) 查找。语义不变（只判「这条是否命中」），顺序/下标仍走 searchMatches 数组。
+  const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
 
   // 定位：index 是**当前窗口内**的下标。visibleRef 供回调读取最新数据
   // （ref 回调在异步 setTimeout 里执行，闭包里的 visibleMessages 会是旧数组）。
@@ -303,7 +307,7 @@ const MessageList = React.memo(React.forwardRef(function MessageList({
               onSaveAsSticker={onSaveAsSticker}
               onDeleteImageMessage={onDeleteImageMessage}
               highlightKeyword={searchQuery.trim()}
-              isMatch={searchMatches.includes(message.id)}
+              isMatch={searchMatchSet.has(message.id)}
               isActiveMatch={focusedMessageId === message.id}
               fullWidth={chatOptions.fullWidth}
               richHtmlEnabled={chatOptions.richHtml !== false}
