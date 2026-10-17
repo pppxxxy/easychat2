@@ -29,8 +29,10 @@ const IMAGE_RECOGNITION_CACHE_KEY = '@easychat2_image_recognition_cache';
 
 // 默认描述提示词：这是**发给模型的提示词**，按仓库铁律不进 i18n（翻译它会改变模型
 // 行为，中文对话场景下英文关键词会直接失灵）。界面上「说明它的文案」才进 i18n。
-// 非导出常量，因此也不触发 no-hardcoded-chinese-text 规则（该规则只看导出的模块级常量）。
-const DEFAULT_DESCRIPTION_PROMPT = [
+// 必须 export：settings/index.js 的 barrel 会把它转发出去，而 ESM 的具名 re-export
+// 在链接期校验——目标不导出会直接 SyntaxError（整条设置链加载失败）。
+// 本文件已列入 eslint 的 no-hardcoded-chinese-text 永久豁免（提示词是中文的正确形态）。
+export const DEFAULT_DESCRIPTION_PROMPT = [
   '客观描述这张图片的内容，供看不到图片的模型理解。',
   '请包含：画面主体与场景、可见的界面元素（按钮/列表/输入框等）、图中所有可见文字（原样抄写）、以及能看出的状态或异常。',
   '只描述你确实看到的内容，不要推测图片之外的信息。',
@@ -195,5 +197,5 @@ export async function clearImageRecognitionCache() {
   }
 }
 
-// DEFAULT_DESCRIPTION_PROMPT 用 export 前缀直接导出（见上）；这里只补两个存储键。
+// DEFAULT_DESCRIPTION_PROMPT 已用 export 前缀直接导出（见上）；这里只补两个存储键。
 export { IMAGE_RECOGNITION_KEY, IMAGE_RECOGNITION_CACHE_KEY };

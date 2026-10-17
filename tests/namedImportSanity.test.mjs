@@ -119,3 +119,53 @@ test('具名导入健全性：每个本地具名导入都必须真实存在于�
   }
   assert.deepEqual(violations, [], `存在具名导入错配（运行时才炸的 undefined）:\n${violations.join('\n')}`);
 });
+
+// 上面的用例只查「import 侧」。这留下一个同源盲区：**re-export 侧**。
+// `export { X } from './y.js'` 里的 X 若 y.js 根本没导出，ESM 在**链接期**就抛
+// SyntaxError（比 import 侧的 undefined 更狠：整个模块图加载失败）。
+// 而 Metro/Babel/expo export 都不报错，lint 也不查——正是本波次实测撞到的那一类：
+// src/storage/settings/index.js 转发 DEFAULT_DESCRIPTION_PROMPT，而 imageRecognition.js
+// 当时声明为 `const`（非 export），于是**任何 import 设置存储的路径都会整链炸掉**。
+// 这个 bug 一直躺在主干上没人发现，原因就是没有这条断言。
+test('re-export 健全性：每个「export { X } from 本地」的 X 都必须在目标模块真实导出', () => {
+  const violations = [];
+  for (const file of scanFiles) {
+    if (!fs.existsSync(file)) continue;
+    let ast;
+    try {
+      ast = parseFile(file);
+    } catch {
+      continue; // 解析失败已由上一个用例报出，这里不重复
+    }
+    for (const node of ast.body) {
+      // 只查带 source 的具名转发：export { A, B as C } from './x.js'
+      if (node.type !== 'ExportNamedDeclaration' || !node.source) continue;
+      const spec = node.source.value;
+      if (!spec.startsWith('.')) continue;
+      const target = resolveLocal(file, spec);
+      if (!target) {
+        violations.push(`${path.relative(rootDir, file)}: 转发的目标解析不到 ${spec}`);
+        continue;
+      }
+      const exports = collectExports(target);
+      for (const s of node.specifiers) {
+        // ExportSpecifier 的 local 是目标模块里的名字（`A as B` 时 local=A, exported=B）
+        const source = (s.local && (s.local.name || s.local.value)) || (s.exported && s.exported.name);
+        if (!source) continue;
+        // `export * as ns from './x.js'` 走 ExportNamespaceSpecifier：它是整体再导出，不查名字
+        if (s.type === 'ExportNamespaceSpecifier') continue;
+        if (!exports.has(source)) {
+          violations.push(
+            `${path.relative(rootDir, file)}: 转发 ${spec} 的 { ${source} }，`
+            + `但目标导出只有 [${[...exports].sort().join(', ')}]`
+          );
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    violations,
+    [],
+    `存在 re-export 错配（ESM 链接期 SyntaxError，整条模块链加载失败）:\n${violations.join('\n')}`
+  );
+});
