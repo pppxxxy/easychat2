@@ -8,7 +8,8 @@
 
 import { estimateMessagesTokens } from '../localModel/localContext.js';
 import { modelContextWindow } from '../network/modelProfiles.js';
-import { messageTextOf } from './messageText.js';
+// 体积/token 口径的唯一实现（与 compaction 共用同一次逐条计量）。
+import { messagesMetrics } from './messageMetrics.js';
 import {
   DEFAULT_AUTOCOMPACT_RATIO,
   DEFAULT_HEADROOM_TOKENS,
@@ -39,12 +40,12 @@ export { SESSION_AUTO_COMPACT_RATIO, SESSION_COMPACT_HINT_RATIO } from './compac
 // 会话消息（{ role, text } 或 { role, content }）→ 估算 token。
 // 正文读取统一走 messageText.js：此前这里只看 text，工作区面板的 content 消息一律估成 0 token
 //（占用条与自动压缩判据在工作区页面上等于失效），是同一批「三种口径」分歧的一部分。
+//
+// 2026-10-18：口径收敛到 messageMetrics（与 compaction 的体积口径同一个模块、同一次逐条
+// 计量）。这里保留函数名与返回类型不变，只是不再自己拼 { role, content } 适配——
+// 那段适配现在只写在 messageMetrics.messageMetrics 一处，避免「两处适配、迟早漂移」。
 export function estimateHistoryTokens(messages) {
-  const list = Array.isArray(messages) ? messages : [];
-  return estimateMessagesTokens(list.map(item => ({
-    role: item && item.role,
-    content: messageTextOf(item),
-  })));
+  return messagesMetrics(messages).tokens;
 }
 
 // 窗口解析：声明的 contextWindow 优先，其次本地模型 n_ctx，再按模型家族建议（modelProfiles），
