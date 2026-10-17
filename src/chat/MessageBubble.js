@@ -17,7 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import RenderHtml from 'react-native-render-html';
 
-import { collectTNodeText, createHtmlBaseStyle, createHtmlTagsStyles, createMarkdownStyles, customHTMLElementModels, prepareAssistantHtml, regexClassesStyles, regexDomVisitors } from './assistantRender.js';
+import { collectTNodeText, createHtmlBaseStyle, createHtmlTagsStyles, createMarkdownStyles, customHTMLElementModels, prepareAssistantHtml, regexClassesStyles, regexDomVisitors, selectableMarkdownRules } from './assistantRender.js';
 import { containsHtml, messageCopyText } from './plainText.js';
 import { clampMarkdownText } from './markdownGuard.js';
 import { shouldRenderRichHtml, splitFullHtmlDocument } from './richHtml.js';
@@ -93,11 +93,15 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
            showsHorizontalScrollIndicator={false}
            style={styles.markdownCodeScroll}
          >
-           <Text style={[inheritedStyles, ruleStyles[styleKey]]}>{content}</Text>
+           {/* selectable：代码块也要能长按选择复制（与正文同一条交互契约）。 */}
+           <Text style={[inheritedStyles, ruleStyles[styleKey]]} selectable>{content}</Text>
          </ScrollView>
        );
      };
      return {
+       // 正文长按选择：规则本体与「制卡预览 / 工作区预览」共用（见 assistantRender.js），
+       // 避免两边各写一份然后漂移。这里只是把它并进本组件自己的规则表。
+       ...selectableMarkdownRules,
        code_block: (node, children, parent, ruleStyles, inheritedStyles) => (
          codeRule(node, children, parent, ruleStyles, inheritedStyles, 'code_block')
        ),
@@ -187,7 +191,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
               pressed && onPress ? styles.panelButtonPressed : null,
             ]}
           >
-            <Text style={styles.panelButtonText}>{label}</Text>
+            {/* defaultTextProps 不会作用到自定义 renderer 内部——这里自渲染的 Text
+                必须自己带 selectable，否则斜杠命令按钮的文案是 HTML 路径里唯一选不中的字。 */}
+            <Text style={styles.panelButtonText} selectable>{label}</Text>
           </Pressable>
         );
       },
@@ -438,7 +444,10 @@ const fullWidthAssistant = !isUser && fullWidth;
               </View>
             )
           ) : isUser ? (
-            <Text style={styles.messageText}>
+            // selectable：用户自己的消息也要能长按选择复制（微信里两侧气泡都可选）。
+            // 高亮片段（renderHighlightedText 产出的嵌套 <Text>）随外层一起可选，
+            // 不需要单独加——RN 的 selectable 在父 Text 上即对整段生效。
+            <Text style={styles.messageText} selectable>
               {highlightKeyword ? renderHighlightedText(message.text, highlightKeyword, styles) : message.text}
             </Text>
           ) : message.pending && message.waitingForResponse ? (

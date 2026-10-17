@@ -1,4 +1,5 @@
-import { Platform } from 'react-native';
+import React from 'react';
+import { Platform, Text } from 'react-native';
 import { HTMLContentModel, HTMLElementModel } from 'react-native-render-html';
 
 import { stripMarkdownFences } from './richHtml.js';
@@ -123,6 +124,41 @@ function extractSendCommand(onclick) {
   const match = String(onclick || '').match(SLASH_SEND_PATTERN);
   return match ? match[1].trim() : '';
 }
+
+// Markdown 正文的「长按选择复制」规则（2026-10-18）。
+//
+// 为什么需要它：react-native-markdown-display 默认把每个文本叶子渲染成**不可选中**的
+// `<Text>`，于是用户在助手的 Markdown 回复上长按，既没有系统选择菜单、也选不中任何字。
+// 而 HTML 路径（react-native-render-html）早在气泡里设了 `defaultTextProps={{ selectable: true }}`
+// ——两条路径行为不一致，纯 Markdown 回复是唯一的缺口。
+//
+// 为什么两条规则都要给（缺一不可，已实测）：
+//   - `text`：叶子文本节点。**必须渲染 `node.content`，不能渲染 children**。
+//     叶子节点的 children 是空数组（AstRenderer 里 `node.children.map(...)` 得空），
+//     若写成 `{children}` 会把正文整段渲染成空白——实测 "hello world" 直接消失。
+//   - `textgroup`：块级文本容器。只改 text 时，块级容器仍是不透明的文本组，
+//     跨多个叶子的选择（一行里既有普通字又有 **加粗**）拿不到完整段落。
+//
+// selectable 的语义就是 RN 官方的「长按弹系统选择菜单（复制/全选）」，
+// 也正是微信式交互：不加 onLongPress、不接管手势，交给系统。
+//
+// 注意：`code_block` / `fence` / `table` 由调用方自己的规则覆盖（要横滚容器），
+// 那些规则里的 `<Text>` 需要各自补 selectable——见 MessageBubble 的 codeRule。
+//
+// 本文件约定「纯配置与纯函数，无 JSX」（见文件头），所以这里用 createElement
+// 而不是 JSX 字面量：规则对象仍是纯数据工厂，本文件继续不需要 babel 剥 JSX。
+export const selectableMarkdownRules = {
+  text: (node, children, parent, ruleStyles, inheritedStyles = {}) => React.createElement(
+    Text,
+    { key: node.key, style: [inheritedStyles, ruleStyles.text], selectable: true },
+    node.content
+  ),
+  textgroup: (node, children, parent, ruleStyles) => React.createElement(
+    Text,
+    { key: node.key, style: ruleStyles.textgroup, selectable: true },
+    children
+  ),
+};
 
 // 按钮 renderer 需要从 tnode 里取出按钮文案，聊天页与预览共用。
 export function collectTNodeText(node) {

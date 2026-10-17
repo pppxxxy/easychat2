@@ -12,6 +12,7 @@ import {
   prepareAssistantHtml,
   regexClassesStyles,
   regexDomVisitors,
+  selectableMarkdownRules,
 } from './assistantRender.js';
 import { containsHtml } from './plainText.js';
 import { clampMarkdownText } from './markdownGuard.js';
@@ -41,12 +42,14 @@ export default function AssistantMessageBody({
     : (fullWidth ? Math.max(200, width - 48) : Math.max(200, Math.floor((width - 48) * 0.9)));
 
   const markdownRules = useMemo(() => ({
+    // 正文长按选择：与聊天气泡共用同一份规则（见 assistantRender.js 的说明）。
+    ...selectableMarkdownRules,
     code_block: (node, children, parent, ruleStyles, inheritedStyles) => {
       let content = typeof node.content === 'string' ? node.content : '';
       if (content.endsWith('\n')) content = content.slice(0, -1);
       return (
         <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: '100%' }}>
-          <Text style={[inheritedStyles, ruleStyles.code_block]}>{content}</Text>
+          <Text style={[inheritedStyles, ruleStyles.code_block]} selectable>{content}</Text>
         </ScrollView>
       );
     },
@@ -55,7 +58,7 @@ export default function AssistantMessageBody({
       if (content.endsWith('\n')) content = content.slice(0, -1);
       return (
         <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: '100%' }}>
-          <Text style={[inheritedStyles, ruleStyles.fence]}>{content}</Text>
+          <Text style={[inheritedStyles, ruleStyles.fence]} selectable>{content}</Text>
         </ScrollView>
       );
     },
@@ -77,7 +80,8 @@ export default function AssistantMessageBody({
           onPress={onPress}
           style={{ marginTop: 6, borderRadius: tokens.radius.sm, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: theme.colors.panelButtonBg }}
         >
-          <Text style={{ color: theme.colors.panelButtonText, fontSize: 13, lineHeight: 18 }}>{label}</Text>
+          {/* defaultTextProps 不会作用到自定义 renderer 内部，这里自渲染的 Text 必须自带 selectable。 */}
+          <Text style={{ color: theme.colors.panelButtonText, fontSize: 13, lineHeight: 18 }} selectable>{label}</Text>
         </Pressable>
       );
     },
