@@ -13,18 +13,27 @@ import { resolveAnnouncement, readCachedRelease, setDismissedVersion } from './i
 
 // localVersion 由调用方从 expo-constants 取（本 hook 不碰 expo，保持 Node 可测）。
 // autoResolve=true：挂载即静默拉取（启动路径用）。
-// autoResolve=false：不联网，open() 时只读缓存（设置页入口用）。
+// autoResolve=false：不联网，但**挂载时仍读一次缓存**（设置页入口用）——
+//   否则入口右侧永远是「暂无更新说明」，用户看不出其实有内容可看，
+//   而缓存其实早已由启动路径写好。
 export default function useAnnouncement({ localVersion = '', enabled = true, autoResolve = true } = {}) {
   const [release, setRelease] = useState(null);
   const [visible, setVisible] = useState(false);
   const resolvedRef = useRef(false);
 
   useEffect(() => {
-    if (!enabled || !autoResolve) return undefined;
-    // 只跑一次：启动拉取不是轮询。用 ref 而不是 state，避免重渲染重复请求。
+    if (!enabled) return undefined;
     if (resolvedRef.current) return undefined;
     resolvedRef.current = true;
     let alive = true;
+    // 不联网的分支：只把启动路径写好的缓存读出来，让入口能显示「有更新说明」。
+    if (!autoResolve) {
+      readCachedRelease()
+        .then(cached => { if (alive && cached) setRelease(cached); })
+        .catch(() => {});
+      return () => { alive = false; };
+    }
+    // 只跑一次：启动拉取不是轮询。用 ref 而不是 state，避免重渲染重复请求。
     resolveAnnouncement({ localVersion })
       .then(result => {
         if (!alive || !result || !result.release) return;
@@ -45,14 +54,9 @@ export default function useAnnouncement({ localVersion = '', enabled = true, aut
 
   const close = useCallback(() => setVisible(false), []);
 
-  // 设置页入口：没有 release 时先读缓存（可能已由启动路径写入），拿到就展示。
-  const open = useCallback(() => {
-    setVisible(true);
-    if (release) return;
-    readCachedRelease()
-      .then(cached => { if (cached) setRelease(cached); })
-      .catch(() => {});
-  }, [release]);
+  // 设置页入口的点击：缓存已在挂载时读过，这里只需把弹层打开。
+  // 还没有内容（首次启动就没网、且从未成功拉过）时也允许打开——弹层内部有兜底文案。
+  const open = useCallback(() => setVisible(true), []);
 
   return {
     release,
@@ -60,6 +64,5 @@ export default function useAnnouncement({ localVersion = '', enabled = true, aut
     close,
     open,
     dismissVersion,
-    hasRelease: !!release,
   };
 }

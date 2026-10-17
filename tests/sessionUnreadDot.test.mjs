@@ -4,6 +4,12 @@
 // AsyncStorage / FileSystem / i18n 等原生与边界依赖换成替身；种子数据也用真的写入函数
 // （saveSessionsInternal）铺进去——这样键格式与归一化口径都由生产代码决定，测试不会
 // 因为两边各写一份而假绿。风格对齐 tests/sessionDeleteCleanup.test.mjs。
+//
+// 唯一例外是最后那条「落盘后必须补标」的接线契约：它断言的是 useSessionMessages 里的
+// **接线形态**，而本仓没有 react-test-renderer（无法真渲染 hook），按既有纪律走源码契约
+// 断言（先例：tests/streamDraft.test.mjs:68-69、tests/turnAbortAndPanel.test.mjs:435）。
+// 这条不是可选项——把补标删掉时，下面的存储层用例全部仍是绿的（已实测），
+// 所以它是唯一能挡住「红点在用户正看着时复亮」这个缺陷回退的守卫。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,7 +106,7 @@ const core = loadModule(path.join(SRC_DIR, 'storage', 'sessionCore.js'));
 const { SESSIONS_KEY } = core;
 
 const { hasSessionUnread } = memoryBuckets;
-const { normalizeSession, applySessionLastRead } = sessionLibrary;
+const { normalizeSession, applySessionLastRead, createEmptySession } = sessionLibrary;
 const { markSessionRead } = mutations;
 
 function storedSession(id) {
@@ -265,6 +271,44 @@ test('落盘：只前进不后退——更早的时间戳不会把已读位置�
   assert.equal(onDisk.lastReadAt, 5000, '乱序/并发调用不得把已读位置往回拨（否则红点复亮）');
 });
 
+// ---- 时序：正在看的会话落盘后不能残留红点（真实缺陷回归）-----------------
+//
+// 缺陷经过（2026-10-17 自查，用真实现复现）：
+// markSessionRead 与 saveMessagesBySession 都进同一条会话队列。若标记**先**入队，
+// 落盘随后在队列内把 updatedAt 推到此刻（比刚写的 lastReadAt 还新 1ms），
+// 于是「用户正盯着屏幕」的会话被判成未读、红点亮起。
+// 修复是由调用方保证落盘之后再标一次（useSessionMessages 的 savePromise.then）。
+// 这里在存储层把这条顺序语义钉死：先落盘、后标记 ⇒ 红点必须灭。
+test('时序：先落盘再标记已读 → 不残留红点（顺序反了就会复亮）', async () => {
+  await core.saveSessionsInternal([{ id: 's1', characterId: 'c1', updatedAt: 100 }]);
+
+  // 模拟「用户正在看这个会话，又发了一句」：先推 updatedAt（等价于消息落盘的效果）
+  const now = Date.now();
+  await core.saveSessionsInternal(
+    (await core.getSessions()).map(s => (s.id === 's1' ? { ...s, preview: '新消息', updatedAt: now } : s))
+  );
+  // 落盘完成后才标记已读
+  await markSessionRead('s1');
+  const after = (await core.getSessions()).find(s => s.id === 's1');
+  assert.equal(hasSessionUnread(after), false, '落盘后再标记，红点必须灭（用户正看着）');
+  assert.ok(after.lastReadAt >= after.updatedAt, 'lastReadAt 必须不早于 updatedAt');
+});
+
+test('时序回归：标记先于落盘会复亮 —— 这就是当初必须改成「落盘后再标」的原因', async () => {
+  await core.saveSessionsInternal([{ id: 's1', characterId: 'c1', updatedAt: 100 }]);
+  // 先标（旧实现的行为），再落盘推 updatedAt
+  await markSessionRead('s1', 1000);
+  await core.saveSessionsInternal(
+    (await core.getSessions()).map(s => (s.id === 's1' ? { ...s, updatedAt: 1001 } : s))
+  );
+  const after = (await core.getSessions()).find(s => s.id === 's1');
+  assert.equal(
+    hasSessionUnread(after),
+    true,
+    '顺序反了必然复亮 —— 这条锁住「为什么必须在落盘后标记」，防止有人把补标删掉'
+  );
+});
+
 // ---- 归一化白名单：modelKind/modelName 的既存缺陷回归 -------------------
 
 test('白名单回归：modelKind/modelName/lastReadAt 都必须落盘（曾经只活在内存里）', async () => {
@@ -281,7 +325,41 @@ test('白名单回归：modelKind/modelName/lastReadAt 都必须落盘（曾经�
   assert.equal(memoryBuckets.hasLocalSessions([afterRestart]), true);
 });
 
-// ---- 归一化：agentMode 等既有字段不回归 --------------------------------
+test('新建会话不误亮红点：createEmptySession 虽不带 lastReadAt，归一化会补成 updatedAt', async () => {
+  // 隐含依赖：新建会话对象里**没有** lastReadAt 字段（createEmptySession 不写它）。
+  // 之所以不误亮，是因为落盘/读取都经 normalizeSession，而它把缺省值补成 updatedAt。
+  // 这条钉住该依赖——若有人把回填去掉，新会话会立刻冒红点。
+  // 用**真实工厂**造会话（手写 {id:'fresh'} 没有 updatedAt，归一后是 0，测不到真实形态）。
+  const created = createEmptySession('c1', []);
+  assert.equal('lastReadAt' in created, false, '前置：新建会话确实不带 lastReadAt');
+  await core.saveSessionsInternal([created]);
+  const fresh = (await core.getSessions()).find(s => s.id === created.id);
+  assert.ok(fresh.updatedAt > 0, '前置：新会话有 updatedAt');
+  assert.equal(fresh.lastReadAt, fresh.updatedAt, '回填成 updatedAt（不是 0）');
+  assert.equal(hasSessionUnread(fresh), false, '刚建的会话不该亮红点');
+});
+
+// ---- 接线契约：落盘之后必须补标一次已读（源码契约，无渲染器时的既有纪律）----
+//
+// 为什么必须是它：缺陷形态是「用户正看着会话、自己发了一句 → updatedAt 比 lastReadAt
+// 新 → 红点亮起」。修法有两处调用：一处是 mark effect（打开/内容变化时），另一处必须
+// 在 savePromise 落定之后。把后者删掉时，本文件里所有存储层用例**仍然全绿**（已实测），
+// 所以只有这条契约能挡住回退。
+test('接线：落盘成功后补标已读（否则用户正看着时红点复亮）', () => {
+  const source = fs.readFileSync(path.resolve('src/chat/useSessionMessages.js'), 'utf8');
+  // 补标必须出现在写盘成功的回调里，并且带上「仍是当前会话」的守卫。
+  const saveThenIdx = source.indexOf('lastSavedSnapshotRef.current = snapshotBeingSaved;');
+  assert.ok(saveThenIdx > 0, '前置：找不到写盘成功标记点（接线已变，本契约需要跟着更新）');
+  const window = source.slice(saveThenIdx, saveThenIdx + 600);
+  assert.ok(
+    /activeSessionIdRef\.current === activeSessionId/.test(window)
+    && /markSessionRead\(activeSessionId\)/.test(window),
+    '落盘成功后必须补标已读（含「仍是当前会话」守卫）：否则用户正看着会话时红点会复亮'
+  );
+  // 标记已读的入口必须仍从 storage/sessions.js 走（不许绕过存储层直接写键）。
+  assert.ok(source.includes("markSessionRead,"), '必须从 storage/sessions.js 导入 markSessionRead');
+});
+
 
 test('回归：既有字段归一化行为不变（agentMode/type/pinned/clonedFrom）', () => {
   const session = normalizeSession({

@@ -429,10 +429,12 @@ export function deleteSessions(sessionIds) {
 //（saveMessagesBySessionInternal 写那两个字段）串行，否则会把正在写的值覆盖回旧值。
 // 判变化与「只前进不后退」都在 applySessionLastRead 里（纯函数，可单测）。
 //
-// 时间戳默认在**任务真正执行时**取（`at` 省略 ⇒ 执行时才 Date.now()），不在入队时取：
-// 同一次提交里「消息落盘」与「标记已读」会先后入队，落盘那条要到队列内才写 updatedAt。
-// 若入队时就把时间钉死，先入队的落盘可能拿到比后入队的标记**更晚**的 updatedAt，
-// 于是用户正盯着屏幕看新消息、红点却依然亮着。取执行时刻可保证「看的时候一定晚于写入」。
+// 时间戳默认在**任务真正执行时**取（`at` 省略 ⇒ 执行时才 Date.now()），不在入队时取。
+// 但请注意：这**不能**保证「标记一定晚于落盘」——调用方若在本函数之后才入队
+// saveMessagesBySession，落盘仍会拿到更晚的 updatedAt（已实测：会差 1ms，红点在用户
+// 正看着会话时复亮）。正确做法是由调用方保证**落盘之后**再标（见
+// chat/useSessionMessages.js 里 mark effect 与 savePromise.then 的两处调用）。
+// 本函数只保证「一次调用取的是执行那一刻」，不再声称它能自己排对顺序。
 async function markSessionReadInternal(sessionId, at) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);

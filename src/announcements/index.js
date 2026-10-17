@@ -73,12 +73,8 @@ export async function setDismissedVersion(version) {
   return true;
 }
 
-export async function clearDismissedVersion() {
-  await AsyncStorage.removeItem(DISMISSED_RELEASE_KEY).catch(() => {});
-}
-
 // 组装「要不要弹、弹什么」：拉取（或回落缓存）→ 与本地版本比对 → 看用户是否已忽略。
-// 返回 { release, shouldShow, body }；任何一环失败都返回 shouldShow:false，不抛错。
+// 返回 { release, shouldShow }；任何一环失败都返回 shouldShow:false，不抛错。
 export async function resolveAnnouncement({
   fetchImpl = fetch,
   localVersion = '',

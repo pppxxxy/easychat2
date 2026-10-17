@@ -64,11 +64,3 @@ export function markdownToPlainText(markdown) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
-
-// 公告正文：空 body 时给一个兜底（不显示空白弹层）。
-export function releaseBodyText(release, emptyFallbackKey = '') {
-  const text = markdownToPlainText(release && release.body);
-  if (text) return text;
-  const name = String((release && release.name) || '').trim();
-  return name && emptyFallbackKey ? emptyFallbackKey : text;
-}

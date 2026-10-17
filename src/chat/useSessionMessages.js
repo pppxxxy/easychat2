@@ -426,15 +426,14 @@ export default function useSessionMessages({
   // 第 ② 种不能省：否则「看着对方回完、退出」之后，最后一条会把红点重新点亮，
   // 用户点进来却看到没有新东西。
   //
-  // 入队顺序很关键：本 effect 在 useSessionMessages 内部，与下面负责写盘的那个 effect
-  // 是**兄弟**——React 按声明顺序跑，所以这里先入队 markSessionRead、再入队
-  // saveMessagesBySession；两者都进 sessionStore 的同一条队列，按序执行。
-  // 落盘那条会在队列内写 updatedAt = 此刻，而 markSessionRead 的 lastReadAt 取的是
-  // **它自己执行时**的 Date.now()（见 mutations.markSessionRead 的注释）⇒ 时间必然 ≥
-  // updatedAt，标记生效、红点不残留。写入磁盘位置反过来（先标记、后落盘）就会白做。
+  // 顺序上踩过一次真实的坑，写在这里防复发：本 effect 声明在负责写盘的 effect **之前**，
+  // 所以持久化动作是「先标记已读、后写消息」——而写盘那条会在队列内把 updatedAt 推到
+  // 此刻（比 lastReadAt 新），于是用户正盯着屏幕、红点却亮起来了（已用真实现复现：
+  // updatedAt 比 lastReadAt 大 1ms ⇒ hasSessionUnread 为真）。
+  // 所以标记必须发生在**落盘之后**：savePromise 落定（.then）时再标一次。
+  // 只前进不后退由 applySessionLastRead 兜住，重复触发无副作用。
   //
-  // 只前进不后退由 applySessionLastRead 兜住，所以这里的重复触发无副作用；
-  // 失败静默：读标记是「顺带清理」，绝不能因为写不进去而打断聊天主链路。
+  // 失败静默：标记已读是「顺带清理」，绝不能因为写不进去而打断聊天主链路。
   useEffect(() => {
     if (!ready) return;
     if (!activeSessionId) return;
@@ -496,6 +495,12 @@ export default function useSessionMessages({
         }
         lastSavedSnapshotRef.current = snapshotBeingSaved;
         saveFailedRef.current = false;
+        // 落盘已经写进 updatedAt = 此刻，这里补标一次「已读」，红点才不会在用户
+        // 正看着会话时被自己刚发出的消息点亮（顺序陷阱见上方 mark effect 的注释）。
+        // 只在这个会话仍是当前会话时才标：切走了就不算「看过」。
+        if (activeSessionIdRef.current === activeSessionId) {
+          markSessionRead(activeSessionId).catch(() => {});
+        }
         if (
           !Array.isArray(savedMessages)
           || savedMessages.length === 0
