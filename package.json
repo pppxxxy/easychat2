@@ -65,7 +65,8 @@
     "eslint": "10.11.0",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "jsqr": "^1.4.0"
+    "jsqr": "^1.4.0",
+    "react-test-renderer": "19.1.0"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"
