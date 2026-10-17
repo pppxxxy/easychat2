@@ -1329,7 +1329,7 @@ export default function ChatScreen() {
     setSearchOpen(false);
     setMoreOpen(false);
   }, [isSending, ready]);
-
+  const openSwitcher = useCallback(() => setSwitcherOpen(true), [setSwitcherOpen]); const openMore = useCallback(() => setMoreOpen(true), []);
   // 传给 MessageBubble 的稳定引用：把「按消息 id 分派」的包装放在这里，渲染处
   // 不再内联箭头函数（内联箭头每次渲染都是新引用，会击穿 React.memo）。
   const onReselectGreeting = useCallback(() => {
@@ -2624,13 +2624,13 @@ export default function ChatScreen() {
         onToggleSelectAll={toggleSelectAllMessages}
         onDeleteSelected={confirmDeleteSelectedMessages}
         onForgeCard={openCardFromSelection}
-        onOpenSwitcher={() => setSwitcherOpen(true)}
+        onOpenSwitcher={openSwitcher}
         loaded={loaded}
         isGroup={isGroup}
         groupAvatarUri={groupAvatarUri}
         characterAvatarUri={character.avatarUri}
         displayName={displayName}
-        onOpenMore={() => setMoreOpen(true)}
+        onOpenMore={openMore}
       />
       <View style={styles.aiNoticeBar} pointerEvents="none">
         <Text style={styles.aiNoticeText}>{t(AI_DISCLAIMER_TEXT_KEY)}</Text>

@@ -1,4 +1,10 @@
 // 聊天页顶栏（消息多选态 + 常规态）。从 src/ChatScreen.js 原样外提（无行为变化）。
+//
+// 2026-10-17：加 React.memo。理由与 MessageList 同批（见那里的注释）：ChatScreen 每敲一个
+// 字符都会重渲染（input 状态在 useSessionMessages 里），而本组件的 props 与输入**毫无关系**
+// —— 它只关心多选态、发送态、角色名/头像。实查它的 props 来源：除 onOpenSwitcher /
+// onOpenMore 两个内联箭头（已在调用点改成 useCallback）外，其余全是 useState/useMemo 的
+// 稳定值或 useCallback。memo 不会挡 context（换语言/换主题经 useTranslation/useTheme 照旧重渲）。
 
 import React, { useMemo } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
@@ -8,7 +14,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createChatStyles } from './chatStyles.js';
 
-export default function ChatTopBar({
+function ChatTopBar({
   messageSelectionOpen,
   selectedCount,
   isSending,
@@ -133,3 +139,5 @@ export default function ChatTopBar({
     </View>
   );
 }
+
+export default React.memo(ChatTopBar);

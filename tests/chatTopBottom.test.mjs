@@ -32,6 +32,28 @@ test('顶栏常规态只剩 角色chip + ⋯（新对话/广播已迁出）', ()
   assert.ok(TOP_BAR.includes('chat.topBar.selection.delete'), '多选态保留');
 });
 
+test('回归：ChatTopBar 必须是 memo，且调用点不得用内联箭头击穿它', () => {
+  // 失效模式（与 MessageBubble 那个坑同族）：ChatScreen 每敲一个字符都重渲染，
+  // 而顶栏的 props 与输入毫无关系。没有 memo ⇒ 每次按键都白重渲一遍顶栏。
+  // 有 memo 但调用点传内联箭头 ⇒ memo 恒失效（shallow compare 永远不等）。
+  // 本仓库没有 RN 渲染器，按既有约定用源码锚点钉这两条。
+  assert.ok(TOP_BAR.includes('export default React.memo(ChatTopBar)'), '顶栏必须导出 memo 包装');
+  const topBarCall = CHAT_SCREEN.slice(
+    CHAT_SCREEN.indexOf('<ChatTopBar'),
+    CHAT_SCREEN.indexOf('/>', CHAT_SCREEN.indexOf('<ChatTopBar')) + 2
+  );
+  assert.ok(topBarCall.length > 0, '必须仍渲染顶栏');
+  assert.equal(
+    /onOpen(More|Switcher)=\{\s*\(\)\s*=>/.test(topBarCall),
+    false,
+    '不得给顶栏传内联箭头（会击穿 memo，每次按键都白重渲）'
+  );
+  assert.ok(topBarCall.includes('onOpenSwitcher={openSwitcher}'), '切角色入口走稳定引用');
+  assert.ok(topBarCall.includes('onOpenMore={openMore}'), '「其他」入口走稳定引用');
+  assert.ok(CHAT_SCREEN.includes('const openSwitcher = useCallback('), '稳定引用必须是 useCallback');
+  assert.ok(CHAT_SCREEN.includes('const openMore = useCallback('), '稳定引用必须是 useCallback');
+});
+
 test('ChatScreen 接线：新对话进菜单（红色 + 确认），广播进语音设置', () => {
   assert.ok(CHAT_SCREEN.includes("key: 'new-chat'"), '菜单有新对话入口');
   assert.ok(CHAT_SCREEN.includes('danger: true'), '破坏性操作标红');
