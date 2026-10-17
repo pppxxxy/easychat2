@@ -5,7 +5,7 @@
 // 继续靠读代码猜只会瞎改，所以必须能在真机上**量化**：哪一段慢、慢多少。
 //
 // 三条不变量：① 默认关闭时零副作用（不记日志、不改行为）；② 只在超过阈值时记录；
-// ③ 记录走既有 recordDiagnostic（自动脱敏/去重/只留 50 条），不新建存储键。
+// ③ 记录走既有 recordDiagnostic（自动脱敏/去重/只留 50 条），样本只在内存里。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -127,4 +127,57 @@ test('回归：向量记忆关闭时不得去读/写整条索引（每次落盘�
   const skipIndex = sessionMessages.indexOf('if (config.enabled !== true) return null;');
   const readIndex = sessionMessages.indexOf('updateVectorIndex(');
   assert.ok(readIndex > skipIndex, '提前返回必须发生在 updateVectorIndex 之前');
+});
+
+// ---- 界面接线：诊断面板里的开关 + 启动同步（RN 组件在 Node 里没法渲染，按仓库约定
+// 用源码锚点验「接线存在且约束成立」；行为部分见 tests/perfProbeBootstrap.test.mjs
+// 与 tests/settingsReadStateGuard.test.mjs）。----
+
+const MODAL = fs.readFileSync(path.join(SRC_DIR, 'DiagnosticsModal.js'), 'utf8');
+const APP = fs.readFileSync(path.resolve('App.js'), 'utf8');
+const ZH_DIAG = fs.readFileSync(path.join(SRC_DIR, 'i18n', 'locales', 'zh-CN', 'diagnostics.js'), 'utf8');
+const EN_DIAG = fs.readFileSync(path.join(SRC_DIR, 'i18n', 'locales', 'en', 'diagnostics.js'), 'utf8');
+
+test('接线：诊断面板有开关，且「内存态 → 落盘」的顺序不得颠倒', () => {
+  assert.ok(MODAL.includes("from './logging/perfProbe.js'"), '面板必须直接用探针的内存态开关');
+  assert.ok(MODAL.includes('setPerfProbeEnabled'), '必须同步内存态（否则开关点了探针没在记）');
+  assert.ok(MODAL.includes('getPerfProbeEnabled'), '面板打开时要读盘上的开关');
+  assert.ok(MODAL.includes('savePerfProbeEnabled'), '必须落盘（否则重启后回到关闭）');
+  assert.ok(MODAL.includes('<Switch'), '开关控件必须在');
+  assert.ok(MODAL.includes('value={perfEnabled}') && MODAL.includes('onValueChange={togglePerf}'), '开关必须双向绑定');
+  const toggle = MODAL.slice(MODAL.indexOf('const togglePerf = useCallback('));
+  const memAt = toggle.indexOf('setPerfProbeEnabled(value);');
+  const diskAt = toggle.indexOf('savePerfProbeEnabled(value)');
+  assert.ok(memAt >= 0 && diskAt > memAt, '必须先同步内存态再落盘（落盘是异步的，反过来会有一段时间界面开了但探针没开）');
+  // 落盘失败必须还原：否则界面显示已开启、重启后是关闭，用户会以为「没卡顿」。
+  assert.ok(
+    /savePerfProbeEnabled\(value\)\.catch\(\(\) => \{\s*setPerfProbeEnabled\(!value\);/.test(toggle),
+    '落盘失败必须把内存态与界面一起还原，并提示'
+  );
+});
+
+test('接线：面板能看样本、清样本（否则取证到了也读不出来）', () => {
+  // 断言**调用点**而不是「名字出现过」：光看名字的话，把调用删掉、只留 import（或反过来）
+  // 依然能骗过守卫——上一版就是这么写的，注入验证时它没红。
+  assert.ok(MODAL.includes('setPerfSamples(getPerfSamples())'), '必须真的读样本（打开时 + 刷新）');
+  assert.ok(MODAL.includes('clearPerfSamples();'), '必须真的清空样本');
+  assert.ok(MODAL.includes('summarizePerfSamples(perfSamples)'), '条数/最慢一条必须来自实时样本');
+  assert.ok(MODAL.includes('refreshPerfSamples'), '面板不关也能刷新样本');
+});
+
+test('接线：App 启动时把持久化开关同步回探针', () => {
+  assert.ok(APP.includes("from './src/startup/perfProbeBootstrap.js'"), 'App 必须引入启动同步');
+  assert.ok(APP.includes('bootstrapPerfProbe()'), '启动必须真的调用它');
+  assert.ok(APP.includes('bootstrapPerfProbe().catch(() => {})'), '启动同步失败不得影响启动');
+});
+
+test('词条：perf 开关的中英必须一一对齐（漏一条就会在界面上显示原始键名）', () => {
+  // 键名允许数字（如 switchA11y）——用 [A-Za-z.] 会漏掉它，于是「中英对齐」这条守卫
+  // 自己先漏检一条，属于最糟的一类假绿。
+  const keysOf = source => [...source.matchAll(/'(diagnostics\.perf\.[A-Za-z0-9.]+)':/g)].map(m => m[1]);
+  const zh = keysOf(ZH_DIAG);
+  const en = keysOf(EN_DIAG);
+  assert.ok(zh.length >= 10, `zh-CN 的 perf 词条太少，实际 ${zh.length} 条`);
+  for (const key of zh) assert.ok(en.includes(key), `en 缺 ${key}`);
+  for (const key of en) assert.ok(zh.includes(key), `zh-CN 缺 ${key}`);
 });

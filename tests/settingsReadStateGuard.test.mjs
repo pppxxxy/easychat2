@@ -145,6 +145,13 @@ const {
 // 与 barrel 用的是同一个模块实例）。
 const imageGen = loadStorageModule(path.resolve('src/storage/settings/imageGen.js'));
 const { getDiagnostics, __resetDiagnosticsForTests } = loadStorageModule(path.resolve('src/storage/diagnostics.js'));
+// 卡顿取证开关（本批新增，同样不在 barrel 里）：
+const {
+  PERF_PROBE_KEY,
+  getPerfProbeEnabled,
+  savePerfProbeEnabled,
+  normalizePerfProbeFlag,
+} = loadStorageModule(path.resolve('src/storage/settings/perfProbe.js'));
 // memorySummary 的归一化函数（用于从生产同一条路径派生「首次使用」的默认值，
 // 避免把默认值形状手抄成第二份真相 —— 见 SETTINGS_CASES 里 memorySummary 那条的注释）。
 const { normalizeMemorySummary } = loadStorageModule(path.resolve('src/storage/settings/memorySummary.js'));
@@ -381,6 +388,61 @@ test('onboarding：正常路径读回裸字符串语义不变（防过度修正�
 test('onboarding：读取用的是裸 getItem（不能套 readJsonStatus，那会对裸字符串做 JSON.parse）', () => {
   const source = fs.readFileSync(path.resolve('src/storage/settings/onboarding.js'), 'utf8')
     // 剥注释：上面那段注释里就写着 readJsonStatus 这个反例名，不剥会假红（口径同 tts.test.mjs）。
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+  assert.match(source, /recordDiagnostic\(/, '读失败必须留诊断');
+  assert.equal(source.includes('readJsonStatus'), false, '裸字符串键不得套 readJsonStatus');
+  assert.match(source, /catch \(error\) \{\s*recordDiagnostic\(/, '必须 try/catch 包住 getItem');
+});
+
+// ---- 卡顿取证开关（storage/settings/perfProbe.js）：同一族「裸字符串 + 读失败留痕」 ----
+
+test('perfProbe 开关：getItem 抛错时返回 false（不是 rejected promise）并留下诊断', async () => {
+  await reset();
+  failedGets.add(PERF_PROBE_KEY);
+  const enabled = await getPerfProbeEnabled();
+  assert.equal(enabled, false, '读不出对探针必须 fail-closed（按关闭处理），但不得 reject');
+  // 方向与免责声明**相反**：那条是 fail-secure（不敢当已确认），这条是 fail-closed
+  // （不敢当已开启）——两者都是「不确定时选更保守的一侧」，只是保守的方向不同。
+  const hasPerf = entry => `${entry.message} ${entry.context}`.includes('卡顿取证');
+  const entries = await readDiagnostics(hasPerf);
+  assert.ok(
+    entries.some(hasPerf),
+    `读失败必须留下诊断（否则「读不出」与「用户从没开过」同形），实际诊断：${JSON.stringify(entries)}`,
+  );
+});
+
+test('perfProbe 开关：正常路径读回裸字符串语义（只有 \'true\' 算开启）', async () => {
+  await reset();
+  assert.equal(await getPerfProbeEnabled(), false, '键不存在 → 关闭');
+  await savePerfProbeEnabled(true);
+  assert.equal(store.get(PERF_PROBE_KEY), 'true', '这个键存的是裸字符串，不是 JSON');
+  assert.equal(await getPerfProbeEnabled(), true);
+  await savePerfProbeEnabled(false);
+  assert.equal(store.get(PERF_PROBE_KEY), 'false');
+  assert.equal(await getPerfProbeEnabled(), false);
+  // 脏值一律按关闭：判据只有一处（normalizePerfProbeFlag），不给「看着像真」的字符串开口子。
+  for (const dirty of ['1', 'yes', 'TRUE', 'True', '', '{}', 'true ']) {
+    store.set(PERF_PROBE_KEY, dirty);
+    assert.equal(await getPerfProbeEnabled(), false, `脏值 ${JSON.stringify(dirty)} 必须按关闭处理`);
+  }
+  assert.equal(normalizePerfProbeFlag('true'), true, '唯一认可的开启值是裸串 true');
+});
+
+test('perfProbe 开关：写入非布尔值一律落成 false（不写进脏值）', async () => {
+  await reset();
+  await savePerfProbeEnabled(1);
+  assert.equal(store.get(PERF_PROBE_KEY), 'false', '只有 === true 才算开启');
+  await savePerfProbeEnabled('true');
+  assert.equal(store.get(PERF_PROBE_KEY), 'false', '字符串 true 不算开启（写入侧同样收紧）');
+  await savePerfProbeEnabled(true);
+  assert.equal(store.get(PERF_PROBE_KEY), 'true');
+});
+
+test('perfProbe 开关：读取走裸 getItem（不得套 readJsonStatus）', () => {
+  const source = fs.readFileSync(path.resolve('src/storage/settings/perfProbe.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .filter(line => !line.trim().startsWith('//'))

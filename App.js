@@ -42,6 +42,8 @@ import { runDiaryIfNewDay } from './src/diary/diaryStartup.js';
 import './src/agent/task/headless.js';
 import { startAgentTaskScheduler } from './src/agent/task/agentTaskScheduler.js';
 import { startAutoBackupScheduler } from './src/backup/autoBackupScheduler.js';
+// 卡顿取证开关是持久化的（诊断面板里开）：启动时同步回探针，否则重启后复现不出样本。
+import { bootstrapPerfProbe } from './src/startup/perfProbeBootstrap.js';
 import {
   ackPendingMessages,
   addOpenRoleListener,
@@ -466,6 +468,8 @@ function ProactiveMessageBridge({ navigationReady }) {
   // 悬浮窗「说话」的 deep link（easychat2://screen-watch）：把用户带到「扩展 → 世界」
   // （看屏幕所在分组）。与 openRole 同一门控——导航未就绪时记住请求，就绪后补跳。
   const pendingScreenWatchRef = useRef(false);
+  // 卡顿取证开关（诊断面板里开）是持久化的：启动同步一次即可，失败不影响启动。
+  useEffect(() => { bootstrapPerfProbe().catch(() => {}); }, []);
   useEffect(() => {
     const handleUrl = ({ url }) => {
       if (!String(url || '').includes('screen-watch')) return;
