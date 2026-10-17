@@ -234,14 +234,38 @@ test('F4 拉取残留清单：解析容错 + 写入/读取/清理往返（全不
   assert.equal(parsePullManifest('[]'), null);
   assert.equal(parsePullManifest(null), null);
   assert.equal(parsePullManifest({ owner: 'a' }), null, '缺 repo/branch 视为无效');
+  // sha（2026-10-18）：旧清单没有这个字段时返回空串——**不能是 null**，
+  // 否则调用方要区分「旧数据」与「解析失败」两套判据。空串 = 不知道基线提交。
   assert.deepEqual(
     parsePullManifest(JSON.stringify({ owner: 'a', repo: 'b', branch: 'main', files: 3 })),
-    { owner: 'a', repo: 'b', branch: 'main', files: 3, at: 0 }
+    { owner: 'a', repo: 'b', branch: 'main', files: 3, at: 0, sha: '' },
+    '旧清单（无 sha）仍可读，sha 回落为空串'
   );
   assert.deepEqual(
     parsePullManifest({ owner: 'a', repo: 'b', branch: 'm', files: ['x', 'y'], at: 5 }),
-    { owner: 'a', repo: 'b', branch: 'm', files: 2, at: 5 },
+    { owner: 'a', repo: 'b', branch: 'm', files: 2, at: 5, sha: '' },
     '数组形态兼容（取长度）'
+  );
+  // sha 只接受 40 位十六进制：非法值一律当作没有（宁可答「不知道」，不拿坏值去比对）
+  const validSha = 'a'.repeat(40);
+  assert.equal(
+    parsePullManifest({ owner: 'a', repo: 'b', branch: 'm', files: 1, sha: validSha }).sha,
+    validSha
+  );
+  assert.equal(
+    parsePullManifest({ owner: 'a', repo: 'b', branch: 'm', files: 1, sha: validSha.toUpperCase() }).sha,
+    validSha,
+    '大小写不敏感（归一为小写）'
+  );
+  assert.equal(
+    parsePullManifest({ owner: 'a', repo: 'b', branch: 'm', files: 1, sha: 'deadbeef' }).sha,
+    '',
+    '长度不对的 sha 当作没有'
+  );
+  assert.equal(
+    parsePullManifest({ owner: 'a', repo: 'b', branch: 'm', files: 1, sha: 'z'.repeat(40) }).sha,
+    '',
+    '非十六进制当作没有'
   );
 
   // IO 往返：fake store（内存）

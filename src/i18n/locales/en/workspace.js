@@ -719,5 +719,5 @@ export const workspace = {
   'workspace.panel.catalog.rewrite': 'Rewrite',
   'workspace.panel.catalog.status.same': 'Written',
   'workspace.panel.catalog.status.diff': 'Written (content differs)',
-  'workspace.capability.limit.githubImport': 'GitHub import = branch snapshot (zip download + extract), no git history; commits go through the agent’s GitHub tools; delete/force operations are permanently forbidden.',
+  'workspace.capability.limit.githubImport': 'GitHub import = branch snapshot (zip download + extract), no git history; the branch HEAD commit is recorded at pull time (in .easychat/pull-manifest.json) and can be compared against the remote with the read-only GitHub tools; commits go through the agent’s GitHub tools; delete/force operations are permanently forbidden.',
 };

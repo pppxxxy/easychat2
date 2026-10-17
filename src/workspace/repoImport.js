@@ -303,7 +303,16 @@ export async function writePullSkipped(store, characterId, payload) {
   }
 }
 
-// 纯函数：清单文本 → { owner, repo, branch, files, at }；坏输入 → null（当作没有）。
+// 纯函数：清单文本 → { owner, repo, branch, files, at, sha }；坏输入 → null（当作没有）。
+//
+// `sha`（2026-10-18 新增）：拉取当时分支 HEAD 的提交号。**为什么必须记**——
+// 快照本身不含 .git（见文件头），所以「这份副本对应远端哪个提交」只可能来自这里。
+// 没有它，拉取之后 agent 只能回答「拉了 N 个文件」，永远答不出「与远端差几个提交」；
+// 有了它，再配合 GitHub MCP 的只读工具（github_list_commits，riskGate 白名单直接放行）
+// 就能算出差异。
+//
+// 向后兼容：旧清单没有 sha → 返回空串（不是 null）。旧数据仍然可用，
+// 只是「不知道基线提交」——调用方据此如实说不知道，而不是编一个。
 export function parsePullManifest(text) {
   try {
     const source = typeof text === 'string' ? JSON.parse(text) : text;
@@ -316,7 +325,11 @@ export function parsePullManifest(text) {
     const files = Array.isArray(source.files)
       ? source.files.length
       : Math.max(0, Math.floor(Number(source.files) || 0));
-    return { owner, repo, branch, files, at: Number(source.at) || 0 };
+    // sha 只接受 40 位十六进制（GitHub 的 commit sha）。非法值当作没有——
+    // 让下游走「不知道基线」分支，而不是拿一个坏值去比对。
+    const rawSha = String(source.sha || '').trim().toLowerCase();
+    const sha = /^[0-9a-f]{40}$/.test(rawSha) ? rawSha : '';
+    return { owner, repo, branch, files, at: Number(source.at) || 0, sha };
   } catch (error) {
     return null;
   }
@@ -333,13 +346,23 @@ export async function readPullManifest(store, characterId) {
   }
 }
 
-export async function writePullManifest(store, characterId, { owner, repo, branch, files } = {}) {
+export async function writePullManifest(store, characterId, { owner, repo, branch, files, sha } = {}) {
   if (!store || typeof store.writeWorkspaceFile !== 'function') return false;
   try {
+    const normalizedSha = String(sha || '').trim().toLowerCase();
     await store.writeWorkspaceFile({
       characterId,
       path: PULL_MANIFEST_PATH,
-      content: JSON.stringify({ owner, repo, branch, files, at: Date.now() }),
+      // sha 只在形制合法时落盘；拿不到（离线/权限不足/接口失败）就不写这个字段，
+      // 让读侧走「不知道基线」分支——写空串等于伪造一个不存在的基线。
+      content: JSON.stringify({
+        owner,
+        repo,
+        branch,
+        files,
+        at: Date.now(),
+        ...(/^[0-9a-f]{40}$/.test(normalizedSha) ? { sha: normalizedSha } : {}),
+      }),
     });
     return true;
   } catch (error) {

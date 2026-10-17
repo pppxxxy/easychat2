@@ -86,6 +86,46 @@ export const PLAN_TOOL_HINT = '多步任务先用 update_plan 记录步骤清单
 // 没物化的部分搜不到，这条提示防「搜了个空就下结论」。
 export const MATERIALIZE_TOOL_HINT = 'repos/ 下带云朵标记（未物化）的文件不在本地：要在终端或 run_shell 里搜索、处理它们之前，先用 materialize_repo 把目标范围批量下载。';
 
+// repos/ 快照的语义说明（2026-10-18）。
+//
+// 为什么需要这条：用户实测报上来一个真实误判——工作区 agent 被要求「拉取 easychat2
+// 远端仓库」，它**确实拉下来了**（列出了 package.json / app.json / babel.config.js），
+// 但接着回答「本副本没有 remote 配置、环境没有 git 二进制、materialize 失败，三者至少
+// 解决两个才能拉取」。三点都对，**结论错了**：它已经拉到了，却把「做不到 git fetch」
+// 讲成「做不到拉取」，最后还让用户去准备一个其实不需要准备的环境。
+//
+// 根因是提示词里从没说过 repos/ 是什么：模型只能自己猜，于是拿 run_shell + git 的
+// 心智模型去套一个「zip 快照」目录。这条把边界讲清楚，并**指向真的可用的工具**：
+// 内置 GitHub MCP 的只读工具（github_list_commits / github_get_file_contents 等）在
+// riskGate 白名单里是**直接放行**的，配了凭据就能查远端——不需要 git 二进制，
+// 也不需要网络白名单。
+//
+// 注入条件：只在「有文件工具」（read/write 模式）时给——ask 模式连文件都读不到，
+// 讲了只是噪音。与其它 hint 同款纪律：说了必须有对应的读工具可用。
+//
+// ⚠️ 纪律（被测试当场抓过两次）：**不许点名没注册的工具**。
+// 初版把 github_list_commits / github_get_file_contents 写死在文案里，于是在
+// 「没配 GitHub / 没注册 MCP」的会话里提示词照样承诺这两个工具；改完后仍因写了
+// `run_shell` 而被同一条测试拦住——「不要在 X 里做 Y」这种否定句同样是在**点名**，
+// 没注册时它照样把模型的注意力引向一个不存在的工具。现在基础段一个工具名都不提。
+// 拆成两段：基础段常驻（只讲 repos/ 是什么、以及 git 的 fetch/pull 走不通），
+// 工具段仅当注册表里真的出现 `github_` 前缀工具时才追加。
+const REPO_SNAPSHOT_BASE_HINT = 'repos/ 下是**分支快照**（从 GitHub 打包下载解压的），不含 .git 历史；'
+  + '本环境没有 git 二进制，git 的 fetch / pull / clone 走不通，不要朝这个方向尝试。';
+
+const REPO_SNAPSHOT_GITHUB_HINT = ' 要了解远端最新状态或与本地对不上时，用 GitHub 的只读工具：'
+  + 'github_list_commits 看分支最新提交、github_get_file_contents 直接取远端文件；'
+  + '拉取时记录的分支 HEAD 提交号在 .easychat/pull-manifest.json 里，可据此说明本地落后多少。';
+
+export const REPO_SNAPSHOT_HINT = REPO_SNAPSHOT_BASE_HINT;
+
+// 依据**真实注册表**决定要不要提 GitHub 工具（见上方的纪律说明）。
+export function repoSnapshotHint(tools) {
+  const names = Array.isArray(tools) ? tools : [];
+  const hasGithubTools = names.some(name => typeof name === 'string' && name.startsWith('github_'));
+  return hasGithubTools ? `${REPO_SNAPSHOT_BASE_HINT}${REPO_SNAPSHOT_GITHUB_HINT}` : REPO_SNAPSHOT_BASE_HINT;
+}
+
 export function workspaceExecutionToolHints(tools) {
   const names = Array.isArray(tools) ? tools : [];
   const hints = Object.keys(EXECUTION_TOOL_HINTS)
@@ -137,6 +177,9 @@ export function buildWorkspaceAgentSystemPrompt({ mode = 'ask', characterName = 
     }
     // A3：计划工具引导——工具没注册就不提（说了调不动，模型会反复试然后乱解释）。
     if (Array.isArray(tools) && tools.includes('update_plan')) lines.push(PLAN_TOOL_HINT);
+    // repos/ 快照语义（2026-10-18）：有文件工具才讲（ask 模式读不到文件，讲了是噪音）。
+    // 按真实注册表决定要不要提 GitHub 工具（见 repoSnapshotHint 的纪律说明）。
+    lines.push(repoSnapshotHint(tools));
     // FEAT-AC4 P1：应用工具段（按实际注册清单组装，一个都没有时不写）。
     const appSection = appFeatureToolSection(tools);
     if (appSection) lines.push(appSection);

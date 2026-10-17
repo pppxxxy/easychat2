@@ -4,7 +4,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 import { getRepoSnapshot, setRepoSnapshot } from '../../../storage/workspace.js';
 import { classifyPullGuard, diffRepoSnapshot, localRepoPaths, pullGuardCopy } from '../repoDiff.js';
-import { downloadZip } from '../../github/restApi.js';
+import { downloadZip, listCommits } from '../../github/restApi.js';
 import {
   attachPullPanel,
   beginPull,
@@ -193,17 +193,40 @@ export default function useRepoPull({
         store.beginBatch(characterId, { path: base });
         batchOpen = true;
       }
+      // 记录拉取当时的**分支 HEAD 提交号**（2026-10-18）。
+      // 为什么在这里、且为什么失败不挡流程：快照不含 .git（见 repoImport.js 头注），
+      // 所以「这份副本对应远端哪个提交」只可能来自这一刻的接口回答。拿到它，agent
+      // 之后才能用 GitHub 只读工具算出「本地落后远端多少」；拿不到就如实不带这个字段。
+      // 放在写文件**之前**：万一写盘中断，manifest 不会留下一个「已写入却缺 sha」的
+      // 半成品（那种态最难诊断）。
+      let headSha = '';
+      try {
+        const commits = await listCommits({
+          token,
+          owner: current.owner,
+          repo: current.repo,
+          branch,
+          page: 1,
+          perPage: 1,
+        });
+        headSha = (Array.isArray(commits) && commits[0] && commits[0].sha) || '';
+      } catch (error) {
+        // 只读接口失败（无权限/离线/限流）不该让拉取失败——拉取本身已经拿到了文件。
+        // 只是这次没有基线 sha，后续「差多少」会如实回答不知道。
+        headSha = '';
+      }
       // F4：清单写进 batch 内（不产生额外的历史噪音）；写失败不挡拉取主流程。
       const manifestWritten = await writePullManifest(store, characterId, {
         owner: current.owner,
         repo: current.repo,
         branch,
         files: files.length,
+        sha: headSha,
       });
       // R1-3：进入写入窗口即置残留态（推送面板据此置灰；失败/取消路径保留它，
       // 与磁盘上的 manifest 同语义）。
       if (manifestWritten && mountedRef.current) {
-        setPullManifest({ owner: current.owner, repo: current.repo, branch, files: files.length });
+        setPullManifest({ owner: current.owner, repo: current.repo, branch, files: files.length, sha: headSha });
       }
       for (let index = 0; index < files.length; index += 1) {
         if (isPullCancelRequested()) {

@@ -719,5 +719,5 @@ export const workspace = {
   'workspace.panel.catalog.rewrite': '重新写入',
   'workspace.panel.catalog.status.same': '已写入',
   'workspace.panel.catalog.status.diff': '已写入（内容有差异）',
-  'workspace.capability.limit.githubImport': 'GitHub 导入 = 分支快照（zip 下载 + 解压），不含 git 历史；推送改动由 agent 走 GitHub 工具完成；删除/强推类操作永远禁止。',
+  'workspace.capability.limit.githubImport': 'GitHub 导入 = 分支快照（zip 下载 + 解压），不含 git 历史；拉取时记录当时的分支 HEAD 提交号（在 .easychat/pull-manifest.json），可用 GitHub 只读工具与远端对比；推送改动由 agent 走 GitHub 工具完成；删除/强推类操作永远禁止。',
 };
