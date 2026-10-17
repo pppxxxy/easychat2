@@ -195,6 +195,17 @@ const MessageBubble = React.memo(function MessageBubble({ message, rawText, char
     [message.id, onSlashCommand, styles]
   );
 
+  // 版本切换：按 branchId 从 branchNav.branches 里找出分支对象再回调。
+  // 查找放在气泡内部是**刻意的**：宿主若在 renderItem 里现算
+  // `branchId => onCheckoutBranch?.(branches.find(...))`，这个箭头每次渲染都是新引用，
+  // 本组件的 React.memo（见下方 MessageBubble 的 memo 包裹）会因此**恒失效**——流式期间
+  // 每个 tick 都把窗口内 80 条气泡整棵重渲。onBranchCheckout 现在由宿主传稳定引用
+  // （MessageList 的 onCheckoutBranch / ChatScreen.js:1218 的 useCallback），分支查找搬到这里。
+  const checkoutBranchById = branchId => {
+    const branches = branchNav && Array.isArray(branchNav.branches) ? branchNav.branches : [];
+    onBranchCheckout?.(branches.find(item => String(item.id) === String(branchId)) || null);
+  };
+
   // 图片/表情包消息走独立菜单：没有正文，复制/选择文本无意义，改为
   // 「保存 / 保存为表情包 / 引用 / 删除消息」，把原先只挂在长按手势上的操作
   // 摆到明面上（长按是隐藏手势，用户不容易发现）。
@@ -536,8 +547,8 @@ const fullWidthAssistant = !isUser && fullWidth;
             total={branchNav.total}
             hasPrev={!!branchNav.prevId}
             hasNext={!!branchNav.nextId}
-            onPrev={() => onBranchCheckout?.(branchNav.prevId)}
-            onNext={() => onBranchCheckout?.(branchNav.nextId)}
+            onPrev={() => checkoutBranchById(branchNav.prevId)}
+            onNext={() => checkoutBranchById(branchNav.nextId)}
             disabled={!!branchNav.disabled}
             styles={styles}
           />

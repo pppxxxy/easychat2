@@ -1207,6 +1207,51 @@ test('按消息删除只清理目标消息的向量片段', async () => {
   );
 });
 
+test('向量索引无变化时不重写整键（updater 原样返回同一引用 = 没改动）', async () => {
+  // 为什么必须有这一条：整条索引（含每条记忆的 embedding）挤在单键里，
+  // saveVectorIndexInternal 要跑两遍 normalizeVectorIndex + 一次整键 JSON.stringify，
+  // 都是 O(条数×维度)。实测 1024 维：1000 条 → 单键 JSON 约 19.8 MB（stringify 145ms、
+  // parse 71ms）；3000 条 → 59.4 MB（stringify 444ms）。此前每次会话落盘都会把这份
+  // JSON 重新规整并整键写回，哪怕一个字节都没变（向量记忆关闭时 indexMessages 正是
+  // 原样返回 current，所以「关了也一样」）。契约：没改动 ⇒ 返回同一引用 ⇒ 不写。
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-noop-write', [
+    { id: 'keep', sessionId: 'session-a', messageId: 'm1', text: '甲', vector: [1] },
+  ]);
+  vectorSetCalls = 0;
+
+  const unchanged = await storage.updateVectorIndex('character-noop-write', current => current);
+  assert.equal(vectorSetCalls, 0, '无改动不得重写整键向量索引');
+  assert.deepEqual(unchanged.map(item => item.id), ['keep'], '仍须返回当前索引');
+
+  // 对照：undefined 是既有的「无变化」信号，同样不写。
+  await storage.updateVectorIndex('character-noop-write', () => undefined);
+  assert.equal(vectorSetCalls, 0, '返回 undefined 同样不得写');
+
+  // 反向守卫：真的改了（返回新数组）必须写回，别把「省写」做成「漏写」。
+  await storage.updateVectorIndex('character-noop-write', current => [
+    ...current,
+    { id: 'added', sessionId: 'session-a', messageId: 'm2', text: '乙', vector: [2] },
+  ]);
+  assert.equal(vectorSetCalls, 1, '内容真的变了必须写回一次');
+  assert.deepEqual(
+    (await storage.getVectorIndex('character-noop-write')).map(item => item.id),
+    ['keep', 'added']
+  );
+});
+
+test('向量索引：返回 null 仍是整键删除（不是「无变化」）', async () => {
+  const storage = loadStorage();
+  await storage.saveVectorIndex('character-null-drop', [
+    { id: 'gone', sessionId: 'session-a', messageId: 'm1', text: '甲', vector: [1] },
+  ]);
+  vectorSetCalls = 0;
+  const result = await storage.updateVectorIndex('character-null-drop', () => null);
+  assert.deepEqual(result, []);
+  assert.deepEqual(await storage.getVectorIndex('character-null-drop'), [], 'null 必须把整键清掉');
+  assert.equal(vectorSetCalls, 0, '删除走 removeItem，不该退化成写空数组');
+});
+
 test('角色删除清理好感度：注册式级联覆盖 affinity（此前的孤儿数据 bug）', async () => {
   const storage = loadStorage();
   const first = { id: 'character-affinity-1', name: '一号' };

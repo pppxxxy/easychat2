@@ -247,6 +247,19 @@ export function updateVectorIndex(characterId, updater) {
       await AsyncStorage.removeItem(key);
       return [];
     }
+    // 无变化就不写。**契约**：updater 没改动内容时必须**原样返回同一个数组引用**
+    // （indexMessages 在「没有新分段可嵌入」/开关关闭时正是 return current；本文件里
+    // removeVectorIndexFor* 在 ids 为空时也 return current；vectorReconcile 走的是
+    // 「无变化返回 undefined」那条）。
+    //
+    // 为什么必须加这一条：整条索引（含每条记忆的 embedding）挤在**单键**里，
+    // saveVectorIndexInternal 的 normalizeVectorIndex + JSON.stringify 是 O(条数×维度)。
+    // 实测（Node 基准，1024 维）：1000 条 → 单键 JSON 约 19.8 MB，stringify 145ms、
+    // parse 71ms、两遍 normalize 33ms；3000 条 → 59.4 MB、stringify 444ms。此前
+    // **每次会话落盘都会**把这份几 MB～几十 MB 的 JSON 重新规整、序列化并整键写回，
+    // 哪怕内容一个字节都没变（向量记忆关闭时也照写，因为 indexMessages 会原样返回
+    // current 而被当成「新内容」）。取消这次写入后，同一条路径只剩读盘成本。
+    if (next === status.index) return status.index;
     return saveVectorIndexInternal(characterId, next);
   });
 }

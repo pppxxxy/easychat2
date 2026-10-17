@@ -111,3 +111,20 @@ test('接线：会话读数与消息读数都进了探针（否则真机上拿�
   const sessionMessages = fs.readFileSync(path.join(SRC_DIR, 'chat', 'useSessionMessages.js'), 'utf8');
   assert.ok(sessionMessages.includes("'session.loadMessages'"), '消息读取必须进探针');
 });
+
+test('回归：向量记忆关闭时不得去读/写整条索引（每次落盘都会付几 MB 的读写代价）', () => {
+  // 失效模式：此前落盘后无条件调 updateVectorIndex。而 indexMessages 在开关关闭时
+  // 原样返回 current（vectorMemory/index.js:329-331），于是这次调用既付出「读整条索引」
+  // 的代价（getItem + JSON.parse + normalizeVectorIndex，都是 O(条数×维度)），又把同一份
+  // 内容整键写回。实测 1024 维：1000 条 ≈ 19.8 MB 单键（parse 71ms、stringify 145ms），
+  // 且超过 CursorWindow 约 2MB 上限后走 SQLite 分块兜底读。
+  // 这是「关掉向量记忆也一样卡」的由来之一：必须真的提前返回。
+  const sessionMessages = fs.readFileSync(path.join(SRC_DIR, 'chat', 'useSessionMessages.js'), 'utf8');
+  assert.ok(
+    sessionMessages.includes('if (config.enabled !== true) return null;'),
+    '向量记忆关闭时必须在读索引之前就返回'
+  );
+  const skipIndex = sessionMessages.indexOf('if (config.enabled !== true) return null;');
+  const readIndex = sessionMessages.indexOf('updateVectorIndex(');
+  assert.ok(readIndex > skipIndex, '提前返回必须发生在 updateVectorIndex 之前');
+});

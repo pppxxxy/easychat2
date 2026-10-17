@@ -45,17 +45,28 @@ export default function useMemoryListView({
   // 兜底：存储里的 preview 可能缺失（历史会话 / 某次写盘没同步），但消息体还在。
   // 对空 preview 的会话读一次消息体补出摘要，避免“明明聊过却显示空会话”。
   const [previewFallback, setPreviewFallback] = useState({});
+  // 依赖刻意收窄成「待补会话的 id 序列」而不是 visibleSessions 数组本身：
+  // sessions 每次刷新（落盘/已读标记/60 秒调度器）都是**新数组**，依赖数组会让这个 effect
+  // 每刷新一次就把这批会话的**消息体全部重新串行读一遍**（每条都是一次 getItem +
+  // JSON.parse，最坏几 MB）——列表没变、做的事却全白做。id 序列不变就不重跑。
+  const missingPreviewKey = useMemo(
+    () => (Array.isArray(sessions) ? sessions : [])
+      .filter(session => !String((session && session.preview) || '').trim())
+      .map(session => String(session.id || ''))
+      .join('\n'),
+    [sessions]
+  );
   useEffect(() => {
-    const missing = visibleSessions.filter(session => !String((session && session.preview) || '').trim());
-    if (missing.length === 0) return undefined;
+    const missingIds = missingPreviewKey ? missingPreviewKey.split('\n') : [];
+    if (missingIds.length === 0) return undefined;
     let cancelled = false;
     (async () => {
       const found = {};
-      for (const session of missing) {
+      for (const id of missingIds) {
         try {
-          const messages = await getMessagesBySession(session.id);
+          const messages = await getMessagesBySession(id);
           const text = buildPreview(messages);
-          if (text) found[session.id] = text;
+          if (text) found[id] = text;
         } catch (error) {}
       }
       if (!cancelled && Object.keys(found).length > 0) {
@@ -65,7 +76,7 @@ export default function useMemoryListView({
     return () => {
       cancelled = true;
     };
-  }, [visibleSessions]);
+  }, [missingPreviewKey]);
 
   // 按时间分档 + 置顶单独成组；默认展开最新的一个分组（通常是「置顶」或「最近 7 天」），
   // 让首屏直接看到会话，而不是只剩标题、还要多点一次；其余分组保持折叠。

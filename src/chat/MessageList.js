@@ -234,15 +234,15 @@ const MessageList = React.forwardRef(function MessageList({
           {message.kind === TOOL_BUBBLE_KIND ? (
             <ToolBubble message={message} />
           ) : message.role === SYSTEM_ERROR_ID ? (
+            // branchNav / onBranchCheckout / onBranchDeleteOthers 此前也传给了 ErrorBubble，
+            // 但它的签名是 { message, rawError, onCopied, fullWidth, selectionMode, selected }
+            // （ErrorBubble.js:12），三个都不接、内部也没有版本切换器——纯死属性，本次删除。
             <ErrorBubble
               message={message}
               rawError={errorRawRef.current[message.id]}
               fullWidth={chatOptions.fullWidth}
               selectionMode={messageSelectionOpen}
               selected={selected}
-              branchNav={branchNav}
-              onBranchCheckout={branchId => onCheckoutBranch?.(forkBranches.find(item => String(item.id) === String(branchId)) || null)}
-              onBranchDeleteOthers={handleDeleteOthers}
             />
           ) : (
             <MessageBubble
@@ -291,7 +291,13 @@ const MessageList = React.forwardRef(function MessageList({
               selectionMode={messageSelectionOpen}
               selected={selected}
               branchNav={branchNav}
-              onBranchCheckout={branchId => onCheckoutBranch?.(forkBranches.find(item => String(item.id) === String(branchId)) || null)}
+              // 必须是**稳定引用**：MessageBubble 是 React.memo（MessageBubble.js:78），
+              // 此前这里每渲染一次就新建一个箭头函数，shallow compare 必然不等 ⇒ memo 对
+              // 每条已挂载消息都恒失效（本文件顶部「刻意不做 memo」说的是 MessageList 自己，
+              // 与气泡的 memo 无关）。流式期间每个 tick 都重渲染 ChatScreen ⇒ 窗口内 80 条
+              // 气泡全部整棵重渲。分支对象的查找搬进 MessageBubble（它手里就有 branchNav.branches），
+              // 这里只传 ChatScreen 那个 useCallback 的稳定引用（ChatScreen.js:1218）。
+              onBranchCheckout={onCheckoutBranch}
               onBranchDeleteOthers={handleDeleteOthers}
             />
           )}

@@ -520,6 +520,15 @@ export default function useSessionMessages({
               || !indexableSession
             ) return null;
 
+            // 向量记忆**关闭**时不读也不写索引。此前这里照常走 updateVectorIndex：
+            // indexMessages 在关闭时原样返回 current（见 vectorMemory/index.js:329-331），
+            // 于是这次调用既付出「读整条索引」的代价（getItem + JSON.parse +
+            // normalizeVectorIndex，都是 O(条数×维度)；实测 1000 条 × 1024 维单键约 19.8MB，
+            // parse 71ms + normalize 16ms，且超过 CursorWindow 约 2MB 的读取上限后还要走
+            // storage/io.js 的 SQLite 分块兜底），又把同一份内容整键写回。
+            // 关掉向量记忆的用户每次发消息都在付这笔钱——「关了也一样卡」的由来之一。
+            if (config.enabled !== true) return null;
+
             return updateVectorIndex(indexedCharacterId, current => {
               if (
                 activeSessionIdRef.current !== activeSessionId

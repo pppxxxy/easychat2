@@ -196,6 +196,25 @@ test('记忆页头部收敛：⋯ 菜单 + 筛选 chips + 吸顶组头', () => {
   assert.ok(VIEW_SOURCE.includes('react-native#25157'), '应注明崩溃来源便于回归追溯');
 });
 
+test('回归：空 preview 兜底读的依赖按「待补 id 序列」收窄，不得依赖 sessions 数组本身', () => {
+  // 失效模式：sessions 每次刷新（落盘 / 标记已读 / 60 秒调度器）都是**新数组**，
+  // 若 effect 依赖数组本身，这批会话的消息体就会被**整批重新串行读一遍**
+  // （每条一次 getItem + JSON.parse，最坏几 MB）——列表内容没变，做的事全白做。
+  // 现在依赖是 missingPreviewKey（id 序列拼接），id 集合不变就不重跑。
+  assert.ok(VIEW_SOURCE.includes('const missingPreviewKey'), '必须按待补 id 序列做依赖键');
+  // 精确定位到「兜底读」这个 effect 自己的依赖数组：从 missingPreviewKey 声明往后
+  // 第一处 `}, [` 就是它的依赖列表（别用 includes 全文搜，memoryChips 也以
+  // [visibleSessions] 结尾，会误判成没改）。
+  const keyStart = VIEW_SOURCE.indexOf('const missingPreviewKey');
+  const depStart = VIEW_SOURCE.indexOf('}, [', keyStart);
+  const depEnd = VIEW_SOURCE.indexOf(');', depStart);
+  assert.equal(
+    VIEW_SOURCE.slice(depStart, depEnd + 2),
+    '}, [missingPreviewKey]);',
+    '兜底读 effect 的依赖必须是 missingPreviewKey，而不是 visibleSessions 数组'
+  );
+});
+
 test('会话行三处统一：同一 SessionRow 组件，常驻操作按钮已删', () => {
   // 三处都从同一文件导入默认导出（SessionRow）与 SessionAvatar
   for (const [label, source] of [['memory', SCREEN_SOURCE], ['search', SEARCH_SOURCE], ['switcher', SWITCHER_SOURCE]]) {
