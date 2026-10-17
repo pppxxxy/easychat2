@@ -160,6 +160,9 @@ import {
   buildInlineImagePrompt,
   buildQuotePayload,
 } from './chat/chatHelpers.js';
+// 三个派生容器按消息引用增量维护（流式每 tick 只有尾部一条变），语义与全量重建逐字节一致，
+// 见 messageDerivations.js 与 tests/messageDerivations.test.mjs（含 200 轮随机等价性）。
+import { createRawTextIndex, createRegenerableIndex } from './chat/messageDerivations.js';
 import { createChatStyles } from './chat/chatStyles.js';
 import useScrollScrubber from './chat/useScrollScrubber.js';
 import useChatSearch from './chat/useChatSearch.js';
@@ -587,13 +590,10 @@ export default function ChatScreen() {
     atBottomRef.current = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD;
   }, []);
 
-  const rawTextById = useMemo(() => {
-    const map = new Map();
-    (Array.isArray(messages) ? messages : []).forEach(message => {
-      if (message && message.id) map.set(message.id, String(message.text ?? ''));
-    });
-    return map;
-  }, [messages]);
+  // 三个派生容器的增量索引（实例挂在渲染期之外，跨渲染复用其内部缓存）。
+  const [rawTextIndex] = useState(() => createRawTextIndex());
+  const [regenerableIndex] = useState(() => createRegenerableIndex());
+  const rawTextById = useMemo(() => rawTextIndex(messages), [messages]);
   const renderedMessages = useMemo(
     () => messages.map((message, index) => {
       if (!message) return message;
@@ -655,19 +655,7 @@ export default function ChatScreen() {
     });
   }, []);
 
-  const regenerableIds = useMemo(() => {
-    const ids = new Set();
-    let hasUser = false;
-    for (const item of messages) {
-      if (!item) continue;
-      if (item.role === USER_ID) {
-        hasUser = true;
-      } else if (item.role === ASSISTANT_ID && hasUser) {
-        ids.add(item.id);
-      }
-    }
-    return ids;
-  }, [messages]);
+  const regenerableIds = useMemo(() => regenerableIndex(messages), [messages]);
 
   // 当前角色 id 变化时必须同步 ref。加载 effect 只依赖 [activeSessionId, loaded]，
   // 当角色变了而会话尚未切过去（例如 activeId 失效被解析回初始卡）时它不会触发，
