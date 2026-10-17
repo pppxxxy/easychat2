@@ -8,6 +8,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createReasoningStreamThrottle, createStreamThrottle, STREAM_THROTTLE_INTERVAL_MS } from '../src/chat/streamThrottle.js';
+import { settlePendingMessage } from '../src/chat/chatHelpers.js';
+import { mergeStreamedText } from '../src/chat/replyFlow.js';
+import { translate } from '../src/i18n/index.js';
+
+const t = (key, params) => translate('zh-CN', key, params);
 
 // 可控时钟：只实现 now / schedule 两个注入点，语义与真实 setTimeout 一致（到点回调一次）。
 function createClock() {
@@ -155,4 +160,36 @@ test('createReasoningStreamThrottle：真实定时器下窗口内的最后一份
   assert.equal(current[0].reasoning, '思', '前沿立即放行');
   await new Promise(resolve => setTimeout(resolve, 80));
   assert.equal(current[0].reasoning, '思考中间', '后沿兜底，最后一份思考不丢');
+});
+
+test('结算前必须先 flush：否则窗口里压着的最后一份文本会被 settle 吃掉', () => {
+  // 这条是**接线的前提**（useChatSend 在取消路径上先 flush 再 settle 的理由）：
+  // settlePendingMessage 会把 pending 置 false（chatHelpers.js:130），而 mergeStreamedText
+  // 只认「还是 pending 的占位符」（replyFlow.js:75）——于是结算之后到达的后沿写入是**空操作**，
+  // 窗口内的最后一份文本就永久丢了。这里用真实函数把两种顺序各跑一遍。
+  const pending = { id: 'p', role: 'assistant', text: '(思考中)', pending: true, waitingForResponse: true };
+  const run = (flushBeforeSettle) => {
+    const clock = createClock();
+    let state = [{ id: 'u', role: 'user', text: '问' }, { ...pending }];
+    const throttle = createStreamThrottle(
+      text => { state = mergeStreamedText(state, 'p', text); },
+      { now: clock.now, schedule: clock.schedule }
+    );
+    throttle.push('第一段');       // 前沿：立即落地
+    throttle.push('第一段更多');   // 窗口内：压成待发值（中间值无信息量）
+    if (flushBeforeSettle) {
+      throttle.flush();
+      state = settlePendingMessage(state, 'p', t);
+    } else {
+      state = settlePendingMessage(state, 'p', t);
+      throttle.flush();
+    }
+    return state[1];
+  };
+  const lost = run(false);
+  assert.equal(lost.text, '第一段', '不先 flush ⇒ 窗口内最后一份文本被丢弃（这就是那个坑）');
+  assert.equal(lost.pending, false);
+  const kept = run(true);
+  assert.equal(kept.text, '第一段更多', '先 flush 再结算 ⇒ 文本完整');
+  assert.equal(kept.pending, false);
 });

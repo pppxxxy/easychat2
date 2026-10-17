@@ -96,7 +96,6 @@ import {
   buildReplyErrorMessage,
   classifyReplyError,
   mergeErrorMessage,
-  mergeStreamedText,
   replacePendingWithReply,
 } from './replyFlow.js';
 import { resolveHistoryWindow } from './historyWindow.js';
@@ -668,10 +667,8 @@ export default function useChatSend({
               onToken: fullText => {
                 meter.markFirstToken();
                 if (!isCurrentSession() || controller.signal.aborted) return;
-                setMessages(current => {
-                  if (!isCurrentSession()) return current;
-                  return mergeStreamedText(current, pendingAssistantMessage.id, fullText);
-                });
+                // agent 工具循环的 token 也要过节流（此前直连 setMessages，每 token 一次整表重渲）。
+                streamThrottle.push(fullText);
               },
               onReasoning: fullReasoning => {
                 if (!isCurrentSession() || controller.signal.aborted) return;
@@ -771,7 +768,8 @@ export default function useChatSend({
           onToken: fullText => {
             meter.markFirstToken();
             if (!isCurrentSession() || controller.signal.aborted) return;
-            setMessages(current => mergeStreamedText(current, pendingAssistantMessage.id, fullText));
+            // 本地模型按 chunk=token 回调，密度比在线流还高——同样走节流器（口径见上一条）。
+            streamThrottle.push(fullText);
           },
           // 本地推理模型的思考过程（<think> 流）由适配器拆分后走这里，
           // 与在线路径的 onReasoning 同构：覆写 reasoning 字段，不动 pending。
@@ -1219,6 +1217,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
         scrollToBottom();
         let reply = '';
         const ensembleMeter = createRequestMeter();
+        // 合议流式同样要节流（此前每 token 直连一次 O(N) 整表 map）；mergeStreamedText 与原来的内联写法逐字段等价，故复用同一装配函数。
+        const ensembleThrottle = createTextStreamThrottle({ isCurrentSession: isCurrent, setMessages, pendingId: pendingMessage.id });
         try {
            reply = await sendChatMessage(requestMessages, {
              expectedConfigId,
@@ -1230,11 +1230,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
             onChunk: fullText => {
               ensembleMeter.markFirstToken();
               if (!isCurrent() || controller.signal.aborted) return;
-              setMessages(current => current.map(item => (
-                item.id === pendingMessage.id
-                  ? { ...item, text: fullText, waitingForResponse: false }
-                  : item
-              )));
+              ensembleThrottle.push(fullText);
             },
           });
          } catch (error) {
@@ -1242,6 +1238,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
            if (isCanceledError(error)) {
              // 停止：合议模式的流式增量只写进了 state（局部变量 working 里仍是占位符），
              // 所以必须按当前 state 结算，否则已生成的部分会被整条丢掉
+             ensembleThrottle.flush(); // 先放行窗口里压着的最后一份文本：settle 会把 pending 置 false，迟到的尾沿会被丢弃
              setMessages(current => (
                isCurrent() ? settlePendingMessage(current, pendingMessage.id, tRef.current) : current
              ));

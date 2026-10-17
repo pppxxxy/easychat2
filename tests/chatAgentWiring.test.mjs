@@ -67,6 +67,27 @@ test('runAgentTurn 调用参数齐全 + 守卫透传', () => {
     '预算来自模型声明的窗口（未声明时为 0 → 不传 → 保持旧行为）');
 });
 
+test('接线：所有流式回调（onToken / onChunk / onReasoning）都必须走节流器', () => {
+  // 失效模式（2026-10-17 实查发现三条）：onToken/onChunk 直连 setMessages —— 每个 token
+  // 一次整表重渲。在线路径与群聊逐角色路径早就接了节流器，但 **agent 工具循环**、
+  // **本地模型**（chunk 密度比在线流还高）与**群聊合议**（还额外做 O(N) 整表 map）三条
+  // 漏在外面。这里按「每个回调到下一个回调之间必须出现 Throttle.push(」来钉，新增回调
+  // 若忘了接节流器就会红。
+  const handlers = [...source.matchAll(/on(Token|Chunk|Reasoning):\s*[A-Za-z_$][\w$]*\s*=>\s*\{/g)];
+  assert.ok(handlers.length >= 5, `应找到多条流式回调（在线/本地/agent/合议 × 正文与思考），实际 ${handlers.length}`);
+  const offenders = [];
+  handlers.forEach((match, index) => {
+    const end = index + 1 < handlers.length ? handlers[index + 1].index : source.length;
+    const body = source.slice(match.index, end);
+    if (!/Throttle\.push\(/.test(body)) offenders.push(`on${match[1]}@${match.index}`);
+  });
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些流式回调仍在直连 setMessages（每个 token 一次整表重渲）：${offenders.join(', ')}`
+  );
+});
+
 // 审批钩子漏接 = 需要确认的工具全部跑不了（registry 的无 confirm 即拒绝）。
 // 漏接时的表现是「模型一直说命令被拒绝」，界面不报错，很难查——所以把接线钉死。
 test('runAgentTurn 接了 onToolApproval + permissionRules，并把中止信号一并传下去', () => {
