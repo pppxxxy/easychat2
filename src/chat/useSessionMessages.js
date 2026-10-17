@@ -45,6 +45,8 @@ import {
   saveStreamDraft,
   shouldWriteStreamDraft,
 } from './streamDraft.js';
+// 输入文本的统一真源（模块级 store）。本 hook 只写；订阅在 ChatComposer。
+import { getInput, setInput } from './inputStore.js';
 
 // Z 系采纳 #10：统一分级日志（生产落本地诊断、dev 同时打 console、文本脱敏）。
 const vectorLog = createAppLogger('vector');
@@ -102,7 +104,11 @@ export default function useSessionMessages({
   const draftBlockedSessionIdRef = useRef('');
   // 上一次处理过的主动消息刷新计数：用于把「主动消息落库刷新」与「切会话」区分开。
   const refreshTickRef = useRef(messageRefreshTick);
-  const [input, setInput] = useState('');
+  // 输入文本自 2026-10-18 起放在模块级 store 里（chat/inputStore.js），不再是 useState。
+  // 原因：本 hook 由 ChatScreen 调用，useState 版每敲一个字符都会让 ChatScreen 重渲染
+  // （31 个子组件里 28 个未 memo，另有 6 个回调因 input 进依赖而重建）。
+  // 现在只有真正渲染这个值的 ChatComposer 订阅它；本 hook 只负责**写**（含草稿联动）。
+  // setInput 直接从 store 取（同名，消费方无需改动）。
   const [messages, setMessages] = useState([]);
   const messagesRef = useRef([]);
   messagesRef.current = messages;
@@ -605,7 +611,10 @@ export default function useSessionMessages({
   }, []);
 
   return {
-    input,
+    // input 不再随返回值暴露：它现在是模块级 store 的值，宿主用 getInput() 在**调用期**
+    // 读取（不订阅 ⇒ 不因按键重渲染）。setInput 照旧暴露（就是 store 的 setInput），
+    // 消费方的 `setInput('')` 等调用一字不变。
+    getInput,
     setInput,
     onInputChange,
     persistDraftNow,

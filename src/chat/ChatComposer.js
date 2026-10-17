@@ -11,6 +11,11 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { IconButton } from '../ui/index.js';
 import ContextBar from './ContextBar.js';
 import { createChatStyles } from './chatStyles.js';
+// 输入文本自 2026-10-18 起来自模块级 store：**只有本组件订阅它**。
+// 这样敲键只重渲染输入区，宿主 ChatScreen 不再随每个字符重渲染（机制 3 / 旧 P0-1）。
+// 注意 input 已从 props 移除——若再作为 prop 由宿主传入，就等于把订阅搬回宿主，
+// 每键重渲染会原样回来（这正是本改造要消除的东西）。
+import { useInput } from './inputStore.js';
 
 export default function ChatComposer({
   quoteTarget,
@@ -26,7 +31,7 @@ export default function ChatComposer({
   // 文字非空则出现「补充指令」键（与停止键并存，发送不打断本轮）。
   steeringEnabled = false,
   onPickAttachment,
-  input,
+  // input 不再是 prop：本组件自己订阅 store（见文件头）。宿主传值会破坏这次改造。
   onChangeInput,
   inputFocused,
   onInputFocus,
@@ -49,6 +54,8 @@ export default function ChatComposer({
   // 只有「正在发送」且本轮能注入补充指令时才解锁输入框；其余禁用原因（未就绪/切换中/
   // 选消息/附件加载…）照旧锁住——steering 不该把这些一并放开。
   const steeringNow = isSending === true && steeringEnabled === true;
+  // 订阅输入文本：写入时机由 onChangeInput → store 触发，**只重渲染本组件**。
+  const input = useInput();
 
   return (
     <>

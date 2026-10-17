@@ -80,8 +80,26 @@ test('输入区：@ 与全屏按钮移除，自动提及与长按接线', () => 
   assert.ok(!COMPOSER.includes('fullScreenButton'), '全屏按钮已移除');
   assert.ok(COMPOSER.includes('onLongPress'), '输入框长按开全屏');
   assert.ok(COMPOSER.includes('if (!fullScreenDisabled) onOpenFullScreen()'), '长按遵守禁用条件');
-  assert.match(CHAT_SCREEN, /shouldOpenMentionAtCursor\(\{ text: input, cursor, isGroup: isGroupRef\.current \}\)/, '光标检测接线');
+  // 光标检测的接线（2026-10-18 机制 3 更新）：文本来源从 `input` 变量改为 `getInput()`
+  // 调用期读取（输入文本已迁到 chat/inputStore.js，宿主不再订阅它）。
+  // 意图不变：光标前紧邻 @ 且处于群聊时弹出提及面板。
+  assert.match(
+    CHAT_SCREEN,
+    /shouldOpenMentionAtCursor\(\{ text: getInput\(\), cursor, isGroup: isGroupRef\.current \}\)/,
+    '光标检测接线（调用期读取输入文本）'
+  );
   assert.ok(CHAT_SCREEN.includes('setMentionPickerOpen(true)'), '命中即弹提及面板');
+  // 反向守卫：宿主不得把输入文本作为 prop 传给 ChatComposer，否则每键重渲染会原样回来
+  //（本改造的全部意义所在）。按标签配对截取调用块——不用固定字符窗口：我第一版用
+  // {0,400} 结果注入验证时没红（注入内容恰好落在窗口之外），固定窗口会变成假绿。
+  const composerStart = CHAT_SCREEN.indexOf('<ChatComposer');
+  const composerEnd = CHAT_SCREEN.indexOf('/>', composerStart);
+  assert.ok(composerStart >= 0 && composerEnd > composerStart, 'ChatComposer 必须仍被渲染');
+  assert.equal(
+    /\binput\s*=/.test(CHAT_SCREEN.slice(composerStart, composerEnd)),
+    false,
+    '不得把 input 作为 prop 传给 ChatComposer（它自己订阅 store）'
+  );
 });
 
 test('shouldOpenMentionAtCursor：光标前紧邻 @ 且仅群聊触发', () => {

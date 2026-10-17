@@ -8,6 +8,8 @@ import { Alert } from 'react-native';
 
 import { deleteLocalImage, deleteLocalVideo, deleteTemporaryImage } from './attachments.js';
 import { buildGreetingMessage } from './chatHelpers.js';
+// 输入文本的调用期读取（切换时做回滚快照）。不订阅：本 hook 的返回值不进渲染依赖。
+import { getInput } from './inputStore.js';
 import { isGreetingMessage } from '../character/cardGreetings.js';
 import {
   createGroupSession,
@@ -42,7 +44,9 @@ export function notifySwitchFailure(t, error) {
 
 export default function useSessionSwitch({
   // 状态值（依赖数组所需，引用变化即重建回调）
-  input,
+  // ⚠️ input 自 2026-10-18 起**不在参数里**：它是模块级 store 的值，若继续作为参数进
+  // 依赖数组，onSwitch / onSwitchGroup 会被每个按键重建（并击穿下游 memo）。
+  // 需要值时用 getInput() 在调用期读（切换时构造回滚快照、失败时还原）。
   fullScreenText,
   attachments,
   quoteTarget,
@@ -106,7 +110,8 @@ export default function useSessionSwitch({
     const previousCharacterId = activeCharacterIdRef.current;
     const previousSessionId = activeSessionIdRef.current;
     const draft = {
-      input,
+      // 调用期读取：切换瞬间的输入文本（用于失败回滚），不订阅。
+      input: getInput(),
       fullScreenText,
       attachments: [...attachments],
       quoteTarget,
@@ -174,7 +179,7 @@ export default function useSessionSwitch({
           .map(item => item.uri));
         notifySwitchFailure(t, error);
       });
-  }, [attachments, closeStickerNamePrompt, ensureCharacterSession, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchCharacter, t]);
+  }, [attachments, closeStickerNamePrompt, ensureCharacterSession, fullScreenText, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchCharacter, t]);
 
   const onSwitchGroup = useCallback(id => {
     if (isSwitching) return;
@@ -182,7 +187,8 @@ export default function useSessionSwitch({
     if (id === activeSessionIdRef.current) return;
     const previousSessionId = activeSessionIdRef.current;
     const draft = {
-      input,
+      // 调用期读取：切换瞬间的输入文本（用于失败回滚），不订阅。
+      input: getInput(),
       fullScreenText,
       attachments: [...attachments],
       quoteTarget,
@@ -242,7 +248,7 @@ export default function useSessionSwitch({
           .map(item => item.uri));
         notifySwitchFailure(t, error);
       });
-  }, [attachments, closeStickerNamePrompt, fullScreenText, input, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchSession, t]);
+  }, [attachments, closeStickerNamePrompt, fullScreenText, invalidateSessionOperations, isSwitching, quoteTarget, stickerNameDraft, stickerNamePrompt, stickerPanelOpen, switchSession, t]);
 
   const confirmGreeting = useCallback(async result => {
     const flow = greetingPicker;

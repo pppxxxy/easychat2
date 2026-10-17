@@ -498,7 +498,7 @@ export default function ChatScreen() {
   }, [attachmentMenuOpen]);
 
   const {
-    input,
+    getInput,
     setInput,
     onInputChange,
     persistDraftNow,
@@ -773,7 +773,6 @@ export default function ChatScreen() {
     confirmGreeting,
     onNewChat,
   } = useSessionSwitch({
-    input,
     fullScreenText,
     attachments,
     quoteTarget,
@@ -1061,9 +1060,9 @@ export default function ChatScreen() {
 
   // 全屏编辑入口收敛：输入框长按 与「⋯」菜单共用（原右侧 ⛶ 按钮已移除）。
   const openFullScreen = useCallback(() => {
-    setFullScreenText(input);
+    setFullScreenText(getInput());
     setFullScreenOpen(true);
-  }, [input]);
+  }, []);
 
   // compact 指令：显式输入即代表意图，不再弹确认；runSummarize(manual) 自带
   // 「已完成/失败/无可总结」提示与并发保护。
@@ -2278,7 +2277,7 @@ export default function ChatScreen() {
     const sessionGuard = captureSessionGuard();
     if (!isSessionGuardCurrent(sessionGuard)) return;
     try {
-      const sent = await sendMessage(input, [{
+      const sent = await sendMessage(getInput(), [{
         id: `sticker-${Date.now()}`,
         kind: STICKER_MESSAGE_KIND,
         name: sticker.name,
@@ -2295,7 +2294,7 @@ export default function ChatScreen() {
     } catch (error) {
       Alert.alert(t('chat.sticker.sendFail.title'), (error && error.message) || t('common.error.retryLater'));
     }
-  }, [captureSessionGuard, input, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending, t]);
+  }, [captureSessionGuard, isSending, isSessionGuardCurrent, isSwitching, messageSelectionOpen, ready, sendMessage, sessionTransitionPending, t]);
 
   // 把助手回复拆成 [文字消息, ...表情包消息]。表情包名称严格取自用户现有表情包，
   // 白名单外的 [[表情包:xxx]] 由 extractStickerDirectives 丢弃并保留原样。
@@ -2318,7 +2317,7 @@ export default function ChatScreen() {
   }, [reorderStickers]);
 
   const onSend = useCallback(async () => {
-    const text = input.trim();
+    const text = getInput().trim();
     if (messageSelectionOpen || isSwitching || sessionTransitionPending || !ready) return;
     // I1：本轮还在跑时，有文字就走「补充指令」判定（不新开一轮、不打断工具链）。
     // 判定是纯函数（chat/steeringSend.js）：能入队才清空输入，不能入队一律保留原文并
@@ -2357,8 +2356,8 @@ export default function ChatScreen() {
       openGreetingPicker(activeSessionId ? 'reselect' : 'new');
       return;
     }
-     await sendText(input);
-   }, [abortRef, activeSessionId, attachments.length, greetingReady, input, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, persistDraftNow, pushSteering, ready, runCompactCommand, sendLockRef, sendText, sessionTransitionPending, setSteeringNote, steeringAvailable, t]);
+     await sendText(getInput());
+   }, [abortRef, activeSessionId, attachments.length, greetingReady, isSending, isSwitching, messageSelectionOpen, openGreetingPicker, persistDraftNow, pushSteering, ready, runCompactCommand, sendLockRef, sendText, sessionTransitionPending, setSteeringNote, steeringAvailable, t]);
 
   // 语音录制入口：仅在单聊、非群聊、就绪时可用。
   const voiceEnabled = !isGroup && !sessionOwnerMissing && ready;
@@ -2462,7 +2461,7 @@ export default function ChatScreen() {
 
   const insertMention = useCallback(name => {
     const label = `${MENTION_PREFIX}${name} `;
-    const current = input;
+    const current = getInput();
     const selection = inputSelectionRef.current || { start: current.length, end: current.length };
     const start = Math.max(0, Math.min(selection.start, current.length));
     const end = Math.max(start, Math.min(selection.end, current.length));
@@ -2470,7 +2469,7 @@ export default function ChatScreen() {
     const caret = start + label.length;
     inputSelectionRef.current = { start: caret, end: caret };
     onInputChange(next);
-  }, [input, onInputChange]);
+  }, [onInputChange]);
 
   const bgUri = isGroup
     ? String(activeSession?.bgUri || '')
@@ -2785,7 +2784,6 @@ export default function ChatScreen() {
         steeringEnabled={steeringAvailable}
         onPickAttachment={pickAttachmentMenu}
         onOpenMention={() => setMentionPickerOpen(true)}
-        input={input}
         onChangeInput={onInputChange}
         inputFocused={inputFocused}
         onInputFocus={() => setInputFocused(true)}
@@ -2794,7 +2792,7 @@ export default function ChatScreen() {
           inputSelectionRef.current = event.nativeEvent.selection;
           // @ 自动提及：光标前紧邻 @ 即弹面板（仅群聊；输入法补全的 @ 同样命中）
           const cursor = event.nativeEvent.selection ? event.nativeEvent.selection.start : 0;
-          if (shouldOpenMentionAtCursor({ text: input, cursor, isGroup: isGroupRef.current })) {
+          if (shouldOpenMentionAtCursor({ text: getInput(), cursor, isGroup: isGroupRef.current })) {
             setMentionPickerOpen(true);
           }
         }}

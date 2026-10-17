@@ -50,11 +50,12 @@
     "src/workspace/screen/FilesPanel.js 1113 → 1120（2026-10-16，FEAT-AC12 P1，**上调 7**）：搜索防抖。按棘轮协议【1】（优先拆子模块）先做了外提——新增两个模块共 169 行：fileSearchDebounce.js（99 行，纯调度器，注入时钟、Node 直测）与 screen/useWorkspaceFileSearch.js（70 行，React 接线：即时值→防抖值、结果扫描、全量升级、卸载清计时器）。面板里只剩**真实接线** +7 行：import 一行、hook 调用四行（含参数展开）、两处消费点改口（搜索态判据与空结果提示改用防抖值，各带一行说明为什么必须跟着数据走）。不是挪代码、不是压注释凑数：注入的注释都在解释**为什么这里必须是防抖值**（界面切换与数据不同拍是本类缺陷的复发形态）。先试过把接线也塞进 hook（面板可净减 3 行），但那样 hook 要同时接收 filesRef 与 refresh，耦合更深、可测性更差，故取「面板 7 行接线 + hook 无状态依赖」这一版。阈值等于新实测值 1120，不留余量。",
     "src/chat/useChatSend.js 1971 → 1963（2026-10-17，性能修复，**下调 8**）：reasoning 流式改走节流器（streamThrottle.js 的 createReasoningStreamThrottle），三处 onReasoning 里「setMessages + 内层 isCurrentSession 守卫 + mergeStreamedReasoning」共 8 行被一行 reasoningThrottle.push 取代，净减 8 行。行为不变：仍只覆写 reasoning 字段、不动 text/pending；节流口径与文本完全一致（前沿放行/窗口内留最后一份/后沿兜底）。顺带修掉「推理模型每 token 整表重渲」的掉帧源。阈值随实际值下调，不留空转余量。",
     "src/chat/useChatSend.js 1963 → 1960（2026-10-17，性能修复第二轮，**下调 3**）：把三条**仍然直连 setMessages** 的流式回调改走节流器。① agent 工具循环的 onToken（8 行 → 5 行）；② 本地模型路径的 onToken（单行替换，等行数）；③ 群聊合议的 onChunk（9 行 → 5 行，且它原来是 O(N) 整表 map）。三处共用同一套节流口径（前沿放行 / 窗口内只留最后一份 / 后沿由定时器兜底），合议路径另建一个实例并在取消结算前 flush（settlePendingMessage 会把 pending 置 false，而 mergeStreamedText 只认 pending 占位符——不 flush 会丢掉窗口内最后 ≤16ms 的文本）。mergeStreamedText 因此不再被本文件直接引用，导入项一并移除——净减 3 行真实代码。阈值随实际值下调，不留空转余量。",
-    "src/ChatScreen.js 3163 → 3151（2026-10-17，性能修复，**下调 12**）：rawTextById 与 regenerableIds 两个「每 tick 全量重建」的派生容器改为按消息引用增量维护，逻辑外提到 chat/messageDerivations.js（createRawTextIndex / createRegenerableIndex / createScrubberListIndex，纯函数、零依赖、Node 直测）。两个内联 useMemo 共 18 行被两行调用取代，另加 2 行 import + 2 行索引实例——净减 12 行。等价性由 tests/messageDerivations.test.mjs 钉住：与改造前的全量实现逐字节比对，含 200 轮随机序列（追加/尾部更新/中间编辑/截断）。阈值随实际值下调，不留空转余量。"
+    "src/ChatScreen.js 3163 → 3151（2026-10-17，性能修复，**下调 12**）：rawTextById 与 regenerableIds 两个「每 tick 全量重建」的派生容器改为按消息引用增量维护，逻辑外提到 chat/messageDerivations.js（createRawTextIndex / createRegenerableIndex / createScrubberListIndex，纯函数、零依赖、Node 直测）。两个内联 useMemo 共 18 行被两行调用取代，另加 2 行 import + 2 行索引实例——净减 12 行。等价性由 tests/messageDerivations.test.mjs 钉住：与改造前的全量实现逐字节比对，含 200 轮随机序列（追加/尾部更新/中间编辑/截断）。阈值随实际值下调，不留空转余量。",
+    "src/ChatScreen.js 3151 → 3149（2026-10-18，机制 3：输入状态下沉，**下调 2**）：input 从 useSessionMessages 的 useState 迁到模块级 store（chat/inputStore.js），宿主不再订阅它——11 处调用期读取改为 getInput()，4 个 useCallback 的依赖数组去掉 input，另删掉传给 ChatComposer 的 input prop（改由该组件自己订阅）与 useSessionSwitch 的 input 参数（改在切换时调用期读取，其 onSwitch/onSwitchGroup 依赖数组同步去掉 input，避免每键重建这两个回调）。净减 2 行且语义逐字不变（inputStore 有 11 条行为测试；接线由 tests/chatTopBottom.test.mjs 的「不得把 input 作为 prop 传给 ChatComposer」反向守卫钉住）。阈值随实际值下调，不留空转余量。"
   ],
   "fileLineBaseline": {
     "src/CardForgeEditor.js": 1073,
-    "src/ChatScreen.js": 3151,
+    "src/ChatScreen.js": 3149,
     "src/MemoryScreen.js": 803,
     "src/SettingsScreen.js": 2365,
     "src/character/CharacterDetailScreen.js": 1355,
