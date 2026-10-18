@@ -99,18 +99,22 @@ const FileSystem = {
   },
 };
 
+// 替身对齐本仓真实的 expo-sqlite **v16** 形态：openDatabaseSync + getFirstAsync(sql, params)。
+// 原先是 v13 的 `openDatabase` + `execAsync([{sql,args}], true)`——那套 API 在
+// expo-sqlite 16.0.10 里不存在，于是「大值兜底」在生产里是死代码，而这个测试
+// 却验证了一个虚构的接口（同型问题见 tests/storageFallbackDiagnostics.test.mjs 的注释）。
 const SQLite = {
-  openDatabase: () => ({
-    execAsync: async queries => {
-      const query = queries[0];
-      const key = query.args[query.args.length - 1];
+  openDatabaseSync: () => ({
+    getFirstAsync: async (sqlSource, params) => {
+      const args = Array.isArray(params) ? params : [];
+      const key = args[args.length - 1];
       const value = sqliteValues.get(key) || '';
-      if (query.sql.includes('length(value)')) {
-        return [{ rows: [{ total: value.length }] }];
+      if (String(sqlSource).includes('length(value)')) {
+        return { total: value.length };
       }
-      const offset = Number(query.args[0]) - 1;
-      const size = Number(query.args[1]);
-      return [{ rows: [{ chunk: value.slice(offset, offset + size) }] }];
+      const offset = Number(args[0]) - 1;
+      const size = Number(args[1]);
+      return { chunk: value.slice(offset, offset + size) };
     },
     closeAsync: async () => {},
   }),

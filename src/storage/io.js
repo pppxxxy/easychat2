@@ -104,6 +104,29 @@ export function getSqliteModule() {
   return sqliteModule;
 }
 
+// 本仓库用的 expo-sqlite 是 v16：**没有** `openDatabase` / `execAsync([{sql,args}], true)`
+// 那套 v13 时代的旧 API。v16 的入口是 `openDatabaseSync` / `openDatabaseAsync`，
+// 查询走 `getFirstAsync(sql, params)`。
+//
+// 这一处曾经写错，后果不是「兜底失败」而是「兜底从未存在」：真机日志里反复出现
+// 「大值兜底读取不可用（缺少 SQLite 模块）」——模块明明装着，只是判据查了一个不存在的
+// 函数名。于是一旦某个键超过 CursorWindow 的 ~2MB 单值上限，readJsonStatus 只能判
+// corrupt，用户的会话/草稿/角色卡就被判成「读不出」。判据必须对着**真实的导出名**，
+// 而不是记忆里的旧名字（同型病灶见 storage/diagnostics.js 的 maskSecrets 惰性 require）。
+//
+// 返回一个统一的窄接口 { open(), close(db) }，把「同步打开还是异步打开」的差异收在这里，
+// 调用方（readLargeAsyncStorageValue）只面对一种形态。
+const SQLITE_OPEN_SYNC = 'openDatabaseSync';
+const SQLITE_OPEN_ASYNC = 'openDatabaseAsync';
+
+export function resolveSqliteOpener(module) {
+  const SQLite = module && typeof module === 'object' ? module : null;
+  if (!SQLite) return null;
+  if (typeof SQLite[SQLITE_OPEN_SYNC] === 'function') return SQLITE_OPEN_SYNC;
+  if (typeof SQLite[SQLITE_OPEN_ASYNC] === 'function') return SQLITE_OPEN_ASYNC;
+  return null;
+}
+
 // 大值兜底读取：AsyncStorage 的 getItem 在 Android 上受 CursorWindow 单值读取上限（约 2MB）
 // 限制，超限会抛错。这里直接读底下的 SQLite（RKStorage）分块取回原始串，是「聊天记录
 // 永久读不出」的最后一道防线。
@@ -114,7 +137,8 @@ export function getSqliteModule() {
 // 而是读失败了」的分支都记一条诊断。
 export async function readLargeAsyncStorageValue(key) {
   const SQLite = getSqliteModule();
-  if (!SQLite || typeof SQLite.openDatabase !== 'function') {
+  const opener = resolveSqliteOpener(SQLite);
+  if (!opener) {
     recordDiagnostic('storage', new Error(tActive('error.storage.largeValueFallbackUnavailable')), key);
     return null;
   }
@@ -129,22 +153,28 @@ export async function readLargeAsyncStorageValue(key) {
   }
   let database = null;
   try {
-    database = SQLite.openDatabase('../../databases/RKStorage');
-    const lengthResult = await database.execAsync([{
-      sql: 'SELECT length(value) AS total FROM catalystLocalStorage WHERE key = ?',
-      args: [key],
-    }], true);
-    const total = Number(lengthResult?.[0]?.rows?.[0]?.total);
+    // RKStorage 在 app 私有 databases/ 下，所以按「相对 package 的 databases 目录」打开：
+    // expo-sqlite 的 databaseName 就是文件名，传 '../databases/RKStorage' 会被拼到
+    // defaultDatabaseDirectory 下——那是同一处（见 SQLiteDatabase 的 directory 参数语义）。
+    database = opener === SQLITE_OPEN_SYNC
+      ? SQLite.openDatabaseSync('../databases/RKStorage')
+      : await SQLite.openDatabaseAsync('../databases/RKStorage');
+    // v16：getFirstAsync(sql, params) 直接返回首行对象（v13 的 execAsync([...], true) 已不存在）。
+    const lengthRow = await database.getFirstAsync(
+      'SELECT length(value) AS total FROM catalystLocalStorage WHERE key = ?',
+      [key]
+    );
+    const total = Number(lengthRow && lengthRow.total);
     // 没有这一行 = 键不存在（正常），不记诊断。
     if (!Number.isFinite(total) || total <= 0) return null;
     const chunkSize = 256 * 1024;
     let value = '';
     for (let offset = 0; offset < total; offset += chunkSize) {
-      const result = await database.execAsync([{
-        sql: 'SELECT substr(value, ?, ?) AS chunk FROM catalystLocalStorage WHERE key = ?',
-        args: [offset + 1, chunkSize, key],
-      }], true);
-      const chunk = result?.[0]?.rows?.[0]?.chunk;
+      const chunkRow = await database.getFirstAsync(
+        'SELECT substr(value, ?, ?) AS chunk FROM catalystLocalStorage WHERE key = ?',
+        [offset + 1, chunkSize, key]
+      );
+      const chunk = chunkRow && chunkRow.chunk;
       if (chunk == null) {
         // length 说有数据、substr 却拿不到：读**截断**了。静默返回 null 会让这条会话
         // 看起来「数据没了」，而其实只是这一次读坏了——必须留痕。

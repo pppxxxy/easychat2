@@ -62,22 +62,30 @@ const FileSystem = {
   },
 };
 
+// 替身必须对齐**本仓真实的 expo-sqlite v16 形态**：openDatabaseSync + getFirstAsync(sql, params)。
+//
+// 这里曾经写的是 v13 时代的 `openDatabase` + `execAsync([{sql,args}], true)`——
+// 而那套 API 在本仓的 expo-sqlite 16.0.10 里**根本不存在**。后果有两层：
+//   ① 生产代码照着这个替身写，判据查 `SQLite.openDatabase` 永远为假，大值兜底
+//      成了死代码（真机日志：「大值兜底读取不可用（缺少 SQLite 模块）」）；
+//   ② 这个测试却一路绿——它验证的是替身自己，不是真实模块的形态。
+// 教训：替身的形状必须来自**已核实的真实导出**，否则测试只是自说自话。
 function makeSqliteStub() {
   return {
-    openDatabase: () => ({
-      execAsync: async queries => {
-        const sql = String((queries && queries[0] && queries[0].sql) || '');
+    openDatabaseSync: () => ({
+      getFirstAsync: async (sqlSource, params) => {
+        const sql = String(sqlSource || '');
+        const args = Array.isArray(params) ? params : [];
         if (scenario.execThrows) throw new Error('cursor window failure');
-        if (sql.includes('length(value)')) return [{ rows: [{ total: scenario.total }] }];
+        if (sql.includes('length(value)')) return { total: scenario.total };
         // 分块查询：按请求长度返回，且 scenario.truncateAt 之后的块返回空（模拟读截断）。
-        const args = (queries[0] && queries[0].args) || [];
         const offset = Number(args[0]) || 1;
         if (scenario.truncateAt !== undefined && offset > scenario.truncateAt) {
-          return [{ rows: [{ chunk: null }] }];
+          return { chunk: null };
         }
         const count = Number(args[1]) || 4;
         const remaining = Math.max(0, Number(scenario.total) - (offset - 1));
-        return [{ rows: [{ chunk: 'x'.repeat(Math.min(count, remaining)) }] }];
+        return { chunk: 'x'.repeat(Math.min(count, remaining)) };
       },
       closeAsync: async () => {},
     }),

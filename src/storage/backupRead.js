@@ -190,6 +190,88 @@ function defaultYield() {
   return new Promise(resolve => { setTimeout(resolve, 0); });
 }
 
+// ── 按字节搬运（不经 JS 字符串）────────────────────────────────────────────
+//
+// 为什么这条路径必须存在：分片读把「读」拆开了，但 `parts.join('')` 仍然要在 JS 里
+// 拼出一个**完整字符串**。真机实测（110MB 自动备份包，见下方注释）这条路径要走
+// 14 分钟——瓶颈不是读文件，是 110MB 字符串落进 Hermes 的堆：分配、扩容、GC 全程
+// 占着主线程，期间任何一次会话读取都可能被拖到 15 秒。
+//
+// 而 SAF 搬运根本不需要「文本」这个中间态：源文件是 UTF-8 字节，目标也是同样的
+// UTF-8 字节。逐片 readBytes → writeBytes 即可，峰值内存 = 一片（默认 8MB），
+// 与文件大小无关。
+//
+// 失败方向：任一片读/写抛错就整包失败并让调用方报错——**不做部分成功**。
+// 半个备份包比没有备份包更糟（恢复时会读出一个结构不完整的 JSON）。
+export async function copyFileBytes({
+  sourceUri,
+  targetUri,
+  sourceFs = null,
+  targetFs = null,
+  chunkBytes = CHUNK_BYTES,
+  onProgress = null,
+  yieldToEventLoop = defaultYield,
+} = {}) {
+  const from = String(sourceUri || '');
+  const to = String(targetUri || '');
+  if (!from || !to) throw readError(tActive('error.backup.importFileMissing'));
+  const src = sourceFs || targetFs;
+  const dst = targetFs || sourceFs;
+  if (!src || !dst
+    || typeof src.File !== 'function' || typeof dst.File !== 'function') {
+    throw readError(tActive('error.backup.importReadFailed', { reason: 'FileHandle unavailable' }));
+  }
+  const sourceFile = new src.File(from);
+  const targetFile = new dst.File(to);
+  if (typeof sourceFile.open !== 'function') {
+    throw readError(tActive('error.backup.importReadFailed', { reason: 'FileHandle unavailable' }));
+  }
+  const size = typeof sourceFile.size === 'number' && sourceFile.size >= 0 ? sourceFile.size : null;
+  const chunk = Number(chunkBytes) > 0 ? Math.floor(Number(chunkBytes)) : CHUNK_BYTES;
+  let readHandle = null;
+  let writeHandle = null;
+  let written = 0;
+  const startedAt = Date.now();
+  try {
+    readHandle = sourceFile.open();
+    writeHandle = targetFile.open();
+    while (size == null || written < size) {
+      const remaining = size == null ? chunk : Math.min(chunk, size - written);
+      if (remaining <= 0) break;
+      const bytes = readHandle.readBytes(remaining);
+      const length = bytes && typeof bytes.length === 'number' ? bytes.length : 0;
+      if (length === 0) break;
+      writeHandle.writeBytes(bytes);
+      written += length;
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress({ bytes: written, total: size, chunks: Math.ceil(written / chunk) });
+        } catch (error) {}
+      }
+      await yieldToEventLoop();
+    }
+    return {
+      bytes: written,
+      total: size,
+      elapsedMs: Date.now() - startedAt,
+      chunks: Math.ceil(written / chunk) || 0,
+    };
+  } catch (error) {
+    if (error && error.userFacing) throw error;
+    recordDiagnostic('storage', error, `backup-copy-bytes: ${from} -> ${to} @${written}`);
+    throw readError(tActive('error.backup.importReadFailed', {
+      reason: String((error && error.message) || 'copy error').split('\n')[0],
+    }));
+  } finally {
+    try {
+      if (readHandle && typeof readHandle.close === 'function') readHandle.close();
+    } catch (error) {}
+    try {
+      if (writeHandle && typeof writeHandle.close === 'function') writeHandle.close();
+    } catch (error) {}
+  }
+}
+
 // 分片 + 增量解码。抽出来是为了让「多字节字符跨片」这类边界能被单独测。
 //
 // 为什么用「片字符串数组 + 末尾 join」而不是 `text += decode(...)`：

@@ -12,7 +12,7 @@ import {
   normalizeAutoBackupSettings,
   selectStaleAutoBackups,
 } from './autoBackupPolicy.js';
-import { readBackupText } from '../storage/backupRead.js';
+import { copyFileBytes, readBackupText } from '../storage/backupRead.js';
 
 // 应用私有目标子目录（相对 documentDirectory）：与手动导出的包分开，
 // 淘汰旧备份时只清这里，绝不误删用户手动导出的 easychat2-backup-*.json。
@@ -95,6 +95,21 @@ export function createAutoBackupDeps({
     async writeSafText(fileUri, text) {
       await adapter.writeText(fileUri, text);
     },
+    // SAF 搬运的**按字节**路径：源（应用私有）→ 目标（用户选的 SAF 目录）。
+    // 存在理由见 backupRead.copyFileBytes 的文件头：整串搬运 110MB 在真机上要 14 分钟，
+    // 期间主线程被占满，会话读取被拖到 15 秒。按字节搬运峰值只有一片（8MB）。
+    // 返回 null 表示「当前构建没有 FileHandle 能力」，调用方据此退回老的整串路径。
+    async copyToSaf(sourceUri, targetUri, onProgress = null) {
+      const fsModule = nextFs;
+      if (!fsModule || typeof fsModule.File !== 'function') return null;
+      return copyFileBytes({
+        sourceUri,
+        targetUri,
+        sourceFs: fsModule,
+        targetFs: fsModule,
+        onProgress,
+      });
+    },
     async deleteSafFile(uri) {
       await adapter.delete(uri);
     },
@@ -133,9 +148,17 @@ export async function runAutoBackup({ settings, deps = null, now = Date.now(), a
   if (saf) {
     let safUri = '';
     try {
-      const text = await d.readTextFile(exported.uri);
       safUri = await d.createSafFile(normalized.location.uri, fileName);
-      await d.writeSafText(safUri, text);
+      // 优先按字节搬运：不构造中间字符串，峰值内存 = 一片，与包大小无关。
+      // 老构建（没有 FileHandle）才退回「整串读出再整串写入」——那条路径在 110MB
+      // 包上实测要 14 分钟，期间主线程被占满（真机日志：refreshSessions 15 秒）。
+      const copied = typeof d.copyToSaf === 'function'
+        ? await d.copyToSaf(exported.uri, safUri, onProgress)
+        : null;
+      if (!copied) {
+        const text = await d.readTextFile(exported.uri);
+        await d.writeSafText(safUri, text);
+      }
     } catch (error) {
       // 写入所选文件夹失败：清掉可能已创建的半个 SAF 文件，再抛给调度层。
       if (safUri) {
