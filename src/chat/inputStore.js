@@ -33,10 +33,21 @@ export function getInput() {
 // 保留这一条很要紧——`setInput('')` 在「发送后清空」「切会话清空」等路径上会在空输入时
 // 被反复调用，若每次都通知，就凭空多出一串无意义的重渲染。
 //
-// 入参一律归一为字符串：useState 版不归一，`setInput(undefined)` 会让 `input.trim()` 抛错；
-// 全部调用点传的都是字符串，归一化是纯防御（且让 TS 之外的调用方也无法把这个值弄坏）。
+// 入参归一为字符串：useState 版不归一，`setInput(undefined)` 会让 `input.trim()` 抛错；
+// 归一化是纯防御（且让 TS 之外的调用方也无法把这个值弄坏）。
+//
+// 支持函数式更新（2026-10-18 补）：与 React setState 同语义，`setInput(prev => ...)`。
+// **为什么必须支持**——这不是锦上添花，而是一次真实 P0 回归的防线：
+// 曾经 useChatSend 里有一处 `setInput(current => {...})`（从 useState 迁移时漏改），
+// 而本函数当时只做 String(next)：函数被 String() 归一成**源码字符串**，Hermes 下
+// 长这样 `function (a0) { [bytecode] }`，于是用户「发完言，输入框突然多出这段东西」。
+// 现在两条防线：
+//   ① 调用点改成调用期读取（值传递），不再有函数式用法；
+//   ② 就算将来又写出函数式调用，这里也按 React 语义正确计算，而不是把函数变成字符串。
+// 换句话说：这个分支让「写错调用点」的失败方式从「用户看到 bytecode」降级为「行为正确」。
 export function setInput(next) {
-  const text = String(next ?? '');
+  const resolved = typeof next === 'function' ? next(current) : next;
+  const text = String(resolved ?? '');
   if (text === current) return false;
   current = text;
   for (const listener of listeners) {

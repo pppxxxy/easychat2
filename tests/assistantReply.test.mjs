@@ -38,17 +38,45 @@ test('表情包开关关闭：指令被剥离但不产出表情包消息', () =>
   assert.equal(parts.some(item => item.kind === 'sticker'), false);
 });
 
-test('概率未命中：指令被剥离但不产出表情包消息', () => {
+// 2026-10-18 语义反转（用户「从来没见过表情包」的 P1 修复）：
+// 旧行为是「概率未命中 → 指令被剥离但不产出表情包」，也就是模型写了却被静默吞掉——
+// 正文干净、没有表情包、没有任何提示，用户无从归因。这正是上报现象。
+// 新行为：模型写了就发；概率改由提示词控制（stickerPolicy.chanceToWording）。
+test('模型写了指令就发：chance 不再吞掉已命中的指令', () => {
   const { parts } = buildAssistantReplyParts({
     replyText: '你好 [[表情包:开心]]',
     stickers,
     sticker: { enabled: true, chance: 0.5 },
-    random: 0.9,
   });
-  assert.equal(parts.some(item => item.kind === 'sticker'), false);
-  assert.equal(parts[0].text, '你好');
+  assert.equal(
+    parts.some(item => item.kind === 'sticker'),
+    true,
+    '指令命中了白名单就必须产出表情包消息（不能被概率门吞掉）'
+  );
+  assert.equal(parts[0].text, '你好', '正文里的指令仍要剥离干净');
 });
 
+test('chance=0 与 chance=1 在解析层等价（开关才是唯一判据）', () => {
+  const run = chance => buildAssistantReplyParts({
+    replyText: '你好 [[表情包:开心]]',
+    stickers,
+    sticker: { enabled: true, chance },
+  }).parts;
+  const at0 = run(0);
+  const at1 = run(1);
+  assert.equal(at0.filter(item => item.kind === 'sticker').length, 1, 'chance=0 也应产出（不发的路径是教学不注入）');
+  assert.equal(at1.filter(item => item.kind === 'sticker').length, 1);
+});
+
+test('开关关闭时仍然不发（这条不变）', () => {
+  const { parts } = buildAssistantReplyParts({
+    replyText: '你好 [[表情包:开心]]',
+    stickers,
+    sticker: { enabled: false },
+  });
+  assert.equal(parts.some(item => item.kind === 'sticker'), false, '关掉开关就该真的不发');
+  assert.equal(parts[0].text, '你好', '关闭时指令照样剥离，不留标记');
+});
 test('位置「上方」：表情包排在文字消息之前；默认在文字之后', () => {
   const above = buildAssistantReplyParts({
     replyText: '你好 [[表情包:开心]]',

@@ -58,6 +58,10 @@ export async function resolveChatInjections({ characterId = '', chatOptions = nu
     locationText,
     stickerNames: resolveStickerNames(stickerSource),
     stickerEnabled: options.stickerEnabled === true,
+    // 概率档位（2026-10-18）：不再用于 app 侧掷骰，而是喂给提示词的频率措辞。
+    // 原样透传（含 undefined），由 buildRequestMessages 归一化——不要在这里提前回落默认值，
+    // 否则「用户没设过」和「用户明确设了 50%」会变得不可区分。
+    stickerChance: options.stickerChance,
     downloadImageEnabled: options.downloadImage === true,
     currentTimeText: buildTimeAwareText(timeAware, now),
   };

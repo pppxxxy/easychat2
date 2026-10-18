@@ -5,6 +5,7 @@ import { applyRegexScripts, REGEX_PLACEMENT } from './regexEngine.js';
 import { buildSystemChunks, buildSystemSections, chunkIndexForSectionEnd, composeSystemText, planSystemCache } from './systemSections.js';
 import { expandHistoryWithTraces } from '../chat/toolTrace.js';
 import { buildStickerInstruction } from '../chat/stickerDirectives.js';
+import { normalizeStickerChance } from '../chat/stickerPolicy.js';
 
 export const DEFAULT_SYSTEM_PROMPT = '你是 EasyChat2 的智能助手，回答简洁清晰。';
 
@@ -77,12 +78,21 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
 }
 
 // 图片下载指令说明（模型可见的提示词，刻意不进 i18n；开关开启时注入系统提示）。措辞可改。
+//
+// 2026-10-18 措辞修正（用户报告「开了图片下载，从来没发过图」）：
+// 原措辞的重心全在「不要编造 URL」上，模型（正确地）把这个约束泛化成「永远不要用这条指令」，
+// 于是这个功能变成了一条**永远沉默的通道**。新措辞把「何时可用」讲死：
+// 只有上下文中确实出现过、你确信有效的 URL 才写——既不诱导编造，也不让它以为完全不能用。
+// 同时明确「这只是通道，不是来源」：模型没有联网找图的能力，这一点说清楚它才不会假装。
 const DOWNLOAD_IMAGE_INSTRUCTION =
-  '当你想给用户看一张网络图片时，在回复里单独写一行：<download_image:图片URL>，'
+  '当你想给用户看一张**具体**的网络图片时，在回复里单独写一行：<download_image:图片URL>，'
   + 'URL 必须以 http:// 或 https:// 开头。系统会自动下载并把它显示在聊天里，'
-  + '你不需要在正文里重复贴 URL，也不要编造 URL。只在确实需要展示图片时使用，一条回复最多 3 张。';
+  + '你不需要在正文里重复贴 URL。'
+  + '使用条件（重要）：只在对话上下文中确实出现过、且你确信有效的图片 URL 上使用'
+  + '（例如用户自己发过的链接）。你没有联网搜图的能力，也不要编造或猜测 URL——'
+  + '想不出确切 URL 时，就不要写这条指令。一条回复最多 3 张。';
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, stickerEnabled, currentTimeText, scheduleText, locationText, downloadImageEnabled, extraSystemPrompt, voiceAudio }) {
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, stickerEnabled, stickerChance, currentTimeText, scheduleText, locationText, downloadImageEnabled, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   // P5：展开历史里的工具轨迹（toolTrace → tool 消息），让 agent 看到跨轮的工具结果。
   const history = buildHistory(expandHistoryWithTraces(historyMessages), scripts);
@@ -155,8 +165,14 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   const stickerList = (Array.isArray(stickerNames) ? stickerNames : [])
     .map(item => String(item || '').trim())
     .filter(Boolean);
-  // 表情包教学：开关开启且用户确有表情包时才注入（无表情包时即使开启也不发指令）。
-  const stickerText = stickerEnabled ? buildStickerInstruction(stickerList) : '';
+  // 表情包教学：开关开启、用户确有表情包、且概率档位不为 0 时才注入。
+  //
+  // 2026-10-18：概率从「app 侧掷骰」改为「提示词里的频率措辞」（见 stickerPolicy）。
+  // chance=0 的含义随之变成「不注入教学」——模型根本不会被引导去写指令，
+  // 效果仍是「不发」，但不再出现「模型写了、被 app 的硬币吞掉」这种不可观测的丢失。
+  const stickerText = stickerEnabled && normalizeStickerChance(stickerChance) > 0
+    ? buildStickerInstruction(stickerList, { chance: stickerChance })
+    : '';
   const presetList = (Array.isArray(globalPresets) ? globalPresets : [])
     .map(item => String(item || ''))
     .map(item => item.trim())

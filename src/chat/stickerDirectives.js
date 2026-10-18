@@ -5,6 +5,9 @@
 // - 名称必须命中白名单（用户实际拥有的表情包），模型自造的名称一律丢弃；
 // - 标记从正文中剥离，文字与表情包分别成条展示。
 
+import { chanceToWording } from './stickerPolicy.js';
+
+
 const STICKER_DIRECTIVE_PATTERN = /\[\[\s*表情包\s*[:：]\s*([^\]\n]+?)\s*\]\]/g;
 
 function cleanName(value) {
@@ -58,15 +61,45 @@ function normalizeDirectiveWhitespace(text) {
 
 // 表情包教学提示（模型可见的提示词，刻意不进 i18n；开关开启且有表情包时注入系统提示）。
 // 措辞可改。清单为空时返回空串——调用方据此不注入（无表情包就不该发指令）。
+//
+// 2026-10-18 强化（用户报告「从来没见过表情包」）：用户截图的思考过程是直接证据——
+// 模型明确计划「然后发一个表情包…单独一行发[[表情包:微笑]]」，但最终正文只有一句话、
+// 没有指令。也就是说它**想了但没写**。原模板是三行普通说明、无示例，对带思考的模型
+// 约束力不够。这次加两样东西：
+//   ① 一句「必须真的写在正文里」——直接掐掉「只在心里决定」这种失败模式；
+//   ② 一个最小 few-shot 示例（示例必须保留，否则又退回纯说明）。
+// 频率措辞由 buildStickerInstruction 按概率档位注入（见 stickerPolicy.chanceToWording），
+// 不再写死「偶尔」——否则 100% 档位会被这句话反向压制。
 const STICKER_INSTRUCTION_TEMPLATE = [
-  '你可以在情绪合适时用表情包回应。想发表情包时，在回复里单独写一行：[[表情包:名称]]，',
+  '你可以在情绪合适时用表情包回应。想发表情包时，在回复里**真的写出**单独一行：[[表情包:名称]]，',
   '名称必须严格从下列清单中选择：{names}。',
-  '不要自造、改写或翻译名称；也不要在每条回复里都发表情包，只在情绪真正贴合时偶尔使用。',
+  '不要自造、改写或翻译名称。',
+  '{frequency}',
+  '注意：只在心里想着要发表情包是不够的——指令必须真的出现在你这条回复的正文里，否则系统不会发送任何表情包。',
+  '示例（用户说「今天好累啊」，你决定配一个安慰的表情包）：',
+  '  辛苦了，早点休息。',
+  '  [[表情包:{example}]]',
 ].join('\n');
 
-export function buildStickerInstruction(names) {
+export function buildStickerInstruction(names, { chance } = {}) {
   const list = (Array.isArray(names) ? names : []).map(cleanName).filter(Boolean);
   if (list.length === 0) return '';
+  // 概率档位 → 频率措辞。缺省（没传 chance）沿用旧的「偶尔」口径，保持既有调用点行为。
+  const frequency = typeof chance === 'undefined'
+    ? '也不要在每条回复里都发表情包，只在情绪真正贴合时偶尔使用。'
+    : chanceToWording(chance);
   // 用替换函数而非替换字符串：表情包名可含 `$&`/`$1` 等模式，作为替换字符串会被解释成注入。
-  return STICKER_INSTRUCTION_TEMPLATE.replace('{names}', () => list.join('、'));
+  // 示例名同样必须来自白名单——否则示例本身就在教模型自造名字（比不给示例更糟）。
+  return STICKER_INSTRUCTION_TEMPLATE
+    .replace('{names}', () => list.join('、'))
+    .replace('{frequency}', () => frequency)
+    .replace('{example}', () => pickExampleName(list));
+}
+
+// 教学里那个示例用到的表情包名。优先用「抱抱」（贴合安慰场景），
+// 但**必须存在于用户清单里**：不在就退回清单第一个，保证示例本身合法。
+export function pickExampleName(names) {
+  const list = (Array.isArray(names) ? names : []).map(cleanName).filter(Boolean);
+  if (list.length === 0) return '';
+  return list.includes('抱抱') ? '抱抱' : list[0];
 }

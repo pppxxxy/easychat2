@@ -62,6 +62,9 @@ import {
   validateImageBatch,
 } from './attachments.js';
 import { createMediaMessage, getMessagePromptText, STICKER_MESSAGE_KIND } from './chatMedia.js';
+// 输入框 store：只用 getInput 做调用期读取（不订阅）。清空逻辑见 sendInputCleanup.js。
+import { getInput } from './inputStore.js';
+import { clearInputAfterSend } from './sendInputCleanup.js';
 // 图片识别（OCR）：带图片的消息先由 OCR 模型换成文字描述再喂主模型（接线见
 // chat/imageRecognitionSend.js，这里只用它的两个入口）。
 import { applyImageRecognitionToMessages } from './imageRecognitionSend.js';
@@ -485,6 +488,7 @@ export default function useChatSend({
          quote,
          stickerNames: inject.stickerNames,
          stickerEnabled: inject.stickerEnabled,
+         stickerChance: inject.stickerChance,
          currentTimeText: inject.currentTimeText,
          scheduleText: inject.scheduleText,
          downloadImageEnabled: inject.downloadImageEnabled,
@@ -1131,6 +1135,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
                locationText: groupInject.locationText,
                stickerNames: groupInject.stickerNames,
                stickerEnabled: groupInject.stickerEnabled,
+               stickerChance: groupInject.stickerChance,
                downloadImageEnabled: groupInject.downloadImageEnabled,
             });
             const speakerMeter = createRequestMeter();
@@ -1607,13 +1612,8 @@ if (!isCurrent() || controller.signal.aborted) return false;
        return false;
      }
      const baseAttachmentIds = baseAttachments.map(item => String(item.id || ''));
-    setInput(current => {
-      if (current !== rawText) return current;
-      // 发送成功即清空草稿：内容已进入消息列表，不再是待发草稿。
-      draftTextRef.current = '';
-      persistDraftNow(sessionGuard.sessionId, '');
-      return '';
-    });
+     // 清空输入与草稿（仅当用户没在此期间改动输入）；实现与历史见 sendInputCleanup.js。
+     clearInputAfterSend({ rawText, getInput, setInput, draftTextRef, persistDraftNow, sessionId: sessionGuard.sessionId });
     setAttachments(current => {
       const currentIds = current.map(item => String(item.id || ''));
       if (
