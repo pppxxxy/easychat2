@@ -884,7 +884,7 @@ export default function useChatSend({
       }
      } catch (error) {
        clearToolBubble();
-       streamThrottle.flush(); // 节流窗口里压着的最后一份文本先发出去（下面按当前 state 结算）
+       streamThrottle.flush(); reasoningThrottle.flush(); // 文本/思考是两条独立节流器，都要 flush
        if (isConfigChangedError(error)) {
          sourceChangedRef.current = true;
          setMessages(current => (

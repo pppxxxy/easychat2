@@ -101,15 +101,67 @@ async function snapshotMediaFiles(items) {
   return snapshot;
 }
 
+// 回滚也并发：失败时用户已经很不爽了，没必要再串行等上百次往返。
+// 每个 key / path 独立，setItem / removeItem / 写文件都是单目标操作，无顺序依赖。
 async function rollbackStorage(snapshot) {
-  for (const item of snapshot) {
+  await runWithConcurrency(snapshot, IMPORT_WRITE_CONCURRENCY, async item => {
     if (item.exists) await AsyncStorage.setItem(item.key, item.raw);
     else await AsyncStorage.removeItem(item.key);
-  }
+  });
+}
+
+// 导入写盘的**受限并发**执行器。
+//
+// 为什么需要（用户实测 2026-10-19）：115MB 备份「导入成功，但好慢好慢」。
+// 实测把慢拆开看（Node 基准，V8）：
+//   · JSON.parse 整个 115MB 包        ≈ 86ms
+//   · 47 个媒体 base64 解码           ≈ 38ms
+//   合计 ≈ 124ms —— 解析根本不是瓶颈。
+// 真正慢的是**逐条串行 await**：每个媒体文件一次 makeDirectoryAsync + 一次
+// writeAsStringAsync，每个存储键一次 setItem，全部一条一条排队。115MB 的包意味着
+// 上百次原生往返，每次都要等上一次完成。
+//
+// 并发化是安全的，因为这三类写**互不依赖**：
+//   · 存储键：每个 key 独立，setItem 是覆盖语义；
+//   · 媒体文件：每个 path 独立，且目录创建幂等（intermediates: true）；
+//   · 回滚：同样是独立键/独立文件。
+// 顺序语义也没有变：同一个 key/path 在包里只出现一次（planBackupImport 已按 key 去重）。
+//
+// 并发度取 4 而不是无限：Android 的 AsyncStorage 与文件系统对**单个进程**的并发
+// 写入并没有收益（底层是同一批 IO 线程），开太大只会让失败时的错误更难归因。
+// 4 已足够把「上百次串行往返」压成「几十批」。
+export const IMPORT_WRITE_CONCURRENCY = 4;
+
+// 按 items 顺序分批并发执行 task。**任一失败即整体失败**（与串行语义一致：
+// 串行时第一个失败就会抛出，后面的不再执行）——但已在飞行的任务会跑完，
+// 调用方随后回滚，回滚覆盖的是全部快照，不依赖"哪些已经写成功"。
+async function runWithConcurrency(items, limit, task) {
+  const list = Array.isArray(items) ? items : [];
+  const size = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.floor(Number(limit)) : 1;
+  let index = 0;
+  let failure = null;
+  const worker = async () => {
+    while (true) {
+      if (failure) return; // 已有人失败：不再领取新任务
+      const current = index;
+      index += 1;
+      if (current >= list.length) return;
+      try {
+        await task(list[current], current);
+      } catch (error) {
+        if (!failure) failure = error;
+        return;
+      }
+    }
+  };
+  const workers = [];
+  for (let i = 0; i < Math.min(size, list.length); i += 1) workers.push(worker());
+  await Promise.all(workers);
+  if (failure) throw failure;
 }
 
 async function rollbackMedia(snapshot) {
-  for (const item of snapshot) {
+  await runWithConcurrency(snapshot, IMPORT_WRITE_CONCURRENCY, async item => {
     if (item.exists) {
       const parent = item.uri.slice(0, item.uri.lastIndexOf('/'));
       await FileSystem.makeDirectoryAsync(`${parent}/`, { intermediates: true });
@@ -119,7 +171,7 @@ async function rollbackMedia(snapshot) {
     } else {
       await FileSystem.deleteAsync(item.uri, { idempotent: true });
     }
-  }
+  });
 }
 
 // 密钥快照/回滚：保险箱也必须进回滚集合。
@@ -425,7 +477,9 @@ export async function importBackup(payload, mode = 'merge') {
     // 「包内每个键都以备份内容为准」实现，包外的本机键（读取失败的、新版本新增的）保留
     // ——这正是原注释的口径，也是**不能**改成「删掉本地多出的键」的原因（那会删掉新版
     // 本新增键并让 App 不可用）。
-    for (const item of plan.storage) {
+    // 存储键与媒体文件都**并发写**（见 IMPORT_WRITE_CONCURRENCY 的实测理由）。
+    // 语义不变：每个 key / path 在包里唯一，setItem 是覆盖语义，目录创建幂等。
+    await runWithConcurrency(plan.storage, IMPORT_WRITE_CONCURRENCY, async item => {
       // opaqueRaw 条目是结构损坏时抢救下来的原始串：原样写回，不做 parse——
       // 它的价值恰恰在于「应用读不出但字节不丢」，重新序列化会再次损坏。
       if (typeof item.opaqueRaw === 'string') {
@@ -434,15 +488,23 @@ export async function importBackup(payload, mode = 'merge') {
       } else {
         await AsyncStorage.setItem(item.key, JSON.stringify(item.value));
       }
-    }
+    });
+    // 目录只需建一次（原先每个文件都调一次 makeDirectoryAsync——同一目录被重复创建
+    // 上百次，纯属浪费原生往返）。按父目录去重后统一建，再并发写文件。
+    const mediaDirectories = new Set();
     for (const item of plan.media) {
       const uri = `${FileSystem.documentDirectory}${item.path}`;
-      const parent = uri.slice(0, uri.lastIndexOf('/'));
-      await FileSystem.makeDirectoryAsync(`${parent}/`, { intermediates: true });
+      mediaDirectories.add(`${uri.slice(0, uri.lastIndexOf('/'))}/`);
+    }
+    await runWithConcurrency([...mediaDirectories], IMPORT_WRITE_CONCURRENCY, async directory => {
+      await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+    });
+    await runWithConcurrency(plan.media, IMPORT_WRITE_CONCURRENCY, async item => {
+      const uri = `${FileSystem.documentDirectory}${item.path}`;
       await FileSystem.writeAsStringAsync(uri, item.base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
-    }
+    });
   } catch (error) {
     try {
       await rollbackStorage(storageSnapshot);
