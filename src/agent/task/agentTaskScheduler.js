@@ -10,9 +10,16 @@
 
 import { AppState } from 'react-native';
 
+import { measureAsync, PERF_THRESHOLDS } from '../../logging/perfProbe.js';
 import { runDueAgentTasks } from './taskDispatch.js';
 
 export { runDueAgentTasks };
+
+// 取证埋点（perfProbe）：60s 调度器每轮的耗时。默认为关闭时是一次布尔判断，
+// 不改变任何行为；开启后超过 800ms（PERF_THRESHOLDS.startup）才留一条诊断。
+// 单独打点是因为本轮排查里「停在设置页也烫」需要一个后台活动的读数来排除/定位：
+// 若这一轮本身很慢，它每 60s 会把主线程拖住一次，形态与用户描述吻合。
+const TICK_LABEL = 'app.tick';
 
 // 启动 App 内调度器：立即跑一轮，之后在 App 处于前台时按 intervalMs 轮询；
 // 退到后台就停表（后台交给原生 headless）。返回停止函数。
@@ -23,7 +30,11 @@ export function startAgentTaskScheduler({ onResults = null, intervalMs = 60000 }
     if (running) return;
     running = true;
     try {
-      const produced = await runDueAgentTasks({ notify: true });
+      const produced = await measureAsync(
+        TICK_LABEL,
+        () => runDueAgentTasks({ notify: true }),
+        PERF_THRESHOLDS.startup
+      );
       if (produced > 0 && typeof onResults === 'function') onResults(produced);
     } catch (error) {
       // 调度失败不得影响 App；下一轮再试。

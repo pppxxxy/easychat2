@@ -483,13 +483,20 @@ export default function useSessionMessages({
     ];
     // 写盘串行化：同会话连续快照若并行写，旧快照可能在新快照之后落盘，
     // 让持久化结果回退。用 promise 队列保证顺序，后到的快照总是最后写入。
+    //
+    // measureAsync 包住的是**队列里的这一步**（不是入队本身），所以量到的正是真实
+    // 落盘耗时：默认关闭时它只多一次布尔判断，开启后超过 120ms 才留一条诊断。
     const savePromise = saveQueueRef.current
       .catch(() => {})
-      .then(() => saveMessagesBySession(
-        activeSessionId,
-        persistableMessages,
-        recoverOwnerId,
-        protectedImageUris
+      .then(() => measureAsync(
+        'session.saveMessages',
+        () => saveMessagesBySession(
+          activeSessionId,
+          persistableMessages,
+          recoverOwnerId,
+          protectedImageUris
+        ),
+        PERF_THRESHOLDS.storageWrite
       ));
     saveQueueRef.current = savePromise;
     savePromise
