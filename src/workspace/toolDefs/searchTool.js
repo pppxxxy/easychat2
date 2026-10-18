@@ -170,9 +170,52 @@ export const SEARCH_TOOL_DEFINITION = {
     } catch (error) {
       paths = [];
     }
+    // 先按**文件名**收窄，再逐个读内容。
+    //
+    // 为什么必须这一步（真机日志 2026-10-18）：旧实现无条件把工作区里每个文件都读一遍，
+    // 读到 2000ms 预算用完就 break——于是 search_workspace 连续 4 次都耗时
+    // 2005/2005/2007/2007ms，每次都是**被预算切断的半成品**，模型拿不到完整结果只能再搜。
+    // 搜索的时间应该花在「匹配」上，而不是花在「把整个工作区的正文搬进内存」上。
+    //
+    // 命中判定：pattern 是字面量时，文件名包含它就优先读（这是绝大多数
+    // 「找某个配置/符号在哪个文件」的实际形态）；regex 模式下用文件名试匹配，
+    // 非法正则/不匹配都不影响——**文件内容仍会被搜**，只是排到后面。
+    // 关键：这是**排序**而不是过滤。滤掉文件名不含 pattern 的文件会漏掉
+    // 「内容里有、文件名里没有」的正常命中（那是搜索的主要场景）。
+    const needle = String(pattern || '');
+    let candidates = Array.isArray(paths) ? paths.slice() : [];
+    if (needle) {
+      const nameHits = [];
+      const rest = [];
+      let nameMatcher = null;
+      if (regex) {
+        try {
+          nameMatcher = new RegExp(needle);
+        } catch (error) {
+          nameMatcher = null; // 非法正则：交给下面的纯函数统一报 bad-regex
+        }
+      }
+      for (const path of candidates) {
+        const text = String(path || '');
+        const base = text.slice(text.lastIndexOf('/') + 1);
+        const hit = nameMatcher ? nameMatcher.test(base) : (base.includes(needle) || text.includes(needle));
+        if (hit) nameHits.push(path);
+        else rest.push(path);
+      }
+      candidates = nameHits.concat(rest);
+    }
     const files = [];
-    for (const path of (Array.isArray(paths) ? paths : [])) {
-      if (Date.now() - startTime >= SEARCH_DEFAULTS.timeBudgetMs) break;
+    // 读取阶段是否被预算截断：必须单独记着。
+    // 旧实现只把 startTime 传给纯函数，而纯函数的 truncated 只在**它自己**超时时为真——
+    // 读取阶段先被切断的情况完全不可见。后果是模型收到一份「看起来完整」的结果：
+    // 若没命中，它会得到「（未找到匹配）」并据此断言「工作区里没有 X」，
+    // 而真相是「一半文件还没读」。这是**把没查完说成查过了**，比慢更危险。
+    let readTruncated = false;
+    for (const path of candidates) {
+      if (Date.now() - startTime >= SEARCH_DEFAULTS.timeBudgetMs) {
+        readTruncated = true;
+        break;
+      }
       try {
         const result = await store.readWorkspaceFile({ characterId, path });
         files.push({ path, content: String((result && result.content) || '') });
@@ -181,6 +224,16 @@ export const SEARCH_TOOL_DEFINITION = {
       }
     }
 
+    // ⚠️ 匹配阶段的预算必须**从此刻重新起算**，不能沿用 startTime。
+    //
+    // 这是一个真实的数据缺陷（真机日志 2026-10-18 暴露）：读取和匹配共用同一个
+    // 2000ms 预算，于是「读取把预算花光」⇒ 纯函数进循环第一行就 now()-startTime >= 2000
+    // ⇒ **一个文件都没扫**，直接 truncated=true、text=''。工具于是回报「未找到匹配」，
+    // 而那些文件其实已经在内存里了、根本还没来得及看——既不完整，又在说谎。
+    //
+    // 拆成两段独立预算后语义才对得上：读取最多花 2000ms 决定"能拿到哪些内容"，
+    // 匹配再最多花 2000ms 决定"能看到多少结果"。两段各自都可能被截断，且都如实上报。
+    const matchStart = Date.now();
     const outcome = searchWorkspaceText(files, {
       pattern,
       regex,
@@ -188,7 +241,7 @@ export const SEARCH_TOOL_DEFINITION = {
       maxMatchesPerFile: args.maxMatchesPerFile,
       // O2/M1：工具路径用高硬上限——超大结果交给循环的 O1 落盘管道（不就地截断丢中段）。
       maxOutputChars: SEARCH_TOOL_OUTPUT_CHARS,
-      startTime,
+      startTime: matchStart,
     });
     if (outcome.error === 'bad-regex') {
       return {
@@ -196,10 +249,22 @@ export const SEARCH_TOOL_DEFINITION = {
         isError: true,
       };
     }
-    if (!outcome.text) return '（未找到匹配）';
+    if (!outcome.text) {
+      // 「没找到」与「没读完」必须分开说：前者是事实，后者是**未知**。
+      // 合成一句话会让模型把「未知」当成「没有」，进而对用户做出错误断言。
+      return readTruncated
+        ? `（在已读取的 ${files.length} 个文件里未找到匹配；读取已达 ${SEARCH_DEFAULTS.timeBudgetMs}ms 时间上限，`
+          + '工作区里还有文件没读完——不能据此断定不存在。请用 subdir 收窄范围后重试。）'
+        : '（未找到匹配）';
+    }
+    const truncatedSuffix = '\n…（结果已达输出/时间上限，可能不完整；可用 subdir 收窄范围或调小 contextLines）';
     const suffix = outcome.truncated
-      ? '\n…（结果已达输出/时间上限，可能不完整；可用 subdir 收窄范围或调小 contextLines）'
-      : '';
+      ? truncatedSuffix
+      : (readTruncated
+        // 命中了，但读取阶段被截断：结果可能不完整，同样要说出来。
+        ? `\n…（只搜索了 ${files.length} 个文件（读取达 ${SEARCH_DEFAULTS.timeBudgetMs}ms 上限），`
+          + '其余文件未搜索，结果可能不完整；可用 subdir 收窄范围）'
+        : '');
     return `${outcome.text}${suffix}`;
   },
 };
