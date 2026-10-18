@@ -31,6 +31,35 @@ export function vectorShardKey(characterId, shard) {
   return `${VECTOR_SHARD_PREFIX}::${id}::${String(shard)}`;
 }
 
+// vectorShardKey 的**逆运算**：从任意键名解析出 { characterId, shard }，不是分片键返回 null。
+//
+// 为什么需要它（M3：孤儿分片残留 = 隐私问题）：
+// 分片键此前**没有任何反向解析入口**，于是两处扫描都看不见它们：
+//   · 快速导出按前缀白名单挑键（dataBackup.js 的 QUICK_EXPORT_PREFIXES），分片键不在其中；
+//   · 向量对账只扫 `@easychat2_vector_index::` 元数据键，分片键完全不在视野内。
+// 后果：清空向量记忆/删角色若中途失败，分片会永久留在盘上——用户以为「记忆已删干净」，
+// 而整份 embedding（可还原出原文语义）仍在。这是隐私残留，不是单纯的垃圾数据。
+//
+// 角色 id 本身可能含 '::'（历史数据里没有，但不能假设），所以**从右往左**找最后一个
+// '::' 作为 id 与片号的分界。
+export function parseVectorShardKey(key) {
+  const text = String(key || '');
+  const prefix = `${VECTOR_SHARD_PREFIX}::`;
+  if (!text.startsWith(prefix)) return null;
+  const rest = text.slice(prefix.length);
+  const splitAt = rest.lastIndexOf('::');
+  if (splitAt <= 0) return null;
+  const characterId = rest.slice(0, splitAt);
+  const shardText = rest.slice(splitAt + 2);
+  if (!characterId) return null;
+  // 片号必须是 0..VECTOR_SHARD_COUNT-1 的整数；否则不是本模块写的键（或已损坏），
+  // 一律当作「不认识」而不是猜一个片号出来——猜错会导致误删别人的分片。
+  if (!/^\d+$/.test(shardText)) return null;
+  const shard = Number(shardText);
+  if (!Number.isInteger(shard) || shard < 0 || shard >= VECTOR_SHARD_COUNT) return null;
+  return { characterId, shard };
+}
+
 // 稳定分片：同一个分段键**永远**落在同一片。这条是「只重写改动到的片」的前提——
 // 若分片随下标/顺序变化，每次都只能全量重写，分片就白分了。
 // 用 FNV-1a 32 位（纯整数运算，Hermes 与 Node 结果一致），不用 Object.hashCode 之类

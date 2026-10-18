@@ -13,12 +13,16 @@ import {
   setJsonWithSecrets,
 } from './io.js';
 import { tActive } from '../i18n/index.js';
+// 删除失败必须留痕（L2/M3：分片里是整份 embedding，静默失败 = 隐私残留）。
+import { recordDiagnostic } from './diagnostics.js';
 // 分片与紧凑编码（纯函数，零原生依赖）：把 embedding 从「单个几十 MB 的 JSON 键」里拆出来。
 // 见 vectorCodec.js 的文件头——那里的实测数字解释了为什么必须拆。
 import {
   VECTOR_SHARD_COUNT,
+  VECTOR_SHARD_PREFIX,
   decodeVector,
   encodeVector,
+  parseVectorShardKey,
   vectorShardIndex,
   vectorShardKey,
 } from './vectorCodec.js';
@@ -250,7 +254,29 @@ async function fillVectorsFromShards(characterId, meta) {
     if (item.dim <= 0 || item.vector.length > 0) return item;
     const payload = loaded.get(vectorShardIndex(vectorSegmentKey(item)));
     const vector = decodeVector(payload ? payload[vectorSegmentKey(item)] : '');
-    return vector.length > 0 ? { ...item, vector } : item;
+    if (vector.length === 0) return item;
+    // 维度口径校验（L4/L5）：解码出来的长度必须与元数据声明的 dim 一致。
+    //
+    // 为什么必须校验：分片里的 base64 若被**截断**（JSON 仍然合法、只是串变短），
+    // decodeVector 会安静地解出**更少**的浮点数。此前这里直接 `{ ...item, vector }`，
+    // 于是：
+    //   · normalizeVectorEntry 把 dim 改写成那个错误长度（元数据的 dim 被静默覆盖）；
+    //   · 检索侧 cosineSimilarity 见维度不等就返回 0（vectorMemory/index.js:201），
+    //     该条被 threshold 过滤掉 —— 这条记忆**永久搜不到**，而且没有任何提示。
+    // 更糟的是它不会自愈：indexMessages 的重新嵌入判据是
+    // 「无向量 / 空向量 / signature 变化」，而这条有向量、signature 也没变。
+    //
+    // 处置：**当作没取到**（保持 vector 为空）并留痕。空向量会被 indexMessages 认成
+    // 「需要重新嵌入」⇒ 下一条消息落盘时它就被修复，是真正的自愈而不是掩盖。
+    if (vector.length !== item.dim) {
+      recordDiagnostic(
+        'storage',
+        new Error(tActive('error.storage.vectorDimMismatch')),
+        `${characterId}：${vectorSegmentKey(item)} 实际 ${vector.length} 维 != 元数据 ${item.dim} 维（该片可能已截断）`
+      );
+      return item;
+    }
+    return { ...item, vector };
   });
 }
 
@@ -283,13 +309,112 @@ export async function getVectorIndex(characterId) {
 
 // 删除某个角色的全部分片键。分片数固定，所以这里是确定性循环——不需要 getAllKeys
 // （那条路要枚举整库的键，代价远大于 32 次 removeItem）。
+//
+// 失败**不再吞掉**（L2）：此前每个 removeItem 都 `.catch(() => {})`，于是「清空记忆」
+// 可能一个分片都没删掉、调用方却拿到成功的返回值。分片里是整份 embedding（可还原语义），
+// 静默失败等于「用户以为删了，其实还在」。现在把失败收集起来交给调用方决定——
+// 删除是幂等的，失败后重试即可，所以这里抛错比假装成功安全得多。
 async function removeAllVectorShards(characterId) {
   const keys = [];
   for (let shard = 0; shard < VECTOR_SHARD_COUNT; shard += 1) {
     const shardKey = vectorShardKey(characterId, shard);
     if (shardKey) keys.push(shardKey);
   }
-  await Promise.all(keys.map(shardKey => AsyncStorage.removeItem(shardKey).catch(() => {})));
+  const failures = [];
+  await Promise.all(keys.map(async shardKey => {
+    try {
+      await AsyncStorage.removeItem(shardKey);
+    } catch (error) {
+      failures.push({ shardKey, error });
+    }
+  }));
+  if (failures.length > 0) {
+    recordDiagnostic(
+      'storage',
+      new Error(tActive('error.storage.vectorShardClearFailed')),
+      `${characterId}：${failures.length}/${keys.length} 片删除失败，首条=${String((failures[0].error && failures[0].error.message) || '')}`
+    );
+    throw new Error(tActive('error.storage.vectorShardClearFailed'));
+  }
+}
+
+// ── M3：孤儿分片扫描 ────────────────────────────────────────────────────────
+//
+// 分片键此前**不在任何扫描范围内**：
+//   · 快速导出按前缀白名单挑键（dataBackup.js），分片键不在其中 ⇒ 备份里没有向量
+//     （这本身是合理的：向量可重建），但**也意味着导出无法带走它们**；
+//   · 向量对账只扫 `@easychat2_vector_index::` 元数据键 ⇒ 分片完全不在视野内。
+// 于是「清空向量记忆 / 删角色」若中途失败（或历史版本吞错），分片会永久留在盘上。
+// 用户以为记忆已删干净，而整份 embedding 仍在——这是**隐私残留**，不是垃圾数据。
+//
+// 这里补上「按前缀枚举全部孤儿分片」的能力：某角色的元数据键不存在 ⇒ 它的分片全是孤儿。
+// 只读，不删；删除由调用方（对账 / 清空）显式决定，便于测试与审计。
+//
+// 为什么用 getAllKeys 而不是 32×N 次探测：孤儿分片的 characterId 是**未知集合**
+// （角色可能已被删除，我们不知道要探测谁），只能枚举。
+export async function listOrphanVectorShards() {
+  let keys = [];
+  try {
+    keys = await AsyncStorage.getAllKeys();
+  } catch (error) {
+    recordDiagnostic('storage', error, 'listOrphanVectorShards：枚举键失败');
+    throw new Error(tActive('error.storage.vectorIndexListReadFailed'));
+  }
+  const prefix = `${VECTOR_SHARD_PREFIX}::`;
+  const shardKeys = (Array.isArray(keys) ? keys : [])
+    .filter(key => typeof key === 'string' && key.startsWith(prefix));
+  if (shardKeys.length === 0) return { orphans: [], scanned: 0 };
+
+  // 按角色分组：同一角色的元数据键只需查一次（否则 N 片 = N 次元数据读）。
+  const byCharacter = new Map();
+  for (const shardKey of shardKeys) {
+    const parsed = parseVectorShardKey(shardKey);
+    // 认不出的键（形状不符/片号越界）**不猜**：留着不动，但单独报出来，
+    // 免得它变成「谁也看不见」的静默残留。
+    if (!parsed) continue;
+    if (!byCharacter.has(parsed.characterId)) byCharacter.set(parsed.characterId, []);
+    byCharacter.get(parsed.characterId).push(shardKey);
+  }
+  const orphans = [];
+  const unknownKeys = shardKeys.filter(key => !parseVectorShardKey(key));
+  for (const [characterId, shardKeysOfCharacter] of byCharacter) {
+    let hasMetadata = false;
+    try {
+      const status = await readJsonStatus(vectorIndexKey(characterId));
+      // 元数据存在（ok/corrupt 都算存在）：分片有归属，不是孤儿。
+      // corrupt 时也不能当孤儿删——那会把「元数据读坏了」变成「向量全丢」。
+      hasMetadata = status.status !== 'missing';
+    } catch (error) {
+      hasMetadata = true; // 读失败：保守当作存在，绝不误删
+    }
+    if (!hasMetadata) orphans.push(...shardKeysOfCharacter);
+  }
+  return { orphans, scanned: shardKeys.length, unknownKeys };
+}
+
+// 清掉全部孤儿分片（某角色元数据已不存在，但分片还在）。返回 { removed, failed }。
+// 删除失败**要报出来**（同 removeAllVectorShards 的理由：这是隐私残留）。
+export async function purgeOrphanVectorShards() {
+  const { orphans } = await listOrphanVectorShards();
+  if (orphans.length === 0) return { removed: 0, failed: 0 };
+  let removed = 0;
+  const failures = [];
+  await Promise.all(orphans.map(async shardKey => {
+    try {
+      await AsyncStorage.removeItem(shardKey);
+      removed += 1;
+    } catch (error) {
+      failures.push(shardKey);
+    }
+  }));
+  if (failures.length > 0) {
+    recordDiagnostic(
+      'storage',
+      new Error(tActive('error.storage.vectorShardClearFailed')),
+      `purgeOrphanVectorShards：${failures.length}/${orphans.length} 片失败`
+    );
+  }
+  return { removed, failed: failures.length };
 }
 
 // 增量写入计划：算出「哪几片要重写」以及「每片里哪些分段要更新 / 删除」。
@@ -348,7 +473,13 @@ async function saveVectorIndexInternal(characterId, index, previousState = null)
   // 顺序是硬约束：**先写分片，最后写元数据**。元数据是权威索引（谁存在、多少维），
   // 分片只是它的附属数据。反过来先写元数据的话，中间被杀就会出现「元数据说有向量、
   // 分片里还没有」的窗口——那一段会永久缺向量（虽然下次会被重新嵌入，但要白付一次
-  // 嵌入调用）；按现在的顺序，最坏只是留下一片没人引用的多余分片，下次写入即清掉。
+  // 嵌入调用）。
+  //
+  // ⚠️ 旧注释在这里写的是「最坏只是留下一片没人引用的多余分片，下次写入即清掉」——
+  // **后半句不成立**（L1）：写入只重写 plan 里那几片，从不去扫「没人引用的片」。
+  // 真正的后果是孤儿分片**永久留在盘上**，而这正是 M3 要处理的问题（见
+  // listOrphanVectorShards / purgeOrphanVectorShards）。顺序本身仍然正确：宁可留下
+  // 孤儿分片（可扫描清理），也不要出现「元数据说有、分片没有」（不可恢复）。
   for (const [shard, updates] of plan) {
     const shardKey = vectorShardKey(characterId, shard);
     if (!shardKey) continue;
@@ -359,8 +490,18 @@ async function saveVectorIndexInternal(characterId, index, previousState = null)
       if (vector === null) delete current[segKey];
       else current[segKey] = encodeVector(vector);
     }
-    if (Object.keys(current).length === 0) await AsyncStorage.removeItem(shardKey);
-    else await AsyncStorage.setItem(shardKey, JSON.stringify(current));
+    if (Object.keys(current).length === 0) {
+      await AsyncStorage.removeItem(shardKey);
+    } else {
+      // L3：分片写入也必须过预算校验。
+      // 此前只有元数据调 assertValueBudget，分片**从来没有**——而分片才是真正装
+      // 向量的地方（一条 1024 维 ≈ 5.5KB base64）。一片越过 1.5MB 预算时，
+      // 越界写入在 Android 上会撞 CursorWindow 上限，症状是「读不出」而不是「写不进」，
+      // 极难定位。这里补上留痕：分片超预算 = 该调大 VECTOR_SHARD_COUNT 或调小批量。
+      const shardJson = JSON.stringify(current);
+      assertValueBudget(shardKey, shardJson);
+      await AsyncStorage.setItem(shardKey, shardJson);
+    }
   }
 
   // 元数据：只留 dim（= 这一条应有多少维），不再内联向量本体。
@@ -421,8 +562,50 @@ export function updateVectorIndex(characterId, updater) {
     // 哪怕内容一个字节都没变（向量记忆关闭时也照写，因为 indexMessages 会原样返回
     // current 而被当成「新内容」）。取消这次写入后，同一条路径只剩读盘成本。
     if (next === status.index) return status.index;
+    // S2：上面那条契约是**隐式**的——它靠「上游记得原样返回同一引用」维持。一旦上游
+    // 改成 `return [...current]` / `current.map(...)` / 深拷贝，行为就静默降级：
+    // 轻则每次落盘白付一次 O(条数×维度) 序列化（性能悄悄退化，无任何报错），
+    // 重则在内容没变时把整条索引重写一遍。反方向更隐蔽：上游**真改了内容却复用旧引用**
+    // ⇒ 这里判「无变化」直接 return，改动**不落盘**。
+    //
+    // 护栏：引用不同但深比较相等 ⇒ 说明上游在做无意义的复制。**正确性优先**——照常
+    // 按「有变化」写盘（绝不因优化丢改动），但留一条诊断让退化可见。
+    if (isDeepEqualIndex(next, status.index)) {
+      recordDiagnostic(
+        'storage',
+        new Error(tActive('error.storage.vectorIndexReferenceContract')),
+        `${characterId}：updater 返回了新引用但内容未变（应原样返回 current）`
+      );
+    }
     return saveVectorIndexInternal(characterId, next, status);
   });
+}
+
+// 索引深比较：**只用于诊断护栏**（判断「引用不同但内容等价」），不参与写入决策。
+// 刻意保守：任何不确定都返回 false（＝当作有变化）。漏报一次退化只是少一条诊断，
+// 而误判成「无变化」会丢改动——两者代价不对等。
+function isDeepEqualIndex(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (left === right) continue;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+    if (vectorSegmentKey(left) !== vectorSegmentKey(right)) return false;
+    const lv = Array.isArray(left.vector) ? left.vector : [];
+    const rv = Array.isArray(right.vector) ? right.vector : [];
+    if (lv.length !== rv.length) return false;
+    for (let k = 0; k < lv.length; k += 1) {
+      if (lv[k] !== rv[k]) return false;
+    }
+    // 向量之外的字段（dim / sessionId / mergedFrom…）也决定元数据形状，变了就要写盘。
+    const { vector: _lv, ...lrest } = left;
+    const { vector: _rv, ...rrest } = right;
+    if (JSON.stringify(lrest) !== JSON.stringify(rrest)) return false;
+  }
+  return true;
 }
 
 // 清掉一条记忆里「来源已被删除」的 mergedFrom 快照，并决定这条记忆的去留。
@@ -515,9 +698,17 @@ export function clearVectorIndex(characterId) {
   const key = vectorIndexKey(characterId);
   if (!key) return Promise.resolve();
   return enqueueVectorIndexMutation(characterId, async () => {
-    await AsyncStorage.removeItem(key);
-    // 元数据键删掉不等于索引没了：向量本体在分片键里。删角色时必须一并清干净，
-    // 否则整份 embedding 会永久留在盘上（用户以为已经删了记忆）。
+    // 顺序（L2）：**先删分片，最后删元数据**。
+    //
+    // 旧实现是先删元数据、再删分片。那个顺序一旦中途失败（或历史版本的
+    // `.catch(() => {})` 吞掉错误），分片就成了**孤儿**：元数据没了，谁也找不到它们，
+    // 而里面是整份 embedding。用户以为「记忆已删干净」，实际仍留在盘上。
+    //
+    // 反过来：先删分片、失败就抛（元数据还在，下次重试仍能定位到这个角色）；
+    // 只有分片全删干净了才删元数据。最坏情况是「元数据还在、分片已空」——那只是
+    // 一条没有向量的空索引，下次写入/对账即可收敛，且**不含任何内容**。
+    // 换句话说：宁可留下空壳，也不留下内容。
     await removeAllVectorShards(characterId);
+    await AsyncStorage.removeItem(key);
   });
 }

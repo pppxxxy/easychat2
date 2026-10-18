@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { shouldIndexSession } from '../../vectorMemory/scope.js';
 import {
   VECTOR_INDEX_PREFIX,
+  purgeOrphanVectorShards,
   readVectorIndexStatus,
   updateVectorIndex,
 } from '../vector.js';
@@ -81,6 +82,22 @@ export async function reconcileVectorIndexes() {
       report.failedKeys.push(key);
       if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('[vector] reconciliation failed', error);
     }
+  }
+  // M3：孤儿分片清理。
+  //
+  // 上面那个循环只扫 `@easychat2_vector_index::` 元数据键——**分片键完全不在视野内**。
+  // 于是「元数据已没了、分片还在」的残留永远不会被发现，而分片里是整份 embedding
+  // （可还原语义）。这是隐私残留，不是垃圾数据。
+  //
+  // 放在最后做，且**失败不影响主对账结果**：对账本身已经把该清的分段清了，
+  // 孤儿清理是额外一层保险；它失败时只记数，不把整次对账判成失败。
+  try {
+    const purged = await purgeOrphanVectorShards();
+    report.orphanShardsRemoved = purged.removed;
+    report.orphanShardsFailed = purged.failed;
+  } catch (error) {
+    report.orphanShardsRemoved = 0;
+    report.orphanShardsFailed = -1; // -1 = 扫描本身失败（区别于「扫到但删失败」）
   }
   return report;
 }
