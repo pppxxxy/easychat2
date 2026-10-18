@@ -5,7 +5,11 @@
 // 的仓库文件列表（列文件 → 兼容分级 → 选量化），保证量化/体积/兼容信息实时准确。
 // 全部为纯数据 + 纯函数，便于 Node 直测。
 
-import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
+import {
+  DEFAULT_LOCAL_MODEL_SOURCE_ID,
+  LOCAL_MODEL_DOWNLOAD_SOURCES,
+  resolveLocalModelSourceId,
+} from './modelState.js';
 
 // 精选条目：repoId 用各源的仓库坐标（HuggingFace 风格 owner/repo）。
 // sizeTier 为粗略参数规模档（B），minMemoryBytes 为该仓库最小量化大致需求，
@@ -79,11 +83,21 @@ export function featuredCardEntry(item = {}) {
 
 // 按设备内存挑选精选：内存未知（0）时全部保留（不让缺信息把入口清空）；
 // 已知内存时过滤掉「超出可用预算」的条目，并按体积从小到大排序（小模型优先）。
-export function selectFeaturedModels({ totalMemoryBytes = 0, sourceId = 'huggingface' } = {}) {
+//
+// 默认源走单一事实源（T1）：此前这里硬编码 sourceId = 'huggingface'，与界面上
+// 「默认用镜像」的口径**不一致**——而 usePanelModels 调用时又没传 sourceId，
+// 于是精选卡的 entry.sourceId 恒为官方站。用户点精选卡直达文件层时，
+// 请求打的是国内连不上的主机（「啥都搜不到」的又一条入口）。
+export function selectFeaturedModels({
+  totalMemoryBytes = 0,
+  sourceId = DEFAULT_LOCAL_MODEL_SOURCE_ID,
+} = {}) {
+  // 传进来的空/未知源同样归一，避免调用方传 '' 时又落回官方站。
+  const resolvedSourceId = resolveLocalModelSourceId(sourceId);
   const total = Number(totalMemoryBytes);
   const list = FEATURED_MODELS.map(item => ({
     ...item,
-    sourceId,
+    sourceId: resolvedSourceId,
     memoryKnown: Number.isFinite(total) && total > 0,
     fits: !(Number.isFinite(total) && total > 0) || item.minMemoryBytes <= total * FEATURED_USABLE_RATIO,
   }));

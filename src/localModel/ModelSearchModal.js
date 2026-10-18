@@ -66,7 +66,13 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, in
 
   useEffect(() => {
     if (!visible) return;
-    setSourceId(resolveLocalModelSourceId(initialSourceId));
+    // 归一后的源先算出来、**显式传给** runSearch（T6）。
+    // 为什么不能只 setSourceId 然后 runSearch(seed)：
+    //   runSearch 读的是**本次渲染闭包**里的 sourceId，而 setSourceId 要到下次渲染才生效。
+    //   于是当 initialSourceId 在两次打开之间发生变化时（例如从精选卡带着新的源进入），
+    //   请求会打到**上一个源**，而界面高亮的却是新的那个 —— 用户看到「选了镜像却在打官方站」。
+    const resolvedSourceId = resolveLocalModelSourceId(initialSourceId);
+    setSourceId(resolvedSourceId);
     setQuery(initialQuery || '');
     setBusy(false);
     setFilesBusy(false);
@@ -77,19 +83,32 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, in
     // 从模型库「未安装精选卡」进入：带上仓库坐标，自动搜一次直达文件层。
     const seed = String(initialQuery || '').trim();
     if (seed) {
-      runSearch(seed);
+      runSearch(seed, resolvedSourceId);
     }
   }, [visible, initialSourceId, initialQuery]);
 
-  const runSearch = async override => {
-    const text = String(override !== undefined ? override : query).trim();
+  // sourceOverride：显式指定本次搜索用哪个源。省略时才读组件状态。
+  // 存在的唯一理由是上面那条 effect——它必须在 setState 生效**之前**就用新源发起请求。
+  //
+  // ⚠️ override 只接受**字符串**（或数字）：绝不能把事件对象当成搜索词。
+  // 历史 bug：搜索按钮写成 `onPress={runSearch}`、回车写成 `onSubmitEditing={runSearch}`，
+  // RN 会把 GestureResponderEvent / {nativeEvent:{text}} 当第一个参数传进来，于是
+  // `String(event)` == "[object Object]" —— 用户不管输入什么（哪怕精确的模型名），
+  // 实际发出去的请求都在搜字符串 "[object Object]"，界面上就是**「啥都搜不到」**。
+  // 调用点已改成 `() => runSearch()`；这里再兜一道，免得同类错误复现时又变成静默空结果。
+  const runSearch = async (override, sourceOverride) => {
+    const overrideIsText = typeof override === 'string' || typeof override === 'number';
+    const text = String(overrideIsText ? override : query).trim();
     if (!text || busy) return;
+    const activeSourceId = resolveLocalModelSourceId(
+      sourceOverride !== undefined ? sourceOverride : sourceId
+    );
     setBusy(true);
     setError('');
     setActiveRepo(null);
     setFiles(null);
     try {
-      const list = await searchModels(sourceId, text);
+      const list = await searchModels(activeSourceId, text);
       setResults(list);
     } catch (searchError) {
       setResults([]);
@@ -207,11 +226,11 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, in
                 placeholderTextColor={theme.colors.textFaint}
                 autoCapitalize="none"
                 returnKeyType="search"
-                onSubmitEditing={runSearch}
+                onSubmitEditing={() => runSearch()}
               />
               <TouchableOpacity
                 style={[styles.searchButton, (!query.trim() || busy) && styles.searchButtonDisabled]}
-                onPress={runSearch}
+                onPress={() => runSearch()}
                 disabled={!query.trim() || busy}
                 activeOpacity={0.8}
                 accessibilityRole="button"

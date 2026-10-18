@@ -2,7 +2,11 @@
 // 解析函数全部是纯函数（便于单测）；网络函数只负责拼请求并调用可注入的 fetch。
 // 约定：只收录含 `.gguf` 的仓库，文件列表只保留 `.gguf` 与配套 mmproj。
 
-import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
+import {
+  DEFAULT_LOCAL_MODEL_SOURCE_ID,
+  LOCAL_MODEL_DOWNLOAD_SOURCES,
+  resolveLocalModelSourceId,
+} from './modelState.js';
 import { tActive } from '../i18n/index.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 
@@ -22,7 +26,13 @@ const SOURCE_DOWNLOAD = {
 };
 
 export function catalogProviderForSource(sourceId) {
-  return SOURCE_PROVIDER[String(sourceId || '')] || 'huggingface';
+  // 空/未知源一律按**默认源**解释（T2）。此前回落字面量 'huggingface'——
+  // 而默认源已改成 hf-mirror（见 modelState.DEFAULT_LOCAL_MODEL_SOURCE_ID 的注释：
+  // 官方站在国内直连必失败，默认指过去等于让用户「啥都搜不到」）。
+  // 注意本函数返回的是**provider**（'huggingface' / 'modelscope'），不是 sourceId：
+  // hf-mirror 复用 HuggingFace 的接口形态，所以它的 provider 本来就是 'huggingface'。
+  const resolved = resolveLocalModelSourceId(sourceId);
+  return SOURCE_PROVIDER[resolved] || SOURCE_PROVIDER[DEFAULT_LOCAL_MODEL_SOURCE_ID] || 'huggingface';
 }
 
 export function defaultRevisionForSource(sourceId) {
@@ -80,8 +90,15 @@ function encodeFilePath(filePath) {
 
 // 取某下载源的基地址（去尾斜杠）。目录搜索/文件列表与下载共用同一主机，
 // 这样 HF Mirror 不仅下载走镜像，搜索与文件接口也走镜像（否则国内仍连不上官方站）。
+//
+// 空/未知源先归一到**默认源**再查表（T2）：此前直接拿空串查表、查不到就回落
+// 'https://huggingface.co'，于是「手动输入 URL」「selection.sourceId 为空」这类
+// 路径会绕过界面默认值、悄悄打官方站——正是「啥都搜不到」的另一条入口。
 function catalogBaseUrl(sourceId) {
-  const source = LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === String(sourceId || ''));
+  const resolved = resolveLocalModelSourceId(sourceId);
+  const source = LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === resolved)
+    || LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === DEFAULT_LOCAL_MODEL_SOURCE_ID);
+  // 字面量只作最后的绝对兜底（列表为空这种不可能的情况），不再是「未知源」的去处。
   return String((source && source.baseUrl) || 'https://huggingface.co').replace(/\/+$/, '');
 }
 
@@ -171,9 +188,16 @@ export function parseModelScopeFiles(json, repoId, revision = 'master') {
 // --- 下载地址 ---
 
 export function buildDownloadUrl(sourceId, repoId, revision, filePath) {
-  const id = String(sourceId || '');
-  const source = LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === id);
-  const prefixInfo = SOURCE_DOWNLOAD[id] || SOURCE_DOWNLOAD.huggingface;
+  // 空/未知源归一到默认源（T2）：否则「手动输入 URL」等路径会生成官方站地址，
+  // 在国内下不动，而用户以为自己选的是镜像。
+  const id = resolveLocalModelSourceId(sourceId);
+  const source = LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === id)
+    || LOCAL_MODEL_DOWNLOAD_SOURCES.find(item => item.id === DEFAULT_LOCAL_MODEL_SOURCE_ID);
+  // 路径前缀（魔搭多一层 /models）与默认分支也按**归一后的** id 取，
+  // 免得出现「主机是镜像、路径按官方站拼」的混合体。
+  const prefixInfo = SOURCE_DOWNLOAD[id]
+    || SOURCE_DOWNLOAD[DEFAULT_LOCAL_MODEL_SOURCE_ID]
+    || SOURCE_DOWNLOAD.huggingface;
   const base = String((source && source.baseUrl) || 'https://huggingface.co').replace(/\/+$/, '');
   const repo = encodeRepoPath(repoId);
   const path = encodeFilePath(filePath);
@@ -272,18 +296,27 @@ async function requestJson(request, options) {
 // 与 backupRead 的 recordReadTrace：失败路径的留痕不是可选项。
 //
 // 只记 sourceId / 主机 / 状态或错误首行——**不记 query 全文**（用户搜的可能是私人内容）。
-function noteCatalogFailure(stage, sourceId, baseUrl, error) {
+//
+// T4：留痕实现可注入（`options.recordFailure`），让「失败时到底记了什么」能被**运行时**
+// 断言，而不是只靠扫源码字符串。默认仍是 recordDiagnostic，生产路径行为不变。
+function noteCatalogFailure(stage, sourceId, baseUrl, error, recordFailure = recordDiagnostic) {
   try {
     const host = String(baseUrl || '').replace(/^https?:\/\//i, '').split('/')[0];
     const reason = String((error && error.message) || error || 'unknown').split('\n')[0].slice(0, 200);
-    recordDiagnostic(
+    recordFailure(
       'api',
       { message: `[local-model] ${stage} failed on ${host || sourceId}` },
       `source=${String(sourceId || '')} reason=${reason}`
     );
-  } catch (error) {
-    // 留痕失败绝不挡主流程。
+  } catch {
+    // 留痕失败绝不挡主流程（T5：不绑定 error，免得遮蔽上面的参数）。
   }
+}
+
+// 从 options 取留痕实现：只在**显式传入函数**时替换，避免 undefined/null 把默认实现顶掉。
+function resolveRecordFailure(options) {
+  const candidate = options && options.recordFailure;
+  return typeof candidate === 'function' ? candidate : recordDiagnostic;
 }
 
 export async function searchModels(sourceId, query, options = {}) {
@@ -291,9 +324,12 @@ export async function searchModels(sourceId, query, options = {}) {
   const baseUrl = catalogBaseUrl(sourceId);
   try {
     const json = await requestJson(adapter.searchRequest(query, baseUrl), options);
-    return adapter.parseSearch(json).map(item => ({ ...item, sourceId: String(sourceId || '') }));
+    // 结果的 sourceId 也归一：否则空源搜出来的条目会带回 sourceId:''，
+    // 回填草稿后再一次落到「未知源」的兜底路径上。
+    const resolved = resolveLocalModelSourceId(sourceId);
+    return adapter.parseSearch(json).map(item => ({ ...item, sourceId: resolved }));
   } catch (error) {
-    noteCatalogFailure('search', sourceId, baseUrl, error);
+    noteCatalogFailure('search', sourceId, baseUrl, error, resolveRecordFailure(options));
     throw error;
   }
 }
@@ -306,7 +342,7 @@ export async function listModelFiles(sourceId, repoId, options = {}) {
     const json = await requestJson(adapter.filesRequest(repoId, revision, baseUrl), options);
     return adapter.parseFiles(json, repoId, revision);
   } catch (error) {
-    noteCatalogFailure('files', sourceId, baseUrl, error);
+    noteCatalogFailure('files', sourceId, baseUrl, error, resolveRecordFailure(options));
     throw error;
   }
 }
