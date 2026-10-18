@@ -184,7 +184,7 @@ export default function LocalModelPanel({ visible, onClose }) {
       <ModelSearchModal
         visible={searchVisible}
         onClose={() => setSearchVisible(false)}
-        initialSourceId={acquire.downloadDraft.sourceId || 'huggingface'}
+        initialSourceId={acquire.downloadDraft.sourceId /* 空值由弹窗归一，见 modelState */}
         initialQuery={searchQuery}
         onSelect={feedback.onSearchSelect}
         totalMemoryBytes={models.deviceMemoryBytes}

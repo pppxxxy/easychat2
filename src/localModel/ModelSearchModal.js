@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
+import { LOCAL_MODEL_DOWNLOAD_SOURCES, resolveLocalModelSourceId } from './modelState.js';
 import { buildDownloadUrl, catalogProviderForSource, listModelFiles, searchModels } from './modelCatalog.js';
 import { selectFeaturedModels } from './featured.js';
 import { rankModelFiles } from './modelCompatibility.js';
@@ -40,7 +40,9 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, in
   const { theme, fonts, tokens } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const [sourceId, setSourceId] = useState(initialSourceId || 'huggingface');
+  // 默认源必须是「在国内真能连上」的那个（见 modelState.DEFAULT_LOCAL_MODEL_SOURCE_ID 的注释：
+  // 原先回落 'huggingface'，而国内直连 huggingface.co 必失败 ⇒ 用户「啥都搜不到」）。
+  const [sourceId, setSourceId] = useState(() => resolveLocalModelSourceId(initialSourceId));
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [filesBusy, setFilesBusy] = useState(false);
@@ -64,7 +66,7 @@ export default function ModelSearchModal({ visible, onClose, initialSourceId, in
 
   useEffect(() => {
     if (!visible) return;
-    setSourceId(initialSourceId || 'huggingface');
+    setSourceId(resolveLocalModelSourceId(initialSourceId));
     setQuery(initialQuery || '');
     setBusy(false);
     setFilesBusy(false);

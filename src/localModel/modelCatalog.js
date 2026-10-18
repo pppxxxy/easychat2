@@ -4,6 +4,7 @@
 
 import { LOCAL_MODEL_DOWNLOAD_SOURCES } from './modelState.js';
 import { tActive } from '../i18n/index.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
 
 // 目录提供方：hf-mirror 复用 HuggingFace 的搜索/文件接口，仅下载主机不同。
 // （原 CATALOG_PROVIDERS 常量只有 id/name/revision，全仓零消费，已删。）
@@ -263,17 +264,49 @@ async function requestJson(request, options) {
   return response.json();
 }
 
+// 搜索/取文件失败时**必须留痕**。
+//
+// 真机事故（2026-10-19）：用户在国内点开搜索，任何关键词都搜不到，而诊断日志里
+// **一条记录都没有**——本模块此前完全没有 recordDiagnostic。用户与开发者都无从判断
+// 是「网络不通」「接口改了」还是「源选错了」。同型纪律见 storage/diagnostics.js 文件头
+// 与 backupRead 的 recordReadTrace：失败路径的留痕不是可选项。
+//
+// 只记 sourceId / 主机 / 状态或错误首行——**不记 query 全文**（用户搜的可能是私人内容）。
+function noteCatalogFailure(stage, sourceId, baseUrl, error) {
+  try {
+    const host = String(baseUrl || '').replace(/^https?:\/\//i, '').split('/')[0];
+    const reason = String((error && error.message) || error || 'unknown').split('\n')[0].slice(0, 200);
+    recordDiagnostic(
+      'api',
+      { message: `[local-model] ${stage} failed on ${host || sourceId}` },
+      `source=${String(sourceId || '')} reason=${reason}`
+    );
+  } catch (error) {
+    // 留痕失败绝不挡主流程。
+  }
+}
+
 export async function searchModels(sourceId, query, options = {}) {
   const adapter = CATALOG_ADAPTERS[catalogProviderForSource(sourceId)];
   const baseUrl = catalogBaseUrl(sourceId);
-  const json = await requestJson(adapter.searchRequest(query, baseUrl), options);
-  return adapter.parseSearch(json).map(item => ({ ...item, sourceId: String(sourceId || '') }));
+  try {
+    const json = await requestJson(adapter.searchRequest(query, baseUrl), options);
+    return adapter.parseSearch(json).map(item => ({ ...item, sourceId: String(sourceId || '') }));
+  } catch (error) {
+    noteCatalogFailure('search', sourceId, baseUrl, error);
+    throw error;
+  }
 }
 
 export async function listModelFiles(sourceId, repoId, options = {}) {
   const adapter = CATALOG_ADAPTERS[catalogProviderForSource(sourceId)];
   const revision = adapter.revision;
   const baseUrl = catalogBaseUrl(sourceId);
-  const json = await requestJson(adapter.filesRequest(repoId, revision, baseUrl), options);
-  return adapter.parseFiles(json, repoId, revision);
+  try {
+    const json = await requestJson(adapter.filesRequest(repoId, revision, baseUrl), options);
+    return adapter.parseFiles(json, repoId, revision);
+  } catch (error) {
+    noteCatalogFailure('files', sourceId, baseUrl, error);
+    throw error;
+  }
 }

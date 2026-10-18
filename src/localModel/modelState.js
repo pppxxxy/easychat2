@@ -99,6 +99,30 @@ export function localModelPath(modelId, extension = 'gguf') {
   return `${safeId || 'model'}.${extension}`;
 }
 
+// 搜索/下载的**默认下载源**。单一事实源：界面两处（搜索弹窗与获取段）都从这里取，
+// 免得再各自写 `|| 'huggingface'` 然后一起错。
+//
+// 为什么不是 huggingface（真机事故 2026-10-19）：
+// 用户在国内点开搜索，**任何关键词都搜不到**，连精确的模型名也搜不到。实测三条：
+//   · hf-mirror.com 的 /api/models 用本仓 searchModels() 实跑 → 每个词都返回 30 条；
+//   · huggingface.co 同一份代码 → 全部 `fetch failed`（国内直连不通）；
+//   · 而 `emptyDownloadDraft()` 的 sourceId 是 ''，两处都写成 `|| 'huggingface'`
+//     ⇒ 默认落在**连不上的那个源**上 ⇒ 「啥都搜不到」。
+// 这不是网络问题，是默认值选错了：把默认值指向「在不翻墙的地区必然失败」的官方站，
+// 等于让绝大多数中文用户的第一印象是「这个功能坏了」。
+//
+// 方向：默认用镜像（国内可直连，且它复用 HuggingFace 的搜索/文件接口，数据同源）。
+// 官方站仍在选项里——能直连的用户可以自己切过去，功能一点没少。
+export const DEFAULT_LOCAL_MODEL_SOURCE_ID = 'hf-mirror';
+
+// 把任意（可能是空/未知的）sourceId 归一成一个**确实存在**的下载源 id。
+// 未知 id 一律回落到默认源，而不是回落到「列表第一个」（第一个是官方站）。
+export function resolveLocalModelSourceId(sourceId) {
+  const id = String(sourceId || '').trim();
+  if (LOCAL_MODEL_DOWNLOAD_SOURCES.some(item => item.id === id)) return id;
+  return DEFAULT_LOCAL_MODEL_SOURCE_ID;
+}
+
 // 旧单模型就绪判断已在 v5 Stage A 退役：设置键不再持有单模型路径/体积，
 // 就绪判定统一走 isLocalModelItemReady（按 activeModelId 取条目）。
 
