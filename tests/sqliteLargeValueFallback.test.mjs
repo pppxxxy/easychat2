@@ -41,6 +41,7 @@ const sqliteState = {
   existingDatabases: new Set(),
   // 被 SQLite **新建**的库路径（模拟 OpenDatabaseOptions 无 readonly 时的行为）。
   createdDatabases: [],
+  checkedPaths: [],
   // 表是否存在（false = 模拟 AsyncStorage 后端已换）。
   hasTable: true,
 };
@@ -51,9 +52,10 @@ function resetSqlite() {
   sqliteState.closed = 0;
   sqliteState.failOpen = false;
   sqliteState.existingDatabases.clear();
-  // documentDirectory = file:///app/files/ ⇒ 「../databases/RKStorage」= file:///app/databases/RKStorage
+  // documentDirectory = file:///app/files/ ⇒ 包目录 = file:///app/ ⇒ 真库 = file:///app/databases/RKStorage
   sqliteState.existingDatabases.add('file:///app/databases/RKStorage');
   sqliteState.createdDatabases.length = 0;
+  sqliteState.checkedPaths.length = 0;
   sqliteState.hasTable = true;
 }
 
@@ -64,10 +66,13 @@ function createDatabasePath(databaseName, directory) {
   return `${dir}/${name}`;
 }
 
-// 归一：去掉 'files/../' 这种无意义跳转，便于按「真实文件」比较。
-// （真机上 File 层会自己解析 '..'，JS 里只能手动抹平。）
-function normalizePath(p) {
-  return String(p).replace('/files/../', '/');
+// ⚠️ 刻意**不**抹平 '..'（审核 P1）：真实环境里 getInfoAsync 与 createDatabasePath 对 '..'
+// 的处理并不一致（前者落到内核 stat 会解析，后者只是字符串拼接）。替身若替代码把 '..'
+// 抹平，就永远看不见「检查用带 .. 的串、打开用去 .. 的串」这种不一致——那正是
+// 「替身与真实 API 不一致，于是测试一路绿而真机一路错」的老毛病（fef85db 踩过一次）。
+// 所以这里按**字符串精确比较**，强制两者本来就是同一个串。
+function pathKey(p) {
+  return String(p);
 }
 
 function makeFakeDatabase(path_) {
@@ -75,7 +80,7 @@ function makeFakeDatabase(path_) {
   // 「no such table: catalystLocalStorage」。这是真机日志里那条错误的精确形态，
   // 替身必须复现它，否则「打开错路径」在测试里只表现为路径字符串不同、
   // 而不是**用户可见的失败**。
-  const isRealDatabase = sqliteState.existingDatabases.has(normalizePath(path_));
+  const isRealDatabase = sqliteState.existingDatabases.has(pathKey(path_));
   const assertTable = () => {
     if (!sqliteState.hasTable) return [];
     if (!isRealDatabase) {
@@ -122,7 +127,7 @@ const fakeSqliteModule = {
   openDatabaseSync(name, options, directory) {
     if (sqliteState.failOpen) throw new Error('cannot open');
     const rawPath = createDatabasePath(name, directory);
-    const dbPath = normalizePath(rawPath);
+    const dbPath = pathKey(rawPath);
     sqliteState.opened.push({ name, directory, path: dbPath, rawPath });
     // 模拟真实行为：库不存在时 SQLite 会**新建**（原生端没有 readonly 选项）。
     if (!sqliteState.existingDatabases.has(dbPath)) sqliteState.createdDatabases.push(dbPath);
@@ -138,12 +143,12 @@ const fakeFileSystem = {
   documentDirectory: 'file:///app/files/',
   // 存在性以 sqliteState.existingDatabases 为准——「真库不存在」这条用例需要它真的返回 false，
   // 否则「不新建空库」就测不出来了。
-  // ⚠️ io.js 查的是**带 '..' 的原始串**（file:///app/files/../databases/RKStorage），
-  // 而库路径是 createDatabasePath 拼出来的。两者字符串不同但指同一文件，
-  // 所以这里要归一（去掉 'files/../'）后再比，否则测试会因为字符串不等而永远「库不存在」。
+  // 存在性以 existingDatabases 为准，**精确字符串比较、不抹平 '..'**（审核 P1）。
+  // 这样「检查用带 .. 的串、打开用去 .. 的串」的不一致会立刻暴露成「库不存在」，
+  // 而不是被替身悄悄修好又悄悄放过。
   getInfoAsync: async uri => {
-    const normalized = String(uri).replace('/files/../', '/');
-    const known = [...sqliteState.existingDatabases].some(db => db === normalized);
+    sqliteState.checkedPaths.push(pathKey(uri));
+    const known = [...sqliteState.existingDatabases].some(db => db === pathKey(uri));
     return { exists: known };
   },
 };
@@ -273,6 +278,21 @@ test('路径：必须用 directory 指向真库目录，且 path 里不得出现
   );
   assert.equal(opened.name, 'RKStorage', 'name 必须是纯文件名');
   assert.match(String(opened.directory), /databases\/?$/, 'directory 必须指向 databases/');
+  // P1 核心不变量：**存在性检查的路径必须与打开出来的路径完全相同**。
+  // 两者若不一致（一个带 '..'、一个不带），就会出现「检查以为不存在 → return null →
+  // 兜底静默失效」，而打开逻辑根本没机会执行。
+  assert.equal(
+    sqliteState.checkedPaths.length > 0,
+    true,
+    '必须记录过存在性检查的路径'
+  );
+  const checked = sqliteState.checkedPaths[sqliteState.checkedPaths.length - 1];
+  assert.equal(
+    checked,
+    opened.path,
+    `存在性检查与打开必须是同一个路径（检查=${checked}，打开=${opened.path}）`
+  );
+  assert.equal(/\.\./.test(checked), false, '检查路径也不得含 ".."');
 });
 
 test('不新建空库：真库不存在时直接返回 null，根本不调用 openDatabase', async () => {

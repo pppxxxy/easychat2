@@ -110,7 +110,14 @@ export function createAutoBackupDeps({
     //
     // 所以 content:// 走 copyFileBytesToContentUri（按字节读 + 单块写，**不构造字符串**），
     // 非 content:// 才走 copyFileBytes（按字节分片读写，峰值一片）。
-    // 返回 null = 本环境确实没能力，调用方退回老的整串路径（最后兜底，慢但可用）。
+    //
+    // ⚠️ 可达性如实说明（审核 P3）：**生产环境只有 content:// 这一支**——
+    // SAF 目录必然由系统选择器授权，createFile 返回的必然是 content://。
+    // `copyFileBytes`（file://）分支当前**没有生产调用者**，保留它是为将来
+    // 「原生层支持逐片写 / 或目标改成 file:// 场景」预留；对应的测试也只为证明
+    // 该分支自身正确，**不能**据此认为「按字节优化在生产上生效了」。
+    //
+    // 返回 null = 本环境确实没能力，调用方退回老的整串路径（最后兜底，慢且内存高）。
     async copyToSaf(sourceUri, targetUri, onProgress = null) {
       const target = String(targetUri || '');
       const fsModule = nextFs;
@@ -182,6 +189,15 @@ export async function runAutoBackup({ settings, deps = null, now = Date.now(), a
         ? await d.copyToSaf(exported.uri, safUri, onProgress)
         : null;
       if (!copied) {
+        // 最后兜底：整串读 + 整串写。
+        //
+        // ⚠️ 这条路的代价不只是**慢**，而是**内存峰值 ≈ 整包大小**
+        // （审核 P2）：readBackupText 最终把整包拼成一个 JS 字符串
+        // （Hermes 里 UTF-16 可能翻倍），writeSafText 再 toByteArray() 叠一份字节数组。
+        // 115MB 的包 ⇒ 峰值可能 300MB+，在低内存设备上有 **OOM/被杀** 与
+        // **ANR**（主线程长时间被占）两种风险，而不仅是「14 分钟」这一个体验问题。
+        // 所以它只应作为兜底：正常路径是上面的字节整块写（峰值 = 一个 Uint8Array）。
+        // 真要根治这条兜底本身，得让 SAF 支持 append（需原生层），属独立立项。
         const text = await d.readTextFile(exported.uri);
         await d.writeSafText(safUri, text);
       }

@@ -127,6 +127,24 @@ export function resolveSqliteOpener(module) {
   return null;
 }
 
+// AsyncStorage 的库目录（`<pkg>/databases/`），**不含 '..'**。
+//
+// documentDirectory 在 Android 上是 `<pkg>/files/`，去掉最后一段（files）即得包目录，
+// 再拼 `databases/`。这样得到的串与 expo-sqlite 的 createDatabasePath 拼出来的完全同构，
+// 存在性检查与打开指向**同一个文件**（见 readLargeAsyncStorageValue 里的 P1 注释）。
+//
+// 推导不出来（documentDirectory 为空/形状意外）时返回 ''，由调用方如实记诊断并放弃——
+// 不猜路径：猜错会去开一个空库，那正是 fef85db 的问题。
+export function databasesDirectoryFromDocument() {
+  const doc = String(FileSystem.documentDirectory || '');
+  if (!doc) return '';
+  // 去掉末尾最后一段（如 'files/'）：`[^/]+\/*$`
+  const parent = doc.replace(/[^/]+\/*$/, '');
+  if (!parent || parent === doc) return '';
+  // parent 一定以 '/' 结尾（正则保留了它前面的斜杠）；保险起见补一个。
+  return parent.endsWith('/') ? `${parent}databases/` : `${parent}/databases/`;
+}
+
 // 大值兜底读取：AsyncStorage 的 getItem 在 Android 上受 CursorWindow 单值读取上限（约 2MB）
 // 限制，超限会抛错。这里直接读底下的 SQLite（RKStorage）分块取回原始串，是「聊天记录
 // 永久读不出」的最后一道防线。
@@ -160,9 +178,21 @@ export async function readLargeAsyncStorageValue(key) {
   // 正解：用第三参 **directory 指向真库所在目录**，name 只给纯文件名，
   // 路径里不再有 '..' 参与拼接：
   //     createDatabasePath('RKStorage', '<pkg>/databases/') = '<pkg>/databases/RKStorage'
-  const source = `${FileSystem.documentDirectory || ''}../databases/RKStorage`;
-  const databaseDirectory = `${FileSystem.documentDirectory || ''}../databases/`;
+  //
+  // ⚠️ 存在性检查与打开必须用**同一个、都不含 '..' 的路径**（P1 修正）：
+  // 两条路对 '..' 的处理方式**不一致**——
+  //   · getInfoAsync 落到 File(path).exists()，由内核解析 '..'（能解析）；
+  //   · createDatabasePath 只是字符串拼接，**不解析** '..'。
+  // 所以「检查用带 .. 的串、打开用去 .. 的串」是靠碰巧对上的；任一端行为一变就会
+  // 「检查以为不存在 → return null → 兜底静默失效，新写法根本没机会执行」。
+  // 现在两者由同一个 databaseDirectory 派生，结构上必然一致。
+  const databaseDirectory = databasesDirectoryFromDocument();
   const databaseName = 'RKStorage';
+  const source = databaseDirectory ? `${databaseDirectory}${databaseName}` : '';
+  if (!source) {
+    recordDiagnostic('storage', new Error(tActive('error.storage.largeValueFallbackUnavailable')), key);
+    return null;
+  }
   try {
     const info = await FileSystem.getInfoAsync(source);
     // 文件不存在 = 这条键本就不在（AsyncStorage 在 Android 上就是这张表）：不算失败，不记诊断。

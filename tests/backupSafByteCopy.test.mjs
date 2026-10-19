@@ -192,7 +192,12 @@ test('回归：SAF 目标是 content:// 时必须退回整串路径（FileHandle
   );
 });
 
-test('接线：目标是 file:// 且有 FileHandle 时走字节路径', async () => {
+// ⚠️ 这条**不代表生产路径**（审核 P3）：真实 SAF 目标必然是 content://
+// （系统选择器授权，createFile 只会返回 content://），所以下面的 file:// 分支
+// 在生产上**没有调用者**，它是为「将来原生层逐片写 / 非 SAF 目标」预留的。
+// 保留这条只为证明该分支自身正确；不能据此认为「按字节优化在生产上生效了」——
+// 生产走的是另一条（copyFileBytesToContentUri，见 backupContentUriBytes.test.mjs）。
+test('分支自检（非生产路径）：目标为 file:// 时走分片字节搬运', async () => {
   const { deps, calls } = makeSafDeps({ withNextFs: true, targetScheme: 'file' });
   const result = await runAutoBackup({
     settings: { enabled: true, location: { kind: 'saf', uri: 'content://safe' } },
