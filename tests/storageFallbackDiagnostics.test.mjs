@@ -167,7 +167,9 @@ test('访问数据库文件失败时留痕（带上原始错误）', async () =>
   assert.equal(entries.length, 1);
   assert.equal(entries[0].kind, 'storage');
   assert.match(entries[0].message, /file system unavailable/, '原始错误要进诊断');
-  assert.match(entries[0].context, /大值兜底读取/);
+  // 文案：存在性检查抛错时**仍会尝试直接打开**（不再因不可靠的检查而放弃）。
+  assert.match(entries[0].context, /大值兜底：存在性检查抛错/);
+  assert.match(entries[0].context, /仍将尝试直接打开/, '要说清「检查失败但继续尝试」这一行为');
 });
 
 test('SQLite 读取抛错时留痕（CursorWindow 兜底失败这条路必须可见）', async () => {
@@ -187,10 +189,22 @@ test('分块读截断时留痕（length 说有数据、substr 拿不到）', asy
   assert.match(entries[0].context, /@easychat2_messages::s1/);
 });
 
-test('对照：数据库文件不存在 = 键本来就不在，不记诊断（别把正常情况报成故障）', async () => {
+// 语义已改（真机 2026-10-20：角色卡 11.79MB 读不出、日志里一条兜底记录都没有）。
+//
+// 旧用例断言「库文件不存在 ⇒ 不记诊断」，前提**本身就是错的**：
+// readLargeAsyncStorageValue 只会在 getItem 抛错后才被调用，而 getItem 抛错意味着
+// 这个键**存在**（只是超过 CursorWindow 2MB）⇒ 库必然也在。
+// 所以「库文件不存在」不可能是「键本来就不在」，而只能是**异常**：
+//   · 权限判定拒绝了访问（expo-modules-core 的白名单只有 files/ 与 cache/，
+//     databases/ 不在其中——这条检查本身不可靠）；
+//   · 或路径算错。
+// 把异常当正常静默吞掉，正是这次 135 个键读不出的根因。
+test('库文件不存在 = 异常，必须留痕（旧语义「不记诊断」是错的）', async () => {
   const { result, entries } = await runCase({ dbExists: false });
   assert.equal(result, null);
-  assert.deepEqual(entries, [], '「没有这条数据」不是失败，不该留痕');
+  assert.equal(entries.length, 1, '库文件不可见必须留一条诊断，否则真凶无法定位');
+  assert.match(entries[0].message, /error\.storage\.largeValueLibraryUnreadable/);
+  assert.match(entries[0].context, /@easychat2_messages::s1/, '诊断要带上是哪个键');
 });
 
 test('对照：读到数据时正常返回，且不记诊断', async () => {

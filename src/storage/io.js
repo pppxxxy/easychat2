@@ -145,6 +145,37 @@ export function databasesDirectoryFromDocument() {
   return parent.endsWith('/') ? `${parent}databases/` : `${parent}/databases/`;
 }
 
+// 关掉并删除「我们刚刚误建的空库」。
+//
+// 背景：expo-sqlite 的 openDatabase 对不存在的库会**新建**（原生 ensureDatabasePathExists
+// 会建目录并创建文件），而原生不支持 readonly（SQLiteOptions.kt 核实过），
+// 所以「打开一个不存在的库」这个动作本身就会留下一个空壳文件。
+// 归纳成不变量：**只有当打开前判定库不存在、且打开后确认没有目标表时**，才删除它。
+// 判定为存在时绝不删（那可能是真数据损坏，删了等于销毁证据）。
+//
+// 删除用 expo-sqlite 自己的 deleteDatabase*（它按同样的 directory 规则定位文件），
+// 失败只记诊断、绝不影响主流程——清理是尽力而为。
+async function dropEmptyDatabaseQuietly(SQLite, database, databaseName, databaseDirectory, key) {
+  try {
+    if (database && typeof database.closeAsync === 'function') {
+      await database.closeAsync();
+    }
+  } catch (error) {}
+  try {
+    if (typeof SQLite.deleteDatabaseSync === 'function') {
+      SQLite.deleteDatabaseSync(databaseName, databaseDirectory);
+    } else if (typeof SQLite.deleteDatabaseAsync === 'function') {
+      await SQLite.deleteDatabaseAsync(databaseName, databaseDirectory);
+    }
+  } catch (error) {
+    recordDiagnostic(
+      'storage',
+      error,
+      `大值兜底：清理误建的空库失败（${databaseDirectory}${databaseName}｜${key}）`
+    );
+  }
+}
+
 // 大值兜底读取：AsyncStorage 的 getItem 在 Android 上受 CursorWindow 单值读取上限（约 2MB）
 // 限制，超限会抛错。这里直接读底下的 SQLite（RKStorage）分块取回原始串，是「聊天记录
 // 永久读不出」的最后一道防线。
@@ -193,14 +224,43 @@ export async function readLargeAsyncStorageValue(key) {
     recordDiagnostic('storage', new Error(tActive('error.storage.largeValueFallbackUnavailable')), key);
     return null;
   }
+  // 存在性检查：**只用于留痕与「库确实不存在」的判定，不再用它决定是否继续**。
+  //
+  // 为什么改（真机 2026-10-20：用户角色卡 11.79MB 却读不出，且日志里一条兜底记录都没有）：
+  // 旧写法 `if (!info.exists) return null;` 把两种完全不同的情况合并成同一个静默分支：
+  //   ① 库真的不存在（AsyncStorage 还没建过库）——正常，可以不记；
+  //   ② **库访问不到**（权限判定拒绝 / getInfoAsync 抛错）——异常，必须记。
+  // 结果 ② 被当作 ① 静默吞掉，大值兜底就这样失效了，而且日志里毫无痕迹。
+  //
+  // 一手依据（expo-modules-core 的 FilePermissionModule.kt，逐行读过）：
+  //   getInternalPaths(context) = listOf(context.filesDir, context.cacheDir)
+  // ——**只有 files/ 与 cache/**。AsyncStorage 的真库在 `<pkg>/databases/RKStorage`，
+  // 不在这个白名单里；它会回退到 getExternalPathPermissions（看 File.canRead()），
+  // 能否通过取决于机型与系统版本。也就是说这条存在性检查**本身就不可靠**。
+  //
+  // 现在：检查结果只写进诊断（便于下次定位），**不再作为「跳过」的理由**——
+  // 真正的判定交给 SQLite 自己（它直接按路径开文件，没有这层白名单）。
+  let libraryExists = null;
   try {
     const info = await FileSystem.getInfoAsync(source);
-    // 文件不存在 = 这条键本就不在（AsyncStorage 在 Android 上就是这张表）：不算失败，不记诊断。
-    if (!info || !info.exists) return null;
+    libraryExists = !!(info && info.exists);
+    if (!libraryExists) {
+      // 可能是「真的没有库」，也可能是「权限判定拒绝」。两种都记一条（含路径），
+      // 但**继续往下试**——让 SQLite 给出权威答案。
+      recordDiagnostic(
+        'storage',
+        new Error(tActive('error.storage.largeValueLibraryUnreadable')),
+        `${key}（getInfoAsync 报告不存在：${source}）`
+      );
+    }
   } catch (error) {
-    recordDiagnostic('storage', error, `大值兜底读取：无法访问 ${source}（${key}）`);
-    return null;
+    recordDiagnostic(
+      'storage',
+      error,
+      `大值兜底：存在性检查抛错，仍将尝试直接打开（${source}｜${key}）`
+    );
   }
+
   let database = null;
   try {
     // ⚠️ 打开时**必须传 directory**（见上方注释）：只给 name 会落到 filesDir/SQLite 下。
@@ -208,21 +268,27 @@ export async function readLargeAsyncStorageValue(key) {
     // 不传 readonly：**原生端根本不支持**（SQLiteOptions.kt 的 OpenDatabaseOptions 只有
     // enableChangeListener / useNewConnection / finalizeUnusedStatementsBeforeClosing /
     // libSQL* 六项，逐一核实过）。传了会被静默忽略——那比不传更糟，因为代码读起来
-    // 像是有保护。所以「不新建空库」由**打开前的 getInfoAsync 存在性检查**保证
-    // （见上方：真库不存在就直接 return null，根本不进入 openDatabase）。
+    // 像是有保护。
     database = opener === SQLITE_OPEN_SYNC
       ? SQLite.openDatabaseSync(databaseName, undefined, databaseDirectory)
       : await SQLite.openDatabaseAsync(databaseName, undefined, databaseDirectory);
     // 先验表：表不存在说明「AsyncStorage 后端已换」（例如启用了 useNextStorage），
-    // 这时盲查只会得到一句 no such table，用户与开发者都看不出是「后端换了」。
-    // PRAGMA 无行 ⇒ 如实记诊断并返回 null。
+    // 或者刚才那次 open 把**不存在的库新建成了空库**（原生 ensureDirExists + open 的副作用）。
+    // PRAGMA 无行 ⇒ 如实记诊断、关库；若是我们刚建出来的空库，顺手删掉。
     const tableInfo = await database.getAllAsync('PRAGMA table_info(catalystLocalStorage)');
     if (!Array.isArray(tableInfo) || tableInfo.length === 0) {
       recordDiagnostic(
         'storage',
         new Error(tActive('error.storage.largeValueTableMissing')),
-        `${key}（${databaseDirectory}${databaseName}）`
+        `${key}（${databaseDirectory}${databaseName}｜检查报告存在=${String(libraryExists)}）`
       );
+      // 只在「打开前判定不存在」时才删：那种情况下这个文件**是我们刚建出来的空壳**，
+      // 留着既污染存储目录，又会让下次的存在性检查误以为库真有内容。
+      // 判定为存在时绝不删——那可能是真的数据被损坏，删了等于销毁证据。
+      if (libraryExists === false) {
+        await dropEmptyDatabaseQuietly(SQLite, database, databaseName, databaseDirectory, key);
+        database = null; // 已被 close，finally 不再重复关
+      }
       return null;
     }
     // v16：getFirstAsync(sql, params) 直接返回首行对象（v13 的 execAsync([...], true) 已不存在）。

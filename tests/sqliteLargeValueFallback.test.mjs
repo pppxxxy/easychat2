@@ -42,6 +42,7 @@ const sqliteState = {
   // 被 SQLite **新建**的库路径（模拟 OpenDatabaseOptions 无 readonly 时的行为）。
   createdDatabases: [],
   checkedPaths: [],
+  deletedDatabases: [],
   // 表是否存在（false = 模拟 AsyncStorage 后端已换）。
   hasTable: true,
 };
@@ -56,6 +57,7 @@ function resetSqlite() {
   sqliteState.existingDatabases.add('file:///app/databases/RKStorage');
   sqliteState.createdDatabases.length = 0;
   sqliteState.checkedPaths.length = 0;
+  sqliteState.deletedDatabases.length = 0;
   sqliteState.hasTable = true;
 }
 
@@ -89,13 +91,14 @@ function makeFakeDatabase(path_) {
     return null;
   };
   return {
-    // 验表：PRAGMA table_info(catalystLocalStorage) 无行 ⇒ 表不存在。
+    // 验表：PRAGMA table_info(catalystLocalStorage)。
+    // ⚠️ 真实行为：**空库上 PRAGMA table_info 返回空数组，不是抛错**——
+    // 表不存在而已，PRAGMA 本身是合法语句。第一版替身在这里抛错，
+    // 于是「误建空库 → 验表 → 清理」这条链永远走不到。
     getAllAsync: async (sql, params = []) => {
       sqliteState.queries.push({ sql, params });
       if (/PRAGMA\s+table_info/i.test(sql)) {
-        if (!isRealDatabase) {
-          throw new Error('Error code : no such table: catalystLocalStorage');
-        }
+        if (!isRealDatabase) return []; // 空库里没有这张表
         return sqliteState.hasTable ? [{ name: 'key' }, { name: 'value' }] : [];
       }
       return assertTable() || [];
@@ -135,6 +138,15 @@ const fakeSqliteModule = {
   },
   async openDatabaseAsync(name, options, directory) {
     return fakeSqliteModule.openDatabaseSync(name, options, directory);
+  },
+  // 真实 v16 有 deleteDatabaseSync(name, directory)：io.js 用它清理「误建的空库」。
+  deleteDatabaseSync(name, directory) {
+    const dbPath = pathKey(createDatabasePath(name, directory));
+    sqliteState.deletedDatabases.push(dbPath);
+    sqliteState.existingDatabases.delete(dbPath);
+  },
+  async deleteDatabaseAsync(name, directory) {
+    fakeSqliteModule.deleteDatabaseSync(name, directory);
   },
   // 故意**不**提供 openDatabase：v16 真实形态就是这样。
 };
@@ -295,21 +307,66 @@ test('路径：必须用 directory 指向真库目录，且 path 里不得出现
   assert.equal(/\.\./.test(checked), false, '检查路径也不得含 ".."');
 });
 
-test('不新建空库：真库不存在时直接返回 null，根本不调用 openDatabase', async () => {
+test('库不存在时仍会尝试打开（不再因不可靠的存在性检查而静默放弃）', async () => {
+  // 语义已改（真机 2026-10-20：角色卡 11.79MB 读不出、日志里一条兜底记录都没有）：
+  // 旧逻辑「getInfoAsync 说不存在就 return null」把两种情形混成一个静默分支——
+  //   ① 库真的不存在；② **库访问不到**（权限判定拒绝）。
+  // 而 expo-modules-core 的白名单只有 files/ 与 cache/，databases/ 不在其中，
+  // 所以这条检查**本身不可靠**：不能拿它决定「跳过」。
+  // 新逻辑：检查结果只用于留痕，真正的判定交给 SQLite（它直接按路径开文件）。
   sqliteState.rowsByKey.clear();
   sqliteState.existingDatabases.clear(); // 真库不存在
-  // fakeFileSystem.getInfoAsync 恒返回 exists:true，这里改为按集合判断
   sqliteState.failOpen = false;
-  const openedBefore = sqliteState.opened.length;
   const value = await io.readLargeAsyncStorageValue('@k');
-  assert.equal(value, null);
-  // 关键：existingDatabases 里没有真库 ⇒ 若代码仍去 open，替身会记进 createdDatabases。
-  assert.deepEqual(
-    sqliteState.createdDatabases,
-    [],
-    `不得新建任何库文件，实际新建：${JSON.stringify(sqliteState.createdDatabases)}`
+  assert.equal(value, null, '读不到值仍是 null');
+  // 关键：**必须尝试过打开**，否则「库访问不到」这种情形永远不可见。
+  assert.ok(
+    sqliteState.opened.length > 0,
+    '即使存在性检查说「不存在」，也必须尝试直接打开——否则权限问题会被静默吞掉'
   );
-  assert.equal(sqliteState.opened.length, openedBefore, '真库不存在时不该进入打开流程');
+});
+
+test('库不存在时：检查结果要留痕（不再静默 return null）', async () => {
+  sqliteState.rowsByKey.clear();
+  sqliteState.existingDatabases.clear();
+  sqliteState.queries.length = 0;
+  await io.readLargeAsyncStorageValue('@k');
+  const diags = sqliteState.queries.filter(q => q.diagnostic);
+  assert.ok(diags.length >= 1, '「检查报告不存在」必须留痕，否则真凶无法定位');
+  assert.match(
+    String(diags[0].diagnostic),
+    /largeValueLibraryUnreadable|库文件检查报告不存在/,
+    `诊断要点明是「库文件检查」这一环出了问题，实际：${diags[0].diagnostic}`
+  );
+});
+
+test('库不存在时误建的空库要被清理掉（不留空壳污染存储）', async () => {
+  sqliteState.rowsByKey.clear();
+  sqliteState.existingDatabases.clear(); // 打开后会被「新建」
+  sqliteState.createdDatabases.length = 0;
+  sqliteState.deletedDatabases.length = 0;
+  sqliteState.failOpen = false;
+  await io.readLargeAsyncStorageValue('@k');
+  // 替身会记录「新建」，代码随后应调用 deleteDatabaseSync 清掉它。
+  assert.ok(
+    sqliteState.deletedDatabases.length >= 1,
+    `误建的空库必须被删除（实际删除数 ${sqliteState.deletedDatabases.length}）——`
+    + '留着既污染存储目录，又让下次存在性检查误以为库真有内容'
+  );
+});
+
+test('库判定为存在但表缺失时：**不得**删库（可能是真数据损坏，删了等于毁证据）', async () => {
+  sqliteState.rowsByKey.set('@k', 'abc');
+  sqliteState.existingDatabases.clear();
+  sqliteState.existingDatabases.add('file:///app/databases/RKStorage'); // 判定为存在
+  sqliteState.hasTable = false;
+  sqliteState.deletedDatabases.length = 0;
+  await io.readLargeAsyncStorageValue('@k');
+  assert.equal(
+    sqliteState.deletedDatabases.length,
+    0,
+    '库本来就在、只是表缺失 ⇒ 绝不能删，否则真数据被销毁且无法取证'
+  );
 });
 
 test('验表：catalystLocalStorage 不存在时如实留痕（「后端已换」而不是一句 no such table）', async () => {
