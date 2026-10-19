@@ -73,6 +73,15 @@ const FileSystem = {
 function makeSqliteStub() {
   return {
     openDatabaseSync: () => ({
+      // 验表（PRAGMA table_info）：io.js 现在会先确认 catalystLocalStorage 存在。
+      // 默认返回非空 = 表存在；scenario.tableMissing 时返回空数组模拟「后端已换」。
+      getAllAsync: async sqlSource => {
+        if (scenario.execThrows) throw new Error('cursor window failure');
+        if (/PRAGMA\s+table_info/i.test(String(sqlSource))) {
+          return scenario.tableMissing ? [] : [{ name: 'key' }, { name: 'value' }];
+        }
+        return [];
+      },
       getFirstAsync: async (sqlSource, params) => {
         const sql = String(sqlSource || '');
         const args = Array.isArray(params) ? params : [];

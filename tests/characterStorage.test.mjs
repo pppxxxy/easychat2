@@ -105,6 +105,12 @@ const FileSystem = {
 // 却验证了一个虚构的接口（同型问题见 tests/storageFallbackDiagnostics.test.mjs 的注释）。
 const SQLite = {
   openDatabaseSync: () => ({
+    // 验表（PRAGMA table_info）：io.js 现在会先确认 catalystLocalStorage 存在，
+    // 表不存在就记诊断并返回 null。这里默认「表存在」。
+    getAllAsync: async sqlSource => {
+      if (/PRAGMA\s+table_info/i.test(String(sqlSource))) return [{ name: 'key' }, { name: 'value' }];
+      return [];
+    },
     getFirstAsync: async (sqlSource, params) => {
       const args = Array.isArray(params) ? params : [];
       const key = args[args.length - 1];

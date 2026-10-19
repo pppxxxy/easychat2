@@ -16,6 +16,7 @@ export const error = {
   'error.storage.stickerReadFailed': 'Failed to read sticker records. Please try again later.',
   'error.storage.vectorIndexReadFailed': 'Failed to read the vector memory index. Please try again later.',
   'error.storage.vectorShardClearFailed': 'Failed to delete some vector memory shards. Some memory may still be stored on this device. Please try again.',
+  'error.storage.largeValueTableMissing': 'Large-value fallback: the catalystLocalStorage table is missing in the AsyncStorage backend (the storage implementation may have changed).',
   'error.storage.vectorIndexReferenceContract': 'The vector index returned a new reference with unchanged content (upstream should return the current array as-is, otherwise every save pays for a full re-serialization).',
   'error.storage.vectorDimMismatch': 'A vector shard has a different dimension than the index record (the shard may be corrupted). This memory will be regenerated.',
   'error.storage.ttsSettingsReadFailed': 'Failed to read speech playback settings.',

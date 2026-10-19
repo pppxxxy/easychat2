@@ -142,7 +142,27 @@ export async function readLargeAsyncStorageValue(key) {
     recordDiagnostic('storage', new Error(tActive('error.storage.largeValueFallbackUnavailable')), key);
     return null;
   }
+  // AsyncStorage（v2.2.0，未启用 useNextStorage）的库是
+  // /data/user/0/<pkg>/databases/RKStorage，表 catalystLocalStorage。
+  //
+  // ⚠️ 打开方式（fef85db 在这里错了，导致大值兜底第二次失效）：
+  // expo-sqlite v16 的 openDatabase*(databaseName, options, directory) 是**两段拼**：
+  //     createDatabasePath(name, dir) = `${dir 去尾斜杠}/${name 去前导斜杠}`
+  // （node_modules/expo-sqlite/build/pathUtils.js，逐行核实）；
+  // 而 defaultDatabaseDirectory = `filesDir/SQLite`
+  // （SQLiteModule.kt: Constant("defaultDatabaseDirectory") { filesDir.canonicalPath + "/SQLite" }）。
+  //
+  // 所以此前传 '../databases/RKStorage' 会被拼成
+  //     filesDir/SQLite/../databases/RKStorage  =  filesDir/databases/RKStorage
+  // ——那是**另一个库**：不存在时 SQLite 会按默认 flags **新建空库**，于是查询报
+  // 「no such table: catalystLocalStorage」（正是用户日志里每次启动都出现的那条）。
+  //
+  // 正解：用第三参 **directory 指向真库所在目录**，name 只给纯文件名，
+  // 路径里不再有 '..' 参与拼接：
+  //     createDatabasePath('RKStorage', '<pkg>/databases/') = '<pkg>/databases/RKStorage'
   const source = `${FileSystem.documentDirectory || ''}../databases/RKStorage`;
+  const databaseDirectory = `${FileSystem.documentDirectory || ''}../databases/`;
+  const databaseName = 'RKStorage';
   try {
     const info = await FileSystem.getInfoAsync(source);
     // 文件不存在 = 这条键本就不在（AsyncStorage 在 Android 上就是这张表）：不算失败，不记诊断。
@@ -153,12 +173,28 @@ export async function readLargeAsyncStorageValue(key) {
   }
   let database = null;
   try {
-    // RKStorage 在 app 私有 databases/ 下，所以按「相对 package 的 databases 目录」打开：
-    // expo-sqlite 的 databaseName 就是文件名，传 '../databases/RKStorage' 会被拼到
-    // defaultDatabaseDirectory 下——那是同一处（见 SQLiteDatabase 的 directory 参数语义）。
+    // ⚠️ 打开时**必须传 directory**（见上方注释）：只给 name 会落到 filesDir/SQLite 下。
+    //
+    // 不传 readonly：**原生端根本不支持**（SQLiteOptions.kt 的 OpenDatabaseOptions 只有
+    // enableChangeListener / useNewConnection / finalizeUnusedStatementsBeforeClosing /
+    // libSQL* 六项，逐一核实过）。传了会被静默忽略——那比不传更糟，因为代码读起来
+    // 像是有保护。所以「不新建空库」由**打开前的 getInfoAsync 存在性检查**保证
+    // （见上方：真库不存在就直接 return null，根本不进入 openDatabase）。
     database = opener === SQLITE_OPEN_SYNC
-      ? SQLite.openDatabaseSync('../databases/RKStorage')
-      : await SQLite.openDatabaseAsync('../databases/RKStorage');
+      ? SQLite.openDatabaseSync(databaseName, undefined, databaseDirectory)
+      : await SQLite.openDatabaseAsync(databaseName, undefined, databaseDirectory);
+    // 先验表：表不存在说明「AsyncStorage 后端已换」（例如启用了 useNextStorage），
+    // 这时盲查只会得到一句 no such table，用户与开发者都看不出是「后端换了」。
+    // PRAGMA 无行 ⇒ 如实记诊断并返回 null。
+    const tableInfo = await database.getAllAsync('PRAGMA table_info(catalystLocalStorage)');
+    if (!Array.isArray(tableInfo) || tableInfo.length === 0) {
+      recordDiagnostic(
+        'storage',
+        new Error(tActive('error.storage.largeValueTableMissing')),
+        `${key}（${databaseDirectory}${databaseName}）`
+      );
+      return null;
+    }
     // v16：getFirstAsync(sql, params) 直接返回首行对象（v13 的 execAsync([...], true) 已不存在）。
     const lengthRow = await database.getFirstAsync(
       'SELECT length(value) AS total FROM catalystLocalStorage WHERE key = ?',

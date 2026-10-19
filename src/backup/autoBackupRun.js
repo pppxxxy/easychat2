@@ -13,6 +13,7 @@ import {
   selectStaleAutoBackups,
 } from './autoBackupPolicy.js';
 import { copyFileBytes, readBackupText } from '../storage/backupRead.js';
+import { recordDiagnostic } from '../storage/diagnostics.js';
 
 // 应用私有目标子目录（相对 documentDirectory）：与手动导出的包分开，
 // 淘汰旧备份时只清这里，绝不误删用户手动导出的 easychat2-backup-*.json。
@@ -98,17 +99,50 @@ export function createAutoBackupDeps({
     // SAF 搬运的**按字节**路径：源（应用私有）→ 目标（用户选的 SAF 目录）。
     // 存在理由见 backupRead.copyFileBytes 的文件头：整串搬运 110MB 在真机上要 14 分钟，
     // 期间主线程被占满，会话读取被拖到 15 秒。按字节搬运峰值只有一片（8MB）。
-    // 返回 null 表示「当前构建没有 FileHandle 能力」，调用方据此退回老的整串路径。
+    //
+    // 返回 null = 「本环境不支持按字节搬运」，调用方据此退回老的整串路径。
+    //
+    // ⚠️ 目标端是 content:// 时**必然用不了 FileHandle**（fef85db 在这里错了，
+    // 导致 SAF 自动备份 100% 失败）。一手依据：
+    //   node_modules/expo-file-system/android/.../filesystem/FileSystemPath.kt:65
+    //     throw Exception("This method cannot be used with content URIs: $uri")
+    // 而 SAF 目录必然是 content://（用户通过系统选择器授权），所以：
+    //   · 探测不能只查 typeof File === 'function'（API 存在 ≠ 支持 content://）；
+    //   · 必须在**目标 URI 形态**上判断，content:// 直接返回 null 走老路径。
+    // 老路径是「整串读写」，对 110MB 慢但在功能上是**对的**——比 100% 失败好得多。
+    // 真正的按字节方案需要原生层 openOutputStream（见 backupRead 里 TODO 说明）。
     async copyToSaf(sourceUri, targetUri, onProgress = null) {
+      const target = String(targetUri || '');
+      if (/^content:/i.test(target)) {
+        // 如实记一条：这是「能力不可用」而不是「搬运失败」，日志里要能区分。
+        recordDiagnostic(
+          'storage',
+          new Error('[backup] content:// 目标不支持 FileHandle，改用整串搬运'),
+          `backup-copy-bytes-skip: ${target.slice(0, 80)}`
+        );
+        return null;
+      }
       const fsModule = nextFs;
       if (!fsModule || typeof fsModule.File !== 'function') return null;
-      return copyFileBytes({
-        sourceUri,
-        targetUri,
-        sourceFs: fsModule,
-        targetFs: fsModule,
-        onProgress,
-      });
+      try {
+        return await copyFileBytes({
+          sourceUri,
+          targetUri: target,
+          sourceFs: fsModule,
+          targetFs: fsModule,
+          onProgress,
+        });
+      } catch (error) {
+        // 兜底：即便 URI 不是 content://，FileHandle 仍可能在别的形态上不可用。
+        // 这里**不吞错**——记诊断后返回 null 让调用方走老路径，保证备份能成功；
+        // 老路径若也失败，那才是真的失败，由上层报错。
+        recordDiagnostic(
+          'storage',
+          error,
+          `backup-copy-bytes-fallback: ${target.slice(0, 80)}`
+        );
+        return null;
+      }
     },
     async deleteSafFile(uri) {
       await adapter.delete(uri);
