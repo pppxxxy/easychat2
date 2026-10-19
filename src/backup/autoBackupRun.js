@@ -176,6 +176,15 @@ export async function runAutoBackup({ settings, deps = null, now = Date.now(), a
     onProgress,
   });
 
+  // ⚠️ 立刻释放 payload（真机发烫/内存问题的一半原因）。
+  //
+  // exportBackup 的返回值里带着**整个备份包的对象形态** payload——含全部媒体的 base64
+  // （角色卡多的用户可达 115MB）。文件此刻已经流式写盘完毕，payload 之后没有任何用途，
+  // 但搬运阶段还要再分配一个**同量级**的 Uint8Array（content:// 无 append，只能整块写）。
+  // 两者叠加 ⇒ 峰值内存翻倍（115MB 包 ⇒ 230MB+），在手机上表现为 GC 抖动、发热、甚至被系统杀。
+  // 这里断掉最后一个引用，让 GC 能在搬运前回收（写盘阶段用完即弃，语义无变化）。
+  if (exported && exported.payload !== undefined) exported.payload = null;
+
   let pruned = 0;
   let targetUri = exported.uri;
   if (saf) {
