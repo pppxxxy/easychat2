@@ -146,6 +146,8 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
     }
   }, [characterId, subdir, t]);
 
+  const refreshRef = useRef(refresh); refreshRef.current = refresh; // effect 读它，但不依赖 refresh
+
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -207,16 +209,14 @@ export default function FilesPanel({ visible, characterId: initialCharacterId = 
             refreshAppData().catch(() => {});
           }
         }
-        // AC12 P0-1：面板重开 = 回到当前角色根层，旧清单与全量标记作废（防跨沙盒混表）。
-        setFiles([]);
-        filesRef.current.full = false;
-        refresh(resolved.id || undefined);
+        setFiles([]); filesRef.current.full = false; // 重开=回根层（AC12 P0-1）
+        setSubdir(''); refreshRef.current(resolved.id || undefined, { subdir: '' });
       } catch (caught) {
         if (!mountedRef.current) return;
         setError(t('workspace.panel.err.read'));
       }
     })();
-  }, [visible, refresh, t, refreshAppData]);
+  }, [visible]); // 只依赖 visible；含 refresh 会因 subdir 变化重跑而把用户踢回根层
 
   const fileUri = useCallback(async name => {
     const store = storeRef.current;

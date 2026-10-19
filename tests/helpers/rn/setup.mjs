@@ -18,6 +18,8 @@
 //      在 ESM 里没有 `require` 会直接 ReferenceError。
 
 import { registerHooks } from 'node:module';
+import nativeModule from 'node:module';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -35,6 +37,25 @@ const NATIVE_STUBS = new Map([
   ['expo-file-system', path.join(HELPER_DIR, 'expo-file-system.mjs')],
   ['expo-sqlite', path.join(HELPER_DIR, 'expo-sqlite.cjs')],
   ['expo-secure-store', path.join(HELPER_DIR, 'expo-secure-store.cjs')],
+  // FilesPanel 之类的界面组件会 import 这两个 Expo 模块；它们经 expo-modules-core
+  // 的 src/index.ts 进来，Node 里会抛 ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING
+  // （node_modules 下不做类型剥离）⇒ 想在 Node 里真渲染这些组件就必须打桩。
+  ['expo-clipboard', path.join(HELPER_DIR, 'expo-clipboard.mjs')],
+  ['expo-sharing', path.join(HELPER_DIR, 'expo-sharing.mjs')],
+  // expo-asset 的 build/index.js 用 Metro 专属的 `.fx` 后缀解析，Node 会报
+  // ERR_MODULE_NOT_FOUND；expo-constants 同样经 expo-modules-core 的 .ts 进来。
+  ['expo-asset', path.join(HELPER_DIR, 'expo-asset.mjs')],
+  ['expo-constants', path.join(HELPER_DIR, 'expo-constants.mjs')],
+  // 该包 7.0.2 发布的是未编译的原始 JSX（main = src/index.js），Node 无法加载。
+  ['react-native-markdown-display', path.join(HELPER_DIR, 'markdown-display.mjs')],
+  // 下面这些是「渲染界面组件」时会沿依赖链被拉进来的原生/重 UI 包：
+  // 有的经 expo-modules-core 的 .ts（Node 不支持 node_modules 类型剥离），
+  // 有的用无扩展名相对导入或 Metro 专属后缀，Node 都解析不到。
+  ['expo-document-picker', path.join(HELPER_DIR, 'expo-document-picker.mjs')],
+  ['expo-image-picker', path.join(HELPER_DIR, 'expo-image-picker.mjs')],
+  ['expo-audio', path.join(HELPER_DIR, 'expo-audio.mjs')],
+  ['react-native-webview', path.join(HELPER_DIR, 'react-native-webview.mjs')],
+  ['react-native-render-html', path.join(HELPER_DIR, 'react-native-render-html.mjs')],
 ]);
 
 // 子路径 → 独立桩。`expo-file-system/legacy` 与 `expo-file-system` 是**两套 API**，
@@ -72,6 +93,8 @@ const I18N_CONTEXT_STUB = path.join(HELPER_DIR, 'i18n-context-stub.mjs');
 const CONTEXT_STUBS = new Map([
   [path.join(SRC_DIR, 'theme', 'ThemeContext.js'), THEME_CONTEXT_STUB],
   [path.join(SRC_DIR, 'i18n', 'I18nContext.js'), I18N_CONTEXT_STUB],
+  // AppContext 同样会拖入整条存储栈；渲染测试只用到 refreshAppData 一个函数。
+  [path.join(SRC_DIR, 'context', 'AppContext.js'), path.join(HELPER_DIR, 'app-context-stub.mjs')],
 ]);
 
 function packageNameOf(spec) {
@@ -86,6 +109,27 @@ function isSourceFile(filePath) {
   if (!filePath) return false;
   if (!filePath.endsWith('.js')) return false;
   return filePath === APP_ENTRY || filePath.startsWith(`${SRC_DIR}${path.sep}`);
+}
+
+// 静态资源扩展名（Metro 认识、Node 不认识）。
+const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|ttf|otf|mp3|wav|m4a)$/i;
+const ASSET_STUB_VALUE = {
+  uri: 'file:///assets/placeholder.png',
+  width: 1,
+  height: 1,
+  type: 'png',
+};
+
+// 文件里是否用了**裸 require(...)**（限定调用形态，避免把注释/字符串里的词当成真调用）。
+// 需要它是因为 transformToEsm 会注入 require shim，而只转含 JSX 的文件时，
+// 纯 JS 里的 require（如加载图片资源）会在 ESM 作用域里找不到 require。
+const bareRequireCache = new Map();
+function usesBareRequire(filePath) {
+  if (bareRequireCache.has(filePath)) return bareRequireCache.get(filePath);
+  const source = fs.readFileSync(filePath, 'utf8');
+  const uses = /(^|[^.\w$])require\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1'));
+  bareRequireCache.set(filePath, uses);
+  return uses;
 }
 
 // 转译口径统一到 tests/helpers/transpile.mjs（与 tests/characterStorage.test.mjs 共用），
@@ -130,14 +174,37 @@ export function setupNativeStubs() {
     load(url, context, nextLoad) {
       if (url.startsWith('file:')) {
         const filePath = fileURLToPath(url);
-        // 只接管含 JSX 的源码文件；不含 JSX 的一律走原生加载（见 transpile.mjs 的说明）
-        if (isSourceFile(filePath) && needsJsxTransform(filePath)) {
+        // 静态资源（图片/字体）：Metro 会把它们变成资源 id，Node 不认识这些扩展名。
+        // 统一投影成一个占位 Asset 形状（见 asset.mjs），而不是让 import 直接失败。
+        if (ASSET_EXTENSIONS.test(filePath)) {
+          return {
+            format: 'module',
+            source: `export default ${JSON.stringify(ASSET_STUB_VALUE)};`,
+            shortCircuit: true,
+          };
+        }
+        // 接管 src/ 下的源码文件：
+        //   · 含 JSX 的必须转（Node 不认 .js 里的 JSX）；
+        //   · 不含 JSX 但用了裸 require() 的也要转 —— transformToEsm 会注入
+        //     createRequire 的 require shim。此前只转含 JSX 的，于是
+        //     src/character/defaultCharacterAssets.js（纯普通 JS + require 图片资源）
+        //     原样交给 Node，报「require is not defined in ES module scope」。
+        if (isSourceFile(filePath) && (needsJsxTransform(filePath) || usesBareRequire(filePath))) {
           return { format: 'module', source: transformSource(filePath), shortCircuit: true };
         }
       }
       return nextLoad(url, context);
     },
   });
+
+  // `require('../../assets/x.jpg')` 这类 CJS 写法（src/character/defaultCharacterAssets.js）
+  // 走的是 createRequire，**不经过**上面的 registerHooks load —— Node 原生 require 会直接
+  // 抛 Unknown file extension。注册扩展名处理兜住它。
+  for (const ext of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ttf', '.otf', '.mp3', '.wav', '.m4a']) {
+    nativeModule._extensions[ext] = function assetExtension(module) {
+      module.exports = ASSET_STUB_VALUE;
+    };
+  }
 }
 
 // 让用例能断言「桩真的被接上了」——否则一个拼错的包名会让测试静默跑真实模块（或失败得莫名其妙）。
