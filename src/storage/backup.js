@@ -132,6 +132,16 @@ async function rollbackStorage(snapshot) {
 // 4 已足够把「上百次串行往返」压成「几十批」。
 export const IMPORT_WRITE_CONCURRENCY = 4;
 
+// 媒体**读取**并发度（导出侧）。
+//
+// 与写入的 4 不同，读的并发可以更高一些：每次只是「列目录 / 取 stat / 读文件」，
+// 没有写冲突，底层 AsyncStorage 与文件系统都能同时处理多个读请求。
+// 但也不能无限开——每个在飞的文件都会占一份 base64 内存（角色卡单张可达数 MB），
+// 并发太高会让「峰值内存」重新变成问题（那正是上一批刚修掉的）。
+// 6 是在「明显减少排队」与「峰值内存可控」之间的取值：实测读取往返占比高，
+// 6 路已能把几千个文件的等待时间压掉约 5/6。
+export const MEDIA_READ_CONCURRENCY = 6;
+
 // 按 items 顺序分批并发执行 task。**任一失败即整体失败**（与串行语义一致：
 // 串行时第一个失败就会抛出，后面的不再执行）——但已在飞行的任务会跑完，
 // 调用方随后回滚，回滚覆盖的是全部快照，不依赖"哪些已经写成功"。
@@ -204,6 +214,21 @@ async function rollbackSecrets(snapshot, writtenIds) {
   }
 }
 
+// 媒体目录递归收集：**同层并发读**，但结果顺序与串行版本**完全一致**。
+//
+// 为什么并发（真机反馈 2026-10-19「备份导致发烫」的第三个成因）：
+// 旧实现是 `for (name of entries) { await getInfoAsync; await readAsStringAsync }`
+// —— 每个文件两次原生往返，且**严格串行**：N 个文件 = 2N 次「等上一次完成」。
+// 角色卡多的用户有几千张图，这些往返排成一条队，CPU 大部分时间在等 IO
+// （表现为耗时长、机身发热），而不是在算。
+//
+// 为什么保序（不能只图快）：dataBackup.test.mjs 明确断言
+// `payload.media.map(path)` 与输入顺序一致；备份包内容也应可复现（同一份数据
+// 两次导出得到同样的字节序，便于比对排错）。所以**按索引写回**：并发只影响
+// 「谁先读完」，不影响「结果放在第几位」。
+//
+// 语义保持：取消在每任务开始前检查 signal；读不出的文件进 failed（不中断整体，
+// 与串行版一致）；onFile 每成功读出一个文件回调一次。
 async function collectMedia(directory, prefix = '', hooks = {}) {
   const root = `${FileSystem.documentDirectory || ''}${directory}/`;
   let entries = [];
@@ -212,28 +237,41 @@ async function collectMedia(directory, prefix = '', hooks = {}) {
   } catch (error) {
     return { items: [], failed: [] };
   }
-  const items = [];
-  const failed = [];
-  for (const name of entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const slots = new Array(list.length);
+  await runWithConcurrency(list, MEDIA_READ_CONCURRENCY, async (name, index) => {
     if (hooks.signal && hooks.signal.aborted) throw createAbortError();
     const relative = `${prefix}${name}`;
     const uri = `${root}${relative}`;
-    const info = await FileSystem.getInfoAsync(uri);
-    if (info.isDirectory) {
-      const nested = await collectMedia(directory, `${relative}/`, hooks);
-      items.push(...nested.items);
-      failed.push(...nested.failed);
-    } else {
-      try {
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        items.push({ path: `${directory}/${relative}`, base64 });
-      } catch (error) {
-        failed.push(`${directory}/${relative}`);
-      }
-      if (typeof hooks.onFile === 'function') hooks.onFile();
+    let info;
+    try {
+      info = await FileSystem.getInfoAsync(uri);
+    } catch (error) {
+      // 与串行版一致：getInfoAsync 抛错时该条目算「读不出」，不影响其它文件。
+      slots[index] = { items: [], failed: [`${directory}/${relative}`] };
+      return;
     }
+    if (info && info.isDirectory) {
+      slots[index] = await collectMedia(directory, `${relative}/`, hooks);
+      return;
+    }
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      slots[index] = { items: [{ path: `${directory}/${relative}`, base64 }], failed: [] };
+    } catch (error) {
+      slots[index] = { items: [], failed: [`${directory}/${relative}`] };
+    }
+    if (typeof hooks.onFile === 'function') hooks.onFile();
+  });
+  // 按槽位顺序展开：并发不改变结果顺序。
+  const items = [];
+  const failed = [];
+  for (const slot of slots) {
+    if (!slot) continue;
+    items.push(...slot.items);
+    failed.push(...slot.failed);
   }
   return { items, failed };
 }
