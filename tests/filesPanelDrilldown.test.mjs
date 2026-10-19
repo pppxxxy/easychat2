@@ -23,7 +23,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { registerHooks } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
 import { setupNativeStubs } from './helpers/rn/setup.mjs';
@@ -63,18 +63,26 @@ const NATIVE_STUB_TARGET = path.join(SRC, 'workspace', 'native.js');
 const HELPER_DIR = path.resolve('tests', 'helpers', 'rn');
 
 // 这两个桩文件承担「内存化的工作区设置」与「可控 store」。
-const workspaceStoreStubUrl = new URL(`file:///${path.join(HELPER_DIR, 'workspace-store-stub.mjs').replace(/\\/g, '/')}`).href;
-const nativeStoreStubUrl = new URL(`file:///${path.join(HELPER_DIR, 'workspace-native-stub.mjs').replace(/\\/g, '/')}`).href;
+//
+// ⚠️ 必须用 pathToFileURL，不能手工拼 `file:///` 字符串：
+// Windows 下 `file:///D:/...` 碰巧能解析（盘符后面跟的是 `/`），而 Linux 下路径是
+// `/home/runner/work/...`，手工拼成 `file:////home/...`（四个斜杠）会解析出**空 host**，
+// 于是 URL 与实际路径对不上、resolve 短路失效 —— 这正是「本地全绿、CI 红」的经典成因。
+const workspaceStoreStubUrl = pathToFileURL(path.join(HELPER_DIR, 'workspace-store-stub.mjs')).href;
+const nativeStoreStubUrl = pathToFileURL(path.join(HELPER_DIR, 'workspace-native-stub.mjs')).href;
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const resolved = nextResolve(specifier, context);
     try {
-      const resolvedPath = fileURLToPath(resolved.url);
-      if (resolvedPath === WORKSPACE_STORE_STUB) {
+      const resolvedPath = path.resolve(fileURLToPath(resolved.url));
+      // 用 path.resolve 归一后比较：某些平台/resolver 会给出未归一的路径
+      // （多余分隔符、符号链接规范化差异），直接字符串比较会在那里失配，
+      // 表现为「桩没接上 → 真实 store 被加载 → 测试挂掉」。归一是零成本的加固。
+      if (resolvedPath === path.resolve(WORKSPACE_STORE_STUB)) {
         return { url: workspaceStoreStubUrl, shortCircuit: true };
       }
-      if (resolvedPath === NATIVE_STUB_TARGET) {
+      if (resolvedPath === path.resolve(NATIVE_STUB_TARGET)) {
         return { url: nativeStoreStubUrl, shortCircuit: true };
       }
     } catch {
@@ -125,6 +133,23 @@ async function settle(actFn, label) {
   ]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
+// 等「挂载链真的走完」，而不是赌一次 setTimeout(0)。
+//
+// 为什么不能只 flush 一次微任务队列：挂载 effect 里是
+//   getWorkspaceSettings → createWorkspaceStore → resolveWorkspaceAssistant → refresh
+// 的**多级 await 链**，每级都要一次真实事件循环轮次。单次 setTimeout(0) 在本地机器上
+// 恰好够用，但在更慢的 CI runner 上可能只走完一两级——于是断言看到的是「还没加载」，
+// 测试随机失败。这里改成轮询到「最后一次 list 调用之后又有一次 flush」，上限 2s。
+async function flushUntil(condition, label, { timeoutMs = 2000, stepMs = 5 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (condition()) return;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, stepMs)); });
+  }
+  // 超时不直接抛：让调用方的断言给出更有信息量的失败（它会打印实际调用序列）。
+  throw new Error(`等待条件超时（${label}，${timeoutMs}ms）`);
+}
+
 async function mountVisible() {
   let tree = null;
   await settle(async () => {
@@ -132,9 +157,8 @@ async function mountVisible() {
       tree = TestRenderer.create(React.createElement(FilesPanel, { visible: true }));
     });
   }, 'mount');
-  await settle(async () => {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  }, 'mount-settle');
+  // 等到挂载 effect 真的拉过一次列表（这比「flush 一次」可靠）。
+  await flushUntil(() => storeCalls.list.length > 0, 'mount-list');
   return tree;
 }
 
@@ -154,14 +178,13 @@ test('回归：点一次目录就进入该层，不会被踢回根层', async ()
   assert.deepEqual(calls.list[0], { subdir: '', depth: 1 }, '首次加载应为根层单层');
 
   // 点 repos/ → 应进入 repos/
-  await act(async () => { pressByText(root, 'repos').props.onPress(); });
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await settle(async () => { await act(async () => { pressByText(root, 'repos').props.onPress(); }); }, 'click-repos');
+  await flushUntil(() => calls.list.some(item => item.subdir === 'repos/'), 'repos-list');
 
   const afterRepos = calls.list.map(item => item.subdir);
   assert.ok(afterRepos.includes('repos/'), `点 repos 后应请求 repos/ 层，实际调用序列：${JSON.stringify(afterRepos)}`);
 
   // 关键断言：下钻后**不得**再出现一次 subdir=='' 的加载（那正是被踢回根层的痕迹）
-  const listCallsAfterFirstClick = calls.list.length;
   const tail = calls.list.slice(1);
   assert.equal(
     tail.some(item => item.subdir === ''),
@@ -170,21 +193,22 @@ test('回归：点一次目录就进入该层，不会被踢回根层', async ()
   );
 
   // 再点 pppxxxy → 应进入 repos/pppxxxy/
-  calls.list.length = 0;
-  await act(async () => { pressByText(root, 'pppxxxy').props.onPress(); });
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  // ⚠️ 必须清**桩自己的** list（storeCalls），不是只读视图 calls.list——
+  // 给只读 getter 赋值在严格模式下会抛 TypeError，在不同 Node 版本上报错时机可能不同。
+  storeCalls.list.length = 0;
+  await settle(async () => { await act(async () => { pressByText(root, 'pppxxxy').props.onPress(); }); }, 'click-pppxxxy');
+  await flushUntil(() => calls.list.some(item => item.subdir === 'repos/pppxxxy/'), 'pppxxxy-list');
 
   assert.ok(
     calls.list.some(item => item.subdir === 'repos/pppxxxy/'),
     `点 pppxxxy 后应请求 repos/pppxxxy/ 层，实际：${JSON.stringify(calls.list.map(i => i.subdir))}`
   );
-  // 同样不得回落到根或上一层的空加载
+  // 同样不得回落到根层
   assert.equal(
     calls.list.some(item => item.subdir === ''),
     false,
     '下钻 pppxxxy 不得触发根层重载（被踢回根层的痕迹）'
   );
-  assert.ok(listCallsAfterFirstClick > 0);
   tree.unmount();
 });
 
@@ -195,11 +219,11 @@ test('回归：下钻期间初始化只跑一次（不重复 getWorkspaceSetting
   const storeAfterMount = calls.createStore;
   assert.equal(settingsAfterMount, 1, '挂载时解析一次设置');
 
-  // 连续下钻两层
-  await act(async () => { pressByText(root, 'repos').props.onPress(); });
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  await act(async () => { pressByText(root, 'pppxxxy').props.onPress(); });
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  // 连续下钻两层（每层都等到列表真的回来再点下一次）
+  await settle(async () => { await act(async () => { pressByText(root, 'repos').props.onPress(); }); }, 'click-repos');
+  await flushUntil(() => calls.list.some(item => item.subdir === 'repos/'), 'repos-list');
+  await settle(async () => { await act(async () => { pressByText(root, 'pppxxxy').props.onPress(); }); }, 'click-pppxxxy');
+  await flushUntil(() => calls.list.some(item => item.subdir === 'repos/pppxxxy/'), 'pppxxxy-list');
 
   assert.equal(
     calls.getSettings,
@@ -215,21 +239,11 @@ test('回归：下钻期间初始化只跑一次（不重复 getWorkspaceSetting
 });
 
 test('有意设计不回归：面板关闭再打开回到根层', async () => {
-  let tree = null;
-  await settle(async () => {
-    await act(async () => {
-      tree = TestRenderer.create(React.createElement(FilesPanel, { visible: true }));
-    });
-  }, 'mount');
-  await settle(async () => {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  }, 'mount-settle');
+  const tree = await mountVisible();
 
   // 先下钻到深目录
   await settle(async () => { await act(async () => { pressByText(tree.root, 'repos').props.onPress(); }); }, 'drill');
-  await settle(async () => {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  }, 'drill-settle');
+  await flushUntil(() => calls.list.some(item => item.subdir === 'repos/'), 'drill-list');
   const drilled = calls.list.map(item => item.subdir);
   assert.ok(drilled.includes('repos/'), `前置：应已下钻到 repos/，实际：${JSON.stringify(drilled)}`);
 
@@ -239,9 +253,6 @@ test('有意设计不回归：面板关闭再打开回到根层', async () => {
       tree.update(React.createElement(FilesPanel, { visible: false }));
     });
   }, 'close');
-  await settle(async () => {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  }, 'close-settle');
 
   // 重新打开：应重新初始化并加载根层
   storeCalls.list.length = 0;
@@ -250,9 +261,7 @@ test('有意设计不回归：面板关闭再打开回到根层', async () => {
       tree.update(React.createElement(FilesPanel, { visible: true }));
     });
   }, 'reopen');
-  await settle(async () => {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  }, 'reopen-settle');
+  await flushUntil(() => calls.list.length > 0, 'reopen-list');
 
   assert.ok(
     calls.list.some(item => item.subdir === ''),
