@@ -91,6 +91,7 @@ export const localModel = {
   'localModel.download.queued': 'Queued',
   'localModel.download.failed': 'Download failed',
   'localModel.download.retry': 'Retry',
+  'localModel.download.resume': 'Resume',
   'localModel.download.cancel': 'Cancel',
   'localModel.badge.current': 'Active',
   'localModel.badge.installed': 'Installed',

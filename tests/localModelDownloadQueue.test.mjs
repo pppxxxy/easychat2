@@ -233,13 +233,30 @@ test('队列：水合时把持久化的 running 任务恢复为 pending', async 
   assert.equal(task.status, DOWNLOAD_TASK_STATUS.PENDING);
 });
 
-test('队列：水合后自动续下重启残留的 pending 任务（断点重下）', async () => {
+test('队列：水合**不**自动续下重启残留的 pending 任务（改由用户点「继续」）', async () => {
+  // 旧语义是「水合后有 pending 就 setTimeout(0) → kick()」，效果是每次打开 App 都会
+  // 立刻开始下一个没下完的模型（几百 MB～数 GB）——真机反馈「一打开就发烫、狂跑网络」。
+  // 新语义：遗留任务保持 pending，等用户显式点「继续」。
   const { queue, downloaded } = makeHarness({
     persisted: [{ id: 'qwen-q4', modelId: 'qwen-q4', modelUrl: TASK.modelUrl, sourceId: 'huggingface', status: 'running' }],
   });
   await queue.hydrate();
   await new Promise(resolve => setTimeout(resolve, 30));
-  assert.deepEqual(downloaded, [TASK.modelUrl], '重启残留任务应自动重下');
+  assert.deepEqual(downloaded, [], '水合不得自动开始下载（那正是「后台偷偷下载」的来源）');
+  const task = queue.getSnapshot().tasks.find(item => item.id === 'qwen-q4');
+  assert.equal(task.status, DOWNLOAD_TASK_STATUS.PENDING, '遗留任务应停在 pending 等用户决定');
+});
+
+test('队列：用户显式点「继续」后才开跑（kick 是公开入口）', async () => {
+  const { queue, downloaded } = makeHarness({
+    persisted: [{ id: 'qwen-q4', modelId: 'qwen-q4', modelUrl: TASK.modelUrl, sourceId: 'huggingface', status: 'running' }],
+  });
+  await queue.hydrate();
+  assert.deepEqual(downloaded, [], '水合阶段仍然不下载');
+  // 用户点了「继续」：走公开的 kick 入口，行为与 enqueue 后的自动 kick 一致。
+  await queue.kick();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.deepEqual(downloaded, [TASK.modelUrl], '显式继续后应当真的开始下载');
   assert.deepEqual(queue.getSnapshot().tasks, [], '完成后从队列移除');
 });
 

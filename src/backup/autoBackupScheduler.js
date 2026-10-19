@@ -15,13 +15,23 @@ import { runAutoBackupIfDue, runAutoBackupOnExit } from './autoBackupRun.js';
 
 export const DEFAULT_AUTO_BACKUP_POLL_MS = 15 * 60 * 1000;
 
+// 启动/回到前台后延迟多久才检查到期。
+//
+// 为什么必须有这个延迟（真机反馈 2026-10-19）：此前是**挂载即 runDue()**，而一次自动
+// 备份要生成完整备份包（角色卡多的用户可达 115MB），从 App 一打开就抢 CPU/IO，
+// 用户体感是「一打开就发烫、变卡」。备份并不紧急——晚 30 秒做，启动体验好得多。
+// 回到前台（active）同样走这个延迟：每次切回来都不该立刻压一次重活。
+export const DEFAULT_AUTO_BACKUP_START_DELAY_MS = 30 * 1000;
+
 export function startAutoBackupScheduler({
   onResult = null,
   intervalMs = DEFAULT_AUTO_BACKUP_POLL_MS,
+  startDelayMs = DEFAULT_AUTO_BACKUP_START_DELAY_MS,
   deps = null,
 } = {}) {
   let busy = false;
   let timer = null;
+  let startTimer_ = null;
 
   const report = result => {
     if (result && result.ok && typeof onResult === 'function') {
@@ -54,16 +64,30 @@ export function startAutoBackupScheduler({
       timer = null;
     }
   };
+  // 延迟触发一次到期检查（见 DEFAULT_AUTO_BACKUP_START_DELAY_MS 的注释）。
+  // 重入安全：连续 active 事件会先清掉上一个待触发的定时器，不会堆叠。
+  const scheduleDue = () => {
+    if (startTimer_) clearTimeout(startTimer_);
+    startTimer_ = setTimeout(runDue, startDelayMs);
+  };
+  const clearScheduledDue = () => {
+    if (startTimer_) {
+      clearTimeout(startTimer_);
+      startTimer_ = null;
+    }
+  };
 
-  runDue();
+  // 启动：**不立刻**跑备份（那是「一打开就发烫」的直接来源），先起轮询，延迟后再查到期。
+  scheduleDue();
   startTimer();
   const subscription = AppState.addEventListener('change', next => {
     if (next === 'active') {
-      runDue();
+      scheduleDue();
       startTimer();
       return;
     }
     stopTimer();
+    clearScheduledDue();
     // 只在真正进入后台时触发退出备份：iOS 的 inactive 是瞬时态（下拉控制中心也会到），
     // 拿它当「退出」会频繁触发备份。
     if (next === 'background') runExit();
@@ -71,6 +95,7 @@ export function startAutoBackupScheduler({
 
   return () => {
     stopTimer();
+    clearScheduledDue();
     subscription.remove();
   };
 }

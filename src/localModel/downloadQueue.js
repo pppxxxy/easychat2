@@ -188,10 +188,18 @@ export function createDownloadQueue(deps = {}) {
     const readable = Boolean(stored) && (stored.status === 'ok' || stored.status === 'missing');
     tasks = revivePersistedTasks(readable ? stored.value : []);
     if (readable) await persist(tasks).catch(() => {});
-    // 水合后若还有 pending（重启残留的任务已降级为 pending），自动继续下载。
-    if (tasks.some(task => task.status === DOWNLOAD_TASK_STATUS.PENDING)) {
-      setTimeout(() => { kick(); }, 0);
-    }
+    // ⚠️ 水合后**不再自动续传**（真机反馈 2026-10-19：「后台下载是什么东西？也太占用了吧」）。
+    //
+    // 此前这里有一句「有 pending 就 setTimeout(0) → kick()」，效果是：只要队列里还留着
+    // 一个没下完的模型，**每次打开 App 都会立刻开始下载**。模型动辄几百 MB～数 GB，
+    // 于是表现为「一打开就狂跑网络 + 发烫 + 卡」，而且用户没有主动要求过。
+    //
+    // 现在的语义：遗留任务保持 pending（UI 显示「已排队」并在下方给出**继续**按钮），
+    // 由用户显式点一下才开跑。`enqueue` 仍然会立刻 kick（那是用户主动点的下载），
+    // 主动作一条下载不受影响。
+    //
+    // 为什么不能只是「延迟一点自动开始」：下载本身是长任务，用户无法预期何时开始、
+    // 也没有暂停入口（只有取消）。「何时开始」这件事必须由用户决定。
     return tasks;
   }
 
@@ -370,6 +378,10 @@ export const downloadQueue = createDownloadQueue();
 export const enqueueDownload = input => downloadQueue.enqueue(input);
 export const cancelQueuedDownload = id => downloadQueue.cancelTask(id);
 export const retryQueuedDownload = id => downloadQueue.retry(id);
+// 显式「继续」：把队列里 pending 的任务开跑。
+// 存在的理由见 hydrate() 里那段注释——水合不再自动续传，所以必须有一个用户可点的入口。
+// 返回 kick 的 Promise，UI 可以 await 后刷新快照（失败不影响：错误会写进任务态）。
+export const startQueuedDownloads = () => downloadQueue.kick();
 export const getDownloadQueueSnapshot = () => downloadQueue.getSnapshot();
 export const hydrateDownloadQueue = () => downloadQueue.hydrate();
 export const subscribeDownloadQueue = listener => downloadQueue.subscribe(listener);

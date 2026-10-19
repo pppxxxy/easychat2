@@ -12,7 +12,7 @@ import {
   normalizeAutoBackupSettings,
   selectStaleAutoBackups,
 } from './autoBackupPolicy.js';
-import { copyFileBytes, readBackupText } from '../storage/backupRead.js';
+import { copyFileBytes, copyFileBytesToContentUri, readBackupText } from '../storage/backupRead.js';
 import { recordDiagnostic } from '../storage/diagnostics.js';
 
 // 应用私有目标子目录（相对 documentDirectory）：与手动导出的包分开，
@@ -96,36 +96,29 @@ export function createAutoBackupDeps({
     async writeSafText(fileUri, text) {
       await adapter.writeText(fileUri, text);
     },
-    // SAF 搬运的**按字节**路径：源（应用私有）→ 目标（用户选的 SAF 目录）。
-    // 存在理由见 backupRead.copyFileBytes 的文件头：整串搬运 110MB 在真机上要 14 分钟，
-    // 期间主线程被占满，会话读取被拖到 15 秒。按字节搬运峰值只有一片（8MB）。
+    // SAF 搬运：源（应用私有 file://）→ 目标（用户选的 SAF 目录，必然 content://）。
     //
-    // 返回 null = 「本环境不支持按字节搬运」，调用方据此退回老的整串路径。
+    // 两条路，按目标 URI 形态选。依据全是一手源码（expo-file-system 19）：
+    //   · FileSystemPath.kt:65 —— content:// 上 `javaFile` 直接抛
+    //     "This method cannot be used with content URIs"
+    //     ⇒ **FileHandle（handle.writeBytes）在 SAF 上必然失败**（fef85db 就错在这）。
+    //   · FileWriteOptions 只有 encoding、**没有 append**；
+    //     SAFDocumentFile.outputStream() = contentResolver.openOutputStream(uri)，每次截断
+    //     ⇒ content:// 无法分片追加，只能整块单次写。
+    //   · FileSystemFile.kt 的 write(ByteArray) 重载在 uri.isContentUri 时走
+    //     file.outputStream()（file = SAFDocumentFile）⇒ **字节整块写是通的**。
     //
-    // ⚠️ 目标端是 content:// 时**必然用不了 FileHandle**（fef85db 在这里错了，
-    // 导致 SAF 自动备份 100% 失败）。一手依据：
-    //   node_modules/expo-file-system/android/.../filesystem/FileSystemPath.kt:65
-    //     throw Exception("This method cannot be used with content URIs: $uri")
-    // 而 SAF 目录必然是 content://（用户通过系统选择器授权），所以：
-    //   · 探测不能只查 typeof File === 'function'（API 存在 ≠ 支持 content://）；
-    //   · 必须在**目标 URI 形态**上判断，content:// 直接返回 null 走老路径。
-    // 老路径是「整串读写」，对 110MB 慢但在功能上是**对的**——比 100% 失败好得多。
-    // 真正的按字节方案需要原生层 openOutputStream（见 backupRead 里 TODO 说明）。
+    // 所以 content:// 走 copyFileBytesToContentUri（按字节读 + 单块写，**不构造字符串**），
+    // 非 content:// 才走 copyFileBytes（按字节分片读写，峰值一片）。
+    // 返回 null = 本环境确实没能力，调用方退回老的整串路径（最后兜底，慢但可用）。
     async copyToSaf(sourceUri, targetUri, onProgress = null) {
       const target = String(targetUri || '');
-      if (/^content:/i.test(target)) {
-        // 如实记一条：这是「能力不可用」而不是「搬运失败」，日志里要能区分。
-        recordDiagnostic(
-          'storage',
-          new Error('[backup] content:// 目标不支持 FileHandle，改用整串搬运'),
-          `backup-copy-bytes-skip: ${target.slice(0, 80)}`
-        );
-        return null;
-      }
       const fsModule = nextFs;
       if (!fsModule || typeof fsModule.File !== 'function') return null;
+      const isContentUri = /^content:/i.test(target);
+      const copy = isContentUri ? copyFileBytesToContentUri : copyFileBytes;
       try {
-        return await copyFileBytes({
+        return await copy({
           sourceUri,
           targetUri: target,
           sourceFs: fsModule,
@@ -133,13 +126,12 @@ export function createAutoBackupDeps({
           onProgress,
         });
       } catch (error) {
-        // 兜底：即便 URI 不是 content://，FileHandle 仍可能在别的形态上不可用。
-        // 这里**不吞错**——记诊断后返回 null 让调用方走老路径，保证备份能成功；
-        // 老路径若也失败，那才是真的失败，由上层报错。
+        // 兜底：记诊断后返回 null，让调用方走整串路径。
+        // 「慢且成功」远好于「备份直接失败」——后者是数据安全问题。
         recordDiagnostic(
           'storage',
           error,
-          `backup-copy-bytes-fallback: ${target.slice(0, 80)}`
+          `backup-copy-fallback: ${isContentUri ? 'content' : 'file'} ${target.slice(0, 80)}`
         );
         return null;
       }

@@ -96,6 +96,7 @@ export const localModel = {
   'localModel.download.queued': '排队中',
   'localModel.download.failed': '下载失败',
   'localModel.download.retry': '重试',
+  'localModel.download.resume': '继续',
   'localModel.download.cancel': '取消',
   // ---- 模型中心 / 引擎状态（v5 Stage C 预览对齐）----
   'localModel.badge.current': '当前',

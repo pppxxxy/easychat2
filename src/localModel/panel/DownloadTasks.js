@@ -10,6 +10,7 @@ import {
   cancelQueuedDownload,
   getDownloadQueueSnapshot,
   retryQueuedDownload,
+  startQueuedDownloads,
   subscribeDownloadQueue,
 } from '../downloadQueue.js';
 
@@ -96,6 +97,18 @@ export default function DownloadTasks({ styles, t }) {
                     accessibilityLabel={t('localModel.download.retry')}
                   >
                     <Text style={styles.downloadRetryText}>{t('localModel.download.retry')}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {/* pending 任务的「继续」：水合不再自动续传（见 downloadQueue.hydrate 注释），
+                    所以必须给用户一个显式入口，否则遗留任务会永远停在「已排队」。 */}
+                {!running && !failed ? (
+                  <TouchableOpacity
+                    onPress={() => startQueuedDownloads().catch(() => {})}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('localModel.download.resume')}
+                  >
+                    <Text style={styles.downloadRetryText}>{t('localModel.download.resume')}</Text>
                   </TouchableOpacity>
                 ) : null}
                 <TouchableOpacity

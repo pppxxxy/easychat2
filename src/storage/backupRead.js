@@ -272,14 +272,107 @@ export async function copyFileBytes({
   }
 }
 
+// SAF（content://）目标的搬运：**按字节读、整块单次写**，全程不构造字符串。
+//
+// 为什么需要单独一条（真机实测 + 一手源码依据）：
+//   1. content:// 目标**不支持 FileHandle**：expo-file-system 的
+//      FileSystemPath.kt:65 直接抛 "This method cannot be used with content URIs"，
+//      所以 copyFileBytes（走 handle.writeBytes）在 SAF 上必然失败。
+//   2. content:// 也**不支持 append**：FileWriteOptions 只有 encoding，没有 append；
+//      SAFDocumentFile.outputStream() = contentResolver.openOutputStream(uri)，每次都截断。
+//      ⇒ 无法分片追加，只能一次性写完整文件。
+//   3. 但 `File.write(Uint8Array)` **是支持的**：FileSystemFile.kt 的 ByteArray 重载在
+//      uri.isContentUri 时走 file.outputStream()，而 file 是 SAFDocumentFile
+//      （= contentResolver.openOutputStream）——这条路是通的。
+//
+// 为什么不用「读成字符串再写」（旧路径，实测 115MB 要 14 分钟）：
+//   readBackupText 会把整包 UTF-8 解码成一个 JS 字符串，write(text) 再 toByteArray()
+//   编码回去——先是 115MB 的字符串（Hermes 里可能是 UTF-16，即 ~230MB），再叠一份
+//   115MB 字节数组，GC 压力极大；而按字节读只要一个 Uint8Array（预分配），
+//   每片是 memcpy，没有解码/编码。
+//
+// 峰值内存 = 文件大小（单块）+ 一片。这是 content:// 无 append 的**硬下限**，
+// 不是这里偷懒：要更低只能改原生层（openOutputStream 逐片写），属独立立项。
+export async function copyFileBytesToContentUri({
+  sourceUri,
+  targetUri,
+  sourceFs = null,
+  targetFs = null,
+  chunkBytes = CHUNK_BYTES,
+  onProgress = null,
+  yieldToEventLoop = defaultYield,
+} = {}) {
+  const from = String(sourceUri || '');
+  const to = String(targetUri || '');
+  if (!from || !to) throw readError(tActive('error.backup.importFileMissing'));
+  const src = sourceFs || targetFs;
+  const dst = targetFs || sourceFs;
+  if (!src || !dst || typeof src.File !== 'function' || typeof dst.File !== 'function') {
+    throw readError(tActive('error.backup.importReadFailed', { reason: 'FileHandle unavailable' }));
+  }
+  const sourceFile = new src.File(from);
+  if (typeof sourceFile.open !== 'function') {
+    throw readError(tActive('error.backup.importReadFailed', { reason: 'FileHandle unavailable' }));
+  }
+  const size = typeof sourceFile.size === 'number' && sourceFile.size >= 0 ? sourceFile.size : null;
+  if (size == null) {
+    // 不知道大小就没法预分配单块缓冲；这种情况下让调用方走别的路径，
+    // 而不是先读一遍再猜（那会把文件读两次）。
+    throw readError(tActive('error.backup.importReadFailed', { reason: 'unknown size' }));
+  }
+  if (size === 0) return { bytes: 0, total: 0, elapsedMs: 0 };
+
+  const chunk = Number(chunkBytes) > 0 ? Math.floor(Number(chunkBytes)) : CHUNK_BYTES;
+  const buffer = new Uint8Array(size);
+  let filled = 0;
+  let readHandle = null;
+  const startedAt = Date.now();
+  try {
+    readHandle = sourceFile.open();
+    while (filled < size) {
+      const want = Math.min(chunk, size - filled);
+      const bytes = readHandle.readBytes(want);
+      const length = bytes && typeof bytes.length === 'number' ? bytes.length : 0;
+      if (length === 0) break; // EOF：下面按 filled !== size 判为截断
+      buffer.set(length === bytes.length ? bytes : bytes.subarray(0, length), filled);
+      filled += length;
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress({ bytes: filled, total: size, chunks: Math.ceil(filled / chunk) });
+        } catch (error) {}
+      }
+      await yieldToEventLoop();
+    }
+  } catch (error) {
+    if (error && error.userFacing) throw error;
+    recordDiagnostic('storage', error, `backup-copy-content: ${from} -> ${to} @${filled}`);
+    throw readError(tActive('error.backup.importReadFailed', {
+      reason: String((error && error.message) || 'read error').split('\n')[0],
+    }));
+  } finally {
+    try {
+      if (readHandle && typeof readHandle.close === 'function') readHandle.close();
+    } catch (error) {}
+  }
+  if (filled !== size) {
+    // 读到的比文件声明的小 = 源被截断/读失败。**不做部分成功**：半个备份包比没有更糟
+    // （恢复时会读出不完整 JSON，而且用户会以为备份是好的）。
+    recordDiagnostic('storage', new Error('backup source truncated'), `backup-copy-content: ${from} @${filled}/${size}`);
+    throw readError(tActive('error.backup.importReadFailed', { reason: `truncated ${filled}/${size}` }));
+  }
+  try {
+    // 单次整块写：content:// 无 append（见上方注释）。
+    new dst.File(to).write(buffer);
+  } catch (error) {
+    recordDiagnostic('storage', error, `backup-write-content: ${to} @${size}`);
+    throw readError(tActive('error.backup.importReadFailed', {
+      reason: String((error && error.message) || 'write error').split('\n')[0],
+    }));
+  }
+  return { bytes: size, total: size, elapsedMs: Date.now() - startedAt, chunks: Math.ceil(size / chunk) || 1 };
+}
+
 // 分片 + 增量解码。抽出来是为了让「多字节字符跨片」这类边界能被单独测。
-//
-// 为什么用「片字符串数组 + 末尾 join」而不是 `text += decode(...)`：
-// 后者在 Hermes 上会累积成很深的 cons-string 树，最终 flatten 时一次性拷贝，
-// 且峰值不易预测；数组 + join 是单次分配，行为更可预期。
-//
-// `yieldToEventLoop` 可注入：生产用默认的 setTimeout(0)（片间让 UI 喘息），
-// 测试传一个廉价实现——否则「1 字节一片」这类跨片边界测试会被上千次定时器拖到几十秒。
 export async function readChunkedText({
   handle,
   uri,
