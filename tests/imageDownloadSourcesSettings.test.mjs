@@ -33,14 +33,25 @@ test('来源存储：独立键 / 损坏读侧回落 / 写侧拒绝覆盖 / 上�
   assert.ok(storage.includes("'IMAGE_SOURCE_LIMIT'"), '上限错误 code');
 });
 
-test('下载链：策略外提 / 白名单拒绝带 code / 请求头真正传进 downloadAsync', () => {
+test('下载链：直链 + 页面兜底 / 白名单拒绝带 code / 请求头真正传进 downloadAsync', () => {
   const chat = read('src/ChatScreen.js');
   assert.ok(chat.includes('downloadImageWithSources(url, { t })'), '聊天页只调策略函数');
 
   const policy = read('src/chat/imageDownloadPolicy.js');
-  assert.ok(policy.includes('isImageDownloadHostAllowed'), '按名单判定');
-  assert.ok(policy.includes("denied.code = 'DOWNLOAD_IMAGE_BLOCKED'"), '拒绝原因带 code');
-  assert.ok(policy.includes('buildImageDownloadHeaders'), '请求头来自命中来源');
+  assert.ok(policy.includes('downloadImageOrPage'), '策略层交给编排（直链 + 页面兜底）');
+  assert.ok(policy.includes('fetchPageHtml'), '页面抓取器注入');
+  assert.ok(policy.includes('downloadRemoteImage'), '真实下载器注入');
+
+  const orchestrator = read('src/chat/pageImageDownload.js');
+  assert.ok(orchestrator.includes("error.code !== CODE_NOT_IMAGE"), '只有「不是图片」才走页面兜底');
+  assert.ok(orchestrator.includes('isImageDownloadHostAllowed'), '页面主机按名单判定');
+  assert.ok(orchestrator.includes('isPrivateDownloadHost(host)'), '候选图主机永远拒绝私网');
+  assert.ok(orchestrator.includes("error.code = 'DOWNLOAD_IMAGE_BLOCKED'"), '拒绝原因带 code');
+  assert.ok(orchestrator.includes('extractPageImageCandidates'), '页面主图提取纯函数');
+
+  const pageFetch = read('src/chat/pageImageFetch.js');
+  assert.ok(pageFetch.includes('normalizeFetchUrl'), '页面地址走加固归一（拒私网）');
+  assert.ok(pageFetch.includes('isPrivateRedirectTarget'), '重定向私网复核');
 
   const attachments = read('src/chat/attachments.js');
   assert.ok(attachments.includes('headers = null'), 'downloadRemoteImage 接受请求头');
@@ -68,6 +79,7 @@ test('提示词与注入：名单只在一处生成 / 单聊与群聊都透传',
   assert.ok(prompt.includes('buildDownloadImageInstruction'), '措辞由名单决定');
   assert.ok(prompt.includes('用户已允许从这些图片来源下载'), '有名单时的授权措辞');
   assert.ok(prompt.includes('只在对话上下文中确实出现过'), '无名单时保留旧严格措辞');
+  assert.ok(prompt.includes('也支持页面地址'), '页面地址支持写进提示词（否则模型只敢写 .jpg 直链）');
 });
 
 test('i18n：中英词条成对存在（漏一个就会在另一种语言下显示 key）', () => {
