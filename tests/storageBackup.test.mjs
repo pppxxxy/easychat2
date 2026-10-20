@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 
 // 打包/校验层的**唯一权威**媒体目录白名单（dataBackup.js）。这里用真模块而不是手抄一份：
 // 下面既断言 backup.js 导出的就是**这个对象**（re-export，不是副本），也用它当棘轮的基准。
-import { BACKUP_MEDIA_DIRECTORIES as PACKABLE_MEDIA_DIRECTORIES } from '../src/storage/dataBackup.js';
+import { BACKUP_MEDIA_DIRECTORIES as PACKABLE_MEDIA_DIRECTORIES, isRawTextKey as REAL_isRawTextKey } from '../src/storage/dataBackup.js';
 
 const require = createRequire(import.meta.url);
 const babel = require('@babel/core');
@@ -97,6 +97,11 @@ function loadBackup({ storage, files, failSet = false, failMediaWrite = false, d
         || value.startsWith('@easychat2_session_summaries::')
         || value.startsWith('@easychat2_branch_index::');
     },
+    // 裸文本键判定：直接用**真模块**那一份，不再手抄。
+    // 手抄一份的话，dataBackup.js 以后加键（或改前缀）时桩不跟，测试会继续「绿」
+    // 但测的是过时的语义——这个仓库已经因为手抄桩踩过多次（segment 形状、
+    // PRAGMA 空表、pathKey 拍平 ..）。
+    isRawTextKey: REAL_isRawTextKey,
     scanSecretRefs: storage => {
       const keys = [];
       const ids = new Set();

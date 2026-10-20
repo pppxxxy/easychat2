@@ -100,6 +100,42 @@ export function isQuickExportKey(key) {
   return QUICK_EXPORT_PREFIXES.some(prefix => value.startsWith(prefix));
 }
 
+// ── 裸文本键（不经 JSON 序列化存储的键）────────────────────────────────────
+//
+// 本仓绝大多数存储值是 `JSON.stringify(...)` 的结果，备份侧因此对**每个键**都做
+// JSON.parse 来还原结构。但有几个键存的是**裸字符串**，parse 它们没有意义：
+//
+//   · `@easychat2_session_draft::<id>` —— 输入框草稿，`setItem(key, 用户手打原文)`
+//     （见 sessionMessages/drafts.js）。只有恰好长得像 JSON 的草稿才 parse 得动：
+//     草稿 `"好的"` 通过，`"他说：这样行吗？"` 抛错。于是**同一份正常数据**
+//     在不同草稿内容下时对时错，被误判成「结构损坏」。
+//   · `@easychat2_disclaimer_ack` —— 版本号字符串。
+//   · `@easychat2_onboarding_done` / `@easychat2_default_greeting_seed` 等 —— `'true'` / `'1'`。
+//   · `@easychat2_perf_probe` —— `'true'` / `'false'`。
+//
+// 这些键的**正确**备份形态就是原始串本身（`opaqueRaw`），恢复时原样写回，与现有
+// import 侧的 opaqueRaw 分支完全一致。关键是：它们**不算损坏**，不能计入 partialKeys，
+// 否则日志里每次备份都会出现「数据键结构损坏」，把真正的损坏淹掉。
+//
+// 真机反馈（2026-10-20）：日志出现
+// `@easychat2_session_draft::session-muv4pyxs-g56ze6 结构损坏，已按原始串抢救入包`。
+// 那份草稿是好的——错的是「无条件 parse」这个假设。
+const RAW_TEXT_KEY_PREFIXES = ['@easychat2_session_draft::'];
+const RAW_TEXT_KEYS = new Set([
+  '@easychat2_disclaimer_ack',
+  '@easychat2_onboarding_done',
+  '@easychat2_default_greeting_seed',
+  '@easychat2_default_greeting_shown',
+  '@easychat2_perf_probe',
+]);
+
+// 该键是否以裸文本（而非 JSON）存储。导出侧据此跳过 JSON.parse，直接按原始串入包。
+export function isRawTextKey(key) {
+  const value = String(key || '');
+  if (RAW_TEXT_KEYS.has(value)) return true;
+  return RAW_TEXT_KEY_PREFIXES.some(prefix => value.startsWith(prefix));
+}
+
 export function isQuickExportMediaPath(relativePath) {
   const normalized = String(relativePath || '').replace(/^\/+/, '');
   return QUICK_MEDIA_DIRECTORIES.some(directory => (

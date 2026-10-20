@@ -80,7 +80,16 @@ function loadBackup({ storage = new Map(), files = new Map(), directories = {}, 
           if (throwsOnRead.has(key)) return { status: 'corrupt' };
           // corruptRaw：getItem 读得到原始串，但 JSON 解析不了 ⇒ 走 opaqueRaw 抢救。
           if (corruptRaw.has(key)) return { status: 'corrupt', raw: corruptRaw.get(key) };
-          return storage.has(key) ? { status: 'ok', value: JSON.parse(storage.get(key)) } : { status: 'missing' };
+          if (!storage.has(key)) return { status: 'missing' };
+          // 保真：真实 readJsonStatus 对 parse 失败返回 { status:'corrupt', raw }，
+          // 而不是把 SyntaxError 抛给调用方（io.js:343-353）。桩若直接抛，
+          // 「真损坏仍计入 partialKeys」这条就永远测不到。
+          const raw = storage.get(key);
+          try {
+            return { status: 'ok', value: JSON.parse(raw) };
+          } catch (error) {
+            return { status: 'corrupt', raw };
+          }
         },
         readLargeAsyncStorageValue: async () => null,
         assertValueBudget: () => 0,
@@ -305,4 +314,73 @@ test('成功日志带模式：自动备份与手动备份同段代码，不带�
   const success = calls.filter(call => /导出成功/.test(call.message));
   assert.equal(success.length, 1);
   assert.match(success[0].message, /快速/, '快速模式要写明');
+});
+
+// ── 裸文本键不是损坏 ────────────────────────────────────────────────────
+//
+// 真机日志（2026-10-20）：
+//   `@easychat2_session_draft::session-muv4pyxs-g56ze6 结构损坏，已按原始串抢救入包`
+//
+// 那份草稿是**好的**。根因是导出侧对每个键无条件 JSON.parse，而草稿存的是
+// `setItem(key, 用户手打原文)`（sessionMessages/drafts.js:49）。
+// 于是草稿内容决定成败：`"好的"` 能 parse、`"他说：这样行吗？"` 抛错。
+test('草稿键存的是裸文本：必须原样入包，且**不得**报成「结构损坏」', async () => {
+  const DRAFT_KEY = '@easychat2_session_draft::session-mux';
+  const DRAFT_TEXT = '他说：这样行吗？\n第二行';
+  // 关键：原始串不是合法 JSON。旧实现会在 JSON.parse 抛错后把它当 corrupt。
+  const storage = new Map([[DRAFT_KEY, DRAFT_TEXT]]);
+  const calls = [];
+  const backup = loadBackup({ storage, directories: DIRECTORIES, recordDiagnosticCalls: calls });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+
+  assert.deepEqual(result.partialKeys, [], '草稿不是损坏，不得计入 partialKeys');
+  assert.deepEqual(result.unreadableKeys, []);
+  assert.equal(result.incomplete, false, '草稿正常时备份就是完整的');
+
+  const entry = result.payload.storage.find(item => item.key === DRAFT_KEY);
+  assert.equal(entry.opaqueRaw, DRAFT_TEXT, '必须逐字节原样入包');
+  assert.equal(entry.value, undefined, '不得试图给出结构化 value');
+
+  assert.equal(calls.filter(call => /exportPartialSalvaged/.test(call.message)).length, 0,
+    '不得记「抢救」——它没坏');
+  assert.equal(calls.filter(call => /导出成功/.test(call.message)).length, 1, '应当正常报成功');
+});
+
+test('草稿内容是合法 JSON 时也不得被 parse 改值（"1e5" 会变成 100000）', async () => {
+  const DRAFT_KEY = '@easychat2_session_draft::session-mux';
+  // `1e5` 是合法 JSON 数字 ⇒ 旧实现 JSON.parse 得 100000，
+  // 恢复时 JSON.stringify(100000) 写回 "100000"：草稿被静默改写。
+  const storage = new Map([[DRAFT_KEY, '1e5']]);
+  const backup = loadBackup({ storage, directories: DIRECTORIES, recordDiagnosticCalls: [] });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  const entry = result.payload.storage.find(item => item.key === DRAFT_KEY);
+  assert.equal(entry.opaqueRaw, '1e5', '草稿必须原样保留，不能被当成数字');
+  assert.equal(entry.value, undefined);
+});
+
+test('裸文本键清单：开关类键也走原样入包，不报损坏', async () => {
+  const storage = new Map([
+    ['@easychat2_onboarding_done', 'true'],
+    ['@easychat2_perf_probe', 'false'],
+    ['@easychat2_disclaimer_ack', '3'],
+  ]);
+  const calls = [];
+  const backup = loadBackup({ storage, directories: DIRECTORIES, recordDiagnosticCalls: calls });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+
+  assert.deepEqual(result.partialKeys, [], '这些键本来就不是 JSON，不算损坏');
+  assert.equal(result.incomplete, false);
+  for (const [key, raw] of storage) {
+    const entry = result.payload.storage.find(item => item.key === key);
+    assert.equal(entry.opaqueRaw, raw, `${key} 必须原样入包`);
+  }
+});
+
+test('真正损坏的 JSON 键仍然计入 partialKeys（不能因为放行裸文本就放过真损坏）', async () => {
+  const storage = new Map([['@easychat2_sessions', '{ 这不是合法 JSON']]);
+  const calls = [];
+  const backup = loadBackup({ storage, directories: DIRECTORIES, recordDiagnosticCalls: calls });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+  assert.deepEqual(result.partialKeys, ['@easychat2_sessions'], '真损坏仍要报');
+  assert.equal(calls.filter(call => /exportPartialSalvaged/.test(call.message)).length, 1);
 });

@@ -12,6 +12,7 @@ import {
   buildBackupPayload,
   collectLockSecretIds,
   isQuickExportKey,
+  isRawTextKey,
   planBackupImport,
   scanSecretRefs,
 } from './dataBackup.js';
@@ -55,13 +56,28 @@ function userFacingError(message) {
 }
 
 async function readRawValue(key) {
+  // 裸文本键（草稿/开关/版本号）本来就不该 parse：直接取原始串。
+  // 不这么做的话，草稿内容决定成败——`"好的"` 能 parse、`"他说：这样行吗？"` 抛错，
+  // 同一份正常数据时对时错，还会被误判成「结构损坏」刷进日志（真机实锤）。
+  if (isRawTextKey(key)) {
+    let raw;
+    try {
+      raw = await AsyncStorage.getItem(key);
+    } catch (error) {
+      // 读不出（CursorWindow 上限等）时走大值兜底；仍读不出就归入「真读不出」，
+      // 由调用方计进 unreadableKeys——但**不中断**整个备份（草稿丢了不该让整包失败）。
+      raw = await readLargeAsyncStorageValue(key);
+    }
+    if (raw === null || raw === undefined) return {};
+    return { opaqueRaw: String(raw) };
+  }
   // readJsonStatus 在 getItem 抛错或 JSON.parse 失败时已经调用过
   // readLargeAsyncStorageValue 兜底读取；这里再读一次是重复的昂贵 SQLite 全值读取。
   const status = await readJsonStatus(key);
   if (status.status === 'ok') return { value: status.value };
   // 结构损坏但拿到了原始串：交给导出侧以 opaqueRaw 抢救，避免静默丢弃。
   if (status.status === 'corrupt' && typeof status.raw === 'string') {
-    return { opaqueRaw: status.raw };
+    return { opaqueRaw: status.raw, salvaged: true };
   }
   return {};
 }
@@ -309,9 +325,13 @@ export async function exportBackup({
   //
   // 三态口径（P1）：
   // - storage：JSON 结构完好，正常入包；
-  // - partialKeys：结构损坏但原始串拿得到，以 opaqueRaw 原样入包（数据不丢，
+  // - partialKeys：**结构真的损坏**但原始串拿得到，以 opaqueRaw 原样入包（数据不丢，
   //   应用内可能读不出，但恢复时逐字节还原）；
   // - unreadableKeys：真读不出（getItem 抛错 + 大值兜底也 null），只能跳过。
+  //
+  // ⚠️ 裸文本键（isRawTextKey）以 opaqueRaw 入包，但它**不属于 partialKeys**：
+  // 它本来就不该是 JSON，不是损坏。混进来的后果是真机日志每次备份都报「结构损坏」，
+  // 把真正的损坏淹掉（2026-10-20 实锤：一条正常的 session_draft 被报成损坏）。
   const unreadableKeys = [];
   const partialKeys = [];
   const valuesByKey = new Map();
@@ -323,7 +343,8 @@ export async function exportBackup({
     if (read.value !== undefined) {
       valuesByKey.set(key, { value: read.value });
     } else if (read.opaqueRaw !== undefined) {
-      valuesByKey.set(key, { opaqueRaw: read.opaqueRaw });
+      // salvaged 只由「parse 失败」这条路径置位；裸文本键不带该标记。
+      valuesByKey.set(key, { opaqueRaw: read.opaqueRaw, salvaged: read.salvaged === true });
     }
     report('storage', index + 1, readKeys.length);
   }
@@ -351,7 +372,8 @@ export async function exportBackup({
     if (entry.value !== undefined) storage.push({ key, value: entry.value });
     else if (entry.opaqueRaw !== undefined) {
       storage.push({ key, opaqueRaw: entry.opaqueRaw });
-      partialKeys.push(key);
+      // 只有 parse 失败（真损坏）才算 partialKeys；裸文本键照常入包但不算损坏。
+      if (entry.salvaged) partialKeys.push(key);
     }
   }
   for (const key of baseKeys) {
