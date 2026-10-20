@@ -103,9 +103,36 @@ JSON.parse 见到它直接报错）。
 具体字段名各 agent 略有差异（有的用 `transport`、有的要 `--mcp-server` 参数），
 以对应 agent 的文档为准。
 
-### 没有原生 MCP 客户端的宿主（如 DeepSeek Harness）
+### DeepSeek Harness（DSH）——**原生支持，不要用 CLI 桥**
 
-用上面的 `tools/mcp-bridge.mjs`：宿主通过 shell 调用它，等价于接入。
+DSH 自带 `@deepseek-ai/dsh-mcp-client`（在发行包的 `dsh/node_modules/@deepseek-ai/` 下，
+**无需另外安装**），原生支持 `streamable-http`。配置写在 **profile 的
+`cordis.patch.yml`** 里（不是 `cordis.yml`——那个文件头写着「编辑 patch，不要编辑我」）：
+
+```yaml
+- id: mcp-easychat2
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: easychat2
+    transport: streamable-http
+    url: http://192.168.3.8:8737/mcp
+    headers:
+      Authorization: 'Bearer <token>'
+    # 手机侧子代理最长 300s，默认 60s 会把慢工具误杀成超时。
+    toolCallTimeoutMs: 300000
+    # 手机可能没开、可能换网：连不上不要拦住 DSH 启动。
+    failOnStartupError: false
+```
+
+工具以 `mcp__easychat2__<tool>` 出现（与 Claude Code、Codex 同一命名形态）。
+**改完必须重启 DSH** 才生效。
+
+找 profile 目录：`$env:DSH_PROFILE_DIR`（本机是 `D:\dsh\profiles\desktop`）。
+
+### 没有原生 MCP 客户端的宿主
+
+用 `tools/mcp-bridge.mjs`：宿主通过 shell 调用它，等价于接入。
+（DSH **不属于**这一类，它有原生客户端；桥在这里只剩「不依赖宿主配置的排查工具」价值。）
 
 ## 六、排查清单
 
@@ -115,9 +142,34 @@ JSON.parse 见到它直接报错）。
 | `EHOSTUNREACH` / `ETIMEDOUT` | 不在同一局域网 / AP 隔离 | 确认手机与 PC 同一网段；关掉路由器的「AP 隔离」 |
 | `401` | token 不匹配 | 重新复制连接配置；改过 token 后旧配置立即失效 |
 | `404` | 路径不是 `/mcp` | 只暴露一个端点，带不带尾斜杠都认 |
+| **握手成功但 `toolCount: 0`** | **App 版本早于 `c59f8c8c`**：`tools/list` 在注册之前读表，读到空表（详见下节） | 更新 App |
 | `工具没注册` | 档位没开 | 该工具属于未开启的档位，`tools/list` 不会列出它 |
 | `isError: 档位未开启` | 工具调用了但档位关着 | 打开对应档位，或在弹窗里确认 |
 | 写入返回预览 | 正常，两步确认 | 带 `confirm: true` 重发 |
+
+### 「握手成功但 0 个工具」这个坑（已修，`c59f8c8c`）
+
+真机实测（2026-10-21）：握手成功、Bearer 通过、只读档已开，但 `tools/list`
+返回 **0 个工具**，连 `list_workspace_files` 都被判「不在暴露清单里」。
+
+根因是个自锁死循环：
+
+```
+tools/list → 读注册表（空）→ 返回 0 个工具
+     ↓
+agent 不知道有哪些工具 → 不发起任何 tools/call
+     ↓
+executeMcpTool（唯一调用 registerDefaultWorkspaceTools 的地方）永远不执行
+     ↓
+注册表永远是空的
+```
+
+修法：`listToolDefinitions` 改为 async，**先注册（幂等）再读表**；
+`serverBridge` 的 `catalog()` 改为 async 并 await。
+修复后实测 16 个工具正常列出。
+
+**这个修复在 JS 层，必须重新打包安装才生效**——光拉代码不够。
+
 
 ## 七、已知边界
 
