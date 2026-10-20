@@ -660,6 +660,7 @@ test('图片下载来源（2026-10-21）：名单写进提示词；无名单保�
   assert.ok(withSources.includes('<download_image:'), '指令说明仍在');
   assert.ok(withSources.includes('i.pximg.net') && withSources.includes('example.com'), '名单主机进提示词');
   assert.ok(withSources.includes('用户已允许从这些图片来源下载'), '来源措辞');
+  assert.ok(withSources.includes('也支持页面地址'), '页面地址支持（作品页/文章页）');
   assert.ok(!withSources.includes('只在对话上下文中确实出现过'), '有来源时不再只给旧严格限制');
 
   const legacy = systemOf(build({}));

@@ -16,6 +16,8 @@
 // 本模块零 RN 依赖：存储壳在 storage/settings/imageDownloadSources.js，
 // 下载执行在 chat/attachments.js，提示词注入在 prompt/chatPipeline.js。
 
+import { isPrivateHost } from '../plugins/webFetch.js';
+
 export const MAX_IMAGE_DOWNLOAD_SOURCES = 20;
 export const MAX_IMAGE_SOURCE_HOST_CHARS = 120;
 export const MAX_IMAGE_SOURCE_REFERER_CHARS = 500;
@@ -91,25 +93,13 @@ export function hostMatchesPattern(host, pattern) {
   return h === p || h.endsWith(`.${p}`);
 }
 
-// 纯函数：本机/内网地址判定（名单为空时的默认拒绝项；也用于提示文案判断）。
+// 纯函数：本机/内网地址判定。
+// 复用 plugins/webFetch.js 的加固实现（先解析再判网段）——它覆盖十进制/八进制/
+// 十六进制 IPv4 与 IPv4-mapped IPv6 等绕过写法；本模块自己维护一份简化正则
+// 会漏掉「http://2130706433/」这类地址（直连回环地址的 SSRF 面）。
+// webFetch 是 Node 安全的（无 RN import，测试直接 import 过），故可作为依赖。
 export function isPrivateDownloadHost(host) {
-  const h = String(host || '').toLowerCase().replace(/:\d+$/, '');
-  if (!h) return true;
-  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) {
-    return true;
-  }
-  const match = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!match) return false;
-  const a = Number(match[1]);
-  const b = Number(match[2]);
-  return (
-    a === 0
-    || a === 10
-    || a === 127
-    || (a === 169 && b === 254)
-    || (a === 192 && b === 168)
-    || (a === 172 && b >= 16 && b <= 31)
-  );
+  return isPrivateHost(host);
 }
 
 // 纯函数：该主机是否允许下载。

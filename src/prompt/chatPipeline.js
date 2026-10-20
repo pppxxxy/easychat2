@@ -103,10 +103,15 @@ function buildDownloadImageInstruction(hosts) {
     .map(item => String(item || '').trim())
     .filter(Boolean)
     .slice(0, 20);
-  if (allowed.length === 0) return `${DOWNLOAD_IMAGE_INSTRUCTION_BASE}${DOWNLOAD_IMAGE_RESTRICTED}`;
+  // 页面地址支持（2026-10-21）：直链图片和「作品页/文章页」都可以写——后者由
+  // 系统抓页面提取主图（og:image）。这句必须写清楚，否则模型会以为只收 .jpg 直链。
+  const pageSupport = '也支持页面地址（作品页、文章页、图集页）：系统会打开页面并自动找出主图下载，'
+    + '你不需要自己解析网页。';
+  if (allowed.length === 0) return `${DOWNLOAD_IMAGE_INSTRUCTION_BASE}${pageSupport}${DOWNLOAD_IMAGE_RESTRICTED}`;
   return `${DOWNLOAD_IMAGE_INSTRUCTION_BASE}`
+    + `${pageSupport}`
     + `用户已允许从这些图片来源下载：${allowed.join('、')}。`
-    + '来自上述来源的图片链接可以直接使用（包括你确实知道的有效图片 URL）；'
+    + '来自上述来源的页面或图片链接都可以直接使用（包括你确实知道的有效图片 URL）；'
     + '其它来源的链接不会被下载。不要编造 URL——想不出确切 URL 时，就不要写这条指令。';
 }
 
