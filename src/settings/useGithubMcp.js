@@ -12,7 +12,7 @@ import {
   getGithubMcpSettings,
 } from '../storage/githubMcp.js';
 
-// GitHub 令牌创建页（方式二「打开令牌页」的落地页）。
+// GitHub 令牌创建页（「打开令牌页」按钮的落地页）。
 // 为什么不做网页授权：GitHub 的远程 MCP 不提供动态客户端注册（RFC 7591 的 /register
 // 端点不存在）——流程会在「注册应用」一步失败，浏览器根本不会打开，用户看到的就是
 // 「点了按钮没跳转」。令牌页一定可用，且能顺带把权限勾选问清楚。
@@ -81,7 +81,7 @@ export default function useGithubMcp() {
     }
   }, [afterGithubConnect, githubBusy, githubPat, t]);
 
-  // 方式二：打开 GitHub 令牌创建页（不是 OAuth 网页授权）。
+  // 打开 GitHub 令牌创建页（不是 OAuth 网页授权）。
   // GitHub 的远程 MCP 不支持动态客户端注册，网页授权必然在「注册应用」一步失败、
   // 浏览器根本打不开——用户的实际观感就是「点了按钮没跳转」。令牌页则一定可用：
   // 在那里生成 PAT（权限已预勾选），复制回来粘贴到上面的输入框即可。
