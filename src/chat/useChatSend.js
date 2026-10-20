@@ -492,6 +492,7 @@ export default function useChatSend({
          currentTimeText: inject.currentTimeText,
          scheduleText: inject.scheduleText,
          downloadImageEnabled: inject.downloadImageEnabled,
+         downloadImageSources: inject.downloadImageSources,
          locationText: inject.locationText,
          // P0-8：hooks.json 的注入类事件（session_start / after_turn / before_prompt）。
          extraSystemPrompt: hookContextText || undefined,
@@ -1137,6 +1138,7 @@ if (!isCurrent() || controller.signal.aborted) return false;
                stickerEnabled: groupInject.stickerEnabled,
                stickerChance: groupInject.stickerChance,
                downloadImageEnabled: groupInject.downloadImageEnabled,
+               downloadImageSources: groupInject.downloadImageSources,
             });
             const speakerMeter = createRequestMeter();
             const reply = await sendChatMessage(requestMessages, {

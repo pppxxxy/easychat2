@@ -96,6 +96,7 @@ export function buildGroupRequest({
   stickerNames,
   stickerEnabled,
   downloadImageEnabled,
+  downloadImageSources,
   extraSystemPrompt,
   voiceAudio,
 }) {
@@ -122,6 +123,7 @@ export function buildGroupRequest({
     stickerNames,
     stickerEnabled,
     downloadImageEnabled,
+    downloadImageSources,
     extraSystemPrompt,
     voiceAudio,
   });

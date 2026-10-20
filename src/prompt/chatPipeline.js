@@ -84,15 +84,33 @@ function insertDepthEntries(assembled, depthEntries, scripts, replaceUser) {
 // 于是这个功能变成了一条**永远沉默的通道**。新措辞把「何时可用」讲死：
 // 只有上下文中确实出现过、你确信有效的 URL 才写——既不诱导编造，也不让它以为完全不能用。
 // 同时明确「这只是通道，不是来源」：模型没有联网找图的能力，这一点说清楚它才不会假装。
-const DOWNLOAD_IMAGE_INSTRUCTION =
+const DOWNLOAD_IMAGE_INSTRUCTION_BASE =
   '当你想给用户看一张**具体**的网络图片时，在回复里单独写一行：<download_image:图片URL>，'
   + 'URL 必须以 http:// 或 https:// 开头。系统会自动下载并把它显示在聊天里，'
-  + '你不需要在正文里重复贴 URL。'
-  + '使用条件（重要）：只在对话上下文中确实出现过、且你确信有效的图片 URL 上使用'
-  + '（例如用户自己发过的链接）。你没有联网搜图的能力，也不要编造或猜测 URL——'
-  + '想不出确切 URL 时，就不要写这条指令。一条回复最多 3 张。';
+  + '你不需要在正文里重复贴 URL。一条回复最多 3 张。';
 
-export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, stickerEnabled, stickerChance, currentTimeText, scheduleText, locationText, downloadImageEnabled, extraSystemPrompt, voiceAudio }) {
+const DOWNLOAD_IMAGE_RESTRICTED =
+  '使用条件（重要）：只在对话上下文中确实出现过、且你确信有效的图片 URL 上使用'
+  + '（例如用户自己发过的链接）。你没有联网搜图的能力，也不要编造或猜测 URL——'
+  + '想不出确切 URL 时，就不要写这条指令。';
+
+// 配置了来源名单后的措辞（2026-10-21）：名单就是用户给的「可用图片站」授权，
+// 来自这些站点的链接可以直接用；仍然不许编造 URL。没有名单时保持旧的严格措辞，
+// 避免模型在「没有任何授权」的情况下到处试探。
+function buildDownloadImageInstruction(hosts) {
+  const list = Array.isArray(hosts) ? hosts : [];
+  const allowed = list
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  if (allowed.length === 0) return `${DOWNLOAD_IMAGE_INSTRUCTION_BASE}${DOWNLOAD_IMAGE_RESTRICTED}`;
+  return `${DOWNLOAD_IMAGE_INSTRUCTION_BASE}`
+    + `用户已允许从这些图片来源下载：${allowed.join('、')}。`
+    + '来自上述来源的图片链接可以直接使用（包括你确实知道的有效图片 URL）；'
+    + '其它来源的链接不会被下载。不要编造 URL——想不出确切 URL 时，就不要写这条指令。';
+}
+
+export function buildRequestMessages({ character, historyMessages, userText, userProfile, globalPresets, summaryText, pluginContext, images, imageMessages, quote, groupContext, memorySnippets, stickerNames, stickerEnabled, stickerChance, currentTimeText, scheduleText, locationText, downloadImageEnabled, downloadImageSources, extraSystemPrompt, voiceAudio }) {
   const scripts = Array.isArray(character?.regexScripts) ? character.regexScripts : [];
   // P5：展开历史里的工具轨迹（toolTrace → tool 消息），让 agent 看到跨轮的工具结果。
   const history = buildHistory(expandHistoryWithTraces(historyMessages), scripts);
@@ -136,7 +154,11 @@ export function buildRequestMessages({ character, historyMessages, userText, use
   // 角色作息：启用时附上作息与「按当前时间判断状态」的规则，紧跟在时间行之后。
   const scheduleLine = String(scheduleText || '').trim();
   // 图片下载：开关开启时附上「可用 <download_image:URL> 指令」的说明（紧跟作息行之后）。
-  const downloadImageLine = downloadImageEnabled ? DOWNLOAD_IMAGE_INSTRUCTION : '';
+  // 配置了来源名单时把名单写进提示词——这是模型知道「哪些来源被授权」的唯一途径。
+  const downloadImageLine = downloadImageEnabled
+    ? buildDownloadImageInstruction((Array.isArray(downloadImageSources) ? downloadImageSources : [])
+      .map(item => (item && typeof item === 'object' ? item.host : item)))
+    : '';
   // 位置感知：开启且存在最近一次成功位置时附上「[当前位置] …」，置于提示最前。
   const locationLine = String(locationText || '').trim();
   const exampleDialogue = String(character?.mesExample || '').trim();

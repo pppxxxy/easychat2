@@ -409,15 +409,18 @@ function withTimeout(promise, ms, onTimeout) {
   });
 }
 
-export async function downloadRemoteImage(url, { timeoutMs = DOWNLOAD_IMAGE_TIMEOUT_MS } = {}) {
+export async function downloadRemoteImage(url, { timeoutMs = DOWNLOAD_IMAGE_TIMEOUT_MS, headers = null } = {}) {
   const source = String(url || '').trim();
   if (!isHttpImageUrl(source)) throw attachError('chat.downloadImage.failed', 'DOWNLOAD_IMAGE_BAD_URL');
   const tempDir = `${FileSystem.cacheDirectory || ''}image-download/`;
   await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
   const tempUri = `${tempDir}dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // 2026-10-21：按来源带请求头（UA 恒带；命中来源且有引用页时带 Referer）。
+  // 不少图片站校验 Referer 防盗链——没有它，白名单加了来源也照样 403。
+  const downloadOptions = headers && Object.keys(headers).length > 0 ? { headers } : undefined;
   try {
     const result = await withTimeout(
-      FileSystem.downloadAsync(source, tempUri),
+      FileSystem.downloadAsync(source, tempUri, downloadOptions),
       timeoutMs,
       () => { FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {}); }
     );

@@ -498,6 +498,7 @@ test('群聊请求完整透传用户设定、预设、引用、摘要、插件�
     // 群聊与单聊共用同一套系统注入参数（未传即 undefined，逐字段透传）。
     currentTimeText: undefined, scheduleText: undefined, locationText: undefined,
     stickerNames: undefined, stickerEnabled: undefined, downloadImageEnabled: undefined,
+    downloadImageSources: undefined,
     extraSystemPrompt: undefined, voiceAudio: undefined,
   });
   for (const key of ['userProfile', 'globalPresets', 'quote', 'imageMessages']) {

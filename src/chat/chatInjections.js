@@ -10,6 +10,7 @@ import { buildSchedulePrompt, isScheduleActive } from './schedule.js';
 import { resolveStickerNames } from './stickerDirectives.js';
 import { getCharacterSchedule } from '../storage/schedule.js';
 import { getLocationSettings } from '../storage/location.js';
+import { getImageDownloadSources } from '../storage/settings/imageDownloadSources.js';
 import { buildLocationText, placeToLocation, resolveActivePlace } from '../location/geo.js';
 
 // 位置注入（双开关门控）：位置分享（enabled）与位置感知（awareness）都开启时给
@@ -51,6 +52,16 @@ export async function resolveChatInjections({ characterId = '', chatOptions = nu
   ]);
   const options = chatOptions || {};
   const timeAware = options.timeAware === true || scheduleActive;
+  // 图片下载来源（2026-10-21）：开关开启时读一次（最多 3 张图的场景，开销可接受）。
+  // 读失败给空名单 = 不限制（与存储层读侧口径一致）；提示词只在非空时列出名单。
+  let downloadImageSources = [];
+  if (options.downloadImage === true) {
+    try {
+      downloadImageSources = await getImageDownloadSources();
+    } catch (error) {
+      downloadImageSources = [];
+    }
+  }
   return {
     now,
     scheduleText,
@@ -63,6 +74,7 @@ export async function resolveChatInjections({ characterId = '', chatOptions = nu
     // 否则「用户没设过」和「用户明确设了 50%」会变得不可区分。
     stickerChance: options.stickerChance,
     downloadImageEnabled: options.downloadImage === true,
+    downloadImageSources,
     currentTimeText: buildTimeAwareText(timeAware, now),
   };
 }
