@@ -482,10 +482,13 @@ test('exportBackup：三态分流——正常/损坏抢救/真读不出互不混
   assert.deepEqual(result.unreadableKeys, ['@easychat2_dead']);
   assert.equal(result.payload.storage.some(i => i.key === '@easychat2_dead'), false);
   // 键名进诊断日志（带原因）
-  assert.equal(diagnosticCalls.length, 1);
-  assert.equal(diagnosticCalls[0].kind, 'storage');
-  assert.match(diagnosticCalls[0].message, /@easychat2_dead/);
-  assert.equal(diagnosticCalls[0].context, 'backup-export');
+  // ⚠️ 总条数不再是 1：成功侧现在也会留一条（`[backup] 媒体收集完成…`），
+  // 目的是让用户能区分「0 个失败」与「根本没跑」——真机反馈：备份成功但日志空白，
+  // 无法确认修复是否生效。所以改为按 kind 精确定位失败那条。
+  const storageDiags = diagnosticCalls.filter(call => call.kind === 'storage');
+  assert.equal(storageDiags.length, 1, '失败键必须留且只留一条 storage 诊断');
+  assert.match(storageDiags[0].message, /@easychat2_dead/);
+  assert.equal(storageDiags[0].context, 'backup-export');
   assert.equal(result.incomplete, true);
 });
 

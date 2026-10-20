@@ -363,6 +363,17 @@ export async function exportBackup({
     recordDiagnostic('storage', new Error(tActive('error.backup.exportUnreadable', {
       keys: unreadableKeys.join(', '),
     })), 'backup-export');
+  } else if (partialKeys.length === 0) {
+    // **成功也要留一条**（真机反馈 2026-10-20：用户手动备份成功、弹窗显示
+    // 「已生成备份 191.99 MB」，但诊断日志里一条记录都没有，于是无法确认
+    // 「是 0 个失败」还是「根本没跑」）。
+    // 只在「零失败且零抢救」时记，避免与上面的失败诊断重复。
+    // 记键数与「大值兜底」是否真的用上了（下面 media 收集完会补总量，这里先给存储侧）。
+    recordDiagnostic(
+      'log',
+      { message: `[backup] 导出成功：${storage.length}/${baseKeys.length} 个数据键` },
+      'backup-export'
+    );
   }
   const media = [];
   const unreadableMedia = [];
@@ -396,6 +407,15 @@ export async function exportBackup({
   const packedPaths = new Set(payload.media.map(item => item.path));
   for (const item of media) {
     if (!packedPaths.has(item.path)) unreadableMedia.push(item.path);
+  }
+  // 媒体侧的**成功**也要留痕（与上面存储侧同一条理由：零失败时日志空白，
+  // 用户无法区分「0 个失败」与「根本没跑」）。
+  if (unreadableMedia.length === 0) {
+    recordDiagnostic(
+      'log',
+      { message: `[backup] 媒体收集完成：${media.length} 个文件，无读取失败` },
+      'backup-export'
+    );
   }
   // directory 缺省写 documentDirectory 根（手动导出）；自动备份传入专用子目录，
   // 与手动导出分开，避免「淘汰旧备份」误删用户手动导出的包。fileName 缺省用时间戳名。
