@@ -52,6 +52,11 @@ const READ_TOOLS = [
   'get_music_status',
   // FEAT-AC4 P0-B：提醒只读一件（列已设提醒）。
   'list_reminders',
+  // 角色卡只读两件：读的是 AsyncStorage 里的角色卡，不是工作区文件。
+  // 放只读档是因为它们零副作用；但内容敏感（角色卡是用户创作），
+  // 所以只给「列 + 读」，写卡在写入档。
+  'list_characters',
+  'read_character',
 ];
 
 const WRITE_TOOLS = [
@@ -83,6 +88,16 @@ const WRITE_TOOLS = [
   // 两件都声明了 requiresConfirmation，MCP 这边写档另有 confirm:true 两步确认。
   'set_reminder',
   'cancel_reminder',
+  // 角色卡写入两件（新建 / 复制后改）。属**写**档而非执行档——
+  // 它们只改 APP 的角色库数据，不执行代码、不装扩展。
+  //
+  // **没有删卡工具，这是有意的**（用户 2026-10-21 明确要求）：角色卡是用户的核心
+  // 创作、没有 git 版本控制，误删不可逆。删卡只能在 APP 角色页手动做。
+  // edit_character 也不是「就地改」——它复制一份、在副本上改，源卡逐字节不动。
+  // 于是「改坏了」永远能回到原卡，最坏情况是多出一张卡（可手动删），
+  // 而不是丢掉一张卡（找不回来）。
+  'create_character',
+  'edit_character',
 ];
 
 const EXEC_TOOLS = [

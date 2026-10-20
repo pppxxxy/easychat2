@@ -357,4 +357,18 @@ export const error = {
   'error.memory.summaryReset': 'The session summary has been reset.',
   'error.memory.scopeChanged': 'The memory scope changed.',
   'error.memory.characterUpdated': 'The character was updated while summarizing.',
+  // Character-card MCP tools (workspace/toolDefs/charactersTools.js).
+  'error.character.copyIdEmptySource': 'Source character id is empty; cannot derive a copy id: {id}',
+  'error.character.copyIdExhausted': 'Could not derive a copy id: too many copies of the same source (base={base})',
+  'error.character.libraryWriteNotArray': 'Character library write failed: mutate returned {type}',
+  'error.character.libraryWriteWouldDrop': 'Character library write rejected: {id} would disappear (append-only constraint)',
+  'error.character.readNeedsId': 'read_character needs an id (got {id})',
+  'error.character.createNeedsId': 'create_character needs an id (required so later edits can target it)',
+  'error.character.createNeedsName': 'create_character needs a name',
+  'error.character.createIdExists': 'Character id already exists: {id} (use edit_character to copy an existing card instead)',
+  'error.character.editNeedsSource': 'edit_character needs source_id (the card to copy and modify)',
+  'error.character.editNeedsPatch': 'edit_character patch is empty: nothing to change',
+  'error.character.editNotFound': 'No such character: {id}',
+  'error.character.editNewIdEmpty': 'new_id is empty',
+  'error.character.editNewIdExists': 'new_id already exists: {id} (a copy must use a new id or it would overwrite an existing card)',
 };

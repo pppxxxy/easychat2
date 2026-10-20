@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GIT_TOOL_DEFINITIONS, formatGitLog, formatGitStatus } from '../src/workspace/toolDefs/gitTools.js';
-import { createWorkspaceToolDefinitions, GIT_TOOL_NAMES } from '../src/workspace/tools.js';
+import { createWorkspaceToolDefinitions, GIT_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from '../src/workspace/tools.js';
 import { createWorkspaceGit } from '../src/workspace/git.js';
 import { createMemoryFileSystem } from './helpers/memoryFileSystem.mjs';
 import fs from 'node:fs';
@@ -68,9 +68,14 @@ test('注册表：给了 git runner 才多出 git 工具（读三 + 写二）；
   const store = { listWorkspaceFiles: async () => [] };
   const without = createWorkspaceToolDefinitions({ store });
   assert.equal(without.some(item => GIT_TOOL_NAMES.includes(item.name)), false, '没 runner → 一个都不注册');
-  // 整合后基础清单是 26 个（D/Z/M 三线 + m1010m11 的 find_references + 扩展导入两件
-  // + AS2 的 confirm_flow + FEAT-AC1 的 APP 设置三件），git 仍是条件追加、不改变基数。
-  assert.equal(without.length, 32, '基础清单不受影响（git 是条件加）');
+  // 不带 git 时，清单必须与「完整基础定义清单」**逐项相等**——
+  // 不再写死数字（写死的话每加一个工具都要手改，断言会退化成「改数字就能过」；
+  // 本次加 4 个角色卡工具就触发了这一点）。
+  //
+  // 注意 WORKSPACE_TOOL_NAMES 本身**不含** git（git 是条件追加），
+  // 所以这里直接比长度 + 逐项相等，不做减法。
+  assert.deepEqual(without.map(item => item.name), [...WORKSPACE_TOOL_NAMES],
+    '基础清单不受影响（git 是条件加）');
 
   const withGit = byName(createWorkspaceToolDefinitions({ store, git: makeGitRunner(createMemoryFileSystem()) }));
   for (const name of GIT_TOOL_NAMES) {

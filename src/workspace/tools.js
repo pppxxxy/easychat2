@@ -38,14 +38,19 @@ import {
   APP_SETTINGS_READ_DEFINITIONS,
   APP_SETTINGS_WRITE_DEFINITIONS,
 } from './toolDefs/appSettingsTools.js';
+// 角色卡工具：读写的是 AsyncStorage 里的角色卡，**不是工作区文件**。
+// 只增不减（无删卡工具），改卡 = 复制后在副本上改。
+import {
+  CHARACTER_READ_DEFINITIONS,
+  CHARACTER_WRITE_DEFINITIONS,
+} from './toolDefs/charactersTools.js';
 import {
   MUSIC_READ_DEFINITIONS,
   MUSIC_WRITE_DEFINITIONS,
 } from './toolDefs/musicTools.js';
 import {
   REMINDER_READ_DEFINITIONS,
-  REMINDER_WRITE_DEFINITIONS,
-} from './toolDefs/reminderTools.js';
+  REMINDER_WRITE_DEFINITIONS,} from './toolDefs/reminderTools.js';
 import { unregisterAllMcpTools } from './mcpTools.js';
 
 // 兼容导出：read 工具的格式化实现随定义搬去了 readTools.js，既有引用点（含测试）从这里取。
@@ -68,6 +73,9 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   ...MUSIC_READ_DEFINITIONS,
   // FEAT-AC4 P0-B：提醒只读一件（列已设提醒）——只读区。
   ...REMINDER_READ_DEFINITIONS,
+  // 角色卡只读两件（列卡 / 读卡）——只读区。角色卡存在 AsyncStorage，
+  // 与工作区文件是两套数据，所以在工具描述里明确点出这一点。
+  ...CHARACTER_READ_DEFINITIONS,
   SEARCH_TOOL_DEFINITION,
   LIST_SYMBOLS_TOOL_DEFINITION,
   FIND_REFERENCES_TOOL_DEFINITION,
@@ -91,6 +99,9 @@ const WORKSPACE_TOOL_DEFINITIONS = [
   ...MUSIC_WRITE_DEFINITIONS,
   // FEAT-AC4 P0-B：提醒写入两件（建立 / 取消，均需确认）——属写区。
   ...REMINDER_WRITE_DEFINITIONS,
+  // 角色卡写入两件（新建 / 复制后改）——属写区。**没有删卡工具**：
+  // 删卡只能在 APP 角色页手动做（用户 2026-10-21 明确要求）。
+  ...CHARACTER_WRITE_DEFINITIONS,
   RUN_REMOTE_BUILD_DEFINITION,
   DOCX_TOOL_DEFINITION,
   INSTALL_PACK_TOOL_DEFINITION,

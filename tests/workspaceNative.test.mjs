@@ -34,6 +34,7 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'list_app_settings', 'get_app_setting',
     'list_music_library', 'get_music_status',
     'list_reminders',
+    'list_characters', 'read_character',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -53,17 +54,21 @@ test('registerDefaultWorkspaceTools 登记写模式全套工具（原生就绪�
     'set_app_setting',
     'control_music',
     'set_reminder', 'cancel_reminder',
+    'create_character', 'edit_character',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
     'import_extension',
   ]);
   assert.deepEqual(names, WORKSPACE_TOOL_NAMES);
-  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, 32);
+  // 写模式工具数**从定义派生**，不写死数字：每加一个工具都要手改数字的话，
+  // 这个断言会变成「改数字就能过」的摆设（本次加 4 个角色卡工具即如此）。
+  // 真正要钉的是「写模式下全部工具都注册上了」，数量本身由 WORKSPACE_TOOL_NAMES 保证。
+  assert.equal(listToolsForMode(AGENT_MODES.WRITE).length, WORKSPACE_TOOL_NAMES.length);
   // 只读模式只放开只读工具（含子代理/工作流）：edit 是写操作，绝不能漏进只读模式
   assert.deepEqual(
     listToolsForMode(AGENT_MODES.READ).map(item => item.function.name),
-    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'list_music_library', 'get_music_status', 'list_reminders', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
+    ['list_workspace_files', 'read_workspace_file', 'list_app_settings', 'get_app_setting', 'list_music_library', 'get_music_status', 'list_reminders', 'list_characters', 'read_character', 'search_workspace', 'list_symbols', 'find_references', 'ask_user', 'confirm_flow', 'skill', 'update_plan', 'materialize_repo', 'get_build_log', 'run_subagent', 'run_workflow', 'run_team', 'export_extension_pack', 'search_extension_repos'],
   );
 });
 
@@ -132,6 +137,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'list_app_settings', 'get_app_setting',
     'list_music_library', 'get_music_status',
     'list_reminders',
+    'list_characters', 'read_character',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -151,6 +157,7 @@ test('registerWorkspaceTools 带 shell 时多出 run_shell，且它需要逐条�
     'set_app_setting',
     'control_music',
     'set_reminder', 'cancel_reminder',
+    'create_character', 'edit_character',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
@@ -225,6 +232,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'list_app_settings', 'get_app_setting',
     'list_music_library', 'get_music_status',
     'list_reminders',
+    'list_characters', 'read_character',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -244,6 +252,7 @@ test('registerWorkspaceTools 带 python 时多出 run_python，且它需要逐�
     'set_app_setting',
     'control_music',
     'set_reminder', 'cancel_reminder',
+    'create_character', 'edit_character',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',

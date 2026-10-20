@@ -368,4 +368,19 @@ export const error = {
   'error.memory.summaryReset': '会话摘要已重置',
   'error.memory.scopeChanged': '记忆作用域已变化',
   'error.memory.characterUpdated': '角色已在总结期间更新',
+  // 角色卡 MCP 工具（workspace/toolDefs/charactersTools.js）：这些消息会作为
+  // 工具结果回给模型，也可能在 APP 里被 catch 后展示，所以走词条而不是硬编码。
+  'error.character.copyIdEmptySource': '源角色卡 id 为空，无法生成副本 id：{id}',
+  'error.character.copyIdExhausted': '副本 id 生成失败：同源副本过多（base={base}）',
+  'error.character.libraryWriteNotArray': '角色库写回失败：mutate 返回了 {type}',
+  'error.character.libraryWriteWouldDrop': '角色库写回被拒绝：{id} 会从库中消失（只增不减约束）',
+  'error.character.readNeedsId': 'read_character 需要 id（收到 {id}）',
+  'error.character.createNeedsId': 'create_character 需要 id（不可省略，后续改卡要靠它定位）',
+  'error.character.createNeedsName': 'create_character 需要 name',
+  'error.character.createIdExists': '角色 id 已存在：{id}（要改已有卡请用 edit_character 复制后改）',
+  'error.character.editNeedsSource': 'edit_character 需要 source_id（要复制并修改的源卡）',
+  'error.character.editNeedsPatch': 'edit_character 的 patch 为空：没有要改的字段',
+  'error.character.editNotFound': '没有这个角色：{id}',
+  'error.character.editNewIdEmpty': 'new_id 为空',
+  'error.character.editNewIdExists': 'new_id 已存在：{id}（副本必须用新 id，否则会覆盖已有卡）',
 };

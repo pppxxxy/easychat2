@@ -99,6 +99,8 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     // FEAT-AC2：音乐只读两件（列曲库 / 查播放状态）——同样只读区。
     'list_music_library', 'get_music_status',
     'list_reminders',
+    // 角色卡只读两件（读 AsyncStorage 里的角色卡，不是工作区文件）——只读区。
+    'list_characters', 'read_character',
     'search_workspace',
     'list_symbols', 'find_references',
     'ask_user',
@@ -120,6 +122,8 @@ test('加载 tools.js（索引层）不触发 fflate / 网络层 / expo 系：�
     // FEAT-AC2：音乐控制——属写区（会改变正在播放的内容）。
     'control_music',
     'set_reminder', 'cancel_reminder',
+    // 角色卡写入两件（新建 / 复制后改，均需确认）——写区。**无删卡工具**。
+    'create_character', 'edit_character',
     'run_remote_build',
     'export_workspace_docx',
     'install_extension_pack',
