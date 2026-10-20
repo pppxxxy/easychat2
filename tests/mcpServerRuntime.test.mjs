@@ -268,14 +268,16 @@ test('describeMcpWorkspace / listToolDefinitions / createRuntimeMcpBridge 接线
   assert.deepEqual(info, { kind: 'app', root: 'file:///ws', uri: 'file:///ws' });
   assert.equal(calls.describeRoot, 1);
 
-  assert.deepEqual(runtime.listToolDefinitions().map(t => t.name), ['run_shell', 'read_workspace_file']);
+  // listToolDefinitions 现在是 async：它必须先「确保工作区工具已注册」再读表
+  // （同步版本会在注册之前读空表，真机上表现为 toolCount = 0）。
+  assert.deepEqual((await runtime.listToolDefinitions()).map(t => t.name), ['run_shell', 'read_workspace_file']);
 
   const bridge = runtime.createRuntimeMcpBridge();
   assert.equal(typeof bridge.options.readSettings, 'function');
   assert.equal(typeof bridge.options.executeTool, 'function');
   const settings = await bridge.options.readSettings();
   assert.equal(settings.port, 8737);
-  const list = bridge.options.listDefinitions();
+  const list = await bridge.options.listDefinitions();
   assert.equal(list.length, 2);
 
   const detach = runtime.attachRuntimeMcpServer();
@@ -284,4 +286,57 @@ test('describeMcpWorkspace / listToolDefinitions / createRuntimeMcpBridge 接线
   // 真实能力（读设置 + 跑工具 + 工作区描述）必须一路传到 attach。
   assert.equal(typeof calls.attach.bridge.options.executeTool, 'function', 'attach 时把带真实能力的桥交出去');
   assert.equal(typeof calls.attach.bridge.options.readSettings, 'function');
+});
+
+// ── 真机实测的死锁（2026-10-21）：toolCount = 0 ──────────────────────────
+//
+// 现场：握手成功、Bearer 通过、只读档已开，但 tools/list 返回 0 个工具，
+// 连 `list_workspace_files` 都被判「不在暴露清单里」。
+//
+// 根因：listToolDefinitions 只读注册表、不注册；而 registerDefaultWorkspaceTools
+// 只在 executeMcpTool（执行时）里调用。于是：
+//   tools/list 读空表 → agent 不知道有工具 → 不发起调用 → execute 不跑 → 表永远空。
+//
+// 这条测试钉住「读表之前必须已注册」，且注册**发生在读表那一刻**（不是靠别处副作用）。
+test('listToolDefinitions 必须先注册再读表（否则 tools/list 永远返回空）', async () => {
+  reset();
+  // 前提：注册表此刻是空的（没有别的地方注册过）。
+  state.tools = {};
+  calls.register = [];
+  assert.deepEqual(registryStub.listRegisteredTools(), [], '前提：注册表为空');
+
+  // 桩模拟「注册会填充注册表」——真实 registerDefaultWorkspaceTools 就是这个效果。
+  const originalRegister = nativeStub.registerDefaultWorkspaceTools;
+  nativeStub.registerDefaultWorkspaceTools = (settings, extras) => {
+    calls.register.push({ settings, extras });
+    state.tools = {
+      read_workspace_file: { name: 'read_workspace_file' },
+      list_workspace_files: { name: 'list_workspace_files' },
+    };
+    return [];
+  };
+  try {
+    const list = await runtime.listToolDefinitions();
+    assert.equal(calls.register.length, 1, '读表前必须注册一次（且只一次）');
+    assert.deepEqual(
+      list.map(t => t.name).sort(),
+      ['list_workspace_files', 'read_workspace_file'],
+      '注册后必须能读到工具——这正是真机上缺失的那一步',
+    );
+  } finally {
+    nativeStub.registerDefaultWorkspaceTools = originalRegister;
+  }
+});
+
+test('工作区设置读不出时：listToolDefinitions 不抛，退回现有注册表', async () => {
+  reset();
+  const originalGet = workspaceStub.getWorkspaceSettings;
+  workspaceStub.getWorkspaceSettings = async () => { throw new Error('storage broken'); };
+  try {
+    const list = await runtime.listToolDefinitions();
+    // 不抛就算过：tools/list 失败会让整个 MCP 会话不可用，比「少几个工具」糟得多。
+    assert.ok(Array.isArray(list), '必须返回数组而不是抛错');
+  } finally {
+    workspaceStub.getWorkspaceSettings = originalGet;
+  }
 });

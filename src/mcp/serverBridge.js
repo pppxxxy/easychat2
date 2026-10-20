@@ -170,7 +170,18 @@ export function createMcpBridge({
   log = () => {},
 } = {}) {
   const readTiers = async () => normalizeMcpTiers((await readSettings()).tiers);
-  const catalog = () => (typeof listDefinitions === 'function' ? listDefinitions() : []);
+  // catalog 必须允许**异步**：生产实现的 listDefinitions 要先「确保工作区工具已注册」
+  // 才能读到表（见 serverRuntime.listToolDefinitions）。写成同步的话，
+  // tools/list 会在注册之前读空表 ⇒ 返回 0 个工具 ⇒ agent 不知道有工具 ⇒
+  // 永远不会发起调用 ⇒ executeMcpTool 里的注册永远不跑。真机实测正是这个死锁：
+  // 握手成功、鉴权通过、只读档已开，但 toolCount = 0。
+  //
+  // 对同步返回值的实现（测试桩、旧调用方）保持兼容：await 非 Promise 直接得值。
+  const catalog = async () => {
+    if (typeof listDefinitions !== 'function') return [];
+    const list = await listDefinitions();
+    return Array.isArray(list) ? list : [];
+  };
 
   const server = createMcpServer({
     serverInfo,
@@ -180,7 +191,7 @@ export function createMcpBridge({
     log,
     listTools: async () => {
       const tiers = await readTiers();
-      return listExposedTools(catalog(), tiers).map(({ definition, tier }) => ({
+      return listExposedTools(await catalog(), tiers).map(({ definition, tier }) => ({
         name: definition.name,
         description: String(definition.description || ''),
         inputSchema: definition.parameters && typeof definition.parameters === 'object'
@@ -192,7 +203,8 @@ export function createMcpBridge({
     },
     callTool: async ({ name, args }) => {
       const tiers = await readTiers();
-      const definition = catalog().find(item => item.name === name) || null;
+      const definitions = await catalog();
+      const definition = definitions.find(item => item.name === name) || null;
       const plan = planToolCall({ name, definition, args, tiers });
       if (plan.kind === 'denied') {
         log('denied', name, plan.tier);
@@ -226,13 +238,13 @@ export function createMcpBridge({
       }
     },
     listResources: async () => buildMcpResourceList({
-      catalog: catalog(),
+      catalog: await catalog(),
       tiers: await readTiers(),
     }),
     readResource: async ({ uri }) => {
       const text = buildMcpResourceText({
         uri,
-        catalog: catalog(),
+        catalog: await catalog(),
         tiers: await readTiers(),
         // 工作区根是异步取的（要读设置）：文档里要写清「当前根在哪」，
         // 否则 agent 只能靠猜路径。取不到就退回「由设置决定」的措辞。

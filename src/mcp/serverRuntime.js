@@ -33,9 +33,30 @@ export function readMcpServerSettings() {
   return getMcpServerSettings();
 }
 
-// 注册表是全局单例：这里只读它，不注册也不注销（注册由 executeMcpTool 与 UI 各自负责，
-// 注销会波及 UI 正在用的同名工具——headlessAgent 的注释记过这个坑）。
-export function listToolDefinitions() {
+// 注册表是全局单例。**读之前必须确保已注册**——这是真机实测出来的死锁：
+//
+//   tools/list → 读注册表（空）→ 返回 0 个工具
+//        ↓
+//   agent 不知道有哪些工具 → 不会发起任何 tools/call
+//        ↓
+//   executeMcpTool（唯一调用 registerDefaultWorkspaceTools 的地方）永远不执行
+//        ↓
+//   注册表永远是空的
+//
+// 现场症状：握手成功、Bearer 通过、只读档已开，但 toolCount = 0，
+// 连 `list_workspace_files` 都被判「不在暴露清单里」。
+//
+// 修法：listToolDefinitions 先注册（幂等），再读表。原注释说「不注册」的理由是
+// 「注册由 executeMcpTool 与 UI 各自负责」——那对**注销**成立（会波及 UI 正在用的
+// 同名工具），对**注册**不成立：registerDefaultWorkspaceTools 重复调用是无害的。
+export async function listToolDefinitions() {
+  try {
+    const settings = await getWorkspaceSettings();
+    registerDefaultWorkspaceTools(settings, {});
+  } catch (error) {
+    // 设置读不出时不要抛：退回「读现有注册表」总比让 tools/list 直接失败好，
+    // 至少 UI 注册过的工具还能列出来。
+  }
   return listRegisteredTools();
 }
 
