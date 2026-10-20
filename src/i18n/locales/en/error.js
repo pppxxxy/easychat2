@@ -295,6 +295,8 @@ export const error = {
   'error.backup.restoreReadFailed': 'Failed to read the data to restore: {key}',
   'error.backup.tooLarge': 'The backup file is too large; the current limit is {mb}MB.',
   'error.backup.exportUnreadable': 'Backup export: the following data keys could not be read and were not included: {keys}',
+  'error.backup.exportPartialSalvaged': 'Backup export: the following data keys were structurally corrupt and were salvaged as raw strings (data is not lost, but the app may not be able to read them): {keys}',
+  'error.backup.exportMediaUnreadable': 'Backup export: the following media files could not be read and were not included: {files}',
   // The 6 import-validation messages: BackupPanel shows these through Alert, so they must be
   // translatable (they used to be hardcoded Chinese in dataBackup.js return object literals,
   // which the hardcoded-Chinese lint rule cannot see).

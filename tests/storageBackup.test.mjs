@@ -482,13 +482,17 @@ test('exportBackup：三态分流——正常/损坏抢救/真读不出互不混
   assert.deepEqual(result.unreadableKeys, ['@easychat2_dead']);
   assert.equal(result.payload.storage.some(i => i.key === '@easychat2_dead'), false);
   // 键名进诊断日志（带原因）
-  // ⚠️ 总条数不再是 1：成功侧现在也会留一条（`[backup] 媒体收集完成…`），
-  // 目的是让用户能区分「0 个失败」与「根本没跑」——真机反馈：备份成功但日志空白，
-  // 无法确认修复是否生效。所以改为按 kind 精确定位失败那条。
+  // ⚠️ 总条数不再是 1：三态现在**各记各的**。
+  // 本用例同时含「损坏抢救」与「真读不出」两种，所以应有 2 条 storage 诊断；
+  // 此前写成 `else if` 时抢救那条会被吞掉（真机反馈：备份成功但日志空白）。
   const storageDiags = diagnosticCalls.filter(call => call.kind === 'storage');
-  assert.equal(storageDiags.length, 1, '失败键必须留且只留一条 storage 诊断');
-  assert.match(storageDiags[0].message, /@easychat2_dead/);
-  assert.equal(storageDiags[0].context, 'backup-export');
+  assert.equal(storageDiags.length, 2, '失败一条 + 抢救一条，两条都要在');
+  const unreadableDiag = storageDiags.find(call => /@easychat2_dead/.test(call.message));
+  assert.ok(unreadableDiag, '真读不出的键必须留痕');
+  assert.equal(unreadableDiag.context, 'backup-export');
+  const salvagedDiag = storageDiags.find(call => /@easychat2_broken/.test(call.message));
+  assert.ok(salvagedDiag, '抢救的键也必须留痕（数据没丢，但应用内读不出）');
+  assert.match(salvagedDiag.message, /抢救/, '文案要说清是「抢救」而不是「失败」，两者性质不同');
   assert.equal(result.incomplete, true);
 });
 

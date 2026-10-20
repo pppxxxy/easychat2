@@ -31,7 +31,7 @@ function compileToCjs(absPath) {
   return code;
 }
 
-function loadBackup({ storage = new Map(), files = new Map(), directories = {}, throwsOnRead = new Set(), recordDiagnosticCalls = [] } = {}) {
+function loadBackup({ storage = new Map(), files = new Map(), directories = {}, throwsOnRead = new Set(), corruptRaw = new Map(), mediaThrowsFor = new Set(), recordDiagnosticCalls = [] } = {}) {
   const fileSystem = {
     documentDirectory: 'file:///doc/',
     EncodingType: { Base64: 'base64' },
@@ -42,7 +42,10 @@ function loadBackup({ storage = new Map(), files = new Map(), directories = {}, 
       delete() { this.exists = false; }
     },
     async getInfoAsync(uri) { return { exists: files.has(uri), isDirectory: false }; },
-    async readAsStringAsync(uri) { return files.has(uri) ? files.get(uri) : ''; },
+    async readAsStringAsync(uri) {
+      if (mediaThrowsFor.has(uri)) throw new Error('read failed');
+      return files.has(uri) ? files.get(uri) : '';
+    },
     async readDirectoryAsync(uri) {
       const names = directories[uri];
       if (!names) throw new Error('no dir');
@@ -75,6 +78,8 @@ function loadBackup({ storage = new Map(), files = new Map(), directories = {}, 
         __esModule: true,
         readJsonStatus: async key => {
           if (throwsOnRead.has(key)) return { status: 'corrupt' };
+          // corruptRaw：getItem 读得到原始串，但 JSON 解析不了 ⇒ 走 opaqueRaw 抢救。
+          if (corruptRaw.has(key)) return { status: 'corrupt', raw: corruptRaw.get(key) };
           return storage.has(key) ? { status: 'ok', value: JSON.parse(storage.get(key)) } : { status: 'missing' };
         },
         readLargeAsyncStorageValue: async () => null,
@@ -97,7 +102,12 @@ function loadBackup({ storage = new Map(), files = new Map(), directories = {}, 
       return { __esModule: true, createBackupChunkGenerator: function* () {} };
     }
     if (request.endsWith('/i18n/index.js') || request.endsWith('/i18n/index')) {
-      return { __esModule: true, tActive: key => String(key) };
+      // 必须做插值：真实 tActive 会把 {keys}/{files} 换成实际值，桩只回键名的话
+      // 「日志里有没有这个键名」这条断言就永远查不到东西（测了个假前提）。
+      return {
+        __esModule: true,
+        tActive: (key, params) => (params ? `${key} ${JSON.stringify(params)}` : String(key)),
+      };
     }
     if (parent && parent.filename && request.startsWith('.')) {
       const base = path.resolve(path.dirname(parent.filename), request);
@@ -193,4 +203,106 @@ test('有失败时不记「成功」诊断（两者互斥，不重复刷日志�
   assert.equal(success.length, 0, '有失败时不得再记「成功」，否则日志自相矛盾');
   const failure = calls.filter(call => call.kind === 'storage');
   assert.equal(failure.length, 1, '失败那条必须仍在');
+});
+
+// ── 真机反馈（2026-10-20 二次）：日志里只出现了「媒体收集完成」，没有「导出成功」──
+//
+// 用户装的是含本批成功日志的包，媒体那一行出现了、存储那一行没出现。
+// 根因不是「存储侧没跑」，而是当时写成 `if (有失败) … else if (无抢救) …`：
+// **「有抢救、无失败」这一态两条都不进、一个字都不写。**
+// 这正是最需要看见的一态：数据没丢（原始串已入包），但应用内读不出。
+test('有抢救、无失败时：必须记「抢救」那条，且不得记成「成功」', async () => {
+  // 键必须在 storage 里，否则 getAllKeys() 不会返回它、根本轮不到读（前提就假了）。
+  const storage = new Map([
+    ['@easychat2_good', JSON.stringify({ ok: true })],
+    ['@easychat2_salvage', '{ not valid json'],
+  ]);
+  const calls = [];
+  const backup = loadBackup({
+    storage,
+    directories: DIRECTORIES,
+    corruptRaw: new Map([['@easychat2_salvage', '{ not valid json']]),
+    recordDiagnosticCalls: calls,
+  });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+
+  assert.deepEqual(result.partialKeys, ['@easychat2_salvage'], '前提：本次有抢救');
+  assert.deepEqual(result.unreadableKeys, [], '前提：本次零失败');
+
+  const salvaged = calls.filter(call => /exportPartialSalvaged/.test(call.message));
+  assert.equal(salvaged.length, 1, `抢救必须留痕，否则日志空白（实际 ${salvaged.length} 条）`);
+  assert.match(salvaged[0].message, /@easychat2_salvage/, '要写清是哪个键');
+  assert.equal(salvaged[0].kind, 'storage');
+
+  const success = calls.filter(call => /导出成功/.test(call.message));
+  assert.equal(success.length, 0, '有抢救就不能报「成功」——数据入包了但应用内读不出，不是全绿');
+});
+
+test('抢救与失败同时存在时：两条都要记，互不吞掉', async () => {
+  const storage = new Map([
+    ['@easychat2_good', JSON.stringify({ ok: true })],
+    ['@easychat2_dead', JSON.stringify({ x: 1 })],
+    ['@easychat2_salvage', '{ broken'],
+  ]);
+  const calls = [];
+  const backup = loadBackup({
+    storage,
+    directories: DIRECTORIES,
+    throwsOnRead: new Set(['@easychat2_dead']),
+    corruptRaw: new Map([['@easychat2_salvage', '{ broken']]),
+    recordDiagnosticCalls: calls,
+  });
+  await backup.exportBackup({ appVersion: 'test' });
+
+  const storageCalls = calls.filter(call => call.kind === 'storage');
+  assert.equal(storageCalls.length, 2, `失败 + 抢救各一条（实际 ${storageCalls.length} 条）`);
+  assert.ok(storageCalls.some(call => /@easychat2_dead/.test(call.message)), '失败那条在');
+  assert.ok(storageCalls.some(call => /@easychat2_salvage/.test(call.message)), '抢救那条在');
+  assert.equal(calls.filter(call => /导出成功/.test(call.message)).length, 0);
+});
+
+test('抢救/媒体失败的词条：两种语言都要有，且不是同一句', () => {
+  // 桩把 tActive 换成键名，所以上面只能断言「用了哪个键」；
+  // 词条本身是否存在、两种语言是否都翻译了，在这里单独钉住
+  //（i18nKeyAudit 只查代码引用的键是否存在，查不到「en 漏翻」）。
+  const zh = fs.readFileSync(path.resolve('src/i18n/locales/zh-CN/error.js'), 'utf8');
+  const en = fs.readFileSync(path.resolve('src/i18n/locales/en/error.js'), 'utf8');
+  for (const key of ['exportPartialSalvaged', 'exportMediaUnreadable']) {
+    assert.ok(zh.includes(`'error.backup.${key}'`), `zh-CN 缺 error.backup.${key}`);
+    assert.ok(en.includes(`'error.backup.${key}'`), `en 缺 error.backup.${key}`);
+  }
+  // 抢救 ≠ 失败：两者性质不同（一个数据在包里、一个不在），文案不能混用同一句。
+  const zhSalvaged = zh.match(/'error\.backup\.exportPartialSalvaged':\s*'([^']*)'/)[1];
+  const zhUnreadable = zh.match(/'error\.backup\.exportUnreadable':\s*'([^']*)'/)[1];
+  assert.notEqual(zhSalvaged, zhUnreadable, '抢救与失败必须是两句不同的话');
+  assert.match(zhSalvaged, /抢救/, '抢救那条要说「抢救」，否则用户以为数据丢了');
+});
+
+test('媒体读取失败时：必须记失败那条（此前完全静默）', async () => {
+  const storage = new Map([['@easychat2_good', JSON.stringify({ ok: true })]]);
+  const calls = [];
+  // 目录里列出了一个文件，但 readAsStringAsync 抛错 ⇒ 该文件进 unreadableMedia。
+  const backup = loadBackup({
+    storage,
+    directories: { ...DIRECTORIES, 'file:///doc/avatars/': ['bad.png'] },
+    mediaThrowsFor: new Set(['file:///doc/avatars/bad.png']),
+    recordDiagnosticCalls: calls,
+  });
+  const result = await backup.exportBackup({ appVersion: 'test' });
+
+  assert.deepEqual(result.unreadableMedia, ['avatars/bad.png'], '前提：媒体有失败');
+  const mediaFailure = calls.filter(call => /媒体|bad\.png/.test(call.message) && call.kind === 'storage');
+  assert.equal(mediaFailure.length, 1, `媒体失败必须留痕（实际 ${mediaFailure.length} 条）`);
+  assert.match(mediaFailure[0].message, /avatars\/bad\.png/, '要写清是哪个文件');
+  assert.equal(calls.filter(call => /媒体收集完成/.test(call.message)).length, 0, '不得同时报「无读取失败」');
+});
+
+test('成功日志带模式：自动备份与手动备份同段代码，不带模式分不出来', async () => {
+  const storage = new Map([['@easychat2_good', JSON.stringify({ ok: true })]]);
+  const calls = [];
+  const backup = loadBackup({ storage, directories: DIRECTORIES, recordDiagnosticCalls: calls });
+  await backup.exportBackup({ appVersion: 'test', mode: 'quick' });
+  const success = calls.filter(call => /导出成功/.test(call.message));
+  assert.equal(success.length, 1);
+  assert.match(success[0].message, /快速/, '快速模式要写明');
 });

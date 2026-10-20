@@ -301,6 +301,8 @@ export const error = {
   'error.backup.restoreReadFailed': '无法读取待恢复数据：{key}',
   'error.backup.tooLarge': '备份文件过大，当前上限为 {mb}MB',
   'error.backup.exportUnreadable': '备份导出：以下数据键读取失败，未包含在备份中：{keys}',
+  'error.backup.exportPartialSalvaged': '备份导出：以下数据键结构损坏，已按原始串抢救入包（数据不丢，但应用内可能读不出）：{keys}',
+  'error.backup.exportMediaUnreadable': '备份导出：以下媒体文件读取失败，未包含在备份中：{files}',
   // 导入校验的 6 条：这些 message 经 BackupPanel 的 Alert 直接显示给用户，原先硬编码在
   // dataBackup.js 的返回对象字面量里（eslint 硬编码规则看不到 ⇒ 英文界面漏中文）。
   'error.backup.payloadInvalid': '备份文件格式无效',

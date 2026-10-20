@@ -359,19 +359,37 @@ export async function exportBackup({
   }
   // 失败键名必须留痕：弹窗只显示数量、诊断日志此前完全没记录，用户无从排查
   // 是哪个键失败。这里把键名（去前缀前）写进诊断日志，供「诊断日志」回看。
+  //
+  // 三态必须**各记各的**（真机反馈 2026-10-20 二次修正）：
+  // 上一版写成 `if (有失败) … else if (无抢救) …`，于是
+  // **「有抢救、无失败」这一态两条都不进、一个字都不写**——
+  // 恰恰是最需要看见的一态：数据没丢（原始串已入包），但应用内读不出。
+  // 现在失败与抢救各自独立记录（可同时出现），只有「零失败且零抢救」才记成功。
   if (unreadableKeys.length > 0) {
     recordDiagnostic('storage', new Error(tActive('error.backup.exportUnreadable', {
       keys: unreadableKeys.join(', '),
     })), 'backup-export');
-  } else if (partialKeys.length === 0) {
+  }
+  if (partialKeys.length > 0) {
+    recordDiagnostic('storage', new Error(tActive('error.backup.exportPartialSalvaged', {
+      keys: partialKeys.join(', '),
+    })), 'backup-export');
+  }
+  if (unreadableKeys.length === 0 && partialKeys.length === 0) {
     // **成功也要留一条**（真机反馈 2026-10-20：用户手动备份成功、弹窗显示
     // 「已生成备份 191.99 MB」，但诊断日志里一条记录都没有，于是无法确认
     // 「是 0 个失败」还是「根本没跑」）。
-    // 只在「零失败且零抢救」时记，避免与上面的失败诊断重复。
-    // 记键数与「大值兜底」是否真的用上了（下面 media 收集完会补总量，这里先给存储侧）。
+    // 记键数与模式：自动备份和手动备份走同一段代码、同一个 context，
+    // 不带模式时日志里分不出这次是哪个（真机上自动备份在启动后 30 秒跑）。
+    //
+    // 分子分母口径：storage 是**最终入包**的键集合（含 includeSecrets 时按
+    // 密钥引用追加的键），baseKeys 是本次的「基础集合」。两者可能不等，
+    // 差额必须写明，否则会出现「137/135 个数据键」这种看着像 bug 的数字。
+    const extraKeys = storage.length - baseKeys.length;
+    const extraNote = extraKeys > 0 ? `（另含密钥引用追加 ${extraKeys} 个）` : '';
     recordDiagnostic(
       'log',
-      { message: `[backup] 导出成功：${storage.length}/${baseKeys.length} 个数据键` },
+      { message: `[backup] 导出成功：${storage.length}/${baseKeys.length} 个数据键${extraNote}（${quick ? '快速' : '完整'}）` },
       'backup-export'
     );
   }
@@ -408,14 +426,19 @@ export async function exportBackup({
   for (const item of media) {
     if (!packedPaths.has(item.path)) unreadableMedia.push(item.path);
   }
-  // 媒体侧的**成功**也要留痕（与上面存储侧同一条理由：零失败时日志空白，
-  // 用户无法区分「0 个失败」与「根本没跑」）。
+  // 媒体侧也要**两态各记各的**（与存储侧同一条理由）。
+  // 此前只有成功那一支：媒体读取失败时日志一片空白，用户只从弹窗看到数量，
+  // 无法知道是哪个文件、也无法判断是不是环境问题。
   if (unreadableMedia.length === 0) {
     recordDiagnostic(
       'log',
-      { message: `[backup] 媒体收集完成：${media.length} 个文件，无读取失败` },
+      { message: `[backup] 媒体收集完成：${media.length} 个文件，无读取失败（${quick ? '快速' : '完整'}）` },
       'backup-export'
     );
+  } else {
+    recordDiagnostic('storage', new Error(tActive('error.backup.exportMediaUnreadable', {
+      files: unreadableMedia.join(', '),
+    })), 'backup-export');
   }
   // directory 缺省写 documentDirectory 根（手动导出）；自动备份传入专用子目录，
   // 与手动导出分开，避免「淘汰旧备份」误删用户手动导出的包。fileName 缺省用时间戳名。
