@@ -46,6 +46,8 @@ export const error = {
   'error.storage.chatOptionsReadFailed': 'Failed to read chat and appearance settings. Saving was aborted so the other options are not reset. Please try again later.',
   'error.storage.permissionsReadFailed': 'Failed to read permission rules. Saving was aborted so the remembered permissions are not overwritten. Please try again later.',
   'error.storage.webFetchWhitelistReadFailed': 'Failed to read the local fetch allowlist. Saving was aborted so the remembered domains are not overwritten. Please try again later.',
+  'error.storage.imageDownloadSourcesReadFailed': 'Failed to read image sources. Saving was aborted so your existing sources are not overwritten. Please try again later.',
+  'error.storage.imageDownloadSourcesTooMany': 'Image sources have reached the limit (20).',
   'error.storage.personasReadFailed': 'Failed to read personas. Saving was aborted so the other personas are not overwritten. Please try again later.',
   'error.storage.globalPresetsReadFailed': 'Failed to read global preset switches. Saving was aborted so they are not reset. Please try again later.',
   'error.storage.proactiveSettingsReadFailed': 'Failed to read scheduled message settings. Saving was aborted so the time slots are not wiped. Please try again later.',

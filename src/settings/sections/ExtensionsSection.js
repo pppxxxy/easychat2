@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Switch, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -50,6 +50,10 @@ export default function ExtensionsSection(props) {
     openApiKeyUrl,
     chatOptions,
     updateChatOption,
+    // 图片下载来源（2026-10-21）：父级持有名单与持久化，本组件只管表单与列表。
+    imageDownloadSources = [],
+    addImageDownloadSource,
+    removeImageDownloadSource,
     setPluginEntryOpen,
     setTtsEntryOpen,
     setTranscriptionEntryOpen,
@@ -57,6 +61,56 @@ export default function ExtensionsSection(props) {
     imageRecognitionApiConfigs,
     updateImageRecognition,
   } = props;
+
+  // 图片来源表单（本地草稿；提交成功才清空）。错误文案按原因区分：
+  // invalid=规格不对（含纯 IP/通配符）、limit=超出上限、storage=读写失败。
+  const [sourceHost, setSourceHost] = useState('');
+  const [sourceReferer, setSourceReferer] = useState('');
+  const [sourceBusy, setSourceBusy] = useState(false);
+  const [sourceError, setSourceError] = useState('');
+
+  const submitImageSource = async () => {
+    if (sourceBusy) return;
+    const host = String(sourceHost || '').trim();
+    if (!host) {
+      setSourceError(t('settings.downloadImage.sources.invalid'));
+      return;
+    }
+    setSourceBusy(true);
+    setSourceError('');
+    let result = null;
+    try {
+      result = await addImageDownloadSource({ host, referer: sourceReferer });
+    } catch (error) {
+      result = { ok: false, reason: 'storage' };
+    }
+    setSourceBusy(false);
+    if (result && result.ok) {
+      setSourceHost('');
+      setSourceReferer('');
+      return;
+    }
+    const reason = result && result.reason;
+    setSourceError(
+      reason === 'limit'
+        ? t('settings.downloadImage.sources.limit')
+        : (reason === 'invalid'
+          ? t('settings.downloadImage.sources.invalid')
+          : t('settings.downloadImage.sources.failed'))
+    );
+  };
+
+  const removeImageSource = async host => {
+    if (sourceBusy) return;
+    setSourceBusy(true);
+    try {
+      await removeImageDownloadSource(host);
+    } catch (error) {
+      // 失败静默：列表会保持原样（父级读回真实名单）。
+    }
+    setSourceBusy(false);
+  };
+
   return (
     <>
           <View style={styles.capabilityRow}>
@@ -233,6 +287,74 @@ export default function ExtensionsSection(props) {
             />
           </View>
           <FieldHint style={styles.hint}>{t('settings.downloadImage.hint')}</FieldHint>
+          {/* 图片来源名单：空 = 不限制（旧行为）；非空 = 只允许名单内站点。
+              引用页用于防盗链站点（pixiv 等必须带 Referer 才下载得下来）。 */}
+          <CollapsibleSection
+            title={t('settings.downloadImage.sources.title')}
+            icon="link-outline"
+            count={Array.isArray(imageDownloadSources) ? imageDownloadSources.length : 0}
+            defaultOpen={false}
+          >
+            <FieldHint style={styles.hint}>{t('settings.downloadImage.sources.hint')}</FieldHint>
+            {Array.isArray(imageDownloadSources) && imageDownloadSources.length > 0 ? (
+              imageDownloadSources.map(source => (
+                <View key={source.host} style={styles.capabilityRow}>
+                  <View style={styles.linkLeft}>
+                    <Ionicons name="globe-outline" size={16} color={theme.colors.primaryMuted} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.linkText}>{source.host}</Text>
+                      {source.referer ? (
+                        <Text style={styles.hint} numberOfLines={1}>
+                          {t('settings.downloadImage.sources.refererMeta', { referer: source.referer })}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => removeImageSource(source.host)}
+                    disabled={sourceBusy}
+                    accessibilityLabel={t('settings.downloadImage.sources.remove', { host: source.host })}
+                    style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={theme.colors.danger || theme.colors.textFaint} />
+                  </TouchableOpacity>
+                </View>
+              ))
+            ) : (
+              <FieldHint style={styles.hint}>{t('settings.downloadImage.sources.empty')}</FieldHint>
+            )}
+            <FieldLabel style={styles.label}>{t('settings.downloadImage.sources.hostLabel')}</FieldLabel>
+            <TextField
+              value={sourceHost}
+              onChangeText={setSourceHost}
+              placeholder={t('settings.downloadImage.sources.hostPlaceholder')}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FieldLabel style={styles.label}>{t('settings.downloadImage.sources.refererLabel')}</FieldLabel>
+            <TextField
+              value={sourceReferer}
+              onChangeText={setSourceReferer}
+              placeholder={t('settings.downloadImage.sources.refererPlaceholder')}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FieldHint style={styles.hint}>{t('settings.downloadImage.sources.refererHint')}</FieldHint>
+            {sourceError ? (
+              <Text style={[styles.hint, { color: theme.colors.danger }]}>{sourceError}</Text>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.detectButton, sourceBusy && styles.buttonDisabled]}
+              onPress={submitImageSource}
+              disabled={sourceBusy}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add-circle-outline" size={15} color={theme.colors.accentText} />
+              <Text style={styles.detectButtonText}>
+                {sourceBusy ? t('common.saving') : t('settings.downloadImage.sources.add')}
+              </Text>
+            </TouchableOpacity>
+          </CollapsibleSection>
           <View style={styles.capabilityRow}>
             <View style={styles.linkLeft}>
               <Ionicons name="happy-outline" size={17} color={theme.colors.primaryMuted} />

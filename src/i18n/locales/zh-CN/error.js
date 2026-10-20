@@ -48,6 +48,8 @@ export const error = {
   'error.storage.chatOptionsReadFailed': '聊天与外观设置读取失败，已中止保存以免其余选项被重置，请稍后重试',
   'error.storage.permissionsReadFailed': '授权规则读取失败，已中止保存以免已记住的授权被覆盖，请稍后重试',
   'error.storage.webFetchWhitelistReadFailed': '本地抓取白名单读取失败，已中止保存以免已记住的域名被覆盖，请稍后重试',
+  'error.storage.imageDownloadSourcesReadFailed': '图片来源读取失败，已中止保存以免覆盖已有配置，请稍后重试',
+  'error.storage.imageDownloadSourcesTooMany': '图片来源数量已达上限（20 个）',
   'error.storage.personasReadFailed': '人设读取失败，已中止保存以免其余人设被覆盖，请稍后重试',
   'error.storage.globalPresetsReadFailed': '全局预设开关读取失败，已中止保存以免开关被整体重置，请稍后重试',
   'error.storage.proactiveSettingsReadFailed': '定时主动消息设置读取失败，已中止保存以免时段配置被清空，请稍后重试',

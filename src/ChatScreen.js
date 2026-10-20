@@ -41,11 +41,11 @@ import {
    MAX_VIDEO_BYTES,
    takePhoto,
    validateImageSize,
-   downloadRemoteImage,
-} from './chat/attachments.js';
+   } from './chat/attachments.js';
 import { STICKER_MESSAGE_KIND } from './chat/chatMedia.js';
 import { buildAssistantReplyParts } from './chat/assistantReply.js';
 import { runImageDownloads } from './chat/imageDownloadRunner.js';
+import { downloadImageWithSources } from './chat/imageDownloadPolicy.js';
 import { createStickerImage, deleteStickerImage } from './chat/stickerImages.js';
 import { getCachedDisplayText } from './memory/displayTextCache.js';
 import { isGreetingMessage, listGreetingCandidates } from './character/cardGreetings.js';
@@ -1720,12 +1720,13 @@ export default function ChatScreen() {
   }, [generateInlineImage, inlineImageSettings.enabled]);
 
   // 图片下载执行：逐张下载并作为独立图片消息追加；切走会话即停手（isCurrentSession）。
+  // 2026-10-21：来源名单判定与请求头编排外提到 chat/imageDownloadPolicy.js。
   const runImageDownloadsForSession = useCallback((urls, sessionId) => {
     const target = String(sessionId || '');
     return runImageDownloads({
       urls,
       isCurrentSession: () => !!target && activeSessionIdRef.current === target,
-      download: downloadRemoteImage,
+      download: url => downloadImageWithSources(url, { t }),
       appendMessage: message => setMessages(current => [...current, message]),
       failedText: url => t('chat.downloadImage.failed', { url: String(url || '').slice(0, 80) }),
     });

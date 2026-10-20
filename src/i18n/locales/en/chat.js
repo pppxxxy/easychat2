@@ -239,6 +239,7 @@ export const chat = {
   'chat.editGroup': 'Edit Group',
   'chat.editCharacter': 'Edit Character',
   'chat.downloadImage.failed': 'Image download failed: {url}',
+  'chat.downloadImage.blocked': 'Image source not in the allowlist ({host}) — add it under Settings → Extensions → Image download → Image sources.',
   'chat.saved.title': 'Saved',
   'chat.saved.character': 'Character settings synced. They take effect in chat immediately.',
   'chat.saved.group': 'Group chat info updated.',

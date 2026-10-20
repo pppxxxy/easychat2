@@ -642,4 +642,32 @@ test('P5：buildRequestMessages 展开 toolTrace，tool 消息透传到请求', 
   assert.ok(messages.some(item => item.role === 'assistant' && item.content === '读完了'));
 });
 
+test('图片下载来源（2026-10-21）：名单写进提示词；无名单保持旧严格措辞；关闭不注入', () => {
+  const build = extra => buildRequestMessages({
+    character,
+    historyMessages: [],
+    userText: '你好',
+    userProfile: {},
+    globalPresets: [],
+    downloadImageEnabled: true,
+    ...extra,
+  });
+  const systemOf = messages => messages.find(item => item.role === 'system').content;
+
+  const withSources = systemOf(build({
+    downloadImageSources: [{ host: 'i.pximg.net', referer: 'https://www.pixiv.net/' }, 'example.com'],
+  }));
+  assert.ok(withSources.includes('<download_image:'), '指令说明仍在');
+  assert.ok(withSources.includes('i.pximg.net') && withSources.includes('example.com'), '名单主机进提示词');
+  assert.ok(withSources.includes('用户已允许从这些图片来源下载'), '来源措辞');
+  assert.ok(!withSources.includes('只在对话上下文中确实出现过'), '有来源时不再只给旧严格限制');
+
+  const legacy = systemOf(build({}));
+  assert.ok(legacy.includes('只在对话上下文中确实出现过'), '无名单保持旧严格措辞');
+  assert.ok(!legacy.includes('用户已允许从这些图片来源下载'));
+
+  const disabled = systemOf(build({ downloadImageEnabled: false, downloadImageSources: [{ host: 'x.com' }] }));
+  assert.equal(disabled.includes('<download_image:'), false, '关闭时不注入');
+});
+
 

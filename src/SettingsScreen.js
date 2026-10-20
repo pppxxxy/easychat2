@@ -46,6 +46,7 @@ import {
   saveThinkingSettings,
   saveUiSections,
 } from './storage/settings.js';
+import { useImageDownloadSources } from './settings/useImageDownloadSources.js';
 import { getGlobalPresetSettings, getGlobalPresets } from './storage/globalPresets.js';
 import { getLocationSettings, updateLocationSettings } from './storage/location.js';
 import { getMomentsSettings, saveMomentsSettings } from './storage/moments.js';
@@ -212,6 +213,9 @@ export default function SettingsScreen() {
   // 拓展页的卡片；密钥仍复用 apiConfigs 的保险箱，没有第二套密钥存储。
   const imageRecognitionProps = useImageRecognitionSettings();
 
+  // 图片下载来源（2026-10-21）：名单 / 增删 / 加载全在 hook 里，设置页只 spread。
+  const imageDownloadSourcesProps = useImageDownloadSources();
+
   // 清空当前激活角色的向量记忆桶（维护入口，2026-10-05 审核报告的自救通道）：
   // 历史对话被切块写进桶后，删会话能按会话清，但错位/遗留分段需要一个一键全清的口。
   const confirmClearVectorIndex = useCallback(() => {
@@ -288,6 +292,7 @@ export default function SettingsScreen() {
   const [topic, setTopic] = useState(null);
   const [enabledPresetCount, setEnabledPresetCount] = useState(0);
   const [chatOptions, setChatOptions] = useState({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded', autoCompact: true });
+
   const chatOptionsRef = useRef({ streaming: true, fullWidth: false, richHtml: true, keepDraft: false, timeAware: false, bubbleStyle: 'rounded', autoCompact: true });
   // 工作区设置的编排（模式 / 文件夹 / 命令开关）已抽到 settings/useWorkspaceSettings.js。
   const {
@@ -1495,6 +1500,7 @@ export default function SettingsScreen() {
     momentsEnabled,
     toggleMoments,
     // 功能扩展
+    ...imageDownloadSourcesProps,
     inlineImage,
     updateInlineImage,
     inlineImageProviders,
