@@ -355,11 +355,53 @@ export async function indexMessages({ messages, config, existing, sessionId = ''
     const embeddedById = new Map(embedded.map(item => [segmentKey(item), item]));
     const merged = current.map(item => embeddedById.get(segmentKey(item)) || item);
     const fresh = added.map(segment => embeddedById.get(segmentKey(segment)) || { ...segment, signature, vector: [] });
-    return [...merged, ...fresh];
+    // 引用契约（见 vector.js updateVectorIndex 的注释与守卫）：
+    // 「内容没变时返回同一个数组引用」是**性能契约**——返回新引用会让调用方
+    // 白做一次 O(条数×维度) 的序列化与整键写盘。
+    // 这里必须逐项判定：只有真的换了内容（新分段、或向量/签名被更新）才返回新数组。
+    const next = [...merged, ...fresh];
+    return sameIndexContent(next, current) ? current : next;
   } catch (error) {
     if (error && error.name === 'AbortError') throw error;
+    // ⚠️ 这里曾无条件 `return [...current, ...added.map(...)]`（真机日志 2026-10-20 抓到）：
+    // embedTexts 失败（网络/超时）且**没有新消息**时，added 为空 ⇒ 等价于 `[...current]`，
+    // 即「新引用 + 内容完全相同」⇒ 触发引用契约诊断，且每次落盘白做一次序列化。
+    // 现在：没有新增就原样返回 current（失败时什么都没变，本就不该写盘）。
+    if (added.length === 0) return current;
     return [...current, ...added.map(segment => ({ ...segment, signature, vector: [] }))];
   }
+}
+
+// 判断两份索引的**内容**是否等价（只比对象字段，不比引用）。
+// 用于「内容没变就别返回新引用」的判定；保守实现：任何拿不准都当作「变了」，
+// 因为漏报一次退化只是少省一次写盘，而误判成「没变」会丢改动。
+function sameIndexContent(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (left === right) continue;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+    // 分段身份
+    const lkey = `${String(left.sessionId || '')}\u0000${String(left.id || '')}`;
+    const rkey = `${String(right.sessionId || '')}\u0000${String(right.id || '')}`;
+    if (lkey !== rkey) return false;
+    // 签名与向量长度：变了就必须写盘
+    if (String(left.signature || '') !== String(right.signature || '')) return false;
+    const lv = Array.isArray(left.vector) ? left.vector : [];
+    const rv = Array.isArray(right.vector) ? right.vector : [];
+    if (lv.length !== rv.length) return false;
+    for (let k = 0; k < lv.length; k += 1) {
+      if (lv[k] !== rv[k]) return false;
+    }
+    // 其余元数据（text/dim/mergedFrom…）也决定落盘内容，用 JSON 比一次（字段都小）。
+    const { vector: _lv, ...lrest } = left;
+    const { vector: _rv, ...rrest } = right;
+    if (JSON.stringify(lrest) !== JSON.stringify(rrest)) return false;
+  }
+  return true;
 }
 
 export async function testVectorConnection(config) {
