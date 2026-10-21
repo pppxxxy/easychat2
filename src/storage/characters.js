@@ -15,6 +15,8 @@ export {
   markDefaultGreetingShown,
   getCharacterLibrary,
   saveCharacterLibrary,
+  getCharacterLibraryRevision,
+  isCharacterLibraryConflict,
   getActiveCharacterId,
   getActiveCharacterIdStatus,
   setActiveCharacterId,

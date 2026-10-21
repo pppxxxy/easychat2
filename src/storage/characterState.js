@@ -17,14 +17,16 @@ import { clearVectorIndex } from './vector.js';
 import { messagesKey } from './sessions.js';
 import { runCharacterCleanup } from './characterLifecycle.js';
 
-export async function saveCharacterState(list, activeId, deletedIds, clearVectorIds = []) {
+export async function saveCharacterState(list, activeId, deletedIds, clearVectorIds = [], options) {
   const previousList = await getCharacterLibrary().catch(() => null);
   const previousActiveId = await getActiveCharacterId().catch(() => '');
   for (const item of Array.isArray(list) ? list : []) {
     markMediaWrite(item && item.avatarUri);
     markMediaWrite(item && item.bgUri);
   }
-  await saveCharacterLibrary(list);
+  // options 目前只承载 expectedRevision（乐观并发）；冲突时这里抛，下面的活动角色
+  // 与清理都不执行——用一份已过期的 list 去清消息键／向量索引会误删别人的数据。
+  await saveCharacterLibrary(list, options);
   try {
     await setActiveCharacterId(activeId);
   } catch (error) {

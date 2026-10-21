@@ -152,6 +152,12 @@ export function makeCharacterCopyId(sourceId, existingIds) {
 // **这是唯一的写路径**，避免调用方各自拼 list 导致 stale 误删。
 async function mutateLibrary(mutate) {
   const storage = await getStorage();
+  // 版本号必须在**读库之前**取：若先读库再读版本，中间被别的写入方推进了一版，
+  // 我们会拿「旧数据 + 新版本号」去写，校验形同虚设。反过来（先版本后数据）最坏
+  // 只是多一次假冲突，方向是安全的。
+  const revision = typeof storage.getCharacterLibraryRevision === 'function'
+    ? await storage.getCharacterLibraryRevision().catch(() => null)
+    : null;
   const library = await storage.getCharacterLibrary();
   const list = Array.isArray(library) ? library : [];
   const next = await mutate(list);
@@ -164,7 +170,11 @@ async function mutateLibrary(mutate) {
       throw new Error(tActive('error.character.libraryWriteWouldDrop', { id }));
     }
   }
-  const saved = await storage.saveCharacterLibrary(next);
+  const saved = await storage.saveCharacterLibrary(
+    next,
+    // null（索引损坏/旧存储替身）时不传，退回无校验行为。
+    revision === null || revision === undefined ? undefined : { expectedRevision: revision }
+  );
   // 落盘成功之后才通知：失败时不该让界面去重读（读回来的还是旧的，白闪一次）。
   // 不 await、不抛：通知只是「叫 App 重读一遍」，既不该拖慢工具返回，也不该让一次
   // 已经成功的写入因为刷新失败而变成报错（notify 内部逐个 try/catch）。

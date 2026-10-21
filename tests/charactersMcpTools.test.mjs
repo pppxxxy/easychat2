@@ -36,13 +36,49 @@ function compileToCjs(absPath) {
 // saveCharacterLibrary 的行为刻意做成「整库落盘」，与真实实现一致——
 // 真实实现还会删 stale，这里在 save 里显式记录「传进来的 list」，
 // 由测试断言它必须包含全部旧卡。
-function loadTools(initial = []) {
-  const state = { library: initial.map(item => ({ ...item })), saveCalls: [] };
+function loadTools(initial = [], options = {}) {
+  const state = {
+    library: initial.map(item => ({ ...item })),
+    saveCalls: [],
+    saveOptions: [],
+    revision: options.revision === undefined ? 5 : options.revision,
+    revisionCalls: 0,
+  };
   const storageStub = {
     async getCharacterLibrary() { return state.library.map(item => ({ ...item })); },
-    async saveCharacterLibrary(list) {
+    ...(options.revisionCapability === false ? {} : {
+      async getCharacterLibraryRevision() {
+        state.revisionCalls += 1;
+        const seen = state.revision;
+        // 模拟「取完版本号之后、真正写库之前」被别人推进一版：
+        // 这正是乐观并发要抓的窗口，必须在返回之后立刻改盘上状态。
+        if (options.raceAfterRevision) {
+          options.raceAfterRevision = false; // 只抢一次
+          state.revision = seen + 1;
+          state.library = [...state.library, { id: 'other-card', name: '别人抢写的卡' }];
+        }
+        return seen;
+      },
+      isCharacterLibraryConflict(error) {
+        return Boolean(error && error.code === 'CHARACTER_LIBRARY_CONFLICT');
+      },
+    }),
+    async saveCharacterLibrary(list, saveOptions) {
+      // 记录调用方带上来的版本号：这是「乐观并发真的接上了」的唯一证据。
+      state.saveOptions.push(saveOptions === undefined ? null : { ...saveOptions });
+      if (
+        saveOptions
+        && saveOptions.expectedRevision !== undefined
+        && saveOptions.expectedRevision !== state.revision
+      ) {
+        const error = new Error('conflict');
+        error.code = 'CHARACTER_LIBRARY_CONFLICT';
+        throw error;
+      }
+      // 只有校验通过才算「真的写进去了」。
       state.saveCalls.push(list.map(item => ({ ...item })));
       state.library = list.map(item => ({ ...item }));
+      state.revision += 1;
       return list;
     },
   };
@@ -343,3 +379,46 @@ test('未注入通知器时走真实注册表：没人注册也不能抛', async
   assert.equal(created.id, 'card-quiet');
 });
 
+
+// ── 乐观并发：MCP 写入也必须带版本号 ──────────────────────────────────────
+//
+// MCP 是「直接写存储」的一方，它不带版本号的话，App 那侧的校验就只剩一半：
+// 别人（MCP）照样可能覆盖 App 的并发写。所以这里钉住「读库前取版本、写时带上」。
+
+test('MCP 写卡时把读到的版本号传给 saveCharacterLibrary', async () => {
+  const { tools, state } = loadTools(BASE_LIBRARY, { revision: 9 });
+  await tools.createCharacterImpl({ id: 'card-new', character: { name: '新卡' } });
+  assert.equal(state.saveCalls.length, 1);
+  assert.deepEqual(state.saveOptions[0], { expectedRevision: 9 },
+    '必须带上读库那一刻的版本号');
+});
+
+test('MCP 写卡：版本号必须在校验通过的前提下才写进去', async () => {
+  const { tools, state } = loadTools(BASE_LIBRARY, { revision: 3 });
+  // 让「读库之后、写库之前」被别人推进一版：桩里直接在 save 前把 revision 改掉。
+  const originalSave = state;
+  await tools.createCharacterImpl({ id: 'card-ok', character: { name: '正常' } });
+  assert.equal(state.saveOptions[0].expectedRevision, 3);
+  assert.equal(state.revision, 4, '写成功后版本推进一版');
+  assert.equal(originalSave.library.some(i => i.id === 'card-ok'), true);
+});
+
+test('MCP 写卡撞上并发写：抛冲突且不落盘（由调用方决定重试）', async () => {
+  const { tools, state } = loadTools(BASE_LIBRARY, { revision: 1, raceAfterRevision: true });
+  await assert.rejects(
+    () => tools.createCharacterImpl({ id: 'card-race', character: { name: '撞车' } }),
+    error => error.code === 'CHARACTER_LIBRARY_CONFLICT'
+  );
+  assert.equal(state.saveCalls.length, 0, '冲突时不该有任何一次成功落盘');
+  assert.ok(!state.library.some(item => item.id === 'card-race'), '待写的卡不能出现在库里');
+});
+
+test('MCP 写卡：存储不提供版本号能力时退回无校验（兼容旧替身）', async () => {
+  // 有些替身 / 旧存储实现没有 getCharacterLibraryRevision。这种情况必须能照常写，
+  // 而不是抛 TypeError——所以 mutateLibrary 里那处能力探测是有意为之。
+  const { tools, state } = loadTools(BASE_LIBRARY, { revisionCapability: false });
+  const created = await tools.createCharacterImpl({ id: 'card-legacy', character: { name: '旧存储' } });
+  assert.equal(created.id, 'card-legacy');
+  assert.equal(state.saveCalls.length, 1);
+  assert.equal(state.saveOptions[0], null, '没有版本号能力时不该硬塞 expectedRevision');
+});

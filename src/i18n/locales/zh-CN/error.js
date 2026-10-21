@@ -330,6 +330,9 @@ export const error = {
   // 否则用户会以为数据没恢复（其实已经写盘了）而反复重试。
   'error.backup.importRefreshFailed': '数据已恢复，但界面刷新失败：{reason}',
   'error.storage.characterLibraryRecovering': '角色库仍在恢复中，请稍后重试。',
+  // 乐观并发：调用方基于旧版本号写库时抛出。不静默合并是一份刻意的选择——
+  // 「谁赢了」由上层刷新后重试决定，存储层绝不在有并发写的情况下替用户猜。
+  'error.storage.characterLibraryConflict': '角色库已被其他来源改动（版本 {expected} → {actual}），本次写入已取消，请刷新后重试。',
   'error.storage.draftMissingCharacterId': '草稿缺少角色 id',
   // 密钥保险箱「读不回」的提示：storage/secretStore.js 的 SECRET_UNAVAILABLE_KEY 标记为真时，
   // UI 必须说清「密钥需要重新填写」。为什么不能用「请先填写 API 密钥」这类通用文案：

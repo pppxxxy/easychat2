@@ -7,8 +7,7 @@ import { createRequire } from 'node:module';
 import * as characterIdentity from '../src/context/characterIdentity.js';
 import * as sessionLibrary from '../src/context/sessionLibrary.js';
 
-const require = createRequire(import.meta.url);
-const babel = require('@babel/core');
+const require = createRequire(import.meta.url);const babel = require('@babel/core');
 const presetEnv = require.resolve('@babel/preset-env');
 const sourcePath = path.resolve('src/storage.js');
 const sourceCode = fs.readFileSync(sourcePath, 'utf8');
@@ -228,6 +227,19 @@ const CHARACTER_INDEX_KEY = '@easychat2_character_index';
 const CHARACTER_ITEM_PREFIX = '@easychat2_character_item';
 const MIGRATION_KEY = '@easychat2_character_migration';
 
+// 索引自 2026-10-21 起是 `{ ids, revision }`（旧数据仍是纯 id 数组，读到按 revision=0）。
+// 断言统一走这个读法，既兼容两种格式，也让「id 列表」与「版本号」分别可查。
+function readIndexEntry() {
+  const raw = store.get(CHARACTER_INDEX_KEY);
+  if (!raw) return { ids: [], revision: 0 };
+  const parsed = JSON.parse(raw);
+  if (Array.isArray(parsed)) return { ids: parsed, revision: 0 };
+  return { ids: Array.isArray(parsed.ids) ? parsed.ids : [], revision: Number(parsed.revision) || 0 };
+}
+function readIndexIds() {
+  return readIndexEntry().ids;
+}
+
 function seedDefaultItem() {
   store.set(`${CHARACTER_ITEM_PREFIX}::default`, JSON.stringify({
     id: 'default',
@@ -244,7 +256,7 @@ test('大角色卡使用文件描述符，保存后可以完整读回', async ()
     description: '角色描述'.repeat(180000),
   };
   await storage.saveCharacterLibrary([character]);
-  const index = JSON.parse(store.get(CHARACTER_INDEX_KEY));
+  const index = readIndexIds();
   assert.ok(index.includes('large-card'));
   const descriptor = JSON.parse(store.get(`${CHARACTER_ITEM_PREFIX}::large-card`));
   assert.equal(descriptor.storage, 'file');
@@ -424,8 +436,8 @@ test('默认索引是升级回归产物时，从仍可读的 legacy 整库恢复
   ]));
   const list = await storage.getCharacterLibrary();
   assert.deepEqual(list.map(item => item.id).sort(), ['default', 'legacy-card']);
-  const index = JSON.parse(store.get(CHARACTER_INDEX_KEY));
-  assert.deepEqual(index.sort(), ['default', 'legacy-card']);
+  const index = readIndexIds();
+  assert.deepEqual(index.slice().sort(), ['default', 'legacy-card']);
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
 });
 
@@ -463,7 +475,7 @@ test('多个 builtin 标记只会保留 default 一个，避免身份二义', as
     ['default']
   );
   assert.equal(list.find(item => item.id === 'impostor').builtin, false);
-  assert.deepEqual(JSON.parse(store.get(CHARACTER_INDEX_KEY)).sort(), ['default', 'impostor']);
+  assert.deepEqual(readIndexIds().slice().sort(), ['default', 'impostor']);
 });
 
 test('索引缺项且 legacy 可读时合并恢复，不删除失效引用', async () => {
@@ -476,7 +488,7 @@ test('索引缺项且 legacy 可读时合并恢复，不删除失效引用', asy
   ]));
   const list = await storage.getCharacterLibrary();
   assert.ok(list.some(item => item.id === 'missing-card'));
-  assert.ok(JSON.parse(store.get(CHARACTER_INDEX_KEY)).includes('missing-card'));
+  assert.ok(readIndexIds().includes('missing-card'));
 });
 
 test('Android SQLite 分块读取可以救回超过 CursorWindow 的 legacy 值', async () => {
@@ -504,7 +516,7 @@ test('legacy 或角色条目读取失败时进入恢复阻断态，不写默认�
   const list = await storage.getCharacterLibrary();
   assert.deepEqual(list.map(item => item.id), ['default']);
   assert.equal(storage.isCharacterLibraryWriteBlocked(), true);
-  assert.equal(store.get(CHARACTER_INDEX_KEY), JSON.stringify(['default']));
+  assert.deepEqual(readIndexIds(), ['default']);
   await assert.rejects(() => storage.saveCharacterLibrary(list), /恢复中/);
 });
 
@@ -2339,7 +2351,7 @@ test('合法的空库不是失败：照常返回初始卡且不触发写闸', as
   const list = await storage.getCharacterLibrary();
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false, '「真的没有角色」不得合闸');
   assert.deepEqual(list.map(item => item.id), ['default']);
-  assert.equal(store.get(CHARACTER_INDEX_KEY), JSON.stringify(['default']), '空库照常持久化初始卡');
+  assert.deepEqual(readIndexIds(), ['default'], '空库照常持久化初始卡');
 });
 
 // ---- F5：裸 getItem 读失败返回 '' ⇒ 把推测值写回盘 ----
@@ -2403,4 +2415,112 @@ test('启动加载失败源码锚：catch 必须先合闸再回落，finally 仍
   const finallyBlock = source.slice(finallyAt);
   assert.ok(finallyBlock.includes('loadedRef.current = true'),
     'loaded 仍置 true（UI 要能渲染错误态），写由写闸挡住');
+});
+
+// ── 乐观并发：角色库版本号 ────────────────────────────────────────────────
+//
+// 这一段防的是**静默丢数据**，不是理论洁癖。persistLibrary 把「不在 list 里的 id」
+// 当 stale 删掉，所以任何基于旧快照的整体写都会顺手删掉别人刚加的卡。实测过的链路：
+// MCP 建完卡 → App 内存还是旧列表 → 用户点一次编辑 → saveCharacterLibrary(旧列表)
+// → 新卡被当 stale 清掉，且**没有任何报错**。
+//
+// 版本号把这条路径变成可检测的冲突：写之前比对 revision，不一致就抛错且一个字都不写。
+
+test('版本号：旧数组格式按 revision=0 读，首次写升级成 { ids, revision }', async () => {
+  const storage = loadStorage();
+  store.clear();
+  // 模拟历史数据：索引是纯 id 数组
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify(['legacy-a']));
+  assert.equal(await storage.getCharacterLibraryRevision(), 0, '旧格式按 0 起算');
+  await storage.saveCharacterLibrary([{ id: 'legacy-a', name: '老卡' }]);
+  const entry = JSON.parse(store.get(CHARACTER_INDEX_KEY));
+  assert.ok(!Array.isArray(entry), '写一次之后索引升级为对象');
+  assert.deepEqual(entry.ids.slice().sort(), ['default', 'legacy-a'], 'ids 保留旧卡并补上初始卡');
+  assert.equal(entry.revision, 1, '首次写把版本抬到 1');
+});
+
+test('版本号：每次成功写入递增 1', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([{ id: 'c1', name: '一' }]);
+  assert.equal(await storage.getCharacterLibraryRevision(), 1);
+  await storage.saveCharacterLibrary([{ id: 'c1', name: '一改' }]);
+  assert.equal(await storage.getCharacterLibraryRevision(), 2);
+});
+
+test('乐观并发：旧版本号的写被拒绝，且不会把别人新加的卡当 stale 删掉', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([{ id: 'card-base', name: '基础卡' }]);
+
+  // App 侧：读到快照 + 当时的版本号
+  const appSnapshot = await storage.getCharacterLibrary();
+  const appRevision = await storage.getCharacterLibraryRevision();
+
+  // 另一个写入方（MCP）：在 App 之后加了一张卡
+  const fresh = await storage.getCharacterLibrary();
+  await storage.saveCharacterLibrary([...fresh, { id: 'card-mcp', name: 'MCP 新卡' }]);
+
+  // App 拿旧快照写：必须冲突，而不是把 card-mcp 删掉
+  await assert.rejects(
+    () => storage.saveCharacterLibrary(appSnapshot, { expectedRevision: appRevision }),
+    error => storage.isCharacterLibraryConflict(error),
+    '基于旧版本号的写必须抛冲突'
+  );
+
+  const ids = (await storage.getCharacterLibrary()).map(item => item.id);
+  assert.ok(ids.includes('card-mcp'), '别人新加的卡不能被旧快照写删掉');
+  assert.ok(ids.includes('card-base'), '原有卡也必须还在');
+});
+
+test('乐观并发：冲突时不落盘（索引与条目都保持原样）', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([{ id: 'card-base', name: '基础卡' }]);
+  const indexBefore = store.get(CHARACTER_INDEX_KEY);
+  const itemBefore = store.get(`${CHARACTER_ITEM_PREFIX}::card-base`);
+
+  await assert.rejects(
+    () => storage.saveCharacterLibrary(
+      [{ id: 'card-base', name: '被改的名字' }],
+      { expectedRevision: 0 } // 盘上已是 1
+    ),
+    error => storage.isCharacterLibraryConflict(error)
+  );
+
+  assert.equal(store.get(CHARACTER_INDEX_KEY), indexBefore, '索引必须原样保留');
+  assert.equal(store.get(`${CHARACTER_ITEM_PREFIX}::card-base`), itemBefore, '条目必须原样保留');
+});
+
+test('乐观并发：不带 expectedRevision 时不做校验（旧调用方行为不变）', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([{ id: 'card-a', name: 'A' }]);
+  await storage.saveCharacterLibrary([{ id: 'card-a', name: 'A 改名' }]);
+  // 不传版本号 = 明确「我就要覆盖」，历史调用点靠这条保持可用。
+  const saved = await storage.saveCharacterLibrary([{ id: 'card-a', name: '再改' }]);
+  assert.equal(saved.find(item => item.id === 'card-a').name, '再改');
+});
+
+test('乐观并发：版本号对得上时正常写入', async () => {
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([{ id: 'card-a', name: 'A' }]);
+  const rev = await storage.getCharacterLibraryRevision();
+  const list = await storage.getCharacterLibrary();
+  const saved = await storage.saveCharacterLibrary(
+    [...list, { id: 'card-b', name: 'B' }],
+    { expectedRevision: rev }
+  );
+  assert.deepEqual(saved.map(item => item.id).sort(), ['card-a', 'card-b', 'default']);
+  assert.equal(await storage.getCharacterLibraryRevision(), rev + 1);
+});
+
+test('版本号读不出（索引损坏）时返回 null，而不是 0', async () => {
+  const storage = loadStorage();
+  store.clear();
+  // 结构坏：既不是数组也没有 ids
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify({ broken: true }));
+  assert.equal(await storage.getCharacterLibraryRevision(), null,
+    '「不知道版本」必须与「版本 0」区分开，否则会造成一长串假冲突');
 });

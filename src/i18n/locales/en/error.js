@@ -326,6 +326,8 @@ export const error = {
   // from "import failed", otherwise the user thinks no data was restored and retries in a loop.
   'error.backup.importRefreshFailed': 'Data was restored, but the UI failed to refresh: {reason}',
   'error.storage.characterLibraryRecovering': 'The character library is still being restored. Please try again later.',
+  // Optimistic concurrency: thrown when a writer commits against a stale library revision.
+  'error.storage.characterLibraryConflict': 'The character library was changed elsewhere (revision {expected} → {actual}). This write was cancelled — refresh and try again.',
   'error.storage.draftMissingCharacterId': 'The draft is missing a character ID.',
   // Same wording as the zh-CN entry: distinguishes "never configured" from "could not be read back"
   // (see storage/secretStore.js SECRET_UNAVAILABLE_KEY).

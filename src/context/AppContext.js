@@ -13,14 +13,13 @@ import {
   DEFAULT_CHARACTER,
   DEFAULT_ASSISTANT_LEGACY_PROMPTS,
   getActiveCharacterIdStatus,
-  getCharacterLibrary,
   isCharacterLibraryWriteBlocked,
-  saveCharacterLibrary,
   setActiveCharacterId,
   setCharacterLibraryWriteBlocked,
   sortCharacters,
 } from '../storage/characters.js';
-import { saveCharacterState } from '../storage/characterState.js';
+// 角色库写入走带版本号的乐观并发（冲突自动刷新重试），明细见模块内注释。
+import { loadCharacterLibraryWithRevision, runWithLibraryConflictRetry, saveCharacterLibraryTracked, saveCharacterStateTracked } from './characterLibraryPersistence.js';
 import {
   getSessions,
   whenSessionMutationsSettled,
@@ -90,12 +89,6 @@ export function AppProvider({ children }) {
   const loadedRef = useRef(false);
   const mutationRef = useRef(Promise.resolve());
 
-  const enqueueMutation = useCallback(operation => {
-    const pending = mutationRef.current.then(operation);
-    mutationRef.current = pending.catch(() => {});
-    return pending;
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -108,7 +101,7 @@ export function AppProvider({ children }) {
           if (__DEV__) console.warn('[memory] world memory reconciliation failed', error);
         });
         const [list, storedActive, sessionList, storedActiveSession] = await Promise.all([
-          getCharacterLibrary(),
+          loadCharacterLibraryWithRevision(),
           getActiveCharacterIdStatus(),
           getSessions(),
           getActiveSessionIdStatus(),
@@ -143,7 +136,7 @@ export function AppProvider({ children }) {
                   bgUri: needs.bg && artwork.bgUri ? artwork.bgUri : item.bgUri,
                 };
               });
-              await saveCharacterLibrary(resolvedList).catch(() => {});
+              await saveCharacterLibraryTracked(resolvedList).catch(() => {});
             }
           }
           // 内置助手：系统提示仍是历史内置文案时刷新为最新版（用户改过的不动，非内置卡不动）。
@@ -159,7 +152,7 @@ export function AppProvider({ children }) {
             resolvedList = resolvedList.map(item => (
               item.id === DEFAULT_CHARACTER.id ? { ...item, ...assistantRefresh } : item
             ));
-            await saveCharacterLibrary(resolvedList).catch(() => {});
+            await saveCharacterLibraryTracked(resolvedList).catch(() => {});
           }
         }
         const resolved = resolveActiveId(resolvedList, storedActiveId);
@@ -256,9 +249,19 @@ export function AppProvider({ children }) {
   // 记忆归属对账会退休卡上的记忆条目）——内存快照不跟上，用户下次编辑角色时就会把
   // 退休标记整表覆盖回去。
   const refreshCharactersDirect = useCallback(async () => {
-    const list = await getCharacterLibrary();
+    const list = await loadCharacterLibraryWithRevision();
     return applyList(list);
   }, [applyList]);
+
+  // 所有变更串行执行；**冲突在这里重试**：各变更闭包进函数第一件事就是 snapshotState()，
+  // 所以重跑整个 operation 会从刷新后的最新状态重新推导，不会拿旧 list 再撞一次。
+  const enqueueMutation = useCallback(operation => {
+    const pending = mutationRef.current.then(
+      () => runWithLibraryConflictRetry(operation, refreshCharactersDirect)
+    );
+    mutationRef.current = pending.catch(() => {});
+    return pending;
+  }, [refreshCharactersDirect]);
 
   // 排队版本：给外部（记忆体检弹层的清理动作等）用，避免与角色更新并发读写打架。
   const refreshCharacters = useCallback(
@@ -290,7 +293,7 @@ export function AppProvider({ children }) {
       }
       const { list, character } = withUpdatedCharacter(snapshot.list, targetId, patch);
       applyList(list);
-      await runWithRollback(snapshot, restore, () => saveCharacterLibrary(list));
+      await runWithRollback(snapshot, restore, () => saveCharacterLibraryTracked(list));
       return character;
     });
   }, [applyList, restore, snapshotState, enqueueMutation]);
@@ -313,7 +316,7 @@ export function AppProvider({ children }) {
       applyList(list);
       activeIdRef.current = id;
       setActiveIdState(id);
-      await runWithRollback(snapshot, restore, () => saveCharacterState(list, id));
+      await runWithRollback(snapshot, restore, () => saveCharacterStateTracked(list, id));
       return character;
     });
   }, [applyList, restore, snapshotState, enqueueMutation]);
@@ -329,7 +332,7 @@ export function AppProvider({ children }) {
       activeIdRef.current = created.character.id;
       setActiveIdState(created.character.id);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(created.list, created.character.id)
+        saveCharacterStateTracked(created.list, created.character.id)
       );
       return created.character;
     });
@@ -352,11 +355,10 @@ export function AppProvider({ children }) {
       activeIdRef.current = result.activeId;
       setActiveIdState(result.activeId);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(
+        saveCharacterStateTracked(
           result.list,
           result.activeId,
-          id,
-          options.clearVectorIds || []
+          { deletedIds: id, clearVectorIds: options.clearVectorIds || [] }
         )
       );
       return result.list;
@@ -375,7 +377,7 @@ export function AppProvider({ children }) {
       }
       applyList(result.list);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(result.list, snapshot.activeId)
+        saveCharacterStateTracked(result.list, snapshot.activeId)
       );
       return result.character;
     });
@@ -401,11 +403,10 @@ export function AppProvider({ children }) {
       activeIdRef.current = result.activeId;
       setActiveIdState(result.activeId);
       await runWithRollback(snapshot, restore, () =>
-        saveCharacterState(
+        saveCharacterStateTracked(
           result.list,
           result.activeId,
-          list,
-          options.clearVectorIds || []
+          { deletedIds: list, clearVectorIds: options.clearVectorIds || [] }
         )
       );
       return result.list;
@@ -484,7 +485,7 @@ export function AppProvider({ children }) {
   const refreshAppData = useCallback(async () => {
     await enqueueMutation(async () => {
       const [list, storedActive, sessionList, storedActiveSession] = await Promise.all([
-        getCharacterLibrary(),
+        loadCharacterLibraryWithRevision(),
         getActiveCharacterIdStatus(),
         getSessions(),
         getActiveSessionIdStatus(),

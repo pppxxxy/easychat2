@@ -107,7 +107,8 @@ test('接线锚：写入路径必须在落盘成功之后 notify，且不能是 
     path.resolve('src/workspace/toolDefs/charactersTools.js'),
     'utf8'
   );
-  const saveAt = source.indexOf('await storage.saveCharacterLibrary(next)');
+  // 落盘调用现在是多行（带 expectedRevision 选项），按赋值语句开头定位。
+  const saveAt = source.indexOf('const saved = await storage.saveCharacterLibrary(');
   assert.ok(saveAt > 0, '必须保留整库写回这一句');
   // 找**调用点**而不是函数定义：`function notifyChanged(reason)` 在文件前部。
   const notifyAt = source.indexOf("notifyChanged('character-write')");

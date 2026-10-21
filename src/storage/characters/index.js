@@ -56,14 +56,63 @@ const DEFAULT_GREETING_SHOWN_KEY = '@easychat2_default_greeting_shown';
 
 const ACTIVE_CHARACTER_KEY = '@easychat2_active_character';
 
+// 索引文件里同时存 **id 列表** 与 **库版本号（revision）**。
+//
+// 为什么要版本号：`persistLibrary` 把「不在 list 里的 id」当 stale 删掉（见下方），
+// 于是任何**基于旧快照**的整体写都会静默删掉别人刚加的卡——实测过：MCP 建完卡，
+// App 内存里还是旧列表，用户紧接着点一次编辑，新卡就被当 stale 清了。
+// 版本号让这种写变成**可检测的冲突**（抛错 → 上层刷新后重试），而不是悄悄丢数据。
+//
+// 旧格式兼容：历史索引是纯 id 数组（`["a","b"]`）。读到数组就按 revision=0 处理，
+// 下一次写自动升级成 `{ ids, revision }` 对象，不需要一次性迁移脚本。
 async function readCharacterIndex() {
   const stored = await readJsonStatus(CHARACTER_INDEX_KEY);
   if (stored.status === 'ok' && Array.isArray(stored.value)) {
-    return { ids: stored.value.map(String).filter(Boolean), corrupt: false };
+    // 旧格式：纯 id 数组。版本从 0 起算。
+    return { ids: stored.value.map(String).filter(Boolean), revision: 0, corrupt: false };
+  }
+  if (
+    stored.status === 'ok'
+    && stored.value
+    && typeof stored.value === 'object'
+    && Array.isArray(stored.value.ids)
+  ) {
+    const revision = Number(stored.value.revision);
+    return {
+      ids: stored.value.ids.map(String).filter(Boolean),
+      revision: Number.isFinite(revision) && revision >= 0 ? Math.floor(revision) : 0,
+      corrupt: false,
+    };
   }
   const corrupt = stored.status === 'corrupt'
     || (stored.status === 'ok' && !Array.isArray(stored.value));
-  return { ids: null, corrupt };
+  return { ids: null, revision: 0, corrupt };
+}
+
+// 冲突错误的稳定标识。用 code 而不是 instanceof：错误可能跨 babel 转译的模块实例，
+// instanceof 在不同 Module 实例间不可靠（本仓测试就会现编模块）。
+const CHARACTER_LIBRARY_CONFLICT_CODE = 'CHARACTER_LIBRARY_CONFLICT';
+
+export function isCharacterLibraryConflict(error) {
+  return Boolean(error && error.code === CHARACTER_LIBRARY_CONFLICT_CODE);
+}
+
+function characterLibraryConflictError(expectedRevision, actualRevision) {
+  const error = new Error(tActive('error.storage.characterLibraryConflict', {
+    expected: expectedRevision,
+    actual: actualRevision,
+  }));
+  error.code = CHARACTER_LIBRARY_CONFLICT_CODE;
+  error.expectedRevision = expectedRevision;
+  error.actualRevision = actualRevision;
+  return error;
+}
+
+// 当前库版本号。读不出（索引损坏）时返回 null —— 调用方据此**跳过**版本校验，
+// 而不是拿 0 去比：把「不知道」当成「版本 0」会造成一长串假冲突。
+export async function getCharacterLibraryRevision() {
+  const index = await readCharacterIndex();
+  return index.corrupt ? null : index.revision;
 }
 
 async function readCharacterMigrationMarker() {
@@ -165,8 +214,24 @@ async function rebuildCharacterItemsFromKeys() {
 // 角色按 id 拆键存储：整库 JSON 会随卡片增多突破 Android SQLite 的单值读取上限
 // （CursorWindow 约 2MB），消息体当初也是因此按会话拆分。大角色正文落到文件，
 // AsyncStorage 只保留小型描述符，索引最后写作为提交点。
-async function persistLibrary(list) {
-  const previousIds = (await readCharacterIndex()).ids || [];
+//
+// expectedRevision（可选）= 调用方**读到的**库版本。给了就必须与盘上一致，否则抛
+// 冲突且**一个字都不写**。不给 = 不做乐观并发校验（旧调用方行为不变）。
+async function persistLibrary(list, { expectedRevision } = {}) {
+  const index = await readCharacterIndex();
+  const previousIds = index.ids || [];
+  const currentRevision = index.revision || 0;
+  // 只在调用方明确给了版本号、且索引可读时才校验。索引损坏时 revision 无意义，
+  // 强行比对会把「读坏」误报成「有并发写」。
+  if (
+    expectedRevision !== undefined
+    && expectedRevision !== null
+    && !index.corrupt
+    && Number(expectedRevision) !== currentRevision
+  ) {
+    throw characterLibraryConflictError(Number(expectedRevision), currentRevision);
+  }
+  const nextRevision = currentRevision + 1;
   const stale = new Set(previousIds);
   const ids = list.map(character => String(character.id));
   const previousValues = new Map();
@@ -188,7 +253,8 @@ async function persistLibrary(list) {
       stale.delete(id);
     }
     if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
-    await AsyncStorage.setItem(CHARACTER_INDEX_KEY, JSON.stringify(ids));
+    // 索引是提交点：ids 与 revision 必须同一次写入，接口才可能「共享卡片却各持版本号」。
+    await AsyncStorage.setItem(CHARACTER_INDEX_KEY, JSON.stringify({ ids, revision: nextRevision }));
     try {
       await AsyncStorage.setItem(CHARACTER_MIGRATION_KEY, JSON.stringify({
         version: CHARACTER_PAYLOAD_FILE_VERSION,
@@ -450,13 +516,13 @@ export async function getCharacterLibrary() {
   }
 }
 
-export async function saveCharacterLibrary(list) {
+export async function saveCharacterLibrary(list, options) {
   if (isCharacterLibraryWriteBlocked()) {
     throw new Error(tActive('error.storage.characterLibraryRecovering'));
   }
   const { list: ensured } = ensureDefaultCharacter(list);
   const next = sortCharacters(ensured);
-  await persistLibrary(next);
+  await persistLibrary(next, options);
   return next;
 }
 
