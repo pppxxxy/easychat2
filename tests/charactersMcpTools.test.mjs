@@ -292,3 +292,54 @@ test('失败路径不留半截状态：id 冲突时既不改库也不写盘', as
   assert.equal(JSON.stringify(state.library), before, '失败路径不能改动角色库');
   assert.equal(state.saveCalls.length, 0);
 });
+
+// ── 写完必须通知 App 重读（否则界面上看不到新建的卡） ──────────────────────
+//
+// 背景（2026-10-21 实测）：MCP 直写存储，AppContext 的 characters state 不知道。
+// 结果盘上 26 张、角色页只有 25 张，差的正是刚建的那张；用户以为失败就会重复建卡。
+// 这几条钉住「通知」这件事：成功必须发、失败不发、通知抛错不能污染成功结果。
+
+test('create_character 写盘成功后必须通知 App 重载角色库', async () => {
+  const { tools, state } = loadTools(BASE_LIBRARY);
+  const reasons = [];
+  tools.setCharacterLibraryNotifierForTests(reason => reasons.push(reason));
+  await tools.createCharacterImpl({ id: 'card-new', character: { name: '新卡' } });
+  assert.equal(state.saveCalls.length, 1, '先落盘');
+  assert.deepEqual(reasons, ['character-write'], '落盘成功后应通知一次');
+});
+
+test('edit_character 复制改卡后同样要通知（副本也要立刻可见）', async () => {
+  const { tools } = loadTools(BASE_LIBRARY);
+  const reasons = [];
+  tools.setCharacterLibraryNotifierForTests(reason => reasons.push(reason));
+  await tools.editCharacterImpl({ sourceId: 'card-a', patch: { name: '改过的副本' } });
+  assert.deepEqual(reasons, ['character-write']);
+});
+
+test('写失败时不得通知：界面不该为一次没发生的写操作去重读', async () => {
+  const { tools } = loadTools(BASE_LIBRARY);
+  const reasons = [];
+  tools.setCharacterLibraryNotifierForTests(reason => reasons.push(reason));
+  // id 冲突 → 在写盘之前就抛
+  await assert.rejects(() => tools.createCharacterImpl({ id: 'card-a', character: { name: 'x' } }));
+  assert.deepEqual(reasons, [], '失败路径不能通知');
+});
+
+test('通知方抛错不得让已经成功的写入变成失败', async () => {
+  // 通知是「叫 App 刷新界面」，与数据无关：界面刷新崩了不该回滚一张已经落盘的卡。
+  const { tools, state } = loadTools(BASE_LIBRARY);
+  tools.setCharacterLibraryNotifierForTests(() => {
+    throw new Error('监听器炸了');
+  });
+  const created = await tools.createCharacterImpl({ id: 'card-safe', character: { name: '仍应成功' } });
+  assert.equal(created.id, 'card-safe');
+  assert.ok(state.library.some(item => item.id === 'card-safe'), '卡必须真的在库里');
+});
+
+test('未注入通知器时走真实注册表：没人注册也不能抛', async () => {
+  // Node 环境（单测/CLI 桥）里没有任何监听者，真实 notify 必须空转而不是炸。
+  const { tools } = loadTools(BASE_LIBRARY);
+  const created = await tools.createCharacterImpl({ id: 'card-quiet', character: { name: '安静' } });
+  assert.equal(created.id, 'card-quiet');
+});
+

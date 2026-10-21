@@ -61,6 +61,7 @@ import { recordDiagnostic } from './src/storage/diagnostics.js';
 import { hydrateDownloadQueue } from './src/localModel/downloadQueue.js';
 import LocalApiServerBridge from './src/startup/localApiServerBridge.js';
 import McpServerBridge from './src/startup/mcpServerBridge.js';
+import { CharacterLibrarySyncStartup } from './src/startup/characterLibrarySyncBridge.js';
 import SecurityGate from './src/security/SecurityGate.js';
 import { useTabIconScale } from './src/ui/animations.js';
 
@@ -712,6 +713,9 @@ export default function App() {
                 {startupReady ? <DiaryStartup /> : null}
                 {startupReady ? <DownloadQueueStartup /> : null}
                 {startupReady ? <AgentTaskStartup /> : null}
+                {/* MCP 建/改卡是直写存储的：这个常驻桥收到通知就重读角色库，
+                    否则卡建成了、盘上也在，角色页却看不到（实测差异 26 vs 25）。 */}
+                {startupReady ? <CharacterLibrarySyncStartup /> : null}
                 {startupReady ? <AutoBackupStartup /> : null}
                 {startupReady ? <AnnouncementStartup /> : null}
                 {/* OverlayEventBridge（FEAT-AC7 P0-A）：悬浮窗事件监听的 app 级常驻，

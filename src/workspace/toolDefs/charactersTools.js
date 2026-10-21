@@ -21,6 +21,12 @@
 // 另注：这里**不做** id 生成策略的发明。新 id 由调用方给（或由 makeCharacterCopyId
 // 从源 id 派生），落盘前用 characters/index.js 的既有约定校验唯一性。
 
+// 唯一的静态 import，且是**故意**的例外：characterLibrarySync 是零依赖纯模块
+// （只有一层回调注册表，自己不 import 任何东西），不会把 RN/expo 拖进加载路径。
+// 它的作用是把「MCP 写成功了」告诉 AppContext —— 否则卡建成了、盘上也在，
+// 角色页却看不到（实测：盘上 26 张、界面 25 张，差的正是刚建的那张）。
+import { notifyCharacterLibraryChanged } from '../../context/characterLibrarySync.js';
+
 // ⚠️ 存储层与 normalizeCharacter **都必须延迟加载**，不能在模块顶层 import。
 //
 // 原因：`workspace/tools.js` 是一张纯定义表，被 tools 相关测试直接 import
@@ -49,6 +55,26 @@ export function setCharacterStorageForTests(storage) {
 // （否则测试会真去解析 storage/characters/shared.js → context 层）。
 export function setCharacterNormalizeForTests(fn) {
   normalizeFn = typeof fn === 'function' ? fn : null;
+}
+
+// 同理，第三个注入点：变更通知。测试用的加载器（tests/charactersMcpTools.test.mjs）
+// 会给每个相对 import 现编一份新实例，所以「测试里 import 一次 sync 模块再注册监听」
+// 拿到的是**另一个**注册表，观测不到写入方的调用。注入一个 spy 才能真正断言
+// 「写成功后确实通知了 / 写失败时没通知」。
+let injectedNotifier = null;
+
+export function setCharacterLibraryNotifierForTests(fn) {
+  injectedNotifier = typeof fn === 'function' ? fn : null;
+}
+
+function notifyChanged(reason) {
+  if (injectedNotifier) {
+    try {
+      injectedNotifier(reason);
+    } catch (error) {}
+    return;
+  }
+  notifyCharacterLibraryChanged(reason);
 }
 
 async function getStorage() {
@@ -138,7 +164,12 @@ async function mutateLibrary(mutate) {
       throw new Error(tActive('error.character.libraryWriteWouldDrop', { id }));
     }
   }
-  return storage.saveCharacterLibrary(next);
+  const saved = await storage.saveCharacterLibrary(next);
+  // 落盘成功之后才通知：失败时不该让界面去重读（读回来的还是旧的，白闪一次）。
+  // 不 await、不抛：通知只是「叫 App 重读一遍」，既不该拖慢工具返回，也不该让一次
+  // 已经成功的写入因为刷新失败而变成报错（notify 内部逐个 try/catch）。
+  notifyChanged('character-write');
+  return saved;
 }
 
 // 供测试直接验证「写回丢卡会被拒绝」这道闸。
