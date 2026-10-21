@@ -176,6 +176,23 @@ test('对照：向量元素变了也算真变化（不能因「引用不同但�
   assert.equal(contract.length, 0, '向量元素变化是真变化，不该报契约问题');
 });
 
+test('删除路径契约：没有命中任何分段 ⇒ 不写盘、不报诊断（2026-10-21 真机日志）', async () => {
+  const { entries, ...initial } = seedIndex();
+  const storage = makeStorage(initial);
+  const vector = loadVector(storage);
+  const before = storage.writes.length;
+  // 两类删除路径都常在「这个会话还没有任何向量」时被调用（切分支/重生成/删消息）。
+  await vector.removeVectorIndexForMessages('c1', 's1', ['no-such-message']);
+  await vector.removeVectorIndexForSessions('c1', ['other-session']);
+  const contracts = diagnostics.filter(d => /vectorIndexReferenceContract/.test(d.msg));
+  assert.equal(contracts.length, 0, '没删到东西不得报「返回新引用但内容未变」');
+  assert.equal(storage.writes.length, before, '未命中的删除不得写盘');
+  // 真命中（s1 下有两条）：必须写盘，且不误报契约
+  await vector.removeVectorIndexForSessions('c1', ['s1'], { pruneSources: true });
+  assert.ok(storage.writes.length > before, '真正命中后必须写盘');
+  assert.equal(entries.length, 2);
+});
+
 test('接线：护栏必须存在于 updateVectorIndex 内，且诊断走 i18n key', () => {
   const source = fs.readFileSync(vectorPath, 'utf8');
   assert.ok(source.includes('isDeepEqualIndex('), '必须有深比较护栏');

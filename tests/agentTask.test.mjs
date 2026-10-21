@@ -12,7 +12,11 @@ import {
 } from '../src/agent/task/taskModel.js';
 import { collectDueTasks, isTaskDue, nextRunAt, todayTarget } from '../src/agent/task/taskSchedule.js';
 import { buildAgentTaskExtraPrompt, describeAgentTaskTools } from '../src/agent/task/taskPrompt.js';
-import { runDueAgentTasks } from '../src/agent/task/taskDispatch.js';
+import {
+  collectDueAgentTasks,
+  executeDueAgentTasks,
+  runDueAgentTasks,
+} from '../src/agent/task/taskDispatch.js';
 import { buildAgentTaskMessages, runAgentTask } from '../src/agent/task/taskRunner.js';
 
 // ---- taskModel ----
@@ -170,6 +174,35 @@ test('runDueAgentTasks 串行只跑到期任务', async () => {
 test('runDueAgentTasks 读取失败返回 0 不抛', async () => {
   const deps = { getAgentTasks: async () => { throw new Error('boom'); } };
   assert.equal(await runDueAgentTasks({ deps }), 0);
+});
+
+test('调度拆分：collect 只选择不执行；execute 串行执行并支持单独计时', async () => {
+  const now = new Date(2026, 0, 3, 10, 0);
+  const { deps, ran } = makeDispatchDeps({
+    tasks: [
+      { taskId: 'a', hour: 8, minute: 0, enabled: true },
+      { taskId: 'b', hour: 23, minute: 0, enabled: true },
+    ],
+    runs: {},
+  });
+  const collected = await collectDueAgentTasks({ deps, now });
+  assert.deepEqual(collected.due.map(task => task.taskId), ['a']);
+  assert.equal(ran.length, 0, 'collect 阶段绝不能执行任务（app.tick 只量这一段）');
+  assert.equal(collected.deps, deps, 'deps 原样带回，执行阶段复用同一次读取结果');
+
+  const measured = [];
+  const produced = await executeDueAgentTasks(collected.due, collected.deps, {
+    now,
+    measureTask: async (task, run) => { measured.push(task.taskId); return run(); },
+  });
+  assert.equal(produced, 1);
+  assert.deepEqual(measured, ['a'], '每轮任务走独立计时钩子');
+  assert.deepEqual(ran, ['a']);
+  // 空列表 / 坏输入安全
+  assert.equal(await executeDueAgentTasks(null, deps, {}), 0);
+  // 读取失败：collect 返回空 due（不抛）
+  const failing = { getAgentTasks: async () => { throw new Error('boom'); } };
+  assert.deepEqual((await collectDueAgentTasks({ deps: failing })).due, []);
 });
 
 // ---- taskRunner ----

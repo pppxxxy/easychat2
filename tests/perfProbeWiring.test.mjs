@@ -50,13 +50,32 @@ const fakeAppState = {
 };
 
 // taskDispatch 替身：记住被调用次数与参数。
-const dispatchCalls = [];
+// 2026-10-21：调度器拆成 collect（只选择，被 app.tick 计量）+ execute（逐任务执行，
+// 用 agent.task.run 计量）——替身必须同时提供两段，否则测不到真实接线。
+const collectCalls = [];
+const executeCalls = [];
+let dueTasks = [{ taskId: 'task-1' }];
 let dispatchResult = 0;
 const fakeTaskDispatch = {
   __esModule: true,
-  runDueAgentTasks: async args => {
-    dispatchCalls.push(args);
-    return dispatchResult;
+  // 兼容：调度器仍 re-export 组合入口
+  runDueAgentTasks: async () => 0,
+  collectDueAgentTasks: async args => {
+    collectCalls.push(args);
+    return { deps: { runAgentTask: async () => ({ ok: true }) }, due: dueTasks };
+  },
+  executeDueAgentTasks: async (due, deps, options) => {
+    executeCalls.push({ due, options });
+    if (dispatchResult > 0) return dispatchResult;
+    let produced = 0;
+    for (const task of (Array.isArray(due) ? due : [])) {
+      const run = () => deps.runAgentTask(task, options);
+      const result = typeof options.measureTask === 'function'
+        ? await options.measureTask(task, run)
+        : await run();
+      if (result && result.ok) produced += 1;
+    }
+    return produced;
   },
 };
 
@@ -84,7 +103,9 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 test.beforeEach(() => {
   measured.length = 0;
-  dispatchCalls.length = 0;
+  collectCalls.length = 0;
+  executeCalls.length = 0;
+  dueTasks = [{ taskId: 'task-1' }];
   dispatchResult = 0;
   appStateListeners.length = 0;
 });
@@ -105,14 +126,20 @@ async function withScheduler(options, body) {
   }
 }
 
-test('接线：调度器每轮 tick 都被 app.tick 探针包住，且计时的是 runDueAgentTasks', async () => {
+test('接线：app.tick 只计量调度（collect），任务执行走 agent.task.run', async () => {
   // intervalMs 取极大：只测「启动即跑的那一轮」，不让定时器在测试里真的重复触发。
   await withScheduler({ intervalMs: 1e9 }, async () => {
     const ticks = measured.filter(item => item.label === 'app.tick');
     assert.equal(ticks.length, 1, `启动必须跑一轮且带 app.tick 打点，实际 ${ticks.length}`);
-    assert.equal(dispatchCalls.length, 1, '计时包住的必须真的是 runDueAgentTasks（它要被调用一次）');
-    assert.deepEqual(dispatchCalls[0], { notify: true }, '参数不得被探针吞掉或改写');
-    assert.equal(ticks[0].threshold, 800, '阈值取「一次后台活动明显拖住主线程」的量级');
+    assert.equal(collectCalls.length, 1, '计时包住的必须真的是 collectDueAgentTasks');
+    assert.ok(collectCalls[0].now instanceof Date, 'now 由调度器取一次并传给选择阶段');
+    assert.equal(ticks[0].threshold, 800, '调度阈值取「一次后台活动明显拖住主线程」的量级');
+    // 2026-10-21 修正：任务执行（模型+工具，十几秒正常）不得混进 app.tick。
+    const runs = measured.filter(item => item.label === 'agent.task.run');
+    assert.equal(runs.length, dueTasks.length, '每个到期任务单独计时');
+    assert.equal(runs[0].threshold, 120000, '任务执行用宽松阈值（>=2 分钟才算异常）');
+    assert.equal(executeCalls.length, 1, '执行阶段确实被调用');
+    assert.equal(executeCalls[0].options.notify, true, '参数不得被探针吞掉或改写');
   });
 });
 
@@ -122,8 +149,8 @@ test('接线：探针原样返回结果——产出计数仍能触发 onResults'
   await withScheduler(
     { intervalMs: 1e9, onResults: n => reported.push(n) },
     async () => {
-      // 若探针把返回值吞成 undefined，`produced > 0` 为假 → 这条会红。
-      assert.deepEqual(reported, [3], 'measureAsync 必须把 runDueAgentTasks 的返回值透传出来');
+      // 若执行阶段的返回值被吞成 undefined，`produced > 0` 为假 → 这条会红。
+      assert.deepEqual(reported, [3], 'executeDueAgentTasks 的返回值必须透传出来');
     }
   );
 });
@@ -131,17 +158,15 @@ test('接线：探针原样返回结果——产出计数仍能触发 onResults'
 test('接线：调度失败时探针不改变「不抛、不影响 App」的既有语义', async () => {
   // 探针模块在计时失败路径上会 rethrow（见 perfProbe 的 finally）——这里确认调度器
   // 自己的 try/catch 仍然兜住它，不会把异常漏到定时器外面。
-  fakeTaskDispatch.runDueAgentTasks = async () => { throw new Error('dispatch boom'); };
+  const originalCollect = fakeTaskDispatch.collectDueAgentTasks;
+  fakeTaskDispatch.collectDueAgentTasks = async () => { throw new Error('dispatch boom'); };
   try {
     await withScheduler({ intervalMs: 1e9 }, async () => {
       assert.equal(measured.filter(item => item.label === 'app.tick').length, 1,
         '失败的那一轮同样要留打点（慢的失败也卡）');
     });
   } finally {
-    fakeTaskDispatch.runDueAgentTasks = async args => {
-      dispatchCalls.push(args);
-      return dispatchResult;
-    };
+    fakeTaskDispatch.collectDueAgentTasks = originalCollect;
   }
 });
 

@@ -189,9 +189,11 @@ export default function MemoryProvenanceModal({
   const dropMemories = useCallback(async keys => {
     const targets = new Set((Array.isArray(keys) ? keys : [keys]).map(String).filter(Boolean));
     if (targets.size === 0) return;
-    await updateVectorIndex(characterId, current => (
-      current.filter(item => !targets.has(memoryKey(item)))
-    ));
+    await updateVectorIndex(characterId, current => {
+      const next = current.filter(item => !targets.has(memoryKey(item)));
+      // 引用契约：一个都没删掉就原样返回（filter 无条件造新数组会白写整索引）。
+      return next.length === current.length ? current : next;
+    });
     await removeMemoryConflictsForMemories(characterId, [...targets]);
   }, [characterId]);
 
