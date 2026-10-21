@@ -362,6 +362,41 @@ test('空白人设读取时不覆写为默认值', async () => {
   assert.equal(storage.isCharacterLibraryWriteBlocked(), false);
 });
 
+test('新建角色未传 systemPrompt 时不得继承内置助手的人设提示', async () => {
+  // 复现：normalizeCharacter 用 `{ ...DEFAULT_CHARACTER, ...source }` 打底，而
+  // DEFAULT_CHARACTER 是**内置助手卡**（systemPrompt 是 1232 字的 App 功能说明）。
+  // source 里**没有** systemPrompt 这个键时，展开运算符不覆盖 → 助手文案漏进新角色，
+  // 组装提示词时被当成 [系统提示] 注入（buildSystemPrompt），整张卡的说话基调就变了。
+  //
+  // 已有的「空白人设读取时不覆写为默认值」只覆盖了「显式传空串」这一种写法；
+  // 「根本不传」这条路径一直是漏的。App 内新建走 withAddedCharacter（BLANK_ON_ADD
+  // 显式清空），MCP 建卡走 normalizeCharacter —— 两条路必须同口径。
+  const storage = loadStorage();
+  store.clear();
+  await storage.saveCharacterLibrary([
+    { id: 'no-prompt-card', name: '未传人设的角色', description: '只有描述' },
+  ]);
+  const restored = await storage.getCharacterLibrary();
+  const item = restored.find(entry => entry.id === 'no-prompt-card');
+  assert.equal(
+    item.systemPrompt,
+    '',
+    '新建角色不得带出内置助手的 systemPrompt（未传 ≠ 继承助手人设）'
+  );
+});
+
+test('默认卡自身的 systemPrompt 仍来自 DEFAULT_CHARACTER', async () => {
+  // 上一条的对照面：清空只针对「非默认卡」。真正的内置助手卡必须保留它的功能说明，
+  // 否则助手就不知道 App 的结构与入口了。
+  const storage = loadStorage();
+  store.clear();
+  const restored = await storage.getCharacterLibrary();
+  const builtin = restored.find(entry => entry.id === 'default');
+  assert.ok(builtin, '角色库应自动补齐默认卡');
+  assert.equal(builtin.systemPrompt, storage.DEFAULT_CHARACTER.systemPrompt);
+  assert.ok(builtin.systemPrompt.length > 100);
+});
+
 test('角色语音形态字段规范化：合法值保留、非法值回退 text', async () => {
   const storage = loadStorage();
   store.clear();

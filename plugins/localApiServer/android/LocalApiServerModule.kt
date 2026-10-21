@@ -99,6 +99,19 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         )
     }
 
+    // JSON 一律 UTF-8（RFC 8259 §8.1）：当 Content-Type 缺 charset 时，NanoHTTPD 退回 US-ASCII，
+    // 导致参数里的中文烂掉。与 McpServerModule 同口径修复。
+    private fun ensureUtf8Charset(session: IHTTPSession) {
+        try {
+            val headers = session.headers ?: return
+            val raw = headers["content-type"] ?: headers["Content-Type"] ?: return
+            if (raw.contains("charset", ignoreCase = true)) return
+            headers["content-type"] = "$raw; charset=utf-8"
+        } catch (error: Exception) {
+            Log.w(TAG, "ensureUtf8Charset failed: ${error.message}")
+        }
+    }
+
     private fun handle(session: IHTTPSession): Response {
         val uri = session.uri ?: ""
         if (session.method == Method.GET && uri == "/v1/models") {
@@ -108,6 +121,7 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         if (session.method == Method.POST && uri == "/v1/chat/completions") {
             if (!checkAuth(session)) return unauthorized()
             return try {
+                ensureUtf8Charset(session)
                 val files = HashMap<String, String>()
                 session.parseBody(files)
                 handleChat(files["postData"] ?: "{}")
@@ -122,6 +136,7 @@ class LocalApiServerModule(private val reactContext: ReactApplicationContext) :
         if (session.method == Method.POST && uri == "/v1/agent") {
             if (!checkAuth(session)) return unauthorized()
             return try {
+                ensureUtf8Charset(session)
                 val files = HashMap<String, String>()
                 session.parseBody(files)
                 handleAgent(files["postData"] ?: "{}")

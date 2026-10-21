@@ -76,12 +76,31 @@ export const DEFAULT_ASSISTANT_LEGACY_PROMPTS = [
   '你是 EasyChat2 的智能助手，回答简洁清晰。',
 ];
 
+// 新建/读取非初始卡时必须清成空串的两个字段（与 context/characterLibrary.js 的
+// BLANK_ON_ADD 同口径）。原因见下方 normalizeCharacter 内的注释。
+const BLANK_FOR_NON_INITIAL = ['firstMes', 'systemPrompt'];
+
 export function normalizeCharacter(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const merged = { ...DEFAULT_CHARACTER, ...source };
   // 这里绝不能用 DEFAULT_CHARACTER.id 兜底：空 id 一旦变成 'default'，就会和
   // 初始卡撞成同一个身份。真正的补全交给 assignStableCharacterIds 统一分配并落盘。
   merged.id = String(source.id == null ? '' : source.id).trim();
+  // ⚠️ 展开运算符只在 source **有这个键**时才覆盖。DEFAULT_CHARACTER 是内置助手卡，
+  // 它的 firstMes 是教学开场白、systemPrompt 是 1232 字的 App 功能说明；source 缺这两个
+  // 键时（MCP 建卡、导入残缺卡、手写测试数据）就会把助手文案漏给普通角色，随后
+  // buildSystemPrompt 把它当 [系统提示] 注入 → 整张卡的说话基调被助手人设顶掉。
+  //
+  // 只对「非初始卡」清：初始卡自己的 systemPrompt/firstMes 恰恰要来自 DEFAULT_CHARACTER
+  // （ensureDefaultCharacter 就是靠 normalizeCharacter(DEFAULT_CHARACTER) 播种的），
+  // 且 isInitialCard 的旧数据身份判定要拿 name+systemPrompt 与默认值比对——若在判定前
+  // 就清掉，老用户的初始卡会被认成普通角色，反而多补一张默认卡。
+  if (!isInitialCard(source)) {
+    for (const field of BLANK_FOR_NON_INITIAL) {
+      // 调用方显式传了值就保留（包括显式空串）；只有「键不存在」才归零。
+      merged[field] = source[field] === undefined ? '' : String(source[field] || '');
+    }
+  }
   // builtin 只认存储里显式写过的标记，不能从 DEFAULT_CHARACTER 继承，否则所有角色都会变成初始卡。
   merged.builtin = source.builtin === true;
   const lastUsedAt = Number(merged.lastUsedAt);

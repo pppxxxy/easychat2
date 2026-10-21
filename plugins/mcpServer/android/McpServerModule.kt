@@ -96,6 +96,32 @@ class McpServerModule(private val reactContext: ReactApplicationContext) :
         )
     }
 
+    // JSON 一律 UTF-8（RFC 8259 §8.1：JSON 文本 SHALL 用 UTF-8 编码，且不靠 HTTP 头协商）。
+    // 但 NanoHTTPD 2.3.1 的 ContentType.getEncoding() 在 Content-Type **缺 charset 参数**时
+    // 退回 US-ASCII，parseBody 用它 new String(postBytes, encoding) —— 每个非 ASCII 字节都
+    // 变成 U+FFFD，中文参数在到达 JS 之前就已经烂了。
+    //
+    // 实测（2026-10-21）：POST 带 `Content-Type: application/json`（无 charset，DSH 的 MCP
+    // 客户端就是这样发的）→ 参数里的中文回显成「����」；同一请求改带
+    // `application/json; charset=utf-8` → 中文完整。受影响的不止角色卡，write_workspace_file
+    // 之类的写工具同样会把乱码落盘，所以修在传输层（所有工具一次修好），而不是逐个工具兜底。
+    //
+    // 做法：parseBody 只读 headers map（getHeaders() 返回的就是内部那个可变 HashMap），
+    // 在调用前把缺省的 charset 补成 UTF-8。调用方显式指定了别的 charset 就尊重它——
+    // 我们只补「没写」，不改「写了」。
+    private fun ensureUtf8Charset(session: IHTTPSession) {
+        try {
+            val headers = session.headers ?: return
+            // NanoHTTPD 把所有头名统一转成小写，这里按小写取。
+            val raw = headers["content-type"] ?: headers["Content-Type"] ?: return
+            if (raw.contains("charset", ignoreCase = true)) return
+            headers["content-type"] = "$raw; charset=utf-8"
+        } catch (error: Exception) {
+            // 补不上就按原样走：这只是编码修正，不该让请求直接 400。
+            Log.w(TAG, "ensureUtf8Charset failed: ${error.message}")
+        }
+    }
+
     private fun handle(session: IHTTPSession): Response {
         val uri = session.uri ?: ""
         // 只暴露一个端点：/mcp（带不带尾斜杠都认）。其余一律 404，不泄露内部路由。
@@ -106,6 +132,7 @@ class McpServerModule(private val reactContext: ReactApplicationContext) :
         // GET/DELETE 无请求体：交给 JS 决定语义（405 或结束会话）。
         val body = if (method == Method.POST) {
             try {
+                ensureUtf8Charset(session)
                 val files = HashMap<String, String>()
                 session.parseBody(files)
                 files["postData"] ?: ""
