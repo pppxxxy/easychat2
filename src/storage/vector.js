@@ -640,11 +640,33 @@ export function removeVectorIndexForMessages(characterId, sessionId, messageIds)
   const hit = (entrySession, entryMessage) => (
     String(entrySession || '') === targetSession && ids.has(String(entryMessage || ''))
   );
-  return updateVectorIndex(characterId, current => (
-    ids.size === 0 ? current : current
-      .filter(item => !hit(item.sessionId, item.messageId))
-      .flatMap(item => pruneMergedSources(item, entry => hit(entry.sessionId, entry.messageId)))
-  ));
+  // 引用契约（2026-10-21 真机日志）：没有任何分段命中时**原样返回 current**。
+  // 此前的 `current.filter(...).flatMap(...)` 即使一个都没删掉也会造出新数组，
+  // 触发 updateVectorIndex 的「新引用但内容未变」诊断，并白做一次整索引序列化
+  //（空索引也照写）。删除路径常在「这个会话还没有任何向量」时被调用（切分支/
+  // 重生成/删消息），所以这不是边角。
+  return updateVectorIndex(characterId, current => {
+    if (ids.size === 0) return current;
+    let changed = false;
+    const next = [];
+    for (const item of current) {
+      if (!item) {
+        next.push(item);
+        continue;
+      }
+      // 命中本条 ⇒ 整条删。未命中也要试着 pruneMergedSources：合并记忆的
+      // messageId 是 ''，按消息删永远命中不了它，但它的 mergedFrom 快照可能
+      // 引用了被删消息（P1-6b 的删除语义），必须一起清。
+      if (hit(item.sessionId, item.messageId)) {
+        changed = true;
+        continue;
+      }
+      const pruned = pruneMergedSources(item, entry => hit(entry.sessionId, entry.messageId));
+      if (pruned.length !== 1 || pruned[0] !== item) changed = true;
+      next.push(...pruned);
+    }
+    return changed ? next : current;
+  });
 }
 
 export function removeVectorIndexForMessage(characterId, sessionId, messageId) {
@@ -685,8 +707,20 @@ export function removeVectorIndexForSessions(characterId, sessionIds, options = 
   return updateVectorIndex(characterId, current => {
     if (ids.size === 0) return current;
     const kept = current.filter(item => !hit(item.sessionId));
-    if (!pruneSources) return kept;
-    return kept.flatMap(item => pruneMergedSources(item, entry => hit(entry.sessionId)));
+    // 引用契约（2026-10-21 真机日志）：没删到任何东西 → 原样返回 current。
+    // `filter` 无条件造新数组，哪怕结果与输入逐项相同——空索引时尤其常见
+    //（新会话切分支/重生成都会走到这里），会白写一次整索引并报契约诊断。
+    if (!pruneSources) return kept.length === current.length ? current : kept;
+    // pruneSources：即使没有整条被删，合并记忆的 mergedFrom 也可能引用被删会话
+    //（条目本身属于别的会话）——所以不能在上面提前 return，必须逐条 prune。
+    let prunedAny = false;
+    const pruned = kept.flatMap(item => {
+      const part = pruneMergedSources(item, entry => hit(entry.sessionId));
+      if (part.length !== 1 || part[0] !== item) prunedAny = true;
+      return part;
+    });
+    if (kept.length === current.length && !prunedAny) return current;
+    return pruned;
   });
 }
 

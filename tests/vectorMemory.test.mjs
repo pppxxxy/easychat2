@@ -596,9 +596,10 @@ test('按会话清理·语义分派钉死在源码：默认分支不清快照，
     body.includes('options.pruneSources === true'),
     '清快照必须由调用方显式选择（默认 false），否则归档会被当成删除'
   );
-  assert.ok(
-    body.includes('if (!pruneSources) return kept;'),
-    '未显式选择时必须早退，保持既有「只按会话过滤」的行为'
+  assert.match(
+    body,
+    /if \(!pruneSources\) return [^;]*kept/,
+    '未显式选择时必须早退且只按会话过滤，不得触碰 mergedFrom 快照'
   );
 
   // 归档/回溯路径是只读依赖（别的批次也会改它），这里只断言**它没有**开清快照：
