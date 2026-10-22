@@ -3,7 +3,7 @@
 本项目的主要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.0.1] - 2026-10-23
 
 ### Added
 - 工作区：可选系统文件夹作为工作区根（Android SAF / iOS 文件 App）、`edit_workspace_file` 精确替换、`run_shell` 命令执行（逐条确认，默认关闭）。
@@ -47,5 +47,6 @@
 - **数据**：全量备份/恢复、诊断日志（本地脱敏）、中英双语界面。
 - **合规**：AI 生成内容显式/隐式标识、角色卡导出内嵌生成属性、免责声明版本化。
 
-[Unreleased]: https://github.com/pppxxxy/easychat2/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/pppxxxy/easychat2/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/pppxxxy/easychat2/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/pppxxxy/easychat2/releases/tag/v1.0.0

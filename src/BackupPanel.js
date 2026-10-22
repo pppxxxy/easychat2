@@ -143,7 +143,7 @@ export default function BackupPanel({ visible, onClose, onImported }) {
     exportControllerRef.current = controller;
     try {
       const result = await exportBackup({
-        appVersion: '1.0.0',
+        appVersion: '1.0.1',
         signal: controller.signal,
         onProgress: setProgress,
         mode,
