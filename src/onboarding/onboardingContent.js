@@ -2,6 +2,7 @@ import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from '../network/apiVendors.
 import { IMAGE_PROVIDERS } from '../imageGen/providers.js';
 import { tActive } from '../i18n/index.js';
 import { DISCLAIMER_SECTIONS } from './disclaimer.js';
+import { ONBOARDING_CHAPTERS_BATCH2 } from './onboardingContentBatch2.js';
 
 // 新手教学 / 使用教程共用内容。
 // 每个章节既可作为「分步向导」的一步，也可作为「速查长列表」的一节。
@@ -24,7 +25,7 @@ const imageProviderItems = IMAGE_PROVIDERS.map(provider => ({
     .join(' '),
 }));
 
-export const ONBOARDING_CHAPTERS = [
+const BASE_CHAPTERS = [
   {
     id: 'chat-api',
     title: '聊天 API 获取与设置',
@@ -502,6 +503,12 @@ export const ONBOARDING_CHAPTERS = [
     note: '你可以随时在「设置 → 关于 → 免责条款」重新查看本声明。',
   },
 ];
+
+// 第二批章节（工作区 / MCP / 音乐 / 书籍 / 世界地图 / 语音 / 安全锁 /
+// 主动消息 / 定时任务 / 日记 / 插件 / 备份）单独放在 onboardingContentBatch2.js：
+// 本文件已接近 800 行棘轮上限，塞进去会撞线。合并后顺序即「使用教程」里的展示顺序，
+// 基础章节在前（新用户先配 API 再玩扩展），扩展能力在后。
+export const ONBOARDING_CHAPTERS = [...BASE_CHAPTERS, ...ONBOARDING_CHAPTERS_BATCH2];
 
 const CHAPTER_MAP = ONBOARDING_CHAPTERS.reduce((acc, chapter) => {
   acc[chapter.id] = chapter;

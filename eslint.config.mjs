@@ -139,6 +139,10 @@ export default [
       'src/chat/voiceMessages.js',           // VOICE_PLACEHOLDER_TEXT 是发给模型的占位文本（模型输入）
       'src/memory/memoryBuckets.js',         // label 是 labelKey 的中文兜底（非 React 消费方/纯逻辑测试）
       'src/onboarding/onboardingContent.js', // 教程内容（AGENTS.md 明列例外）
+      // 教程内容的续编（2026-10-22 因原文件逼近 800 行棘轮而拆出）。
+      // 与上一行同属「教程内容」这一类例外，**不是**新增豁免类别：文案由教程弹层直接渲染，
+      // 不经过 t()。
+      'src/onboarding/onboardingContentBatch2.js',
       'src/storage/characters/shared.js',    // 内置助手的人设名与系统提示（角色卡内容）
       'src/workspace/gitCheckpoint.js',      // CHECKPOINT_FALLBACK_MESSAGE 写入 git 提交信息（持久数据）
       // 2026-10-12：法务免责声明。条款实质与法律效力相关，英文版须经法务审校后方可上线，
