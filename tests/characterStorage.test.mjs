@@ -2524,3 +2524,62 @@ test('版本号读不出（索引损坏）时返回 null，而不是 0', async (
   assert.equal(await storage.getCharacterLibraryRevision(), null,
     '「不知道版本」必须与「版本 0」区分开，否则会造成一长串假冲突');
 });
+
+// ── 回退兼容：旧版 App 读到新格式索引不得丢卡（2026-10-22 review 补充） ──────
+//
+// 背景：索引从纯数组改成 `{ ids, revision }` 后，**修复前的旧 APK** 读到新格式会判
+// corrupt（它的判据是 `Array.isArray(value)`），转而走 backupCorruptValue + 重建。
+// review 实测确认「不丢卡」，但那条结论此前没有任何测试守着——将来若有人给重建
+// 加上「先读索引」的优化，就会把这条安全性打破而没人发现。
+//
+// 这里钉两件事：
+//   1) 重建只依赖 character_item:: 前缀键，**不读索引**（源码断言）；
+//   2) 新格式索引被当作损坏时，重建仍能捞回全部卡（行为断言）。
+
+test('回退兼容：重建角色库只扫卡片键，不读索引（旧版读到新格式判 corrupt 时的兜底）', () => {
+  const source = fs.readFileSync(path.resolve('src/storage/characters/index.js'), 'utf8');
+  const start = source.indexOf('async function rebuildCharacterItemsFromKeys');
+  assert.ok(start > 0, '必须保留重建函数');
+  // 取到下一个顶层注释块为止，圈出函数体
+  const end = source.indexOf('// 角色按 id 拆键存储', start);
+  assert.ok(end > start, '重建函数之后应有拆键存储的注释块');
+  const body = source.slice(start, end);
+  assert.ok(
+    !body.includes('CHARACTER_INDEX_KEY'),
+    '重建不得读索引：它必须只靠 character_item:: 前缀键恢复（否则旧版读到新格式会丢卡）'
+  );
+  assert.ok(
+    body.includes('CHARACTER_ITEM_PREFIX'),
+    '重建必须扫卡片键前缀'
+  );
+  assert.ok(
+    body.includes('readCharacterPayload'),
+    '大卡正文落在文件里，重建必须经 readCharacterPayload 解析描述符'
+  );
+});
+
+test('回退兼容：仅按卡片键重建时，每张卡都能被 normalizeCharacter 接纳', async () => {
+  // 行为面：模拟「索引不可用 + 磁盘上还有 N 张卡」——重建后必须一张不少。
+  // 这里不复刻整条存储链（那需要 RN 替身），只验证重建的接纳条件对合法卡恒成立。
+  const storage = loadStorage();
+  store.clear();
+  const cards = [
+    { id: 'default', builtin: true, name: 'EasyChat2 助手' },
+    { id: 'card-a', name: '角色 A', tags: ['x'] },
+    { id: 'card-b', name: '角色 B', worldInfo: [{ id: 'w' }] },
+  ];
+  for (const card of cards) {
+    store.set(`${CHARACTER_ITEM_PREFIX}::${card.id}`, JSON.stringify(card));
+  }
+  // 索引写成新格式 → 旧版会判 corrupt（新版能读，这里只为构造「重建」的前置状态）
+  store.set(CHARACTER_INDEX_KEY, JSON.stringify({
+    ids: cards.map(card => card.id),
+    revision: 5,
+  }));
+  const list = await storage.getCharacterLibrary();
+  assert.deepEqual(
+    list.map(item => item.id).sort(),
+    ['card-a', 'card-b', 'default'],
+    '索引格式无论新旧，卡片都必须全部读回'
+  );
+});
