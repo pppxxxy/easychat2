@@ -215,3 +215,67 @@ test('第二批章节的截图键已声明（尚未注册也不得为空）', ()
     assert.ok(hasImage, `${chapter.id} 没有声明截图键（补图时会找不到对应位置）`);
   }
 });
+
+test('截图注册：章节引用的图片键必须都在 images.js 注册（否则界面静默跳过）', () => {
+  // 为什么需要这条：getOnboardingImages 对未注册的键返回 null、界面**静默跳过图片**，
+  // 没有任何报错。2026-10-23 补 18 张截图时才发现 lorebook / regex / presets /
+  // disclaimer / chat-media 五章一直是空图状态，此前没人注意。
+  //
+  // 这五个是**已知存量缺口**（尚未提供对应截图），列在这里表示「已知且待补」，
+  // 不是允许新增：KNOWN_MISSING 只许变短，多一个就红。
+  const KNOWN_MISSING = new Set(['lorebook', 'regex', 'presets', 'disclaimer']);
+
+  const imagesSource = fs.readFileSync(path.resolve('src/onboarding/images.js'), 'utf8');
+  const registered = new Set(
+    [...imagesSource.matchAll(/^\s{2}'?([a-z0-9-]+)'?:\s*require/gm)].map(m => m[1])
+  );
+  assert.ok(registered.size >= 30, `注册表规模异常（${registered.size}），检查解析`);
+
+  // 章节里两种写法都要覆盖：单图 `image: 'x'` 与多图 `images: [{ key: 'x' }]`。
+  const missing = [];
+  for (const chapter of ONBOARDING_CHAPTERS) {
+    const keys = [];
+    if (chapter.image) keys.push(chapter.image);
+    if (Array.isArray(chapter.images)) {
+      for (const item of chapter.images) keys.push(typeof item === 'string' ? item : item && item.key);
+    }
+    for (const key of keys.filter(Boolean)) {
+      if (!registered.has(key)) missing.push(`${chapter.id}:${key}`);
+    }
+  }
+
+  const unexpected = missing.filter(entry => !KNOWN_MISSING.has(entry.split(':')[1]));
+  assert.deepEqual(
+    unexpected,
+    [],
+    `以下章节引用了未注册的图片键（界面会静默跳过）：${unexpected.join(', ')}`
+  );
+  // 存量缺口若被补齐，这条会提醒把名字从 KNOWN_MISSING 删掉（清单只许变短）。
+  const stillMissing = new Set(missing.map(entry => entry.split(':')[1]));
+  for (const known of KNOWN_MISSING) {
+    assert.ok(
+      stillMissing.has(known),
+      `'${known}' 已不需要列入 KNOWN_MISSING（图已补上？），请从清单里删掉`
+    );
+  }
+});
+
+test('截图注册：新补齐的 12 个模块都必须真的配了图', () => {
+  // 这批是有图才补的（用户 2026-10-23 提供 18 张截图），不应再有「只有文案没图」的章节。
+  const mustHaveImage = [
+    'workspace', 'mcp-server', 'music', 'books', 'world-map', 'voice-input',
+    'security', 'proactive', 'agent-task', 'diary', 'plugin', 'backup', 'local-model',
+  ];
+  for (const id of mustHaveImage) {
+    const chapter = getOnboardingChapter(id);
+    assert.ok(chapter, `缺少章节 ${id}`);
+    const count = (chapter.image ? 1 : 0) + (Array.isArray(chapter.images) ? chapter.images.length : 0);
+    assert.ok(count >= 1, `${id} 没有配图`);
+    // 有 caption 才算「图文并茂」：多图章节必须逐张说明它是什么界面。
+    if (Array.isArray(chapter.images)) {
+      for (const item of chapter.images) {
+        assert.ok(item && item.caption, `${id} 的截图缺 caption`);
+      }
+    }
+  }
+});

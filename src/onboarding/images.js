@@ -23,6 +23,30 @@ const IMAGES = {
   'vector-api': require('../../assets/onboarding/vector-api.jpg'),
   'user-persona': require('../../assets/onboarding/user-persona.jpg'),
   'inline-image': require('../../assets/onboarding/inline-image.jpg'),
+  // ── 2026-10-23 补齐：此前完全没有教学的 12 个功能模块 ──
+  // 工作区拆两张：文件页签是主界面，终端是「能跑命令」这一能力的证据。
+  workspace: require('../../assets/onboarding/workspace.jpg'),
+  'workspace-terminal': require('../../assets/onboarding/workspace-terminal.jpg'),
+  mcp: require('../../assets/onboarding/mcp.jpg'),
+  music: require('../../assets/onboarding/music.jpg'),
+  books: require('../../assets/onboarding/books.jpg'),
+  map: require('../../assets/onboarding/map.jpg'),
+  // 语音同样拆两张：播报（TTS）与转写（ASR）是两个独立配置面板，
+  // 合成一章讲但界面完全不同，一张图说不清。
+  'voice-tts': require('../../assets/onboarding/voice-tts.jpg'),
+  'voice-asr': require('../../assets/onboarding/voice-asr.jpg'),
+  // 主动消息：顶部是全局默认，展开单个时段才有风格权重与自定义文案。
+  proactive: require('../../assets/onboarding/proactive.jpg'),
+  'proactive-time': require('../../assets/onboarding/proactive-time.jpg'),
+  schedule: require('../../assets/onboarding/schedule.jpg'),
+  diary: require('../../assets/onboarding/diary.jpg'),
+  plugin: require('../../assets/onboarding/plugin.jpg'),
+  backup: require('../../assets/onboarding/backup.jpg'),
+  security: require('../../assets/onboarding/security.jpg'),
+  // 顺带补上 local-model 章节缺图（该章此前 image 键未注册，界面一直跳过）。
+  'local-model': require('../../assets/onboarding/local-model.jpg'),
+  'local-model-get': require('../../assets/onboarding/local-model-get.jpg'),
+  'local-model-api': require('../../assets/onboarding/local-model-api.jpg'),
 };
 
 export function getOnboardingImage(key) {

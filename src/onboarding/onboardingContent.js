@@ -73,7 +73,12 @@ const BASE_CHAPTERS = [
     id: 'local-model',
     title: '本地模型与本地 API',
     icon: 'hardware-chip-outline',
-    image: 'local-model',
+    // 三张图分别对应面板的三个页签（2026-10-23 补齐：此前 image 键未注册，界面一直跳过）。
+    images: [
+      { key: 'local-model', caption: '模型库：加载/卸载已安装的模型，可开关「允许图片/音频输入」。' },
+      { key: 'local-model-get', caption: '获取：按模型 ID 在线下载（Hugging Face / 国内镜像 / 魔搭），也可本地导入。' },
+      { key: 'local-model-api', caption: '服务：把本地模型开成 127.0.0.1 的 OpenAI 兼容接口，供同机其它客户端调用。' },
+    ],
     summary: '不联网也能跑模型，并把本地模型当作 OpenAI 兼容服务使用。',
     intro: '本地模型让推理完全在手机上完成，无需联网、不消耗线上额度。启用后也可以把它开成一个「本地 OpenAI 兼容服务」，供同一台设备上的其它客户端调用。',
     steps: [

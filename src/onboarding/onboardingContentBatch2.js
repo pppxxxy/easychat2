@@ -16,7 +16,10 @@ export const ONBOARDING_CHAPTERS_BATCH2 = [
     id: 'workspace',
     title: '工作区（文件、终端与历史）',
     icon: 'folder-open-outline',
-    image: 'workspace',
+    images: [
+      { key: 'workspace', caption: '文件页签：可改模式下可新建文本 / 文件夹、导入文件、导出 Word，并查看文件历史。' },
+      { key: 'workspace-terminal', caption: '终端页签：需要「可改」模式并开启命令执行；只能访问应用沙盒与 /system/bin 等公开路径。' },
+    ],
     summary: '让助手读写你指定的文件夹，需要时还能跑命令。',
     intro:
       '工作区是 App 内的一个文件空间：助手可以在其中读取、新建、修改文本与 Markdown 文件，'
@@ -143,7 +146,10 @@ export const ONBOARDING_CHAPTERS_BATCH2 = [
     id: 'voice-input',
     title: '语音播报与语音转文字',
     icon: 'mic-outline',
-    image: 'voice',
+    images: [
+      { key: 'voice-tts', caption: '语音播报：选播报源（系统引擎 / 各家云引擎）、填接口地址与密钥、选音色。' },
+      { key: 'voice-asr', caption: '语音转文字：可选「仅复用当前聊天来源」，也可为转写单独配置服务商与模型。' },
+    ],
     summary: '让助手把回复读出来，也把你的录音转成文字发出去。',
     intro:
       'App 的语音分两个方向：**播报**是把助手回复读出来（TTS），**转写**是把你的录音变成文字消息（ASR）。'
@@ -193,7 +199,10 @@ export const ONBOARDING_CHAPTERS_BATCH2 = [
     id: 'proactive',
     title: '主动消息',
     icon: 'chatbubbles-outline',
-    image: 'proactive',
+    images: [
+      { key: 'proactive', caption: '顶部是全局默认（消息来源、模型、角色），下方按角色添加时间点。' },
+      { key: 'proactive-time', caption: '展开某个时间点：可选「普通 / 精确」、随机时段与风格权重，自定义文案按权重归一。' },
+    ],
     summary: '让角色在指定时间主动给你发消息。',
     intro:
       '开启主动消息后，角色会按你设定的时段主动发来消息，不用你先开口。'
