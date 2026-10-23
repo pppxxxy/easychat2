@@ -366,3 +366,30 @@ test('折叠卡状态：保存后读回一致，未知 id 不落库', async () =
   assert.ok(settings.UI_SECTION_IDS.includes('extensions'));
   store.clear();
 });
+
+// 回归 2026-10-24（用户报告）：UI_SECTION_IDS 曾是手写清单，设置页新增
+// mcpservers / localmodel / security / autoBackup / language 五张卡后没有同步——
+// normalizeUiSections 把这五张的开关静默丢弃，「收起界面语言卡」从不落盘，
+// 冷启动后语言卡按默认值重新展开。现在白名单取自 SECTION_RENDER_ORDER，
+// 这里用「结构一致」+「逐卡落盘」两条钉死，防止以后再漂移。
+test('折叠卡状态：白名单覆盖全部渲染卡，每张卡的开关都能跨冷启动保留', async () => {
+  const sectionOrder = (await import('../src/settings/sectionOrder.js')).SECTION_RENDER_ORDER;
+  assert.deepEqual(
+    [...settings.UI_SECTION_IDS],
+    [...sectionOrder],
+    'UI_SECTION_IDS 必须与 SECTION_RENDER_ORDER 完全一致（手抄清单已经漏过 5 张卡）'
+  );
+
+  store.clear();
+  const toggled = {};
+  for (const id of sectionOrder) toggled[id] = false;
+  toggled.localmodel = true;
+  await settings.saveUiSections(toggled);
+  const saved = JSON.parse(store.get('@easychat2_ui_sections'));
+  for (const id of sectionOrder) {
+    assert.ok(id in saved, `${id} 的开关被丢弃：收起状态无法跨冷启动保留`);
+  }
+  assert.equal(saved.localmodel, true, '显式 true 也不得被丢弃');
+  assert.deepEqual(await settings.getUiSections(), saved, '读回必须与落盘一致');
+  store.clear();
+});

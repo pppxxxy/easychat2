@@ -9,6 +9,7 @@ import { normalizeHiddenToolNotices } from '../../chat/toolNoticeVisibility.js';
 import { BUBBLE_STYLES, THEMES, normalizeCustomColors } from '../../theme/themes.js';
 import { tActive } from '../../i18n/index.js';
 import { backupCorruptValue, createMutationQueue, readJson, readJsonStatus } from '../io.js';
+import { SECTION_RENDER_ORDER } from '../../settings/sectionOrder.js';
 import { normalizeImageProviderId } from './imageProvider.js';
 
 const CHAT_OPTIONS_KEY = '@easychat2_chat_options';
@@ -180,18 +181,13 @@ export async function patchAppearanceSettings(patch) {
 
 // 设置页各折叠卡的展开/收起状态。只存用户显式切换过的卡（布尔），
 // 未记录的卡由界面按「是否已配置」决定默认展开，缺省/损坏时回退为空对象。
-export const UI_SECTION_IDS = [
-  'api',
-  'sampling',
-  'persona',
-  'appearance',
-  'experience',
-  'extensions',
-  'vector',
-  'workspace',
-  'github',
-  'about',
-];
+//
+// 白名单直接取 SECTION_RENDER_ORDER（设置卡渲染顺序的唯一事实源），不再手抄：
+// 此前这里是手写的 10 个 id，后来设置页新增 mcpservers / localmodel / security /
+// autoBackup / language 五张卡时没有同步——normalizeUiSections 把这五张的开关
+// 静默丢弃，收起「界面语言」卡从不落盘，冷启动后语言卡按默认值重新展开
+// （2026-10-24 用户报告）。跟随渲染顺序数组后，新增卡片在结构上不可能再被漏掉。
+export const UI_SECTION_IDS = SECTION_RENDER_ORDER;
 
 function normalizeUiSections(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};

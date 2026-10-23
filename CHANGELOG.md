@@ -3,6 +3,22 @@
 本项目的主要变更记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Fixed
+- **设置页折叠状态跨冷启动丢失**：折叠卡持久化白名单此前是手写清单，缺设置页后来新增的
+  `language` / `mcpservers` / `localmodel` / `security` / `autoBackup` 五张卡——收起「界面语言」卡
+  从不落盘，每次冷启动后语言卡都按默认值重新展开。白名单改为直接取 `SECTION_RENDER_ORDER`
+  （设置卡渲染顺序的唯一事实源），以后新增卡片在结构上不可能再被漏掉。
+
+### Changed
+- **使用教程重排**：免责声明章节移到教程末尾（此前挂在基础章节末尾，被第二批 12 章追加挤到
+  列表中间——游戏教程之后、工作区之前）；首启引导同步以免责声明收尾。
+  `tests/onboardingContent.test.mjs` 钉死「最后一章 = 免责声明」，第二批章节改按 id 显式选取。
+- **文档**：新增英文版 [README.en.md](./README.en.md) 与 [SECURITY.en.md](./SECURITY.en.md)；
+  英文版的法律合规表述不再引用特定法域的法规，统一为「遵守所在地法律法规」。
+  应用内免责条款维持单一管辖语言（中文）不变。
+
 ## [1.0.1] - 2026-10-23
 
 ### Added

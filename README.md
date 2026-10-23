@@ -1,8 +1,10 @@
 # EasyChat2
 
-**当前版本：v1.0.0（测试版）**
+简体中文 | [English](./README.en.md)
 
-v1.0.0 为测试版，仅向受邀测试者单独发放，不在仓库公开下载。收到安装包后请先阅读测试免责声明。
+**当前版本：v1.0.1（测试版）**
+
+v1.0.1 为测试版，仅向受邀测试者单独发放，不在仓库公开下载。收到安装包后请先阅读测试免责声明。
 
 EasyChat2 是一个基于 Expo + React Native 的移动端 AI 聊天应用。它没有自建后端，直接连接任意兼容 OpenAI Chat Completions 协议的接口，所有配置、角色与聊天记录都保存在设备本地。
 
@@ -194,8 +196,9 @@ easychat2/
 ## 文档
 
 - 架构与模块说明：`.monkeycode/docs/INDEX.md`
-- 安全与隐私声明：[SECURITY.md](./SECURITY.md)
+- 安全与隐私声明：[SECURITY.md](./SECURITY.md)（English: [SECURITY.en.md](./SECURITY.en.md)）
 - 开发约定：[AGENTS.md](./AGENTS.md)
+- 英文版文档：[README.en.md](./README.en.md)
 
 ## 免责声明
 

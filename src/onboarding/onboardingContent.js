@@ -492,28 +492,33 @@ const BASE_CHAPTERS = [
     ],
     note: '游戏为纯前端实现，不会消耗 API 额度，也不依赖网络。',
   },
-  {
-    id: 'disclaimer',
-    title: '免责声明',
-    icon: 'document-text-outline',
-    image: 'disclaimer',
-    summary: '使用前请完整阅读并理解。',
-    sections: DISCLAIMER_SECTIONS,
-    steps: [
-      '本应用仅供学习交流使用，适用人群与法律合规详见下方声明。',
-      'API 端点与密钥由你自行配置，聊天内容直发到你指定的服务地址。',
-      '请遵守所在地法律法规与所选平台的使用条款。',
-    ],
-    items: [],
-    note: '你可以随时在「设置 → 关于 → 免责条款」重新查看本声明。',
-  },
 ];
+
+// 免责声明单列、合并时垫底（2026-10-24 用户裁决：教程以免责声明收尾）。
+// 不能留在 BASE_CHAPTERS 末尾——那会被 ONBOARDING_CHAPTERS_BATCH2 追加挤到列表中间
+// （游戏教程之后、工作区之前），「读完教程」的收尾感全无。
+const DISCLAIMER_CHAPTER = {
+  id: 'disclaimer',
+  title: '免责声明',
+  icon: 'document-text-outline',
+  image: 'disclaimer',
+  summary: '使用前请完整阅读并理解。',
+  sections: DISCLAIMER_SECTIONS,
+  steps: [
+    '本应用仅供学习交流使用，适用人群与法律合规详见下方声明。',
+    'API 端点与密钥由你自行配置，聊天内容直发到你指定的服务地址。',
+    '请遵守所在地法律法规与所选平台的使用条款。',
+  ],
+  items: [],
+  note: '你可以随时在「设置 → 关于 → 免责条款」重新查看本声明。',
+};
 
 // 第二批章节（工作区 / MCP / 音乐 / 书籍 / 世界地图 / 语音 / 安全锁 /
 // 主动消息 / 定时任务 / 日记 / 插件 / 备份）单独放在 onboardingContentBatch2.js：
 // 本文件已接近 800 行棘轮上限，塞进去会撞线。合并后顺序即「使用教程」里的展示顺序，
-// 基础章节在前（新用户先配 API 再玩扩展），扩展能力在后。
-export const ONBOARDING_CHAPTERS = [...BASE_CHAPTERS, ...ONBOARDING_CHAPTERS_BATCH2];
+// 基础章节在前（新用户先配 API 再玩扩展），扩展能力在后，免责声明垫底收尾
+// （tests/onboardingContent.test.mjs 钉死「最后一章 = 免责声明」）。
+export const ONBOARDING_CHAPTERS = [...BASE_CHAPTERS, ...ONBOARDING_CHAPTERS_BATCH2, DISCLAIMER_CHAPTER];
 
 const CHAPTER_MAP = ONBOARDING_CHAPTERS.reduce((acc, chapter) => {
   acc[chapter.id] = chapter;

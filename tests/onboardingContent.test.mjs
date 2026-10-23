@@ -148,13 +148,25 @@ test('未知 chapterId 回退到全量教程，不得返回空数组（空白弹
 // 语音 / 安全锁 / 主动消息 / 定时任务 / 日记 / 插件 / 备份）。补文案时最容易犯的错
 // 是「凭想象写路径」——用户照着点却找不到，比没有教学更糟。
 // 所以这里除了结构，还钉「关键路径用词必须与 i18n 真实文案一致」。
+//
+// 章节清单按 id 显式列出，**不要**用 ONBOARDING_CHAPTERS.slice(-12) 这类按位置截取：
+// 免责声明按用户裁决（2026-10-24）垫底在合并列表最后，按位置截取会把它混进来、
+// 反而漏掉第二批开头的几章。
+const BATCH2_IDS = [
+  'workspace', 'mcp-server', 'music', 'books', 'world-map', 'voice-input',
+  'security', 'proactive', 'agent-task', 'diary', 'plugin', 'backup',
+];
+
+test('免责声明章节必须排在教程最后（2026-10-24 用户裁决：教程以免责声明收尾）', () => {
+  // 回归：免责声明原本挂在 BASE_CHAPTERS 末尾，第二批 12 章追加后被挤到列表中间
+  // （游戏教程之后、工作区之前）。这里钉死「最后一章 = 免责声明」。
+  const ids = ONBOARDING_CHAPTERS.map(chapter => chapter.id);
+  assert.equal(ids[ids.length - 1], 'disclaimer', '最后一章必须是免责声明');
+  assert.equal(ids.filter(id => id === 'disclaimer').length, 1, '免责声明章节只出现一次');
+});
 
 test('第二批章节全部存在且挂在正确的位置', () => {
-  const expected = [
-    'workspace', 'mcp-server', 'music', 'books', 'world-map', 'voice-input',
-    'security', 'proactive', 'agent-task', 'diary', 'plugin', 'backup',
-  ];
-  for (const id of expected) {
+  for (const id of BATCH2_IDS) {
     const chapter = getOnboardingChapter(id);
     assert.ok(chapter, `缺少章节 ${id}`);
     assert.ok(chapter.title, `${id} 缺 title`);
@@ -209,7 +221,7 @@ test('备份章节强调「导入会覆盖」与「先备份当前数据」', ()
 test('第二批章节的截图键已声明（尚未注册也不得为空）', () => {
   // 图片未注册时 getOnboardingImages 返回空数组、界面自动跳过；
   // 但章节里**必须先把键写下来**，否则补图时无从对照。
-  const batch = ONBOARDING_CHAPTERS.slice(-12);
+  const batch = BATCH2_IDS.map(id => getOnboardingChapter(id));
   for (const chapter of batch) {
     const hasImage = Boolean(chapter.image) || (Array.isArray(chapter.images) && chapter.images.length > 0);
     assert.ok(hasImage, `${chapter.id} 没有声明截图键（补图时会找不到对应位置）`);
