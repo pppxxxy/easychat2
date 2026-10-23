@@ -22,6 +22,12 @@
   界面语言；英文视图底部标注「For reference only; the Simplified Chinese version governs.」。
   中文仍是权威/管辖文本：条款文字未变，`DISCLAIMER_VERSION` 不 bump（签名棘轮验证）；
   改中文条款时必须同步重译英文（tests/disclaimerContent.test.mjs 钉住结构对齐与漏译）。
+- **教程章节出英文**：新增 `onboardingContentEn.js` / `onboardingContentBatch2En.js`
+  （29 章英文参考译文，与中文逐章同构），`getOnboardingChapters(ids, localeId)` 按界面语言
+  返回对应版本；ChapterModal（使用教程及 8 处屏内教学）与首启引导 OnboardingModal 均已接入，
+  切语言即切教程。厂商/生图服务商速查项等动态词条改为取列表时按活动语言解析。
+  tests/onboardingContent.test.mjs 新增英文组：逐章结构对齐（同 id/图标/截图键/步骤/速查数、
+  外链 URL 一致）、无中文残留（含动态词条）、免责声明在英文列表同样垫底、选择器接线。
 
 ## [1.0.1] - 2026-10-23
 

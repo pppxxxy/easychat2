@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { ONBOARDING_CHAPTERS } from './onboarding/onboardingContent.js';
+import { getOnboardingChapters } from './onboarding/onboardingContent.js';
 import { getOnboardingImages } from './onboarding/images.js';
 import ChapterImages from './books/ChapterImages.js';
 import ChapterNotice from './books/ChapterNotice.js';
@@ -21,9 +21,10 @@ import { useTranslation } from './i18n/I18nContext.js';
 
 export default function OnboardingModal({ visible, onFinish }) {
   const { theme, fonts, tokens } = useTheme();
-  const { t } = useTranslation();
+  const { t, localeId } = useTranslation();
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const chapters = Array.isArray(ONBOARDING_CHAPTERS) ? ONBOARDING_CHAPTERS : [];
+  // 首启引导的章节列表跟随界面语言（与 ChapterModal 同一来源，显式传 localeId）。
+  const chapters = getOnboardingChapters(undefined, localeId);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {

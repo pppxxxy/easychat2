@@ -291,3 +291,136 @@ test('截图注册：新补齐的 12 个模块都必须真的配了图', () => {
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// 英文参考译文（2026-10-24 用户裁决：教程章节出英文，随界面语言切换）。
+//
+// 分工：上面的所有断言钉的是**权威中文**列表；这一组钉英文侧自己的失守方式——
+//   ① 结构对齐：与中文逐章一一对应（同 id 同序、同图标、同截图键、同步骤数、
+//      同速查项数、同特殊字段形状、外链 URL 一致）——漏译一章/一项即红；
+//   ② 无中文残留：把 i18n 活动语言设为 en 后再取英文列表，全部字符串字段里
+//      不允许出现任何 CJK 字符（含厂商名等 tActive 动态词条——这正是必须先
+//      setActiveLocale 再取列表的原因）；
+//   ③ 选择器接线：getOnboardingChapters(ids, 'en') 返回英文、默认（不传）仍是中文、
+//      未知 id 回退全量在英文下同样成立；免责声明在英文列表里同样垫底。
+// ---------------------------------------------------------------------------
+const nz = value => String(value || '').replace(/\s+/g, ' ').trim();
+const {
+  getOnboardingChaptersEn,
+} = await import('../src/onboarding/onboardingContentEn.js');
+const { setActiveLocale } = await import('../src/i18n/index.js');
+
+const EN_CHAPTERS = (() => {
+  setActiveLocale('en');
+  const chapters = getOnboardingChaptersEn();
+  setActiveLocale('zh-CN');
+  return chapters;
+})();
+
+const CJK_RE = /[\u4e00-\u9fff]/;
+const imageKeysOf = chapter => {
+  const keys = [];
+  if (chapter.image) keys.push(chapter.image);
+  if (Array.isArray(chapter.images)) {
+    for (const item of chapter.images) keys.push(typeof item === 'string' ? item : item && item.key);
+  }
+  return keys.filter(Boolean);
+};
+
+test('英文教程：与中文逐章一一对应（id/顺序/图标/截图键/步骤/速查/特殊字段）', () => {
+  assert.equal(EN_CHAPTERS.length, ONBOARDING_CHAPTERS.length, '英文章节数必须与中文一致');
+  EN_CHAPTERS.forEach((en, index) => {
+    const zh = ONBOARDING_CHAPTERS[index];
+    assert.equal(en.id, zh.id, `第 ${index + 1} 章 id 与中文不一致`);
+    assert.equal(en.icon, zh.icon, `${en.id} 图标与中文不一致`);
+    assert.deepEqual(
+      imageKeysOf(en),
+      imageKeysOf(zh),
+      `${en.id} 的截图键与中文不一致（截图注册表按键取图，改键会静默丢图）`
+    );
+    // title / summary 是每章必备；intro / note 是可选字段——可选字段的规则是
+    // 「随中文对齐」：zh 有 en 必须有（且非空），zh 没有 en 不得私加
+    //（world-map 在中文里就没有 note，这里曾误写成「一律必备」而被打红）。
+    for (const field of ['title', 'summary']) {
+      assert.ok(typeof en[field] === 'string' && nz(en[field]).length > 0, `${en.id} 缺英文 ${field}`);
+    }
+    for (const field of ['intro', 'note']) {
+      assert.equal(
+        Boolean(zh[field]),
+        Boolean(en[field]) && nz(en[field] || '').length > 0,
+        `${en.id} 的 ${field} 字段与中文不对齐（zh 有 en 必须有，zh 无 en 不得私加）`
+      );
+    }
+    assert.equal(en.steps.length, zh.steps.length, `${en.id} 步骤数与中文不一致`);
+    assert.equal(en.items.length, zh.items.length, `${en.id} 速查项数与中文不一致`);
+    en.items.forEach(item => {
+      for (const field of ['name', 'where', 'usage']) {
+        assert.ok(nz(item[field] || '').length > 0, `${en.id} 有速查项缺英文 ${field}`);
+      }
+    });
+    // 特殊字段形状对齐：zh 有的英文必须有，zh 没有的英文不得私加。
+    assert.equal(Boolean(en.disclaimer), Boolean(zh.disclaimer), `${en.id} disclaimer 字段不对齐`);
+    assert.equal(Boolean(en.warning), Boolean(zh.warning), `${en.id} warning 字段不对齐`);
+    assert.equal(Boolean(en.sections), Boolean(zh.sections), `${en.id} sections 字段不对齐`);
+    assert.equal(Boolean(en.outro) === Boolean(zh.outro), true, `${en.id} outro 字段不对齐`);
+    if (zh.outro) {
+      assert.equal(
+        (en.outro.bullets || []).length,
+        (zh.outro.bullets || []).length,
+        `${en.id} outro 要点数与中文不一致`
+      );
+    }
+    if (Array.isArray(zh.links)) {
+      assert.deepEqual(
+        (en.links || []).map(link => link.url),
+        zh.links.map(link => link.url),
+        `${en.id} 外链 URL 必须与中文一致（只许译 label，不许改链接）`
+      );
+    }
+  });
+});
+
+test('英文教程：免责声明同样垫底，且条款正文是英文分节版', () => {
+  const ids = EN_CHAPTERS.map(chapter => chapter.id);
+  assert.equal(ids[ids.length - 1], 'disclaimer', '英文列表最后一章必须是免责声明');
+  const chapter = EN_CHAPTERS[EN_CHAPTERS.length - 1];
+  assert.ok(Array.isArray(chapter.sections) && chapter.sections.length > 0, '英文免责章必须有分节条款');
+  assert.ok(!CJK_RE.test(chapter.sections.map(s => s.title + s.body).join('')), '英文免责章的条款不允许残留中文');
+});
+
+test('英文教程：无中文残留（含厂商名等 tActive 动态词条）', () => {
+  const corpus = EN_CHAPTERS.map(chapter => [
+    chapter.title,
+    chapter.summary,
+    chapter.intro,
+    chapter.note,
+    chapter.disclaimer,
+    chapter.warning,
+    ...(chapter.steps || []),
+    ...(chapter.items || []).flatMap(item => [item.name, item.where, item.usage]),
+    ...(chapter.images || []).map(item => item.caption),
+    ...(Array.isArray(chapter.links) ? chapter.links.map(link => link.label) : []),
+    chapter.outro ? [chapter.outro.title, chapter.outro.body, ...(chapter.outro.bullets || []), chapter.outro.linkNotice].filter(Boolean) : [],
+  ].flat().join('\n')).join('\n');
+  const offenders = corpus.split('\n').filter(line => CJK_RE.test(line));
+  assert.deepEqual(
+    offenders,
+    [],
+    `英文教程里残留中文（漏译的机械信号）：\n${offenders.slice(0, 10).join('\n')}`
+  );
+});
+
+test('英文教程：选择器接线（en 返回英文 / 默认中文 / 未知 id 回退全量）', () => {
+  // en：显式传 'en' 返回英文标题。
+  const enPicked = getOnboardingChapters(['chat-api', 'no-such-id'], 'en');
+  assert.equal(enPicked.length, 1, '混合已知/未知 id 时保留认得出的（与中文同规则）');
+  assert.equal(enPicked[0].id, 'chat-api');
+  assert.notEqual(enPicked[0].title, getOnboardingChapter('chat-api').title, '英文标题不得与中文相同');
+
+  // 默认（不传 localeId）：保持既有行为，返回中文。
+  assert.equal(getOnboardingChapters(['chat-api'])[0].title, getOnboardingChapter('chat-api').title);
+
+  // 整组未知：回退对应语言的全量列表。
+  assert.equal(getOnboardingChapters(['nope'], 'en').length, EN_CHAPTERS.length);
+  assert.equal(getOnboardingChapters(['nope']).length, ONBOARDING_CHAPTERS.length);
+});

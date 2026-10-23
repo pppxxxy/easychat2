@@ -27,11 +27,12 @@ export default function ChapterModal({
   buttonText,
 }) {
   const { theme, fonts, tokens } = useTheme();
-  const { t } = useTranslation();
+  const { t, localeId } = useTranslation();
   const titleText = title || t('tutorial.title');
   const buttonTextValue = buttonText || t('common.close');
   const styles = useMemo(() => createStyles(theme, fonts, tokens), [theme, fonts, tokens]);
-  const chapters = getOnboardingChapters(chapterIds);
+  // 章节列表跟随界面语言：localeId 来自同一 hook，切语言时本组件重渲染、列表随之切换。
+  const chapters = getOnboardingChapters(chapterIds, localeId);
   const scrollRef = useRef(null);
   const offsetsRef = useRef({});
 

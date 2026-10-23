@@ -3,6 +3,7 @@ import { IMAGE_PROVIDERS } from '../imageGen/providers.js';
 import { tActive } from '../i18n/index.js';
 import { DISCLAIMER_SECTIONS } from './disclaimer.js';
 import { ONBOARDING_CHAPTERS_BATCH2 } from './onboardingContentBatch2.js';
+import { getOnboardingChaptersEn } from './onboardingContentEn.js';
 
 // 新手教学 / 使用教程共用内容。
 // 每个章节既可作为「分步向导」的一步，也可作为「速查长列表」的一节。
@@ -533,10 +534,20 @@ export function getOnboardingChapter(id) {
 // 但**整组都认不出**时不能返回空数组：ChapterModal 拿到空数组会渲染成一个「只有标题和关闭
 // 按钮」的空白弹窗，无报错、无提示。那种情况回退到全量教程——至少让用户看到内容，而不是
 // 一个看起来坏掉的界面。混着写错时保留认得出的那些（既有行为不变）。
-export function getOnboardingChapters(ids) {
-  if (!Array.isArray(ids) || ids.length === 0) return ONBOARDING_CHAPTERS;
-  const known = ids.map(id => CHAPTER_MAP[id]).filter(Boolean);
-  return known.length > 0 ? known : ONBOARDING_CHAPTERS;
+//
+// 语言（2026-10-24 用户裁决）：localeId === 'en' 时返回英文参考译文
+// （getOnboardingChaptersEn()，与中文列表逐章同构），其余情况返回权威中文列表。
+// localeId 必须由调用方（ChapterModal / OnboardingModal）从 useTranslation() 显式传入，
+// 不在本模块读 getActiveLocale()——hook 拿到的 locale 与渲染同源，切语言时组件重渲染、
+// 章节列表随之切换；在模块里偷偷读活动语言会把这两条通路搅在一起。
+// 不传 localeId（undefined）保持既有行为：返回中文。既有测试与调用方都不受影响。
+export function getOnboardingChapters(ids, localeId) {
+  const all = localeId === 'en' ? getOnboardingChaptersEn() : ONBOARDING_CHAPTERS;
+  if (!Array.isArray(ids) || ids.length === 0) return all;
+  const map = {};
+  for (const chapter of all) map[chapter.id] = chapter;
+  const known = ids.map(id => map[id]).filter(Boolean);
+  return known.length > 0 ? known : all;
 }
 
 export default ONBOARDING_CHAPTERS;
