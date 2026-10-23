@@ -26,9 +26,14 @@
 // **没有删除、也没有放宽任何一条**。统一后 TEXT 改为从 SECTIONS 派生，
 // 「两份不一致」在结构上不再可能发生——改条款只能改 SECTIONS 一处。
 //
-// 为什么不 i18n：这是法律文本，法律文本用**管辖语言**书写，随界面语言翻译会
-// 引入「哪个语言版本有约束力」的解释问题。故本文件有意保留纯中文，不接入 i18n
-// （`eslint.config.mjs` 的硬编码中文存量清单里已登记本文件）。
+// 为什么不 i18n → 语言政策（2026-10-24 用户裁决，替代此前「纯中文不 i18n」口径）：
+// **中文是权威/管辖文本**，条款实质变更仍只改 DISCLAIMER_SECTIONS 一处并 bump
+// DISCLAIMER_VERSION（签名棘轮见 tests/disclaimerContent.test.mjs——中文字面变一个字
+// 就会红）。DISCLAIMER_SECTIONS_EN 是同一份条款的**英文参考译文**（界面在英文视图底部
+// 标注「For reference only; the Simplified Chinese version governs.」），与中文同版本号、
+// 逐节一一对应（同序 / 同图标 / 同要点数，tests 钉住）；改中文条款时必须同步重译英文。
+// 本文件仍不接 i18n key（条款内容不走 t()），硬编码中文存量清单登记依旧有效；
+// 界面上的语言切换标签复用 settings.language.zh / settings.language.en 两个既有词条。
 //
 // 条款实质变更时记得同步 bump `src/storage/settings/onboarding.js` 的
 // DISCLAIMER_VERSION，否则存量用户不会重新确认新条款（法律效力前提）；
@@ -144,3 +149,112 @@ const renderSection = section => (
 );
 
 export const DISCLAIMER_TEXT = DISCLAIMER_SECTIONS.map(renderSection).join('\n\n');
+
+// ---------------------------------------------------------------------------
+// 英文参考译文（2026-10-24 用户裁决：应用内免责条款出双语 + 界面切换按钮）。
+// 与 DISCLAIMER_SECTIONS **逐节一一对应**：同序、同图标、同要点数；
+// tests/disclaimerContent.test.mjs 钉住结构对齐、「无中文残留（漏译）」与
+// 「TEXT_EN 是 SECTIONS_EN 的渲染产物」。改中文条款（bump 版本）时必须同步重译这里。
+// ---------------------------------------------------------------------------
+export const DISCLAIMER_SECTIONS_EN = [
+  {
+    title: 'Nature of the Application',
+    icon: 'information-circle-outline',
+    body: 'EasyChat2 is an open-source AI chat tool intended for learning and exchange only. This software is provided "AS IS", with no guarantee that it will operate without interruption or errors, or that it will fully meet your needs.',
+  },
+  {
+    title: 'Intended Users and Legal Compliance Notice',
+    icon: 'shield-outline',
+    body: 'This app is an anthropomorphic AI interactive service. It does not provide minors with intimacy-oriented companionship services such as virtual partners or virtual family members. Where applicable law in your jurisdiction requires guardian consent before providing other anthropomorphic interactive services to minors (for example, users below the age of 14), such consent must be obtained. Users are solely responsible for ensuring that their use of this app complies with the laws and regulations of their own jurisdiction.',
+    bullets: [
+      'This notice is a legal-compliance statement. It does not modify or add restrictions to the Apache-2.0 license terms; the app remains licensed under Apache-2.0, and the rights granted by the license are unaffected by this notice.',
+    ],
+  },
+  {
+    title: 'Acceptable Use',
+    icon: 'alert-circle-outline',
+    body: 'You must not use this software for any unlawful activity, including but not limited to disseminating pornographic, obscene, violent, terrorist, gambling, drug-related, or fraudulent information, or infringing others\' intellectual property, privacy, reputation, or other lawful rights and interests; nor may you interfere with or disrupt the normal operation of this software.',
+    bullets: [
+      // 与中文对齐：「违反法律法规」即可，中文版的「社会主义核心价值观」是法域特定表述，
+      // 英文参考译文按「遵守所在地法律法规」口径统一（与 README.en/SECURITY.en 同一政策）。
+      'Do not induce the AI to generate content that violates applicable laws and regulations.',
+      'Do not use this software for commercial purposes such as resale, renting, lending, or otherwise profiting from it.',
+    ],
+  },
+  {
+    title: 'Data & Privacy',
+    icon: 'lock-closed-outline',
+    body: 'This software has no server and no account system, integrates no analytics, advertising, or telemetry SDKs, and does not collect device identifiers — the developer receives, stores, and resells none of your data. Your character cards, session messages, settings, and media files are stored entirely on your device, invisible to the developer; uninstalling the app or clearing its data deletes them, and no copy exists on the developer side.',
+  },
+  {
+    title: 'Data & Configuration',
+    icon: 'server-outline',
+    body: 'You configure the API endpoint and key yourself; all chat content is sent directly to the service address you specify.',
+    bullets: [
+      'Beyond chat, the following features — when you actively use them — send the content you designate directly to the corresponding third-party service, each at your own choice and authorization: inline images and image generation (the prompt, plus optional source images), text-to-speech (the text to be read aloud), speech-to-text (the recorded audio), vector memory (message fragments and retrieval queries), and web search (the search keywords).',
+      'Do not send sensitive personal information such as ID numbers, bank card numbers, or passwords in any of the above.',
+      'Use only the official API services of each platform. EasyChat2 does not provide shared API keys, proxy addresses, relay endpoints, or unofficial endpoints.',
+      'All consequences of using unofficial channels, shared keys, or proxy services are borne by the user.',
+    ],
+  },
+  {
+    title: 'AI-Generated Content Labeling',
+    icon: 'sparkles-outline',
+    body: 'Character card generation (AI card forge), chat replies, moments, and inline images are all AI-generated content. The UI shows explicit labels such as "This content is AI-generated", and the chat screen permanently shows "AI output may be wrong; for reference only"; AI-generated character cards embed provenance metadata in the exported file (generating tool, content id, timestamp, and model) and append a visible generated-content line at the end of the creator notes, so the content can be identified and traced.',
+    bullets: [
+      'Do not remove, tamper with, or conceal AI-generated labels (explicit or implicit) before redistribution; you bear the legal consequences of redistributing content with its labels removed.',
+      'AI-generated character cards are for personal fictional creation and testing only; they must not be used for commercial purposes, nor to generate unlawful, harmful, or third-party-right-infringing content.',
+    ],
+  },
+  {
+    title: 'Technical Limitations',
+    icon: 'warning-outline',
+    body: 'Given the limits of current technology, AI-generated content may be inaccurate or incomplete, or may resemble well-known IPs or copyrighted works; results are screened against common IP keywords but not exhaustively — review and confirm you have the rights before using or redistributing.',
+    bullets: [
+      'AI replies do not represent the developer\'s views, positions, or advice — judge their reasonableness yourself.',
+    ],
+  },
+  {
+    title: 'Limitation of Liability',
+    icon: 'shield-outline',
+    body: 'To the maximum extent permitted by applicable law, the developer is not liable for any direct, indirect, incidental, special, punitive, or consequential damages arising from the use of or inability to use this software (including but not limited to data loss, financial loss, account restrictions, or content and compliance issues), even if advised of the possibility of such damages.',
+    bullets: [
+      'Third-party AI providers\' availability, terms-of-service changes, or shutdowns may render part or all of this software unusable; the developer bears no responsibility for this.',
+      'Security issues caused by misconfiguration, third-party service interruptions, or data leaks are borne by the user.',
+      'Accuracy and legality of AI-generated content — you bear full responsibility for the truthfulness, legality, and accuracy of AI-generated content.',
+    ],
+  },
+  {
+    title: 'Changes to These Terms & Complaints',
+    icon: 'refresh-outline',
+    body: 'The developer reserves the right to modify these terms at any time; modified terms take effect with software updates and are re-prompted for confirmation; if you violate the rules above, the developer may stop providing software updates and support.',
+    bullets: [
+      'If you believe content generated by this app infringes your lawful rights, please file a complaint via the repository\'s Issues (include proof of rights, the location of the reported content, and contact information); upon receiving a valid notice it will be handled promptly.',
+    ],
+  },
+  {
+    title: 'Acceptance of Terms',
+    icon: 'checkmark-circle-outline',
+    body: 'By using the app, you agree to these terms.',
+  },
+];
+
+// 整段英文 = 分节的顺序渲染，与中文同一派生规则（英文用半角冒号 + 空格）。
+const renderSectionEn = section => (
+  `${section.title}: ${section.body}${Array.isArray(section.bullets) ? section.bullets.join('') : ''}`
+);
+
+export const DISCLAIMER_TEXT_EN = DISCLAIMER_SECTIONS_EN.map(renderSectionEn).join('\n\n');
+
+// 英文视图底部的管辖语言提示：英文是参考译文，中文版为准。
+export const DISCLAIMER_EN_NOTICE = 'For reference only; the Simplified Chinese version governs.';
+
+// 按界面语言取条款：zh-CN（默认）返回权威中文，en 返回英文参考译文。
+// 切换按钮（disclaimer.js）的默认值跟随界面语言，手动切换只在该次弹窗内生效。
+export function getDisclaimerSections(localeId) {
+  return localeId === 'en' ? DISCLAIMER_SECTIONS_EN : DISCLAIMER_SECTIONS;
+}
+
+export function getDisclaimerText(localeId) {
+  return localeId === 'en' ? DISCLAIMER_TEXT_EN : DISCLAIMER_TEXT;
+}

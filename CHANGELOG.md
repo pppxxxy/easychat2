@@ -17,7 +17,11 @@
   `tests/onboardingContent.test.mjs` 钉死「最后一章 = 免责声明」，第二批章节改按 id 显式选取。
 - **文档**：新增英文版 [README.en.md](./README.en.md) 与 [SECURITY.en.md](./SECURITY.en.md)；
   英文版的法律合规表述不再引用特定法域的法规，统一为「遵守所在地法律法规」。
-  应用内免责条款维持单一管辖语言（中文）不变。
+- **应用内免责条款出双语**：新增英文参考译文（`DISCLAIMER_SECTIONS_EN`，与中文逐节对应），
+  免责弹窗（首启 / 设置→关于 / 聊天 ⋯→公告）页头新增「简体中文 / English」切换，默认跟随
+  界面语言；英文视图底部标注「For reference only; the Simplified Chinese version governs.」。
+  中文仍是权威/管辖文本：条款文字未变，`DISCLAIMER_VERSION` 不 bump（签名棘轮验证）；
+  改中文条款时必须同步重译英文（tests/disclaimerContent.test.mjs 钉住结构对齐与漏译）。
 
 ## [1.0.1] - 2026-10-23
 

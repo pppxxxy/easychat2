@@ -31,7 +31,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
-import { DISCLAIMER_TEXT, DISCLAIMER_SECTIONS } from '../src/onboarding/disclaimerContent.js';
+import {
+  DISCLAIMER_TEXT,
+  DISCLAIMER_SECTIONS,
+  DISCLAIMER_TEXT_EN,
+  DISCLAIMER_SECTIONS_EN,
+  DISCLAIMER_EN_NOTICE,
+} from '../src/onboarding/disclaimerContent.js';
 import { DISCLAIMER_VERSION } from '../src/storage/settings/onboarding.js';
 
 // 空白归一：只关心**文字内容**，不关心折行与拼接方式（否则纯排版改动也会红）。
@@ -213,4 +219,59 @@ test('统一口径「对用户更严格」：并入与取更严的结果确实�
     '不得擅自删除、篡改或隐匿 AI 生成标识（含显式与隐式标识）后对外传播，由此产生的责任由用户自行承担。',
     'AI 生成标识是法定合规项（《人工智能生成合成内容标识办法》），删除即丧失合规落点。'
   );
+});
+
+// ---------------------------------------------------------------------------
+// 英文参考译文（2026-10-24 用户裁决：应用内免责条款出双语 + 界面「简体中文/English」
+// 切换按钮）。分工与中文棘轮互补：
+//   · 中文是权威/管辖文本——上面那组「签名 + DISCLAIMER_VERSION」只认中文字面，
+//     改中文必须 bump 版本；英文与中文同版本，**不因新增英文而 bump**。
+//   · 这三钉的是英文侧自己的失守方式：
+//     ① 逐节对应：节数 / 顺序 / 图标 / 要点数与中文一一对应（漏译一节或一要点即红）；
+//     ② 译文完整：语料不允许残留任何中文字符（中文残留 = 漏译的机械信号），
+//        且必须有「同意」终局条款与英文管辖语言提示；
+//     ③ 单一来源：TEXT_EN 必须是 SECTIONS_EN 的渲染产物（每节以「标题: 」开头，
+//        正文与要点全部出现在整段文本里），防止英文侧长出第二份手写口径。
+// ---------------------------------------------------------------------------
+const CJK = /[\u4e00-\u9fff]/;
+const EN_CORPUS = DISCLAIMER_SECTIONS_EN
+  .map(section => [section.title, section.body, ...(section.bullets || [])].join(''))
+  .join('');
+
+test('英文译文：与中文逐节一一对应（节数/顺序/图标/要点数）', () => {
+  assert.equal(DISCLAIMER_SECTIONS_EN.length, DISCLAIMER_SECTIONS.length, '英文节数必须与中文一致');
+  DISCLAIMER_SECTIONS_EN.forEach((section, index) => {
+    const zh = DISCLAIMER_SECTIONS[index];
+    assert.equal(section.icon, zh.icon, `第 ${index + 1} 节图标与中文不一致`);
+    assert.ok(norm(section.title).length > 0, `第 ${index + 1} 节缺英文标题`);
+    assert.ok(norm(section.body).length > 0, `第 ${index + 1} 节（${zh.title}）缺英文正文`);
+    assert.equal(
+      (section.bullets || []).length,
+      (zh.bullets || []).length,
+      `第 ${index + 1} 节（${zh.title}）的要点数与中文不一致`
+    );
+  });
+});
+
+test('英文译文：无中文残留，含「同意」终局条款与管辖语言提示', () => {
+  assert.ok(!CJK.test(EN_CORPUS), '英文译文里残留中文（漏译的机械信号）');
+  assert.ok(
+    flat(EN_CORPUS).includes(flat('By using the app, you agree to these terms.')),
+    '英文译文缺少「同意」终局条款（对应中文「使用即代表同意以上条款」）——勾选生效的语义前提'
+  );
+  assert.ok(
+    norm(DISCLAIMER_EN_NOTICE).length > 0 && !CJK.test(DISCLAIMER_EN_NOTICE),
+    '管辖语言提示必须是非空英文'
+  );
+});
+
+test('英文译文单一来源：TEXT_EN 是 SECTIONS_EN 的渲染产物', () => {
+  const flatText = flat(DISCLAIMER_TEXT_EN);
+  DISCLAIMER_SECTIONS_EN.forEach(section => {
+    assert.ok(flatText.includes(`${flat(section.title)}:`), `TEXT_EN 里没有「${section.title}:」前缀`);
+    assert.ok(flatText.includes(flat(section.body)), `TEXT_EN 缺少「${section.title}」的正文`);
+    (section.bullets || []).forEach(bullet => {
+      assert.ok(flatText.includes(flat(bullet)), `TEXT_EN 缺少「${section.title}」的要点`);
+    });
+  });
 });
