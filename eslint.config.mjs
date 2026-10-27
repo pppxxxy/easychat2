@@ -173,6 +173,9 @@ export default [
       // 都是「发给模型的提示词或工具协议回传文案」，按 (b) 的定义永久豁免。
       'src/agent/blackboard.js',
       'src/agent/rpc.js',
+      // sdk.js 与 rpc.js 同族：JSON-RPC/SDK 的错误串是给**外部 agent/脚本**的协议回传文案
+      //（开发者面，非应用界面），模板串形态两批规则本就不可见。2026-10-27 审查定性为 (b)。
+      'src/agent/sdk.js',
       'src/agent/task/taskModel.js',
       'src/agent/task/taskPrompt.js',
       'src/agent/tools/registry.js',

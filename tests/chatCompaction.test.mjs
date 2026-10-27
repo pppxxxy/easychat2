@@ -6,12 +6,9 @@ import path from 'node:path';
 
 import {
   COMPACTION_FOCUS_MAX,
-  COMPACTION_KEEP_RECENT,
-  COMPACTION_MARKER,
   COMPACTION_PER_MESSAGE_MAX,
   COMPACTION_THRESHOLD_BYTES,
   COMPACTION_TRANSCRIPT_MAX,
-  applyCompaction,
   buildCompactionSummaryRequest,
   buildCompactionSystemPrompt,
   compactionStatus,
@@ -56,11 +53,15 @@ test('回归：压缩阈值必须低于 Android 单值读取上限（约 2MB）'
   assert.equal(compactionStatus(twoMb).due, true, '2MB 会话必须已触发压缩');
 });
 
-test('formatBytes：B / KB / MB', () => {
-  assert.equal(formatBytes(0), '0B');
+test('formatBytes：单一来源（utils/format.js 经 compaction 再导出），B / KB / MB / GB', () => {
+  // 2026-10-27 复归于单一来源：本文件此前钉的是 compaction 本地实现（0→'0B'、2048→'2KB'、无 GB），
+  // 与 utils/format.js 漂移。统一后口径 = utils 版：0/非法值返回 ''（消费方 ChatSettingsModal
+  // 已有 `|| '—'` 兜底）、KB 带一位小数、GB 及以上自适应。
+  assert.equal(formatBytes(0), '');
   assert.equal(formatBytes(999), '999B');
-  assert.equal(formatBytes(2048), '2KB');
+  assert.equal(formatBytes(2048), '2.0KB');
   assert.equal(formatBytes(4.5 * 1024 * 1024), '4.5MB');
+  assert.equal(formatBytes(2 * 1024 * 1024 * 1024), '2.0GB');
 });
 
 test('buildCompactionSummaryRequest：system 三段式要求 + 转写 + 超长丢最旧', () => {
@@ -106,21 +107,6 @@ test('④：buildCompactionSummaryRequest 展开 toolTrace，摘要请求含工�
   assert.match(req[1].content, /调用了 read_workspace_file：a\.js/, '工具转写进入摘要请求');
 });
 
-test('applyCompaction：摘要消息 + 最近 K 条原文（保序）；空/keep=0 安全', () => {
-  const list = Array.from({ length: 20 }, (unused, index) => msg(index % 2 === 0 ? 'user' : 'assistant', `消息${index}`));
-  const next = applyCompaction(list, '已完成：A\n关键决策与发现：B\n未完成与下一步：C');
-  assert.equal(next.length, 1 + COMPACTION_KEEP_RECENT);
-  assert.equal(next[0].role, 'assistant');
-  assert.ok(next[0].text.startsWith(COMPACTION_MARKER));
-  assert.ok(next[0].id.startsWith('compaction-'));
-  assert.deepEqual(
-    next.slice(1).map(item => item.text),
-    list.slice(-COMPACTION_KEEP_RECENT).map(item => item.text),
-    '最近 K 条按原顺序保留'
-  );
-  assert.equal(applyCompaction([], 'x').length, 1, '空输入只有摘要');
-  assert.equal(applyCompaction(list, 'x', 0).length, 1, 'keep=0 只有摘要');
-});
 
 test('parseCompactionSummary / compactionStatus：trim 与体积概览', () => {
   assert.equal(parseCompactionSummary('  a\n b  '), 'a\n b');

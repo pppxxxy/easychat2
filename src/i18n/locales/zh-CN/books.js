@@ -125,4 +125,12 @@ export const books = {
   // 书名时用它，**会直接落库并出现在书架列表里**（不是一次性提示词）。
   // 取舍：英文界面下导入会存英文名（与其它「默认名」一致），中文界面下仍是「未命名书籍」。
   'books.unnamed': '未命名书籍',
+  // ---- 导入失败的错误文案（books/library.js / books/extractText.js）----
+  // 此前以 `new Error('中文')` 的值形态绕在 no-hardcoded-chinese 盲区里（英文界面漏中文），
+  // 2026-10-27 迁 i18n；错误 code（UNSUPPORTED_FORMAT / DOCX_*）不随语言变。
+  'books.error.fileMissing': '书籍文件缺失',
+  'books.error.unsupportedFormat': '目前只支持 txt / Markdown / Word(.docx) / HTML 文本文件',
+  'books.error.docxInvalid': '.docx 文件无法解压，请确认文件有效',
+  'books.error.docxNoBody': '.docx 缺少正文（word/document.xml）',
+  'books.error.docxTooLarge': '.docx 正文超过解压上限',
 };

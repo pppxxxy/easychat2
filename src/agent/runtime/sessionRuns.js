@@ -92,6 +92,10 @@ export function createSessionRunRegistry() {
       const id = String(sessionId || '');
       if (!runs.has(id)) return false;
       runs.delete(id);
+      // 命令队列只增不删会让 Map 随会话数无界累积；只清**空**队列——
+      // 非空说明有未消费的命令（会话空闲时排队等下一个 run），删了就丢命令。
+      const queue = queues.get(id);
+      if (queue && queue.size() === 0) queues.delete(id);
       notify();
       return true;
     },
@@ -104,6 +108,8 @@ export function createSessionRunRegistry() {
         if (run.controller && typeof run.controller.abort === 'function') run.controller.abort();
       } catch (error) {}
       runs.delete(id);
+      const queue = queues.get(id);
+      if (queue && queue.size() === 0) queues.delete(id);
       notify();
       return true;
     },

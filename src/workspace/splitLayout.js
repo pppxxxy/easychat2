@@ -81,8 +81,6 @@ export function ratioFromDrag({ startRatio, dx, width } = {}) {
   return clampSplitRatio(safeBase + delta / total);
 }
 
-// 持久化读回：存的是 `{ ratio, side }`。任何一项不合法就整份丢弃（回默认），
-// 不做「半份可信」——半份可信会让布局在重启后处于一个用户没选过的状态。
 export const SIDE_PANELS = Object.freeze(['files', 'github', 'terminal']);
 
 // 持久化读回：**只存分隔条比例**。侧栏选哪一个是「当前在干什么」而不是偏好——每次打开

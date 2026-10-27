@@ -23,4 +23,8 @@ export const app = {
   'app.tabLeave.leave': '直接离开',
   'app.tabLeave.saveAndLeave': '保存并离开',
   'app.default.userName': '用户',
+  // ---- 诊断日志文案（App.js 主动消息消费/跳转，DiagnosticsModal 可见）----
+  'app.diagnostics.proactiveIngest': '主动消息消费：取{taken} 写{written} 删{removed} 缓{deferred}',
+  'app.diagnostics.proactiveOpen': '主动消息跳转：角色{roleId} 目标会话{sessionId}',
+  'app.diagnostics.none': '(无)',
 };

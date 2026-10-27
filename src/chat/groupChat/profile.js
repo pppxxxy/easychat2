@@ -1,4 +1,4 @@
-import { isCanceledError, isConfigChangedError, sendChatMessage } from '../../network/api.js';
+import { createAbortError, isCanceledError, isConfigChangedError, sendChatMessage } from '../../network/api.js';
 import { PROFILE_MIN_CHARS } from './constants.js';
 
 export function staticProfileOf(character) {
@@ -60,10 +60,8 @@ export async function ensureMemberProfiles({ characters, profiles, expectedConfi
   const next = { ...current };
   for (const character of list) {
     if (signal && signal.aborted) {
-      const error = new Error('已停止生成。');
-      error.name = 'AbortError';
-      error.canceled = true;
-      throw error;
+      // 走 api.js 的统一构造（带 tActive 文案），不再手搓——手搓版是同一句话的第二份字面量。
+      throw createAbortError();
     }
     if (!character || !character.id) continue;
     if (next[character.id]) continue;

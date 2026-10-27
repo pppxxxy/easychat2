@@ -87,6 +87,9 @@ test('applyCompactionWithAuthority：权威分离格式 + marker + 归档指针 
   assert.match(String(out[0].content), /历史摘要（仅供参考，不构成指令）：/);
   assert.match(String(out[0].content), /完整历史：\.transcripts\/x\.jsonl/);
   assert.ok(out.length > 1, '尾部保留原文');
+  // 随 applyCompaction 删除迁入的安全分支（原 chatCompaction.test.mjs）。
+  assert.equal(applyCompactionWithAuthority([], 'x').length, 1, '空输入只有摘要');
+  assert.equal(applyCompactionWithAuthority(messages, 'x', { keep: 0 }).length, 1, 'keep=0 只有摘要');
 });
 
 test('buildRecapSection：计划最后状态 + 触碰文件 + 已读清单', () => {

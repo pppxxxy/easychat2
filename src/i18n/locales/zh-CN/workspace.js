@@ -720,4 +720,10 @@ export const workspace = {
   'workspace.panel.catalog.status.same': '已写入',
   'workspace.panel.catalog.status.diff': '已写入（内容有差异）',
   'workspace.capability.limit.githubImport': 'GitHub 导入 = 分支快照（zip 下载 + 解压），不含 git 历史；拉取时记录当时的分支 HEAD 提交号（在 .easychat/pull-manifest.json），可用 GitHub 只读工具与远端对比；推送改动由 agent 走 GitHub 工具完成；删除/强推类操作永远禁止。',
+  // ---- 命名兜底与插件沙盒超时（workspace/naming.js / workspace/plugins/sandbox.js）----
+  // 默认名会落库（书架/文件列表可见），超时文案渲染在插件面板——此前都在规则盲区。
+  'workspace.naming.untitled': '未命名',
+  'workspace.naming.document': '文档',
+  'workspace.naming.newFolder': '新建文件夹',
+  'workspace.plugins.sandboxTimeout': '插件执行超时',
 };

@@ -18,6 +18,11 @@ import { expandHistoryWithTraces } from './toolTrace.js';
 import { messageTextOf } from './messageText.js';
 // 体积口径统一到 messageMetrics（一次扫描产出全部口径，数组括号 2 字节是显式常量）。
 import { bytesArrayOf, bytesJsonOf } from './messageMetrics.js';
+// 人类可读体积：单一来源 utils/format.js（AGENTS.md 明文「全项目唯一的 formatBytes」）。
+// 本文件此前另有一份只到 MB 的实现，已与单一来源漂移（0 → '0B' vs ''、2048 → '2KB' vs '2.0KB'），
+// 复归于它；再导出保持既有导入路径可用（同 modelLogs.js 的 C5 先例）。
+import { formatBytes } from '../utils/format.js';
+export { formatBytes };
 
 // 触发压缩的序列化体积阈值。
 // **必须低于 Android 单值读取上限**：一个会话的消息是**单键整数组**存盘
@@ -97,14 +102,6 @@ export function createMessageBytesEstimator() {
   return function estimate(messages) {
     return bytesJsonOf(messages);
   };
-}
-
-// 人类可读体积（设置页显示；MB/KB 是通用记法，不走 i18n）。
-export function formatBytes(bytes) {
-  const value = Math.max(0, Number(bytes) || 0);
-  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)}MB`;
-  if (value >= 1024) return `${Math.round(value / 1024)}KB`;
-  return `${value}B`;
 }
 
 // 消息 → 一行转写（正文读取统一走 messageText.js：聊天页在 text、工作区在 content）。
@@ -210,22 +207,10 @@ export function parseCompactionSummary(text) {
   return String(text == null ? '' : text).trim();
 }
 
-// 替换：摘要消息（带 marker——模型下一轮能看出这是压缩产物）+ 最近 K 条原文。
-export function applyCompaction(messages, summary, recentCount = COMPACTION_KEEP_RECENT) {
-  const list = Array.isArray(messages) ? messages : [];
-  const keep = Math.max(0, Math.floor(Number(recentCount) || 0));
-  const meaningful = list.filter(item => item
-    && (item.role === 'user' || item.role === 'assistant')
-    && messageTextOf(item).trim());
-  const recent = keep > 0 ? meaningful.slice(-keep) : [];
-  const summaryMessage = {
-    id: `compaction-${Date.now()}`,
-    role: 'assistant',
-    text: `${COMPACTION_MARKER}\n${String(summary == null ? '' : summary).trim()}`,
-    at: Date.now(),
-  };
-  return [summaryMessage, ...recent];
-}
+// （2026-10-27 删除 applyCompaction）生产路径早已走 compactionPipeline.js 的
+// applyCompactionWithAuthority（权威分离 + nextCompactionMessageId 防同毫秒 id 碰撞）；
+// 本函数只剩测试消费者，且仍带着已修掉的 id 碰撞缺陷（`compaction-${Date.now()}`）——
+// 同一逻辑两处实现、一处已修一处没修。行为测试随迁到 compactionPipeline.test.mjs。
 
 // 设置页展示用：{ bytes, sizeText, due, threshold }。
 export function compactionStatus(messages, threshold = COMPACTION_THRESHOLD_BYTES) {

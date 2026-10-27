@@ -194,7 +194,7 @@ export function saveBookProgress(id, progress, chapterProgressPatch = null) {
 // 这里不做转码（不引入 GBK 表依赖）。
 export function readBookContent(item) {
   const uri = item && item.uri;
-  if (!uri) return Promise.reject(new Error('书籍文件缺失'));
+  if (!uri) return Promise.reject(new Error(tActive('books.error.fileMissing')));
   return FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
 }
 

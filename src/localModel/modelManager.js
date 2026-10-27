@@ -26,7 +26,10 @@ export function verifyDownloadedSize(actualBytes, expectedBytes) {
   if (actual === expected) return { ok: true, reason: '' };
   return {
     ok: false,
-    reason: `下载不完整（预期 ${formatBytes(expected)}，实际 ${formatBytes(actual)}），已自动清理，请重试`,
+    reason: tActive('localModel.download.incomplete', {
+      expected: formatBytes(expected),
+      actual: formatBytes(actual),
+    }),
   };
 }
 
@@ -239,7 +242,7 @@ export async function downloadLocalModel(input = {}, options = {}) {
     if (modelWritten) await removeQuietly(fs, destination);
     if (mmprojWritten) await removeQuietly(fs, mmprojDestination);
     if (registryEntry.cancelled) {
-      const cancelError = new Error('下载已取消');
+      const cancelError = new Error(tActive('localModel.download.cancelled'));
       cancelError.code = 'DOWNLOAD_CANCELLED';
       throw cancelError;
     }

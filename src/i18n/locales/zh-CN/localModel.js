@@ -268,4 +268,13 @@ export const localModel = {
   'localModel.engine.fallback': '本地引擎：{name} 失败，已回退在线',
   'localModel.engine.openHub': '本地引擎状态，点按打开模型中心',
   'localModel.engine.manage': '管理',
+  // ---- 下载/卸载的用户可见文案（modelManager.js / adapter.js / modelProvider.js）----
+  // 此前为 `new Error('中文')` / recordModelLog 中文常量（规则盲区），2026-10-27 迁 i18n。
+  'localModel.download.incomplete': '下载不完整（预期 {expected}，实际 {actual}），已自动清理，请重试',
+  'localModel.download.cancelled': '下载已取消',
+  'localModel.error.releaseIncomplete': '模型释放未完全成功',
+  'localModel.log.released': '模型已释放',
+  'localModel.log.busyFallbackOnline': '本地模型资源被占用，回退在线 API',
+  'localModel.log.toolsDowngraded': '本地模型暂不支持工具调用，已降级为纯对话',
+  'localModel.log.inferenceFallback': '本地推理失败，回退在线 API：{message}',
 };

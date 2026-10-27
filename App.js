@@ -415,7 +415,12 @@ function ProactiveMessageBridge({ navigationReady }) {
       // 「通知发出但消息未落库」这类问题——区分取不到队列 / 角色不在库 / 写入失败。
       recordDiagnostic(
         'storage',
-        `主动消息消费：取${messages.length} 写${written.length} 删${skipped.length} 缓${deferred.length}`,
+        tActive('app.diagnostics.proactiveIngest', {
+          taken: messages.length,
+          written: written.length,
+          removed: skipped.length,
+          deferred: deferred.length,
+        }),
         'proactive-ingest'
       );
       return { targetSessions: resolved };
@@ -452,7 +457,10 @@ function ProactiveMessageBridge({ navigationReady }) {
       // 诊断（release 可见）：记录跳转是否命中消息所在会话——命中才会切段。
       recordDiagnostic(
         'storage',
-        `主动消息跳转：角色${roleId} 目标会话${targetSessionId || '(无)'}`,
+        tActive('app.diagnostics.proactiveOpen', {
+          roleId,
+          sessionId: targetSessionId || tActive('app.diagnostics.none'),
+        }),
         'proactive-open'
       );
       if (targetSessionId) {

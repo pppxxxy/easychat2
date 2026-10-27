@@ -126,6 +126,12 @@ export function createPermissionBroker() {
     },
 
     reset() {
+      // 逐条**结算**而非直接 clear：等待中的 requestPermission 调用方若无人 resolve/reject
+      // 会永远挂起。按「问不到人 = deny」的既有语义结算（settle 自带 cleanup：清定时器、
+      // 摘 abort 监听）；重复结算由 settled 标志天然幂等。
+      for (const record of [...pending.values()]) {
+        try { record.resolve(makeResult(PERMISSION_DENY, 'broker reset')); } catch (error) {}
+      }
       pending.clear();
       handler = null;
     },

@@ -14,7 +14,7 @@ import {
   saveStreamDraft,
   shouldWriteStreamDraft,
   streamDraftKey,
-} from '../src/chat/streamDraft.js';
+} from '../src/storage/streamDraft.js';
 
 function fakeStorage() {
   const map = new Map();

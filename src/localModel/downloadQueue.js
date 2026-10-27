@@ -247,7 +247,7 @@ export function createDownloadQueue(deps = {}) {
     if (!task) return false;
     if (currentTask && currentTask.id === id) {
       await cancel(id).catch(() => false);
-      // download 的 catch 会走失败清理由，任务保留为 pending 供重试。
+      // download 的 catch 按取消语义走 removeTask（留 pending 会被 kick 立刻重下，形成死循环）。
       return true;
     }
     await removeTask(id);
@@ -309,10 +309,22 @@ export function createDownloadQueue(deps = {}) {
       const fallback = resolveMirrorFallback(task);
       if (fallback) {
         try {
-          await attempt({ ...baseInput, modelUrl: fallback.modelUrl, sourceId: fallback.sourceId });
+          // mmproj 必须随镜像一起改写（resolveMirrorFallback 的契约：空串=未改写，保留原值）。
+          // 漏传它会让 mmproj 仍走官方源：模型下完、mmproj 必失败、清理把模型删掉、用户重试再循环。
+          await attempt({
+            ...baseInput,
+            modelUrl: fallback.modelUrl,
+            mmprojUrl: fallback.mmprojUrl || baseInput.mmprojUrl,
+            sourceId: fallback.sourceId,
+          });
           await removeTask(task.id);
           return;
         } catch (fallbackError) {
+          // 回退期间用户取消与主路径同语义：移除任务，不留 error 态（否则 kick 会重下）。
+          if (fallbackError && fallbackError.code === 'DOWNLOAD_CANCELLED') {
+            await removeTask(task.id);
+            return;
+          }
           await removeTask(task.id, { markError: (fallbackError && fallbackError.message) || 'download-failed' });
           return;
         }

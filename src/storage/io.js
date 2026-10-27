@@ -135,7 +135,7 @@ export function resolveSqliteOpener(module) {
 //
 // 推导不出来（documentDirectory 为空/形状意外）时返回 ''，由调用方如实记诊断并放弃——
 // 不猜路径：猜错会去开一个空库，那正是 fef85db 的问题。
-export function databasesDirectoryFromDocument() {
+function databasesDirectoryFromDocument() {
   const doc = String(FileSystem.documentDirectory || '');
   if (!doc) return '';
   // 去掉末尾最后一段（如 'files/'）：`[^/]+\/*$`

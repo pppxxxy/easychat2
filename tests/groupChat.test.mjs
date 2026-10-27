@@ -54,6 +54,9 @@ Module._load = function patchedLoad(request, parent, isMain) {
     return {
       isCanceledError: error => error?.canceled === true || error?.name === 'AbortError',
       isConfigChangedError: error => error?.code === 'CONFIG_CHANGED',
+      // profile.js 的中止路径走真实的 createAbortError（统一构造），桩里按其真实形状给：
+      // name = 'AbortError' + canceled = true（isCanceledError 的两条件）。
+      createAbortError: () => Object.assign(new Error('已停止生成。'), { name: 'AbortError', canceled: true }),
       sendChatMessage: async (messages, options) => {
         lastChatCall = messages;
         stubs.chatCalls.push({ messages, options });

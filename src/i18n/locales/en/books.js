@@ -118,4 +118,11 @@ export const books = {
   'books.outro.openExternal': 'About to open an external link.',
   // 见 zh-CN 同名条目的说明：导入书籍的默认名，会落库并显示在书架列表里。
   'books.unnamed': 'Untitled book',
+  // ---- Import failure error text (books/library.js / books/extractText.js) ----
+  // Error codes (UNSUPPORTED_FORMAT / DOCX_*) stay locale-independent.
+  'books.error.fileMissing': 'Book file is missing',
+  'books.error.unsupportedFormat': 'Only txt / Markdown / Word (.docx) / HTML text files are supported',
+  'books.error.docxInvalid': 'The .docx file could not be extracted. Please check that the file is valid',
+  'books.error.docxNoBody': 'The .docx has no body text (word/document.xml)',
+  'books.error.docxTooLarge': 'The .docx body exceeds the extraction size limit',
 };

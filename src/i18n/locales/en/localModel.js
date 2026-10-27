@@ -264,4 +264,12 @@ export const localModel = {
   'localModel.engine.fallback': 'Local engine: {name} failed, fell back online',
   'localModel.engine.openHub': 'Local engine status, tap to open model hub',
   'localModel.engine.manage': 'Manage',
+  // ---- Download/unload user-visible text (modelManager.js / adapter.js / modelProvider.js) ----
+  'localModel.download.incomplete': 'Download incomplete (expected {expected}, got {actual}). The partial file was cleaned up, please retry',
+  'localModel.download.cancelled': 'Download cancelled',
+  'localModel.error.releaseIncomplete': 'Model release did not fully succeed',
+  'localModel.log.released': 'Model released',
+  'localModel.log.busyFallbackOnline': 'Local model resource busy; falling back to online API',
+  'localModel.log.toolsDowngraded': 'Local model does not support tool calls yet; downgraded to plain chat',
+  'localModel.log.inferenceFallback': 'Local inference failed; falling back to online API: {message}',
 };

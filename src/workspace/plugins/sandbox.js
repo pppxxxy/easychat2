@@ -11,9 +11,13 @@
 // 纯逻辑 + `new Function`，Node 可直测（Node 与 Hermes 都支持 `new Function`）。
 
 import { safeJsonStringify } from '../../utils/safeJson.js';
+// 超时文案会被插件面板渲染给用户，走 i18n；判定改用 error.code（本地化后按文案
+// 正则匹配会在英文界面漏判——那正是改 code 的原因）。
+import { tActive } from '../../i18n/index.js';
 
 export const SANDBOX_DEFAULT_TIMEOUT_MS = 3000;
 export const SANDBOX_LOG_MAX = 4000;
+const SANDBOX_TIMEOUT = 'SANDBOX_TIMEOUT';
 
 // 被遮蔽的全局名（注入为 undefined，降低误用/误伤面）。
 // 注意：严格模式下 `eval`/`arguments` 不能作形参名，故不在此列。
@@ -78,12 +82,14 @@ export async function runInSandbox(handler, { args = {}, permissions = [], capab
   try {
     const result = fn(ctx, args || {});
     const timeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('插件执行超时')), Math.max(1, Number(timeoutMs) || SANDBOX_DEFAULT_TIMEOUT_MS));
+      const timeoutError = new Error(tActive('workspace.plugins.sandboxTimeout'));
+      timeoutError.code = SANDBOX_TIMEOUT;
+      setTimeout(() => reject(timeoutError), Math.max(1, Number(timeoutMs) || SANDBOX_DEFAULT_TIMEOUT_MS));
     });
     const value = await Promise.race([Promise.resolve(result), timeout]);
     return { ok: true, value, logs: ctx.lines() };
   } catch (error) {
-    const timedOut = /插件执行超时/.test(String((error && error.message) || ''));
+    const timedOut = error && error.code === SANDBOX_TIMEOUT;
     return { ok: false, error: String((error && error.message) || error), logs: ctx.lines(), timedOut };
   }
 }

@@ -6,6 +6,8 @@ import { classifyLocalModelError, recordModelLog } from '../localModel/modelLogs
 import { isLocalModelItemReady, normalizeLocalModelSettings } from '../localModel/modelState.js';
 import { setRuntimeFallback } from '../localModel/runtime.js';
 import { tryAcquireResource } from '../utils/resourceMutex.js';
+// 日志文案经 ModelLogsModal 展示给用户，走 i18n（英文界面不得漏中文）。
+import { tActive } from '../i18n/index.js';
 
 // 就绪判定（纯函数，便于单测）：v5 Stage A 起只认活动条目（单一事实源），
 // 不再回退旧单模型设置。moduleAvailable 为假或未启用时分级返回原因。
@@ -52,7 +54,7 @@ export async function sendWithModelProvider({
   }
   const release = tryAcquireResource('local-model');
   if (!release) {
-    recordModelLog('api', '本地模型资源被占用，回退在线 API', { level: 'warn' });
+    recordModelLog('api', tActive('localModel.log.busyFallbackOnline'), { level: 'warn' });
     notifyApi();
     return onlineSend();
   }
@@ -60,7 +62,7 @@ export async function sendWithModelProvider({
   try {
     // v1 本地模型不支持工具调用：请求了工具时降级为纯对话并留日志，不静默吞掉。
     if (Array.isArray(tools) && tools.length > 0) {
-      recordModelLog('api', '本地模型暂不支持工具调用，已降级为纯对话', { level: 'warn' });
+      recordModelLog('api', tActive('localModel.log.toolsDowngraded'), { level: 'warn' });
     }
     const result = await runLocalModel(messages, model, { onToken, onReasoning, onModelLoadProgress, conversationKey, signal });
     if (notify) {
@@ -75,7 +77,7 @@ export async function sendWithModelProvider({
     // 会把 error.code 置为 'ABORTED'，只认 name 会漏判并多做一次在线回退。
     const info = classifyLocalModelError(error);
     if (info.code === 'ABORTED') throw error;
-    recordModelLog('api', `本地推理失败，回退在线 API：${info.message}`, { level: info.level });
+    recordModelLog('api', tActive('localModel.log.inferenceFallback', { message: info.message }), { level: info.level });
     recordDiagnostic('api', error, 'local-model-fallback');
     // 广播回退事件：聊天层引擎状态条据此展示 10 秒警告，用户才知道这条回复来自在线。
     setRuntimeFallback();

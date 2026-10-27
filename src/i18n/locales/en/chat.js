@@ -576,4 +576,6 @@ export const chat = {
   'chat.toolTrace.truncated': '… (trace truncated) …',
   // ---- Scroll-scrubber time label (chat/chatHelpers.js formatScrubberTime) ----
   'chat.scrubber.time': '{month}/{day} {time}',
+  // Generic error fallback text (chatHelpers.buildErrorRawText, rendered in ErrorBubble).
+  'chat.error.fallbackText': 'Please check the API configuration or network connection.',
 };

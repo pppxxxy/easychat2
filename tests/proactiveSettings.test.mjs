@@ -378,7 +378,8 @@ test('落库结果写入诊断日志（release 可见，免 adb）', () => {
   const app = fs.readFileSync(path.resolve('App.js'), 'utf8');
   const bridge = app.match(/function ProactiveMessageBridge[\s\S]*?\n}\n/)[0];
   assert.ok(bridge.includes('recordDiagnostic'), '应记录诊断');
-  assert.ok(bridge.includes('主动消息消费'), '应含可读的结果说明');
+  // 文案迁 i18n（app.diagnostics.proactiveIngest，英文界面不漏中文）后断言改钉 i18n 键。
+  assert.ok(bridge.includes('app.diagnostics.proactiveIngest'), '应引用可读结果说明的 i18n 键');
 });
 
 test('互动面板：有主动消息的角色带星标，并说明横幅通知设置', () => {

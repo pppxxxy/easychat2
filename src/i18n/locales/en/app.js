@@ -23,4 +23,8 @@ export const app = {
   'app.tabLeave.leave': 'Leave anyway',
   'app.tabLeave.saveAndLeave': 'Save and leave',
   'app.default.userName': 'User',
+  // ---- Diagnostics text (App.js proactive ingest/open, visible in DiagnosticsModal) ----
+  'app.diagnostics.proactiveIngest': 'Proactive message ingest: read {taken}, wrote {written}, removed {removed}, deferred {deferred}',
+  'app.diagnostics.proactiveOpen': 'Proactive message open: role {roleId}, target session {sessionId}',
+  'app.diagnostics.none': '(none)',
 };

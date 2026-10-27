@@ -720,4 +720,9 @@ export const workspace = {
   'workspace.panel.catalog.status.same': 'Written',
   'workspace.panel.catalog.status.diff': 'Written (content differs)',
   'workspace.capability.limit.githubImport': 'GitHub import = branch snapshot (zip download + extract), no git history; the branch HEAD commit is recorded at pull time (in .easychat/pull-manifest.json) and can be compared against the remote with the read-only GitHub tools; commits go through the agent’s GitHub tools; delete/force operations are permanently forbidden.',
+  // ---- Naming fallbacks and plugin sandbox timeout (workspace/naming.js / workspace/plugins/sandbox.js) ----
+  'workspace.naming.untitled': 'Untitled',
+  'workspace.naming.document': 'Document',
+  'workspace.naming.newFolder': 'New folder',
+  'workspace.plugins.sandboxTimeout': 'Plugin execution timed out',
 };

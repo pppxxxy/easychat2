@@ -33,6 +33,8 @@ import { EMPTY_ONLINE_REQUEST_CONTEXT, resolveOnlineRequestContext } from './onl
 // I1：Steering 队列（运行中补充指令）——纯函数工厂，队列本身只在「本轮会跑工具循环」时建。
 import { createSteeringQueue } from '../agent/steering.js';
 import { registerChatTools, unregisterChatTools } from './chatTools.js';
+// 后台落库后作废流式草稿（半截恢复用，见 persistBackgroundReply）。
+import { clearStreamDraft } from '../storage/streamDraft.js';
 // 工具过程气泡：事件→状态映射、隐藏判定与状态变换都在 toolBubbleView.js（唯一来源）。
 import { createToolBubbleApplier, toolBubbleState } from './toolBubbleView.js';
 import { approvalOptionsFromToolCall, approveToolCall, readToolPermissionRules } from './toolApprovalFlow.js';
@@ -169,6 +171,10 @@ async function persistBackgroundReply({ sessionId, messages, ownerCharacterId })
   if (!id || finalMessages.length === 0) return;
   try {
     await saveMessagesBySession(id, finalMessages, String(ownerCharacterId || ''), []);
+    // 完整回复已落库，流式草稿（半截恢复用）随之作废。不清的话草稿会一直留着，
+    // 用户下次打开该会话时走「已恢复」插入路径——按 id 去重虽不会重复显示，
+    // 但留在盘上就是永远多读一次、多清一次的负担。
+    await clearStreamDraft(id).catch(() => {});
   } catch (error) {
     if (__DEV__) console.warn('[runtime] background reply persist failed', error);
   }

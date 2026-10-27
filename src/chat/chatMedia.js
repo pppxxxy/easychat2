@@ -4,6 +4,9 @@ export const IMAGE_MESSAGE_KIND = 'image';
 export const STICKER_MESSAGE_KIND = 'sticker';
 export const VIDEO_MESSAGE_KIND = 'video';
 
+// 语音投影委托零依赖叶子模块（见 getMessagePromptText 的注释）。
+import { getVoicePromptText, isVoiceMessage } from './voiceMessages.js';
+
 function isMediaMessage(message) {
   return !!(message && message.image && (
     !message.kind
@@ -54,14 +57,13 @@ export function getMediaPrompt(message, imageDescriptionPrompts = null) {
 
 // 上下文投影统一入口：语音消息（有转写用转写、空则占位）优先于文本；
 // 图片/表情包沿用既有投影；其余按纯文本。
-// 语音投影逻辑定义在 voiceMessages.js，这里内联等价判断，避免引入循环依赖。
+// 语音投影委托 voiceMessages.js 的 getVoicePromptText——它是零依赖叶子模块，
+// chatMedia → voiceMessages 不可能成环（「避免循环依赖」的旧注释不成立），此前内联
+// 等价判断已经出现字面量漂移的苗头（'voice' vs VOICE_MESSAGE_KIND）。
 // imageDescriptionPrompts：图片识别（OCR）描述的前缀/失败说明（由 chatPipeline 注入，
 // 见 imageDescriptionPrompt.js）；不传时退化为不带描述前缀的既有行为。
 export function getMessagePromptText(message, imageDescriptionPrompts = null) {
-  if (message && message.kind === 'voice' && message.audio) {
-    const text = String(message.text || '').trim();
-    return text || '[用户发来一段语音]';
-  }
+  if (isVoiceMessage(message)) return getVoicePromptText(message);
   return isMediaMessage(message)
     ? getMediaPrompt(message, imageDescriptionPrompts)
     : String(message && message.text || '');

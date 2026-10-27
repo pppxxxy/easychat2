@@ -216,7 +216,7 @@ export async function unloadLocalModel() {
       setRuntimeIdle();
       return true;
     }
-    setRuntimeError(new Error('模型释放未完全成功'), '');
+    setRuntimeError(new Error(tActive('localModel.error.releaseIncomplete')), '');
     return false;
   }
   if (!current) {
@@ -235,7 +235,7 @@ export async function unloadLocalModel() {
   }
   // 失败：current 保留（面板的「已加载」仍如实显示），句柄另存一份给重试。
   pendingRelease = { context, key };
-  setRuntimeError(new Error('模型释放未完全成功'), '');
+  setRuntimeError(new Error(tActive('localModel.error.releaseIncomplete')), '');
   return false;
 }
 
@@ -260,7 +260,9 @@ async function releaseContext(context, key) {
     recordModelLog('unload', `释放模型失败：${describeModelError(error)}`, { level: 'warn', context: key });
   }
   // 释放失败时上下文可能泄漏在原生侧，不能记成「已释放」误导排查。
-  recordModelLog('unload', releaseFailed ? '模型释放未完全成功' : '模型已释放', { context: key });
+  recordModelLog('unload', releaseFailed
+    ? tActive('localModel.error.releaseIncomplete')
+    : tActive('localModel.log.released'), { context: key });
   return !releaseFailed;
 }
 

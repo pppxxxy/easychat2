@@ -362,12 +362,18 @@ export async function runTool(call, ctx = {}) {
   const timeoutPromise = new Promise((resolve, reject) => {
     timer = setTimeout(() => reject(new Error(timeoutReason)), tool.timeoutMs);
   });
+  // 已中止的信号**先抛后构造**：若 abortPromise 在 signal.aborted 时同步 reject，而下面
+  // 的中止检查又同步 throw 抢在 Promise.race 挂接之前，这个 rejection 就永远没有
+  // handler（未处理拒绝 → 全局 ErrorUtils 进诊断噪音；Node 直测 --unhandled-rejections
+  // 直接崩）。可达路径真实存在：loop 的中止检查与这里隔着 await ctx.permissionRules()，
+  // 用户在这个异步缺口里点「停止」即命中。检查与 race 挂接之间全同步，无新窗口。
+  // 抛在 try 之外，超时定时器要在这里自己清（finally 够不着这条路径）。
+  if (signal && signal.aborted) {
+    if (timer) clearTimeout(timer);
+    throw makeAbortError();
+  }
   const abortPromise = new Promise((resolve, reject) => {
     if (!signal) return;
-    if (signal.aborted) {
-      reject(makeAbortError());
-      return;
-    }
     if (typeof signal.addEventListener === 'function') {
       onAbort = () => reject(makeAbortError());
       signal.addEventListener('abort', onAbort);
@@ -375,7 +381,6 @@ export async function runTool(call, ctx = {}) {
   });
 
   try {
-    if (signal && signal.aborted) throw makeAbortError();
     const result = await Promise.race([
       Promise.resolve().then(() => tool.execute(args, {
         signal,

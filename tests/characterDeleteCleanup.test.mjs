@@ -100,7 +100,7 @@ const characters = loadModule(path.resolve('src/storage/characters.js'));
 const cardForge = loadModule(path.resolve('src/storage/cardForge.js'));
 const { saveSessionPlan } = loadModule(path.resolve('src/storage/sessionPlan.js'));
 const { SESSION_STATS_KEY, recordSessionRequest } = loadModule(path.resolve('src/storage/sessionStats.js'));
-const { saveStreamDraft, streamDraftKey } = loadModule(path.resolve('src/chat/streamDraft.js'));
+const { saveStreamDraft, streamDraftKey } = loadModule(path.resolve('src/storage/streamDraft.js'));
 const { deleteSessions } = loadModule(path.resolve('src/storage/sessionList/mutations.js'));
 const { saveSessionsInternal } = loadModule(path.resolve('src/storage/sessionCore.js'));
 

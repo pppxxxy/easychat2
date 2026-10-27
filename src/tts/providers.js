@@ -314,8 +314,8 @@ export function ttsFieldPlaceholder(t, field) {
   return pick(t, item.placeholderKey, item.placeholder);
 }
 
-// 「暂不支持」的原因说明（unsupportedNote 同样是中文常量，会被渲染进提示）。
+// 「暂不支持」的原因说明：数据侧统一用 unsupportedNoteKey（词条键），不存在中文常量字段。
 export function ttsUnsupportedNote(t, provider) {
   const item = provider || {};
-  return pick(t, item.noteKey, item.unsupportedNote);
+  return pick(t, item.unsupportedNoteKey, item.unsupportedNote);
 }

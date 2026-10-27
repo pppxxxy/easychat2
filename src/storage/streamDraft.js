@@ -1,4 +1,9 @@
-// 流式草稿：生成中把**已收到的部分回复**增量落盘，供 App 被杀/断线后恢复（Z 系采纳 #8）。
+// 流式草稿（存储域）：生成中把**已收到的部分回复**增量落盘，供 App 被杀/断线后恢复
+//（Z 系采纳 #8）。2026-10-27 自 src/chat/streamDraft.js 原样迁入存储层：
+// 持久化原语只允许在 src/storage/** 直接引用（eslint no-restricted-imports 的分层线），
+// 此前在 chat 层用惰性 require 绕过静态 import 门禁，属「门禁不可见」的坏先例。
+// 惰性 require 本身在存储层是既有惯例（同 storage/diagnostics.js：零依赖纯模块
+// 供 Node 直测，AsyncStorage 顶层不 import）。
 //
 // 现状：流式期间回复只存在于内存（pending 消息），而读取侧会 filter 掉 pending——
 // 一旦进程在生成中途被杀（移动端很常见），这段已经产出的文字**直接丢失**，用户只能重发。
@@ -6,11 +11,11 @@
 // 做法：生成中按节流把「部分正文 + 推理 + 目标消息 id」写进一个按会话分键的草稿；
 // 正常结束/取消/失败时清掉。下次加载该会话时若草稿还在（= 上次非正常中断），把它作为
 // 一条「已恢复」消息并入时间线，用户看到的是半截回复而不是空白。
+// 消费/清理的完整生命周期见 useSessionMessages 的流式草稿 effect 与
+// useChatSend.persistBackgroundReply（落库成功即作废草稿）。
 //
 // 节流口径：正文增长超过 minDelta 立即写；否则至少间隔 minIntervalMs 才写（避免
 // 逐 token 落盘）。storage 可注入（纯 Node 测试用假 storage）。
-//
-// 与 storage/diagnostics.js 同约束：顶层不 import 原生模块，用惰性 require。
 
 export const STREAM_DRAFT_PREFIX = '@easychat2_stream_draft';
 export const STREAM_DRAFT_MIN_INTERVAL_MS = 1500;

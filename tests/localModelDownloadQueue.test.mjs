@@ -197,6 +197,45 @@ test('队列：官方源失败自动切 hf-mirror 续试成功', async () => {
   assert.deepEqual(queue.getSnapshot().tasks, [], '镜像成功后任务移除');
 });
 
+test('队列：镜像回退必须同时改写 mmprojUrl（A2 契约）', async () => {
+  // 回归钉子：调用点曾漏传 fallback.mmprojUrl ⇒ mmproj 仍走官方源 ⇒ 模型下完、
+  // mmproj 必失败、清理把刚下完的模型删掉、用户重试 ⇒ 无限循环白耗带宽。
+  const seen = [];
+  const { queue } = makeHarness({
+    download: async input => {
+      seen.push({ modelUrl: input.modelUrl, mmprojUrl: input.mmprojUrl });
+      if (input.modelUrl.startsWith('https://huggingface.co/')) throw new Error('network down');
+      return { id: input.modelId };
+    },
+  });
+  await queue.enqueue({
+    ...TASK,
+    mmprojUrl: 'https://huggingface.co/Qwen/x/resolve/main/mmproj.gguf',
+  });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(seen.length, 2, '官方源失败应自动回退镜像一次');
+  assert.equal(seen[0].mmprojUrl, 'https://huggingface.co/Qwen/x/resolve/main/mmproj.gguf');
+  assert.match(seen[1].mmprojUrl, /^https:\/\/hf-mirror\.com\//,
+    '镜像续试时 mmproj 也必须改写到镜像，不得保留官方源');
+  assert.deepEqual(queue.getSnapshot().tasks, []);
+});
+
+test('队列：镜像回退期间取消，任务从队列移除（不留 error 态）', async () => {
+  const { queue } = makeHarness({
+    download: async input => {
+      if (input.modelUrl.startsWith('https://huggingface.co/')) throw new Error('network down');
+      // 镜像续试期间用户取消
+      const error = new Error('下载已取消');
+      error.code = 'DOWNLOAD_CANCELLED';
+      throw error;
+    },
+  });
+  await queue.enqueue(TASK);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const task = queue.getSnapshot().tasks.find(t => t.id === 'qwen-q4');
+  assert.equal(task, undefined, '回退期间取消与主路径同语义：移除任务，不标记 error');
+});
+
 test('队列：两源都失败则标记 error 保留在队列', async () => {
   const { queue } = makeHarness({ download: async () => { throw new Error('all down'); } });
   await queue.enqueue(TASK);

@@ -39,12 +39,14 @@ import { getVectorOwnerId, shouldIndexSession } from '../vectorMemory/scope.js';
 import { useTranslation } from '../i18n/I18nContext.js';
 import { createAppLogger } from '../logging/index.js';
 import { measureAsync, PERF_THRESHOLDS } from '../logging/perfProbe.js';
+// 跨会话运行登记表：流式草稿清理前先看该会话是否仍在后台生成（L 系）。
+import { sessionRuns } from '../agent/runtime/sessionRuns.js';
 import {
   clearStreamDraft,
   readStreamDraft,
   saveStreamDraft,
   shouldWriteStreamDraft,
-} from './streamDraft.js';
+} from '../storage/streamDraft.js';
 // 输入文本的统一真源（模块级 store）。本 hook 只写；订阅在 ChatComposer。
 import { getInput, setInput } from './inputStore.js';
 
@@ -606,7 +608,13 @@ export default function useSessionMessages({
     if (streamDraftRef.current.active) {
       const previous = streamDraftRef.current.sessionId;
       streamDraftRef.current = { sessionId: '', at: 0, len: 0, active: false };
-      if (previous) clearStreamDraft(previous).catch(() => {});
+      // 草稿所属会话仍在后台跑（L 系切会话不中止生成）时**不能**删草稿：此刻删掉，
+      // 「进程被杀恢复半截回复」的承诺就对后台生成静默失效，而切换会话是高频操作。
+      // 交给正常生命周期收尾：完成落库（persistBackgroundReply 成功即清）/取消/
+      // 会话删除（sessionList/mutations 已有清理），或用户切回时由上方读路径消费（读一次即清）。
+      if (previous && !sessionRuns.isRunning(previous)) {
+        clearStreamDraft(previous).catch(() => {});
+      }
     }
   }, [messages]);
 

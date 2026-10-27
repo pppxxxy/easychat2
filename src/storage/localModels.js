@@ -109,6 +109,8 @@ export async function migrateLegacyLocalModel() {
     await setJsonWithSecrets(LOCAL_MODEL_SETTINGS_KEY, { ...settings, schema: LOCAL_MODEL_SETTINGS_SCHEMA });
     return item ? [localModelIndexEntry(item)] : [];
   } catch (error) {
+    // 迁移失败不得静默：旧模型仍可用（legacy 键未动、下次读会重试），但诊断里必须有线索。
+    recordDiagnostic('storage', error, 'migrateLegacyLocalModel');
     return [];
   }
 }

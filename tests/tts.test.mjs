@@ -977,11 +977,11 @@ test('播报面板：每个引擎名与字段文案在英文下都取到英文�
     // 键名/id 显示给用户，这条断言抓的正是漏登记。
     assert.notEqual(translate('zh-CN', provider.labelKey), provider.labelKey,
       `${provider.id} 缺 zh-CN 词条（界面会回落成键名/id）`);
-    if (provider.noteKey) {
+    if (provider.unsupportedNoteKey) {
       const note = ttsUnsupportedNote(en, provider);
       assert.equal(CJK.test(note), false, `英文界面下「暂不支持」原因仍是中文：${provider.id} → ${note}`);
-      assert.equal(note, en(provider.noteKey), '原因说明必须等于英文词条');
-      assert.notEqual(translate('zh-CN', provider.noteKey), provider.noteKey, `${provider.id} 缺 zh-CN 原因词条`);
+      assert.equal(note, en(provider.unsupportedNoteKey), '原因说明必须等于英文词条');
+      assert.notEqual(translate('zh-CN', provider.unsupportedNoteKey), provider.unsupportedNoteKey, `${provider.id} 缺 zh-CN 原因词条`);
     }
     for (const field of provider.fields) {
       assert.ok(field.labelKey, `${provider.id}.${field.key} 缺 labelKey`);

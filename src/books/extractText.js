@@ -8,6 +8,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 
 import { decodeBytes } from './decodeText.js';
+import { tActive } from '../i18n/index.js';
 
 export const BOOK_EXTENSIONS = ['.txt', '.md', '.markdown', '.docx', '.html', '.htm'];
 
@@ -22,8 +23,8 @@ export function isSupportedBookFile(fileName) {
   return BOOK_EXTENSIONS.includes(fileExtension(fileName));
 }
 
-function unsupported(message) {
-  const error = new Error(message);
+function unsupported() {
+  const error = new Error(tActive('books.error.unsupportedFormat'));
   error.code = 'UNSUPPORTED_FORMAT';
   return error;
 }
@@ -33,13 +34,13 @@ function unsupported(message) {
 // 支持，而真实原因是文件损坏/不是真 docx。同文件「解压太大」早已这么做（DOCX_TOO_LARGE），
 // 这里补齐另外两种失败形态，各自配一条说清原因的文案。
 function docxInvalid() {
-  const error = new Error('.docx 文件无法解压，请确认文件有效');
+  const error = new Error(tActive('books.error.docxInvalid'));
   error.code = 'DOCX_INVALID';
   return error;
 }
 
 function docxNoBody() {
-  const error = new Error('.docx 缺少正文（word/document.xml）');
+  const error = new Error(tActive('books.error.docxNoBody'));
   error.code = 'DOCX_NO_BODY';
   return error;
 }
@@ -102,7 +103,7 @@ export function htmlToText(html) {
 export const DOCX_INFLATE_LIMIT_BYTES = 32 * 1024 * 1024;
 
 function docxTooLarge() {
-  const error = new Error('.docx 正文超过解压上限');
+  const error = new Error(tActive('books.error.docxTooLarge'));
   error.code = 'DOCX_TOO_LARGE';
   return error;
 }
@@ -149,7 +150,7 @@ function extractDocx(bytes, inflateLimit = DOCX_INFLATE_LIMIT_BYTES) {
 export function extractPlainText({ fileName, bytes, docxInflateLimitBytes } = {}) {
   const extension = fileExtension(fileName);
   if (!BOOK_EXTENSIONS.includes(extension)) {
-    throw unsupported('目前只支持 txt / Markdown / Word(.docx) / HTML 文本文件');
+    throw unsupported();
   }
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
 

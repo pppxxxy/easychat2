@@ -583,4 +583,7 @@ export const chat = {
   // ---- 快速定位条的时间标签（chat/chatHelpers.js 的 formatScrubberTime）----
   // 整句走词条：日期语序是语言的一部分，别只翻「月/日」两个字。
   'chat.scrubber.time': '{month}月{day}日 {time}',
+  // 错误兜底文案（chatHelpers.buildErrorRawText）：ErrorBubble 渲染给用户；
+  // key + 基准回落模式见 CHAT_ERROR_FALLBACK_KEY。
+  'chat.error.fallbackText': '请检查 API 配置或网络连接。',
 };

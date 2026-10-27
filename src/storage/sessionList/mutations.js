@@ -27,7 +27,7 @@ import { collectChatImageFiles, collectVoiceFiles } from '../sessionFiles.js';
 import { getMessagesBySessionStatus } from '../sessionMessages.js';
 import { deleteAllBranchesInternal } from '../sessionBranches.js';
 import { clearSessionStats } from '../sessionStats.js';
-import { clearStreamDraft } from '../../chat/streamDraft.js';
+import { clearStreamDraft } from '../streamDraft.js';
 import {
   ACTIVE_SESSION_KEY,
   LEGACY_MESSAGES_KEY,

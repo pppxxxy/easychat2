@@ -112,7 +112,7 @@ const {
 } = loadModule(path.resolve('src/storage/sessionCore.js'));
 const { saveSessionPlan } = loadModule(path.resolve('src/storage/sessionPlan.js'));
 const { SESSION_STATS_KEY, recordSessionRequest } = loadModule(path.resolve('src/storage/sessionStats.js'));
-const { saveStreamDraft, streamDraftKey } = loadModule(path.resolve('src/chat/streamDraft.js'));
+const { saveStreamDraft, streamDraftKey } = loadModule(path.resolve('src/storage/streamDraft.js'));
 const { archiveBranch } = loadModule(path.resolve('src/storage/sessionBranches.js'));
 const { sessionBranchItemKey } = loadModule(path.resolve('src/storage/sessionCore.js'));
 

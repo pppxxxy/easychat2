@@ -42,7 +42,12 @@ export function traceTruncateMark(t = tActive) {
   return text && text !== TRACE_TRUNCATE_MARK_KEY ? text : MODEL_TRUNCATE_MARK;
 }
 
-function traceBytes(trace) {
+// 体积口径与 resultClearing.js 同款：JSON 序列化**字符数**（UTF-16 code unit），不是
+// UTF-8 字节数——中文名义上低估约 3 倍。TOOL_TRACE_MAX_BYTES 的"BYTES"沿用历史命名
+//（tests/toolTrace.test.mjs 引用），语义是「序列化字符数预算」，按字符数比较只会更严，
+// 不会让超长轨迹漏网。
+
+function traceChars(trace) {
   try {
     return JSON.stringify(trace).length;
   } catch (error) {
@@ -63,7 +68,7 @@ export function sanitizeTrace(trace, { maxBytes = TOOL_TRACE_MAX_BYTES, t } = {}
     item && item.role === 'tool' ? { ...item, content: clipToolContent(item.content, t) } : item
   ));
   if (!list.length) return null;
-  return traceBytes(list) > maxBytes ? null : list;
+  return traceChars(list) > maxBytes ? null : list;
 }
 
 // 从循环追加的消息里提取轨迹：保留 assistant(tool_calls) 与其后的 tool 结果，

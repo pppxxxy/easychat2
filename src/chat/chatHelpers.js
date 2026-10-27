@@ -50,8 +50,18 @@ export function getHttpStatus(error) {
   return error?.status || error?.statusCode || error?.response?.status || null;
 }
 
+// 兜底文案最终经 replyFlow → ErrorBubble 渲染给用户，走 i18n；常量是 key，取值经
+// 语言包，i18n 打桩（tActive 恒等返回 key）或词条缺失时回落基准中文——绝不空串
+//（同 toolTrace.traceTruncateMark 的「key + 基准回落」做法；回落串放函数体内，
+// 本文件不在 no-hardcoded-chinese-text 的冻结清单里，模块级常量会被规则拦）。
+export const CHAT_ERROR_FALLBACK_KEY = 'chat.error.fallbackText';
+
 export function buildErrorRawText(error) {
-  const message = error?.message || '请检查 API 配置或网络连接。';
+  const localized = tActive(CHAT_ERROR_FALLBACK_KEY);
+  const fallback = localized && localized !== CHAT_ERROR_FALLBACK_KEY
+    ? localized
+    : '请检查 API 配置或网络连接。';
+  const message = error?.message || fallback;
   const status = getHttpStatus(error);
   const stack = error?.stack || '';
   const lines = [message];
