@@ -296,6 +296,7 @@ export default function useDesktopChat() {
     charactersRef,
     sessionsRef,
     switchSession: switchSessionFn,
+    sendLockRef,
     userNameRef,
     autoSummarizeRef,
     messages,

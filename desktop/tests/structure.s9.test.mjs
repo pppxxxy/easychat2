@@ -83,7 +83,11 @@ test('侧栏「+」新建角色后直接进编辑页', () => {
 
 test('聊天页接线：占用条 + 分支切换器 + 压缩入口都存在', () => {
   assert.ok(PANE.includes('<ContextUsageBar'), '占用条未挂载');
-  assert.ok(PANE.includes('<BranchSwitcher'), '分支切换器未挂载');
+  // S16 起分支切换器在 MessageList 里（消息行外提，ChatPane 撞 800 行棘轮）。
+  assert.ok(
+    PANE.includes('<MessageList') && read(DESKTOP, 'src', 'provider', 'MessageList.jsx').includes('<BranchSwitcher'),
+    '分支切换器未挂载'
+  );
   assert.ok(PANE.includes('useDesktopContextUsage'), '占用计算未接线');
   assert.ok(PANE.includes('useDesktopBranches'), '分支切换未接线');
   assert.ok(PANE.includes('useDesktopCompaction'), '压缩入口未接线');

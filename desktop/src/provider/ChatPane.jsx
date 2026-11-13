@@ -14,10 +14,17 @@ import { Alert } from '../platform/alert.js';
 import AttachmentChips from '../attachments/AttachmentChips.jsx';
 import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
 import { buildBranchNav } from '../chat/branchNav.js';
-import BranchSwitcher from '../chat/BranchSwitcher.jsx';
 import ChatMoreMenu from '../chat/ChatMoreMenu.jsx';
 import ChatSearchBar from '../chat/ChatSearchBar.jsx';
 import ConversationExportPanel from '../chat/ConversationExportPanel.jsx';
+import FullScreenInput from '../chat/FullScreenInput.jsx';
+import MessageSelectionBar from '../chat/MessageSelectionBar.jsx';
+import MessageList from './MessageList.jsx';
+import ScrollScrubber from '../chat/ScrollScrubber.jsx';
+import useDesktopScrubber from '../chat/useDesktopScrubber.js';
+import useMessageSelection from '../chat/useMessageSelection.js';
+import useDesktopModelThinking from '../chat/useDesktopModelThinking.js';
+import { ModelPanel, ThinkingPanel } from '../chat/ModelThinkingPanels.jsx';
 import ContextUsageBar from '../chat/ContextUsageBar.jsx';
 import GreetingPicker from '../chat/GreetingPicker.jsx';
 import SessionStatsPanel from '../chat/SessionStatsPanel.jsx';
@@ -27,7 +34,6 @@ import useDesktopCompaction from '../chat/useDesktopCompaction.js';
 import useDesktopContextUsage from '../chat/useDesktopContextUsage.js';
 import useDesktopGreeting from '../chat/useDesktopGreeting.js';
 import MessageActionsMenu from '../render/MessageActionsMenu.jsx';
-import MessageRow from '../render/MessageRow.jsx';
 import StickerNameDialog from '../stickers/StickerNameDialog.jsx';
 import StickerPanel from '../stickers/StickerPanel.jsx';
 import useDesktopStickers from '../stickers/useDesktopStickers.js';
@@ -76,6 +82,36 @@ export default function ChatPane({ palette, fonts }) {
   const search = useDesktopChatSearch({ messages, scrollRef });
   // 记忆总结：共享层 useChatSend 的 maybeAutoSummarize 在桌面是 no-op，
   // 手动入口此前也没有 —— 整套记忆系统在桌面上空转。这里补上显式入口与自动触发。
+  // 模型与思考：只做在线部分（桌面无本地模型）。
+  const modelThinking = useDesktopModelThinking({
+    isSending,
+    sendLockRef: chat.sendLockRef,
+  });
+  // 定位条：预览缓存复用共享层 buildScrubberPreview（流式期间只重算尾部一条）。
+  const scrubber = useDesktopScrubber({
+    messages,
+    characterName: chat.characterName,
+    scrollRef,
+    searchFocusedId: search.focusedId,
+  });
+  // 多选与批量删除：计划由 messageDeletionPlan 算（删光 ≡ 清空、连续尾段归档）。
+  const selection = useMessageSelection({
+    messages,
+    messagesRef: chat.messagesRef,
+    setMessages,
+    activeSession,
+    activeSessionId,
+    characterId,
+    charactersRef: chat.charactersRef,
+    sessionsRef: chat.sessionsRef,
+    updateCharacter: chat.updateCharacter,
+    setGreetingReady: chat.setGreetingReady,
+    refreshSessions: chat.refreshSessions,
+    isSending,
+    ready,
+    setQuoteTarget: chat.setQuoteTarget,
+    errorRawRef: chat.errorRawRef,
+  });
   const summary = useDesktopMemorySummary({
     charactersRef: chat.charactersRef,
     sessionsRef: chat.sessionsRef,
@@ -95,6 +131,8 @@ export default function ChatPane({ palette, fonts }) {
   const [statsOpen, setStatsOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [fullScreenOpen, setFullScreenOpen] = useState(false);
+  const [scrubberOpen, setScrubberOpen] = useState(false);
   // Ctrl/Cmd+F 打开对话内搜索（桌面用户的肌肉记忆；手机没有条件按组合键）。
   // 只在聊天页挂载期间生效，且不抢占浏览器/系统的其它快捷键。
   useEffect(() => {
@@ -335,52 +373,25 @@ export default function ChatPane({ palette, fonts }) {
         onScroll={onMessagesScroll}
         style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}
       >
-        {messages.map(message => (
-          <div
-            key={message.id || `${message.role}-${message.text}`}
-            // 搜索跳转用：桌面不是虚拟列表，靠这个锚点 scrollIntoView（见 useDesktopChatSearch）。
-            data-message-id={String(message.id || '')}
-            style={search.focusedId && String(message.id || '') === search.focusedId
-              ? {
-                outline: `2px solid ${palette.primaryMuted || palette.primary}`,
-                outlineOffset: 4,
-                borderRadius: 12,
-              }
-              : undefined}
-          >
-            <MessageRow
-              message={message}
-              palette={palette}
-              fonts={fonts}
-              onRegenerate={regenerateMessage}
-              onCommand={command => onInputChange(command)}
-              onMenu={(target, anchor) => setMenu({ message: target, anchor })}
-              speakerName={isGroup && !message.isUser && message.role !== 'user'
-                ? speakerNameOf(message, memberNames, groupName)
-                : ''}
-            />
-            {branchNav.get(String(message.id || '')) ? (
-              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: -8, marginBottom: 6, paddingLeft: 4 }}>
-                <BranchSwitcher
-                  nav={branchNav.get(String(message.id || ''))}
-                  onPrev={() => {
-                    const nav = branchNav.get(String(message.id || ''));
-                    const target = nav && nav.branches.find(branch => branch.id === nav.prevId);
-                    if (target) branchesApi.checkout(target);
-                  }}
-                  onNext={() => {
-                    const nav = branchNav.get(String(message.id || ''));
-                    const target = nav && nav.branches.find(branch => branch.id === nav.nextId);
-                    if (target) branchesApi.checkout(target);
-                  }}
-                  disabled={isSending || branchesApi.checkingOut}
-                  palette={palette}
-                  fonts={fonts}
-                />
-              </div>
-            ) : null}
-          </div>
-        ))}
+        <MessageList
+          messages={messages}
+          palette={palette}
+          fonts={fonts}
+          selecting={selection.selecting}
+          selectedIds={selection.selectedIds}
+          onToggleSelect={selection.toggle}
+          focusedId={search.focusedId}
+          speakerNameOf={speakerNameOf}
+          isGroup={isGroup}
+          memberNames={memberNames}
+          groupName={groupName}
+          onRegenerate={regenerateMessage}
+          onCommand={command => onInputChange(command)}
+          onMenu={(target, anchor) => setMenu({ message: target, anchor })}
+          branchNav={branchNav}
+          onCheckoutBranch={target => branchesApi.checkout(target)}
+          branchDisabled={isSending || branchesApi.checkingOut}
+        />
       </div>
       {dragOver ? (
         <div style={{
@@ -620,6 +631,55 @@ export default function ChatPane({ palette, fonts }) {
           onSaved={() => chat.refreshSessions().catch(() => {})}
         />
       ) : null}
+      <MessageSelectionBar
+        selection={selection}
+        isSending={isSending}
+        palette={palette}
+        fonts={fonts}
+      />
+      <ModelPanel
+        open={modelThinking.modelOpen}
+        onClose={() => modelThinking.setModelOpen(false)}
+        apiConfigs={modelThinking.apiConfigs}
+        modelSourceId={modelThinking.modelSourceId}
+        setModelSourceId={modelThinking.setModelSourceId}
+        onSelectModel={modelThinking.applyModelSelection}
+        busy={modelThinking.busy || isSending}
+        palette={palette}
+        fonts={fonts}
+      />
+      <ThinkingPanel
+        open={modelThinking.thinkingOpen}
+        onClose={() => modelThinking.setThinkingOpen(false)}
+        supported={modelThinking.thinkingSupported}
+        thinking={modelThinking.thinking}
+        levels={modelThinking.thinkingLevels}
+        displays={modelThinking.thinkingDisplays}
+        onApply={modelThinking.applyThinking}
+        palette={palette}
+        fonts={fonts}
+      />
+      <ScrollScrubber
+        open={scrubberOpen}
+        onClose={() => setScrubberOpen(false)}
+        count={scrubber.scrubberMessages.length}
+        previews={scrubber.previews}
+        onSeek={index => { scrubber.seek(index); }}
+        onToStart={scrubber.toStart}
+        onToEnd={scrubber.toEnd}
+        palette={palette}
+        fonts={fonts}
+      />
+      <FullScreenInput
+        open={fullScreenOpen}
+        value={input}
+        onChange={onInputChange}
+        onSend={() => { setFullScreenOpen(false); submit(); }}
+        onClose={() => setFullScreenOpen(false)}
+        palette={palette}
+        fonts={fonts}
+        sendLabel={t('chat.fullscreen.send')}
+      />
       <StickerNameDialog
         pending={stickersApi.pending}
         nameDraft={stickersApi.nameDraft}
@@ -652,6 +712,15 @@ export default function ChatPane({ palette, fonts }) {
         canExport={messages.length > 0}
         onReselectGreeting={() => greeting.open('reselect')}
         canReselectGreeting={!!activeSessionId && !isSending}
+        onOpenFullScreen={() => setFullScreenOpen(true)}
+        canFullScreen={!!ready && !isGroup && !!chat.greetingReady}
+        onOpenScrubber={() => setScrubberOpen(true)}
+        canScrubber={scrubber.scrubberMessages.length > 0}
+        onOpenSelection={selection.start}
+        canSelect={!!ready && messages.length > 0}
+        onOpenModel={modelThinking.openModelPanel}
+        onOpenThinking={modelThinking.openThinkingPanel}
+        canSwitchModel={!!ready && !isSending}
         isGroup={isGroup}
         palette={palette}
         fonts={fonts}

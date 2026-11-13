@@ -24,6 +24,8 @@ const STATS = read('src', 'chat', 'SessionStatsPanel.jsx');
 const EXPORT = read('src', 'chat', 'ConversationExportPanel.jsx');
 const SUMMARY = read('src', 'chat', 'useDesktopMemorySummary.js');
 const MORE_MENU = read('src', 'chat', 'ChatMoreMenu.jsx');
+// S16 起消息行外提为 MessageList（ChatPane 撞 800 行棘轮）：锚点与高亮落在那里。
+const MESSAGE_LIST = read('src', 'provider', 'MessageList.jsx');
 
 test('对话内搜索复用共享层口径，不另写命中判定', () => {
   assert.ok(SEARCH_HOOK.includes("from '../../../src/chat/chatSearchMath.js'"), '未复用共享搜索逻辑');
@@ -41,11 +43,11 @@ test('搜索界面：计数 / 上下条 / 关闭 / 高亮锚点都在', () => {
   assert.ok(SEARCH_BAR.includes("t('chat.search.prevA11y')"), '缺上一条');
   assert.ok(SEARCH_BAR.includes("t('chat.search.nextA11y')"), '缺下一条');
   // 桌面是普通滚动容器：靠 data-message-id 锚点 + scrollIntoView（手机走 FlatList）。
-  assert.ok(PANE.includes('data-message-id'), '消息行缺搜索锚点');
+  assert.ok(MESSAGE_LIST.includes('data-message-id'), '消息行缺搜索锚点');
   assert.ok(SEARCH_HOOK.includes('scrollIntoView'), '缺滚动跳转');
   assert.ok(SEARCH_HOOK.includes('data-message-id'), '滚动选择器与锚点不一致');
   // 当前命中要有可见高亮（否则用户不知道滚到了哪条）。
-  assert.ok(PANE.includes('search.focusedId'), '缺命中高亮');
+  assert.ok(MESSAGE_LIST.includes('focusedId'), '缺命中高亮');
 });
 
 test('本会话统计：读共享层落盘数据，展示口径与手机同源', () => {

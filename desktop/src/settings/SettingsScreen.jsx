@@ -17,6 +17,7 @@ import GlobalPresetCard from './GlobalPresetCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
 import MemorySettingsCard from './MemorySettingsCard.jsx';
+import MemoryProvenancePanel from '../memory/MemoryProvenancePanel.jsx';
 import PersonaCard from './PersonaCard.jsx';
 import SamplingCard from './SamplingCard.jsx';
 import useApiConfigs from './useApiConfigs.js';
@@ -126,7 +127,10 @@ export default function SettingsScreen({
           <GlobalPresetCard palette={palette} fonts={fonts} />
         ) : null}
         {section === 'vector' ? (
-          <MemorySettingsCard palette={palette} fonts={fonts} character={character} />
+          <>
+            <MemorySettingsCard palette={palette} fonts={fonts} character={character} />
+            <MemoryProvenancePanel palette={palette} fonts={fonts} character={character} />
+          </>
         ) : null}
         {section === 'security' ? (
           <CharacterLockCard palette={palette} fonts={fonts} />
