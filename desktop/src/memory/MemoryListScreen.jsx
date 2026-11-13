@@ -22,6 +22,7 @@ import { updateSessionInfo } from '../../../src/storage/sessionList.js';
 import { Alert } from '../platform/alert.js';
 import GlobalSearchPanel from './GlobalSearchPanel.jsx';
 import MemoryCheckupPanel from './MemoryCheckupPanel.jsx';
+import OrphanRecoveryPanel from './OrphanRecoveryPanel.jsx';
 import {
   buildMemoryRows,
   flattenMemoryGroups,
@@ -76,6 +77,7 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
   const [checkupOpen, setCheckupOpen] = useState(false);
   // 全库搜索（对应手机记忆页的 SearchScreen）。
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [recoverOpen, setRecoverOpen] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set(['pinned', 'recent', 'older']));
 
   // 与手机一致：进入页面时重读会话列表（聊天页只写存储，不同步 Context 的 preview）。
@@ -216,6 +218,9 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
             {t('character.library.group.createTitle')}
           </button>
         ) : null}
+        <button type="button" style={ghost(palette, fonts)} onClick={() => setRecoverOpen(value => !value)}>
+          {t('memory.a11y.recover')}
+        </button>
         <button type="button" style={ghost(palette, fonts)} onClick={() => setGlobalSearchOpen(true)}>
           {t('search.action.search')}
         </button>
@@ -466,6 +471,9 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
         </div>
       ) : null}
 
+      {recoverOpen ? (
+        <OrphanRecoveryPanel palette={palette} fonts={fonts} />
+      ) : null}
       <GlobalSearchPanel
         open={globalSearchOpen}
         onClose={() => setGlobalSearchOpen(false)}

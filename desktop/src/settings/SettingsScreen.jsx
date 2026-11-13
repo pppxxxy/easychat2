@@ -12,6 +12,7 @@ import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import ApiCard from './ApiCard.jsx';
 import AutoBackupCard from './AutoBackupCard.jsx';
 import CharacterLockCard from './CharacterLockCard.jsx';
+import DiagnosticsCard from './DiagnosticsCard.jsx';
 import GlobalPresetCard from './GlobalPresetCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
@@ -37,6 +38,8 @@ const SECTIONS = [
   { id: 'security', key: 'settings.security.title' },
   { id: 'autoBackup', key: 'settings.autoBackup.title' },
   { id: 'about', key: 'settings.about.title' },
+  // 诊断日志放在最后一屏：它是排障入口，不是日常设置（手机侧也在「关于」附近）。
+  { id: 'diagnostics', key: 'diagnostics.title' },
 ];
 
 function AboutCard({ palette, fonts, version, onTutorial, onDisclaimer, onBackup }) {
@@ -130,6 +133,9 @@ export default function SettingsScreen({
         ) : null}
         {section === 'autoBackup' ? (
           <AutoBackupCard palette={palette} fonts={fonts} appVersion={version} />
+        ) : null}
+        {section === 'diagnostics' ? (
+          <DiagnosticsCard palette={palette} fonts={fonts} />
         ) : null}
         {section === 'about' ? (
           <AboutCard
