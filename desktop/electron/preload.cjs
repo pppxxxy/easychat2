@@ -85,6 +85,10 @@ const bridge = {
     save: (defaultName, filters) => invoke('dialog:save', defaultName, filters),
     reveal: target => invoke('dialog:reveal', target),
   },
+  media: {
+    // 用户主动选择文件：对话框与复制都在主进程完成，渲染层只拿到 documents/ 下的结果。
+    pick: kind => invoke('media:pick', kind),
+  },
   clipboard: {
     write: text => invoke('clipboard:write', text),
   },

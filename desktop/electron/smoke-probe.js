@@ -168,6 +168,97 @@
     render = { attempted: true, error: String((error && error.message) || error) };
   }
 
+  // ---- S4b：附件（拖入 -> 校验 -> 落盘 -> 发送） ----
+  let attachment = { attempted: false };
+  try {
+    const beforeReply = replyCount();
+    const fileSize = await (async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 48;
+      canvas.height = 36;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#3355ff';
+      context.fillRect(0, 0, 48, 36);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const file = new File([blob], 'smoke-drop.png', { type: 'image/png' });
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      const target = document.querySelector('textarea');
+      target.dispatchEvent(new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+      }));
+      return file.size;
+    })();
+    const chip = await waitFor(() => {
+      const state = window.__easychat2Chat;
+      if (!state || state.attachments < 1) return null;
+      return document.body.innerText.includes('smoke-drop.png') ? state : null;
+    }, 10000);
+    const armedButton = await waitFor(() => {
+      const state = window.__easychat2Chat;
+      if (!state || state.attachments < 1 || state.isSending) return null;
+      const button = sendButton();
+      return button && !button.disabled ? button : null;
+    }, 10000);
+    if (armedButton) armedButton.click();
+    const replied = await waitFor(() => replyCount() > beforeReply, 25000);
+    const sessionId = (window.__easychat2S2 && window.__easychat2S2.activeSessionId) || '';
+    let raw = null;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      raw = sessionId ? await bridge.kv.get('@easychat2_messages::' + sessionId) : null;
+      if (raw && String(raw).includes('smoke-drop.png')) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    attachment = {
+      attempted: true,
+      fileSize,
+      chipSeen: !!chip,
+      replySeen: !!replied,
+      persisted: !!raw
+        && String(raw).includes('smoke-drop.png')
+        && String(raw).includes('chat-images/')
+        && String(raw).includes('"kind":"image"'),
+      state: window.__easychat2Chat || null,
+    };
+  } catch (error) {
+    attachment = { attempted: true, error: String((error && error.message) || error) };
+  }
+
+  // ---- S4b：表情包（面板加载 -> 点选发送 -> 落盘） ----
+  let sticker = { attempted: false };
+  try {
+    const before = replyCount();
+    const openButton = Array.from(document.querySelectorAll('button'))
+      .find(button => button.title === '表情包' || button.title === 'Stickers');
+    if (!openButton) throw new Error('sticker toggle not found');
+    openButton.click();
+    const tile = await waitFor(() => Array.from(document.querySelectorAll('button'))
+      .find(button => String(button.title || '').includes('SmokeSticker')), 8000);
+    if (!tile) throw new Error('sticker tile not found');
+    tile.click();
+    const replied = await waitFor(() => replyCount() > before, 25000);
+    const sessionId = (window.__easychat2S2 && window.__easychat2S2.activeSessionId) || '';
+    let raw = null;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      raw = sessionId ? await bridge.kv.get('@easychat2_messages::' + sessionId) : null;
+      if (raw && String(raw).includes('SmokeSticker')) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    sticker = {
+      attempted: true,
+      tileSeen: !!tile,
+      replySeen: !!replied,
+      persisted: !!raw
+        && String(raw).includes('"kind":"sticker"')
+        && String(raw).includes('SmokeSticker'),
+      state: window.__easychat2Chat || null,
+    };
+  } catch (error) {
+    sticker = { attempted: true, error: String((error && error.message) || error) };
+  }
+
   return {
     bridge: true,
     kv: kvValue,
@@ -183,5 +274,7 @@
     storage: { hasCharactersKey, hasSessionsKey, keyCount: keys.length },
     chat,
     render,
+    attachment,
+    sticker,
   };
 })()

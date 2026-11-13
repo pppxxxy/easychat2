@@ -6,6 +6,33 @@ import { markMediaWrite } from '../storage/mediaProtection.js';
 import { decodeBytes } from '../books/decodeText.js';
 import { tActive } from '../i18n/index.js';
 import { isHttpImageUrl } from './imageDownloadDirectives.js';
+import {
+  IMAGE_EXTENSIONS,
+  TEXT_EXTENSIONS,
+  VIDEO_EXTENSIONS,
+  VISION_IMAGE_MIME_TYPES,
+  getImageMime,
+  getVideoMime,
+  isImage,
+  isTextLike,
+  isVideo,
+  isVisionImage,
+} from './mediaTypes.js';
+
+// 类型判定已外提到 mediaTypes.js（零平台依赖）：桌面渲染层与 Node 测试都能直接加载。
+// 这里 re-export 保持既有调用点（ChatScreen / 测试）的 import 路径不变。
+export {
+  IMAGE_EXTENSIONS,
+  TEXT_EXTENSIONS,
+  VIDEO_EXTENSIONS,
+  VISION_IMAGE_MIME_TYPES,
+  getImageMime,
+  getVideoMime,
+  isImage,
+  isTextLike,
+  isVideo,
+  isVisionImage,
+};
 
 // 校验/落盘失败抛带 code 的 Error：message 走 i18n（随语言变化），
 // 调用方需要按失败原因分流提示时比 code，不要比 message。
@@ -31,15 +58,6 @@ export const ATTACH_ERROR = {
   FILE_TOO_LARGE: 'ATTACH_FILE_TOO_LARGE',
 };
 
-export const TEXT_EXTENSIONS = [
-  'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
-  'html', 'htm', 'css', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'java',
-  'c', 'cpp', 'h', 'hpp', 'sh', 'ini', 'toml', 'sql', 'env', 'text',
-];
-
-export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'heic', 'heif', 'avif'];
-export const VISION_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-
 export const MAX_TEXT_BYTES = 200 * 1024;
 
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -51,86 +69,13 @@ export const MAX_IMAGE_ATTACHMENTS = 3;
 // 视频附件（仅当模型声明 supportsVideo 且走 OpenAI 兼容协议时解锁，见 ChatScreen 门控）。
 // 数据 URI 会 base64 膨胀 4/3，限额按「多数兼容端点可接受的请求体」量级设定；
 // 一次只带一条视频——两条膨胀后的请求体很容易越过端点上限。
-export const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', '3gp', 'mkv'];
 export const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
 export const MAX_VIDEO_BASE64_BYTES = 28 * 1024 * 1024;
 export const MAX_VIDEO_ATTACHMENTS = 1;
 // 拍摄时长上限（秒）：默认一分钟，避免一次录出几百 MB 的素材。
 export const VIDEO_MAX_DURATION_S = 60;
 
-function extensionOf(name) {
-  const value = String(name || '');
-  const index = value.lastIndexOf('.');
-  if (index < 0 || index === value.length - 1) return '';
-  return value.slice(index + 1).toLowerCase();
-}
-
-export function isTextLike(name, mime) {
-  const ext = extensionOf(name);
-  if (TEXT_EXTENSIONS.includes(ext)) return true;
-  const type = String(mime || '').toLowerCase();
-  if (type.startsWith('text/')) return true;
-  return type === 'application/json'
-    || type === 'application/xml'
-    || type === 'application/x-yaml'
-    || type === 'application/javascript';
-}
-
-export function isImage(name, mime) {
-  const type = String(mime || '').toLowerCase();
-  const supportedTypes = new Set([
-    'image/png',
-    'image/jpeg',
-    'image/webp',
-    'image/gif',
-    'image/bmp',
-    'image/heic',
-    'image/heif',
-    'image/avif',
-  ]);
-  if (supportedTypes.has(type)) return true;
-  return IMAGE_EXTENSIONS.includes(extensionOf(name));
-}
-
-export function getImageMime(name, mime = '') {
-  const type = String(mime || '').toLowerCase();
-  if (type === 'image/jpg' || type === 'image/pjpeg') return 'image/jpeg';
-  if (type === 'image/x-png') return 'image/png';
-  if (type.startsWith('image/')) return type;
-  const value = String(name || '').toLowerCase();
-  if (value.endsWith('.png')) return 'image/png';
-  if (value.endsWith('.webp')) return 'image/webp';
-  if (value.endsWith('.gif')) return 'image/gif';
-  if (value.endsWith('.heic')) return 'image/heic';
-  if (value.endsWith('.heif')) return 'image/heif';
-  if (value.endsWith('.avif')) return 'image/avif';
-  if (value.endsWith('.bmp')) return 'image/bmp';
-  return 'image/jpeg';
-}
-
-export function isVisionImage(name, mime = '') {
-  return VISION_IMAGE_MIME_TYPES.includes(getImageMime(name, mime));
-}
-
-// 视频：按 mime 或扩展名识别（相册/文件管理器给的 mime 经常缺失或不准）。
-export function isVideo(name, mime) {
-  const type = String(mime || '').toLowerCase();
-  if (type.startsWith('video/')) return true;
-  return VIDEO_EXTENSIONS.includes(extensionOf(name));
-}
-
-export function getVideoMime(name, mime = '') {
-  const type = String(mime || '').toLowerCase();
-  if (type === 'video/quicktime') return 'video/mov';
-  if (type.startsWith('video/')) return type;
-  const value = String(name || '').toLowerCase();
-  if (value.endsWith('.mov')) return 'video/mov';
-  if (value.endsWith('.m4v')) return 'video/mp4';
-  if (value.endsWith('.webm')) return 'video/webm';
-  if (value.endsWith('.3gp')) return 'video/3gpp';
-  if (value.endsWith('.mkv')) return 'video/x-matroska';
-  return 'video/mp4';
-}
+// 类型判定（扩展名/MIME 识别）见 mediaTypes.js：零平台依赖，桌面与 Node 共用。
 
 // 视频只校验大小（时长/分辨率交给模型与端点的宽容度，不做本地硬判）。
 export function validateVideoSize({ size = 0 } = {}) {

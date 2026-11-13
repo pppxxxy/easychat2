@@ -17,6 +17,7 @@ import { createFsService, registerFsIpc } from './ipc/fs.js';
 import { createSecretStore, registerSecretIpc } from './ipc/secret.js';
 import { createHttpProxy, registerHttpIpc } from './ipc/http.js';
 import { createMediaHandler } from './ipc/media.js';
+import { registerMediaPickIpc } from './ipc/mediaPick.js';
 import { registerDialogIpc } from './ipc/dialog.js';
 import { toFileUrl } from './paths.js';
 
@@ -81,14 +82,19 @@ function userPaths() {
   };
 }
 
+// 随包资源目录：打包后在 resources/assets，开发时是仓库根 assets/。
+function bundledAssetsRoot() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'assets')
+    : path.resolve(__dirname, '..', '..', 'assets');
+}
+
 // 内置角色素材：把随包发布的 jpg 复制到 documents/avatars/（仅缺失时）。
 // 渲染层读不到安装目录，这一步只能放主进程；与 Android 端「assets -> avatars」同语义。
 function ensureDefaultArtwork(documentsRoot) {
   const avatarsDir = path.join(documentsRoot, 'avatars');
   mkdirSync(avatarsDir, { recursive: true });
-  const assetRoot = app.isPackaged
-    ? path.join(process.resourcesPath, 'assets')
-    : path.resolve(__dirname, '..', '..', 'assets');
+  const assetRoot = bundledAssetsRoot();
   // 源文件名（随包发布）-> 落盘名（与 Android 端 DEFAULT_ARTWORK_FILES 一致）。
   // 桌面与手机共用同一套「默认角色头像文件名」，备份互导后引用不会断。
   const artwork = [
@@ -117,9 +123,29 @@ function startSmokeModelServer() {
     });
     request.on('error', error => console.log(`[smoke-model] request error: ${error.message}`));
     request.on('end', () => {
-      const reply = requestBody.includes('富HTML测试')
+      // 只按**最后一条用户消息**选回复：整段 body 包含历史里的标记，用 body.includes
+      // 会让第一次渲染测试之后的每一轮都返回富 HTML。
+      let lastUserText = '';
+      try {
+        const parsed = JSON.parse(requestBody);
+        const messages = Array.isArray(parsed && parsed.messages) ? parsed.messages : [];
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (!message || message.role !== 'user') continue;
+          const content = message.content;
+          lastUserText = typeof content === 'string'
+            ? content
+            : (Array.isArray(content)
+              ? content.map(part => String((part && part.text) || '')).join(' ')
+              : '');
+          break;
+        }
+      } catch (error) {
+        lastUserText = '';
+      }
+      const reply = lastUserText.includes('富HTML测试')
         ? RICH_HTML_SMOKE_REPLY
-        : (requestBody.includes('渲染测试') ? MARKDOWN_SMOKE_REPLY : SMOKE_REPLY);
+        : (lastUserText.includes('渲染测试') ? MARKDOWN_SMOKE_REPLY : SMOKE_REPLY);
       // SSE 块以两个换行结尾；用 fromCharCode 构造，避免转义层级（源码可读、零歧义）。
       const separator = String.fromCharCode(10) + String.fromCharCode(10);
       const event = payload => 'data: ' + JSON.stringify(payload) + separator;
@@ -137,8 +163,7 @@ function startSmokeModelServer() {
   });
 }
 
-function seedSmokeApiConfig(kvStore, baseUrl) {
-  // 存储形状与 src/storage/apiConfigs.js 一致：{ configs, activeId }。
+function seedSmokeApiConfig(kvStore, baseUrl) {  // 存储形状与 src/storage/apiConfigs.js 一致：{ configs, activeId }。
   kvStore.set('@easychat2_api_configs', JSON.stringify({
     configs: [{
       id: 'cfg-smoke',
@@ -148,9 +173,34 @@ function seedSmokeApiConfig(kvStore, baseUrl) {
       protocol: 'openai',
       models: ['mock-model'],
       activeModel: 'mock-model',
+      // 附件冒烟需要识图能力（否则发送前的视觉门控会拦下图）。
+      modelCapabilities: { 'mock-model': { supportsVision: true, supportsVideo: true } },
     }],
     activeId: 'cfg-smoke',
   }));
+}
+
+// 冒烟用表情包：真实落盘 + 真实存储键（索引 + 单条分键），用于验证面板加载与发送。
+function seedSmokeSticker(documentsRoot, kvStore) {
+  const directory = path.join(documentsRoot, 'stickers');
+  mkdirSync(directory, { recursive: true });
+  const destination = path.join(directory, 'sticker-smoke.jpg');
+  try {
+    copyFileSync(path.join(bundledAssetsRoot(), 'easychat-assistant-avatar.jpg'), destination);
+  } catch (error) {
+    return;
+  }
+  const sticker = {
+    id: 'sticker-smoke',
+    name: 'SmokeSticker',
+    uri: toFileUrl(destination),
+    mime: 'image/jpeg',
+    width: 256,
+    height: 256,
+    createdAt: Date.now(),
+  };
+  kvStore.set('@easychat2_sticker_item::sticker-smoke', JSON.stringify(sticker));
+  kvStore.set('@easychat2_sticker_index', JSON.stringify(['sticker-smoke']));
 }
 
 function createWindow() {
@@ -238,6 +288,16 @@ function createWindow() {
         && probe.render.frameHeight >= 40
         && probe.render.commandBridged
         && probe.render.richHtmlPersisted
+        && probe.attachment
+        && probe.attachment.attempted
+        && probe.attachment.chipSeen
+        && probe.attachment.replySeen
+        && probe.attachment.persisted
+        && probe.sticker
+        && probe.sticker.attempted
+        && probe.sticker.tileSeen
+        && probe.sticker.replySeen
+        && probe.sticker.persisted
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
@@ -283,6 +343,7 @@ app.whenReady().then(() => {
   fsService = createFsService({ documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
   const kvStore = createKvStore({ root: path.join(paths.userData, 'kv') });
   if (SMOKE) {
+    seedSmokeSticker(paths.documentsRoot, kvStore);
     startSmokeModelServer().then(({ baseUrl }) => {
       seedSmokeApiConfig(kvStore, baseUrl);
     });
@@ -299,6 +360,7 @@ app.whenReady().then(() => {
   registerSecretIpc(ipcMain, secretStore);
   registerHttpIpc(ipcMain, httpProxy);
   registerDialogIpc(ipcMain, { dialog, shell, clipboard, resolver: fsService.resolver });
+  registerMediaPickIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
 
   // 同步路径（preload 需要在模块加载期拿到，documentDirectory 是同步读取的）。
   ipcMain.on('app:paths', event => {

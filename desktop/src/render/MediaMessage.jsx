@@ -164,12 +164,14 @@ export default function MediaMessage({ image, kind, palette, fonts }) {
   const ratio = Number(image && image.height) > 0 && Number(image && image.width) > 0
     ? Number(image.height) / Number(image.width)
     : 0.75;
+  const naturalWidth = Number(image && image.width) || 0;
+  // 小图不放大：48x36 的贴图如果按最大宽度撑满，会比原文大十倍。
   const width = isSticker
     ? STICKER_SIZE
-    : Math.min(IMAGE_MAX_WIDTH, Math.max(160, Math.round(IMAGE_MAX_WIDTH)));
+    : Math.min(IMAGE_MAX_WIDTH, Math.max(48, Math.round(naturalWidth || 320)));
   const height = isSticker
     ? STICKER_SIZE
-    : Math.min(IMAGE_MAX_HEIGHT, Math.max(90, Math.round(width * ratio)));
+    : Math.min(IMAGE_MAX_HEIGHT, Math.max(24, Math.round(width * ratio)));
 
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 6, maxWidth: '100%' }}>

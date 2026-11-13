@@ -15,8 +15,13 @@ import { AppProvider, useApp } from '../../../src/context/AppContext.js';
 import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
 import { ThemeProvider, useTheme } from '../../../src/theme/ThemeContext.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
-import { resolveAlert, subscribeAlert } from '../platform/alert.js';
+import { Alert, resolveAlert, subscribeAlert } from '../platform/alert.js';
+import AttachmentChips from '../attachments/AttachmentChips.jsx';
+import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
 import MessageRow from '../render/MessageRow.jsx';
+import StickerNameDialog from '../stickers/StickerNameDialog.jsx';
+import StickerPanel from '../stickers/StickerPanel.jsx';
+import useDesktopStickers from '../stickers/useDesktopStickers.js';
 import useDesktopChat from './useDesktopChat.js';
 
 const DEFAULT_NEW_CHARACTER = {
@@ -124,8 +129,28 @@ function ChatPane({ palette, fonts, t }) {
     onMessagesScroll,
     autoScrollToBottom,
     ready,
+    attachments,
   } = chat;
   const lastCountRef = useRef(0);
+  const [dragOver, setDragOver] = useState(false);
+  const attach = useDesktopAttachments({
+    attachments,
+    attachmentsRef: chat.attachmentsRef,
+    setAttachments: chat.setAttachments,
+    isSending,
+    ready,
+    captureSessionGuard: chat.captureSessionGuard,
+    isSessionGuardCurrent: chat.isSessionGuardCurrent,
+  });
+  const hasAttachments = attach.attachments.length > 0;
+  const stickersApi = useDesktopStickers({
+    ready,
+    isSending,
+    captureSessionGuard: chat.captureSessionGuard,
+    isSessionGuardCurrent: chat.isSessionGuardCurrent,
+    sendMessage: chat.sendMessage,
+    getInput: chat.getInput,
+  });
 
   useEffect(() => {
     globalThis.__easychat2Chat = {
@@ -134,8 +159,9 @@ function ChatPane({ palette, fonts, t }) {
       isSending,
       input: String(input || ''),
       messages: messages.length,
+      attachments: attach.attachments.length,
     };
-  }, [ready, chat.greetingReady, isSending, input, messages.length]);
+  }, [ready, chat.greetingReady, isSending, input, messages.length, attach.attachments.length]);
 
   useEffect(() => {
     if (messages.length !== lastCountRef.current) {
@@ -149,11 +175,12 @@ function ChatPane({ palette, fonts, t }) {
     globalThis.__easychat2Submit = {
       calls: ((globalThis.__easychat2Submit && globalThis.__easychat2Submit.calls) || 0) + 1,
       text,
+      attachments: attach.attachments.length,
       isSending,
       ready,
       timestamp: Date.now(),
     };
-    if (!text || isSending || !ready) return;
+    if ((!text && !hasAttachments) || isSending || !ready) return;
     // 冒烟/排查用：记录 sendText 的返回值或异常（不改变正常流程）。
     const result = sendText(text);
     const snapshotErrors = () => {
@@ -172,8 +199,39 @@ function ChatPane({ palette, fonts, t }) {
     }
   };
 
+  const composerDisabled = isSending || !ready || attach.loading;
+  const canSend = !isSending && ready && (!!String(input || '').trim() || hasAttachments);
+  const iconButton = {
+    width: 40,
+    height: 40,
+    flex: 'none',
+    background: 'transparent',
+    color: palette.text,
+    border: `1px solid ${palette.divider}`,
+    borderRadius: 10,
+    cursor: composerDisabled ? 'default' : 'pointer',
+    fontSize: 17,
+    lineHeight: 1,
+  };
+
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <div
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}
+      onDragOver={event => {
+        if (!event.dataTransfer) return;
+        const types = Array.from(event.dataTransfer.types || []);
+        if (!types.includes('Files')) return;
+        event.preventDefault();
+        if (!dragOver) setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={event => {
+        event.preventDefault();
+        setDragOver(false);
+        const files = event.dataTransfer && event.dataTransfer.files;
+        if (files && files.length > 0) attach.addFiles(files);
+      }}
+    >
       <div
         ref={scrollRef}
         onScroll={onMessagesScroll}
@@ -190,12 +248,95 @@ function ChatPane({ palette, fonts, t }) {
           />
         ))}
       </div>
+      {dragOver ? (
+        <div style={{
+          position: 'absolute',
+          inset: 10,
+          zIndex: 5,
+          border: `2px dashed ${palette.primary}`,
+          borderRadius: 14,
+          background: 'rgba(0,0,0,0.35)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          color: palette.text,
+          fontSize: fonts.scaled(15),
+          fontWeight: 700,
+        }}
+        >
+          {t('chat.attach.dropHint')}
+        </div>
+      ) : null}
       {modelFallbackNotice ? (
         <div style={{ padding: '4px 20px', color: palette.textMuted, fontSize: fonts.scaled(12) }}>
           {String(modelFallbackNotice.text || modelFallbackNotice.model || '')}
         </div>
       ) : null}
+      <AttachmentChips
+        attachments={attach.attachments}
+        palette={palette}
+        fonts={fonts}
+        disabled={isSending}
+        onRemove={attach.removeAttachment}
+      />
+      {stickersApi.panelOpen ? (
+        <StickerPanel
+          stickers={stickersApi.stickers}
+          palette={palette}
+          fonts={fonts}
+          busy={stickersApi.busy}
+          disabled={isSending || !ready}
+          onSend={stickersApi.sendSticker}
+          onImport={stickersApi.importSticker}
+          onClose={() => stickersApi.setPanelOpen(false)}
+        />
+      ) : null}
       <div style={{ borderTop: `1px solid ${palette.divider}`, padding: 12, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+        <button
+          type="button"
+          title={t('chat.attach.image.title')}
+          onClick={attach.pickImages}
+          disabled={composerDisabled}
+          style={iconButton}
+        >
+          🖼
+        </button>
+        <button
+          type="button"
+          title={t('chat.attach.video.title')}
+          onClick={attach.pickVideos}
+          disabled={composerDisabled}
+          style={iconButton}
+        >
+          🎬
+        </button>
+        <button
+          type="button"
+          title={t('chat.attach.text.title')}
+          onClick={attach.pickText}
+          disabled={composerDisabled}
+          style={iconButton}
+        >
+          📄
+        </button>
+        <button
+          type="button"
+          title={t('chat.sticker.title')}
+          onClick={stickersApi.togglePanel}
+          disabled={composerDisabled}
+          style={{ ...iconButton, background: stickersApi.panelOpen ? palette.surfaceAlt : 'transparent' }}
+        >
+          😀
+        </button>
+        <button
+          type="button"
+          title={t('chat.attach.voice.title')}
+          onClick={() => Alert.alert(t('chat.attach.voice.title'), t('chat.attach.voiceUnsupported'))}
+          style={iconButton}
+        >
+          🎤
+        </button>
         <textarea
           value={input}
           onChange={event => onInputChange(event.target.value)}
@@ -203,6 +344,13 @@ function ChatPane({ palette, fonts, t }) {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               submit();
+            }
+          }}
+          onPaste={event => {
+            const files = event.clipboardData && event.clipboardData.files;
+            if (files && files.length > 0) {
+              event.preventDefault();
+              attach.addFiles(files);
             }
           }}
           placeholder={t('chat.composer.placeholder')}
@@ -223,7 +371,7 @@ function ChatPane({ palette, fonts, t }) {
         <button
           type="button"
           onClick={submit}
-          disabled={isSending || !ready || !String(input || '').trim()}
+          disabled={!canSend}
           style={{
             background: isSending ? palette.surfaceAlt : palette.primary,
             color: isSending ? palette.textMuted : palette.primaryContrast,
@@ -238,6 +386,16 @@ function ChatPane({ palette, fonts, t }) {
           {isSending ? '…' : t('chat.send.action')}
         </button>
       </div>
+      <StickerNameDialog
+        pending={stickersApi.pending}
+        nameDraft={stickersApi.nameDraft}
+        palette={palette}
+        fonts={fonts}
+        busy={stickersApi.busy}
+        onChange={stickersApi.setNameDraft}
+        onCancel={stickersApi.cancelPending}
+        onSave={stickersApi.confirmSave}
+      />
     </div>
   );
 }
