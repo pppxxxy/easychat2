@@ -215,6 +215,8 @@ export const settings = {
   'settings.api.fallbackModelsHint': '主模型遇到限流（429）、服务端错误（5xx）、超时、断网，或「不支持某个参数」（400/422——参数按每个模型的能力位注入）时，按这里的顺序换用下一个模型重试；最多 3 个，用逗号分隔。密钥、权限或模型名错误不换——换了还是同一个错，只是白花额度。',
   'settings.api.getKeyA11y': '点击获取密钥',
   'settings.api.getKey': '点击获取密钥 →',
+  'settings.api.anonymous': '匿名调用（不发送 API Key）',
+  'settings.api.anonymousHint': '适用于按 IP 限流的匿名网关（如 Kilo Gateway 免费模型）。开启后请求不带任何鉴权头——填了 Key 反而会被判 401。每小时约 200 次，免费模型 id 以 :free 结尾；免费路由可能记录提示词与输出，请勿发送隐私内容。',
   'settings.api.keyHint': 'API Key 与聊天内容会直接发送到你填写的地址，并保存在本机。请确认你信任该服务商。',
   'settings.api.save': '保存配置',
   'settings.api.deleteCurrent': '删除当前配置',

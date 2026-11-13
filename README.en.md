@@ -73,6 +73,13 @@ npm run dist:desktop   # unsigned NSIS installer + portable zip into desktop/rel
 
 > This project ships `npm test` Node regression tests; native modules, WebView, permissions, and touch interactions still require running `npm run start` and manually walking the affected paths.
 
+The desktop build ships a **Kilo Gateway anonymous free** preset (Settings → API Configuration
+→ Add → Kilo Gateway): rate-limited by IP (~200 requests/hour), no API key, and only `:free`
+models are free. Such gateways require requests to carry **no auth header**, so the preset
+turns on the "anonymous calls" switch — supplying a key actually returns 401. To verify the
+whole chain against the real network, run `cd desktop && npm run smoke:kilo` (real free model,
+no local mock; it fails when the free pool is rate-limited or a model is temporarily offline).
+
 ## Usage guide
 
 The app consists of five bottom tabs: Chat / Memory / Characters / Extensions / Settings.

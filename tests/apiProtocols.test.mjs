@@ -409,3 +409,17 @@ test('toOpenAiMessages：空输入与非对象条目保持原行为（不抛错�
   assert.equal(out[0], 'x', '非对象条目原样透传（旧行为，发送层不会因白名单多出一个 null 而崩）');
   assert.equal(out[1], null);
 });
+
+test('buildRequestHeaders：anonymous 配置不发任何鉴权头', () => {
+  // Kilo Gateway 这类匿名网关按 IP 限流：带假 key 或空 Bearer 都会 401，
+  // 只有「完全不发鉴权头」才是匿名请求。
+  const headers = buildRequestHeaders('openai', { apiKey: 'sk-leftover', anonymous: true });
+  assert.equal(headers.Authorization, undefined, '匿名时不得发出 Authorization');
+  assert.equal(headers['Content-Type'], 'application/json');
+  // 非匿名配置保持原行为（有 key 就发）。
+  assert.equal(buildRequestHeaders('openai', { apiKey: 'k' }).Authorization, 'Bearer k');
+  // 匿名 + anthropic 协议：x-api-key 同样不发，但版本头仍保留。
+  const anthropic = buildRequestHeaders('anthropic', { apiKey: 'k', anonymous: true });
+  assert.equal(anthropic['x-api-key'], undefined);
+  assert.equal(anthropic['anthropic-version'], '2023-06-01');
+});

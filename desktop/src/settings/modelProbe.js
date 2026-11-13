@@ -37,13 +37,17 @@ export function parseModelList(payload) {
 }
 
 // 探测鉴权头：与聊天请求同口径（Anthropic 用 x-api-key + anthropic-version）。
+// 匿名配置不发鉴权头（Kilo Gateway 这类网关收到假 key 会 401，不发才是匿名）。
 export function probeHeaders(config) {
   const protocol = normalizeProtocol(config && config.protocol);
   const header = String((config && config.authHeader) || (protocol === 'anthropic' ? 'x-api-key' : 'Authorization'));
   const scheme = config && config.authScheme !== undefined
     ? String(config.authScheme)
     : (protocol === 'anthropic' ? '' : 'Bearer ');
-  const headers = { [header]: `${scheme}${String((config && config.apiKey) || '').trim()}` };
+  const headers = {};
+  if (!(config && config.anonymous === true)) {
+    headers[header] = `${scheme}${String((config && config.apiKey) || '').trim()}`;
+  }
   if (protocol === 'anthropic') headers['anthropic-version'] = '2023-06-01';
   return headers;
 }

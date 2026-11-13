@@ -19,3 +19,13 @@ test('厂商 id 唯一', () => {
   const ids = CHAT_API_VENDORS.map(vendor => vendor.id);
   assert.equal(new Set(ids).size, ids.length, '厂商 id 不得重复');
 });
+
+test('Kilo Gateway 预设置为匿名：不发鉴权头、带默认免费模型', async () => {
+  const vendor = getChatApiVendor('kilo-gateway');
+  assert.ok(vendor, 'Kilo 预设应存在');
+  assert.equal(vendor.baseUrl, 'https://ai-gateway.kilo.ai/api/v1');
+  assert.equal(vendor.anonymous, true, '必须显式声明匿名（带 key 会被判 401）');
+  assert.equal(vendor.anonymousModel, 'kilo-auto/free');
+  assert.equal(typeof zhCN[vendor.nameKey], 'string');
+  assert.match(zhCN[vendor.noteKey], /200 次|:free/, 'note 应写明限流与免费模型形态');
+});

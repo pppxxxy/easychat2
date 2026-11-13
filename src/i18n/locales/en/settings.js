@@ -214,6 +214,8 @@ export const settings = {
   'settings.api.fallbackModelsHint': 'When the main model hits rate limits (429), server errors (5xx), timeouts, a dead network, or rejects a parameter (400/422 — parameters are injected per model capability), the next model listed here is tried in order. Up to 3, comma separated. Key, permission or model-name errors are not retried — another model would fail the same way for nothing.',
   'settings.api.getKeyA11y': 'Tap to get an API key',
   'settings.api.getKey': 'Get API Key →',
+  'settings.api.anonymous': 'Anonymous calls (send no API key)',
+  'settings.api.anonymousHint': 'For IP-rate-limited anonymous gateways such as Kilo Gateway free models. With this on, requests carry no auth header at all — supplying a key actually gets a 401. Roughly 200 requests per hour; free model ids end in :free. Free routes may log prompts and outputs, so do not send private content.',
   'settings.api.keyHint': 'Your API key and chat content are sent directly to the address you entered and stored on this device. Make sure you trust this provider.',
   'settings.api.save': 'Save Configuration',
   'settings.api.deleteCurrent': 'Delete Current Configuration',

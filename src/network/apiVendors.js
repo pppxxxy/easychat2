@@ -99,6 +99,20 @@ export const CHAT_API_VENDORS = [
     apiKeyUrl: 'https://developer.amd.com.cn/radeon/tokenfactory',
     noteKey: 'apiVendor.amdRadeonCloud.note',
   },
+  {
+    id: 'kilo-gateway',
+    nameKey: 'apiVendor.kiloGateway.name',
+    category: ['chat'],
+    baseUrl: 'https://ai-gateway.kilo.ai/api/v1',
+    protocol: 'openai',
+    auth: { header: 'Authorization', prefix: 'Bearer ' },
+    apiKeyUrl: 'https://app.kilo.ai',
+    noteKey: 'apiVendor.kiloGateway.note',
+    // 匿名预设：网关按 IP 限流（200 次/小时），免费模型是 id 带 `:free` 的那些。
+    // 这里必须显式声明 anonymous——匿名网关收到任何 Bearer（哪怕是假的）都会 401。
+    anonymous: true,
+    anonymousModel: 'kilo-auto/free',
+  },
 ];
 
 export const API_PROTOCOL_PRESETS = [

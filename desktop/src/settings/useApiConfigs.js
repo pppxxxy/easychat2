@@ -153,6 +153,7 @@ export default function useApiConfigs() {
     if (busyRef.current) return;
     if (!(await confirmDiscard())) return;
     const auth = (preset && preset.auth) || {};
+    const anonymous = preset && preset.anonymous === true;
     const created = createApiConfig({
       name: preset ? tRef.current(preset.nameKey) : tRef.current('apiPreset.numberedName', { index: configs.length + 1 }),
       baseUrl: (preset && preset.baseUrl) || '',
@@ -161,8 +162,11 @@ export default function useApiConfigs() {
       authHeader: auth.header || 'Authorization',
       authScheme: auth.prefix === undefined ? 'Bearer ' : auth.prefix,
       apiKeyUrl: (preset && preset.apiKeyUrl) || '',
-      models: [],
-      activeModel: '',
+      anonymous,
+      // 匿名预设把默认模型一起带上：否则用户还得自己去点「检测模型」，
+      // 而匿名 /models 虽然可取（实测 200），却会返回几百个含付费的模型。
+      models: anonymous && preset.anonymousModel ? [preset.anonymousModel] : [],
+      activeModel: anonymous && preset.anonymousModel ? preset.anonymousModel : '',
     });
     await runPersist([...configs, created], created.id);
   }, [configs, confirmDiscard, runPersist]);
@@ -267,7 +271,8 @@ export default function useApiConfigs() {
     if (!active || detecting) return;
     const baseUrl = String(active.baseUrl || '').trim();
     const apiKey = String(active.apiKey || '').trim();
-    if (!baseUrl || !apiKey) {
+    // 匿名配置不需要 key（网关按 IP 限流）；有 key 的非匿名配置照旧必须填。
+    if (!baseUrl || (!apiKey && active.anonymous !== true)) {
       Alert.alert(tRef.current('settings.api.fillRequired'));
       return;
     }

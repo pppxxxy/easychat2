@@ -79,6 +79,10 @@ function normalizeApiConfig(raw, index = 0) {
     name: String(source.name || tActive('apiPreset.numberedName', { index: index + 1 })),
     baseUrl: typeof source.baseUrl === 'string' ? source.baseUrl : DEFAULT_API_CONFIG.baseUrl,
     apiKey: String(source.apiKey || ''),
+    // 匿名网关（Kilo Gateway 免费模型等）：按 IP 限流、**不接收鉴权头**。
+    // 显式存布尔而不是「key 为空即匿名」——后者会让任何漏填 key 的配置悄悄变成
+    // 匿名请求，用户看到的是 401/429 而不是「没填 Key」。
+    anonymous: source.anonymous === true,
     vendorId: String(source.vendorId || ''),
     protocol: normalizeProtocol(source.protocol),
     // P1-1：Anthropic 显式缓存断点的 TTL（'off' / '5m' / '1h'）。只对 anthropic 协议生效，

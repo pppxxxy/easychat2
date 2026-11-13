@@ -36,6 +36,11 @@ export function normalizeProtocolUrl(protocol, baseUrl) {
 // 鉴权头：沿用 config.authHeader/authScheme，未配置时按协议给默认值
 // （OpenAI 系 Authorization: Bearer；Anthropic 系 x-api-key）。
 //
+// config.anonymous === true 时**完全不发鉴权头**。这不是「空 key 的另一种写法」：
+// Kilo 网关这类匿名网关按 IP 限流，收到 `Authorization: Bearer sk-xxx` 会直接 401
+// （实测：假 key → INVALID_TOKEN；不发该头 → 200）。空字符串 scheme 仍然会发出
+// `Authorization: ` 这个头，行为取决于网关实现，因此这里直接删掉整条头。
+//
 // v5 修复 F2：OpenRouter 推荐带 HTTP-Referer / X-Title 用于排行榜归属（可选）。
 // 仅当 baseUrl 命中 openrouter.ai 时附加，不影响其它厂商请求头。
 export function buildRequestHeaders(protocol, config, { stream = true } = {}) {
@@ -49,7 +54,9 @@ export function buildRequestHeaders(protocol, config, { stream = true } = {}) {
   const scheme = source.authScheme === undefined || source.authScheme === null
     ? (protocol === 'anthropic' ? '' : 'Bearer ')
     : String(source.authScheme);
-  headers[header] = `${scheme}${String(source.apiKey || '')}`;
+  if (source.anonymous !== true) {
+    headers[header] = `${scheme}${String(source.apiKey || '')}`;
+  }
   if (protocol === 'anthropic') {
     headers['anthropic-version'] = String(source.anthropicVersion || '2023-06-01');
   }

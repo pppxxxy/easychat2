@@ -89,6 +89,7 @@ export function getConfigFingerprint(config) {
     String(source.baseUrl || ''),
     String(getActiveModel(source) || ''),
     String(source.apiKey || ''),
+    source.anonymous === true, // 匿名开关进指纹：中途切换身份要中止在途请求。
     String(source.authHeader || 'Authorization'),
     String(source.authScheme === undefined ? 'Bearer ' : source.authScheme),
     normalizeProtocol(source.protocol),
@@ -275,9 +276,8 @@ export async function streamChatCompletion(messages, options = {}) {
   }
   // 登记当前密钥：报错文本可能带出裸 Key，脱敏时才能按真实值兜住
   registerSecretValues([config.apiKey]);
-  if (!config.apiKey) {
-    throw new Error(tActive('error.api.apiKeyMissing'));
-  }
+  // 匿名声明的网关（Kilo Gateway 等，按 IP 限流）要求不带鉴权头，故不要求 key。
+  if (config.anonymous !== true && !config.apiKey) throw new Error(tActive('error.api.apiKeyMissing'));
   // ⚠️ 引用串绝不能出网（2026-10-12）：hydrate 在「安全存储可用但单条读不回」时**刻意保留**
   // 原引用串（回填空串会让用户保存时明文覆盖 ⇒ SecureStore 旧记录成孤儿 ⇒ 不可逆丢失，
   // 见 secretStore 的读侧纪律）；代价是它在内存里、网络层是唯一出口 ⇒ 这里 fail-closed。

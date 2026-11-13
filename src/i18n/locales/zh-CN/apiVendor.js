@@ -20,6 +20,8 @@ export const apiVendor = {
   'apiVendor.nvidiaNim.note': '响应极慢，经常需一分钟以上；限流严格（40 次/分钟）；模型名请参考官方文档。',
   'apiVendor.amdRadeonCloud.name': 'AMD 开发者计划（Radeon Cloud Token Factory）',
   'apiVendor.amdRadeonCloud.note': '登录后进入 Radeon Cloud Token Factory 控制台，在 API Keys 页面创建；Base URL 使用 https://developer.amd.com.cn/radeon/api/v1。每日 $1 等值额度（北京时间早 8 点重置）；限流严格，响应极慢；免费模型包括 DeepSeek、Qwen 等。',
+  'apiVendor.kiloGateway.name': 'Kilo Gateway（匿名免费）',
+  'apiVendor.kiloGateway.note': '按 IP 限流的匿名网关，无需 API Key：每小时 200 次，仅 id 带 :free 的模型免费（如 kilo-auto/free）。默认模型 kilo-auto/free 会自动挑一个可用的免费模型；部分 :free 模型可能临时不可用（报 unavailable_model），换个模型即可。匿名请求不发送任何鉴权头——填了 Key 反而会被判 401。注意：免费路由可能记录提示词与输出，不要发送隐私内容。',
   'apiProtocol.openai.name': 'OpenAI 兼容协议（Chat Completions）',
   'apiProtocol.openai.note': '标准 /v1/chat/completions，Bearer 鉴权。',
   'apiProtocol.openaiResponses.name': 'OpenAI Responses 协议',

@@ -20,6 +20,8 @@ export const apiVendor = {
   'apiVendor.nvidiaNim.note': 'Very slow responses, often over a minute; strict rate limit (40 requests/minute); see the official docs for model names.',
   'apiVendor.amdRadeonCloud.name': 'AMD Developer Program (Radeon Cloud Token Factory)',
   'apiVendor.amdRadeonCloud.note': 'Sign in and go to the Radeon Cloud Token Factory console to create one on the API Keys page; use https://developer.amd.com.cn/radeon/api/v1 as the Base URL. Daily credit equivalent to $1 (resets 8am Beijing time); strict rate limit and very slow responses; free models include DeepSeek, Qwen and more.',
+  'apiVendor.kiloGateway.name': 'Kilo Gateway (anonymous, free)',
+  'apiVendor.kiloGateway.note': 'Anonymous gateway rate-limited by IP, no API key needed: 200 requests per hour, and only models whose id ends in :free are free (e.g. kilo-auto/free). The default model kilo-auto/free picks an available free model automatically; some :free models may be temporarily unavailable (unavailable_model) — just switch models. Anonymous requests send no auth header at all: supplying a key makes the gateway answer 401. Note: free routes may log prompts and outputs, so do not send private content.',
   'apiProtocol.openai.name': 'OpenAI-compatible (Chat Completions)',
   'apiProtocol.openai.note': 'Standard /v1/chat/completions with Bearer auth.',
   'apiProtocol.openaiResponses.name': 'OpenAI Responses protocol',

@@ -73,6 +73,14 @@ npm run dist:desktop   # 打包未签名安装包（NSIS）与免安装 zip 到 
 
 > 本项目提供 `npm test` Node 回归测试；原生模块、WebView、权限和触摸交互仍需运行 `npm run start` 并手动走通受影响路径。
 
+桌面版还内置 **Kilo Gateway 匿名免费**预设（设置 → API 配置 → 新增 → Kilo Gateway）：
+按 IP 限流（约 200 次/小时），无需 API Key，仅 `:free` 模型免费。这类网关要求请求
+**不带鉴权头**，因此该配置会打开「匿名调用」开关——填了 Key 反而会被判 401。
+想连真实网络验证整条链路，可用 `cd desktop && npm run smoke:kilo`（走真实免费模型，
+不启动本地 mock；免费池限流或模型临时下线时会失败）。
+
+> 桌面版内置 **Kilo Gateway 匿名免费**预设——中文说明见上，英文见下。
+
 ## 使用指南
 
 应用由五个底部标签页组成：聊天 / 记忆 / 角色 / 扩展 / 设置。

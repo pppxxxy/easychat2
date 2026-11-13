@@ -252,15 +252,28 @@ export default function ApiCard({ api, palette, fonts }) {
               />
             </Field>
           ) : null}
-          <Field label="API Key" palette={palette} fonts={fonts}>
-            <SecretInput
-              value={active.apiKey}
-              onChange={value => api.updateField({ apiKey: value })}
-              placeholder="sk-..."
-              palette={palette}
-              fonts={fonts}
-            />
-          </Field>
+          <Toggle
+            checked={active.anonymous === true}
+            onChange={value => api.updateField({ anonymous: value })}
+            label={t('settings.api.anonymous')}
+            palette={palette}
+            fonts={fonts}
+          />
+          {active.anonymous === true ? (
+            <div style={{ fontSize: fonts.scaled(11), color: palette.textMuted, lineHeight: 1.6 }}>
+              {t('settings.api.anonymousHint')}
+            </div>
+          ) : (
+            <Field label="API Key" palette={palette} fonts={fonts}>
+              <SecretInput
+                value={active.apiKey}
+                onChange={value => api.updateField({ apiKey: value })}
+                placeholder="sk-..."
+                palette={palette}
+                fonts={fonts}
+              />
+            </Field>
+          )}
           {active.apiKeyUrl ? (
             <button
               type="button"

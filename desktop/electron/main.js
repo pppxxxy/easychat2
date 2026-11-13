@@ -159,9 +159,27 @@ function seedSmokeApiConfig(kvStore, baseUrl) {  // 存储形状与 src/storage/
       activeModel: 'mock-model',
       // 附件冒烟需要识图能力（否则发送前的视觉门控会拦下图）。
       modelCapabilities: { 'mock-model': { supportsVision: true, supportsVideo: true } },
-    }],
-    activeId: 'cfg-smoke',
+    }].concat(kiloConfigs()),
+    activeId: KILO_LIVE ? KILO_CONFIG.id : 'cfg-smoke',
   }));
+}
+
+// 实时 Kilo 匿名模式（EASYCHAT2_KILO_LIVE=1）：只放 Kilo 一条配置并设为当前，
+// 整个冒烟改判「真实网络链路是否跑通」（见下方评价分支）。普通冒烟完全不碰外网。
+const KILO_LIVE = process.env.EASYCHAT2_KILO_LIVE === '1';
+const KILO_CONFIG = {
+  id: 'cfg-kilo-anon',
+  name: 'Kilo Gateway (anonymous)',
+  baseUrl: 'https://ai-gateway.kilo.ai/api/v1',
+  apiKey: '',
+  protocol: 'openai',
+  anonymous: true,
+  models: ['kilo-auto/free'],
+  activeModel: 'kilo-auto/free',
+  vendorId: 'kilo-gateway',
+};
+function kiloConfigs() {
+  return KILO_LIVE ? [KILO_CONFIG] : [];
 }
 
 // 冒烟用表情包：真实落盘 + 真实存储键（索引 + 单条分键），用于验证面板加载与发送。
@@ -240,13 +258,22 @@ function createWindow() {
   mainWindow.webContents.once('did-finish-load', async () => {
     if (!SMOKE) return;
     try {
+      // 把模式标记先写进渲染层：探针据此决定是否跳过依赖本地 mock 的段落。
+      await mainWindow.webContents.executeJavaScript(
+        `globalThis.__easychat2KiloLive = ${KILO_LIVE ? 'true' : 'false'};`,
+        true
+      );
       const probe = await mainWindow.webContents.executeJavaScript(SMOKE_PROBE, true);
       // 等 React 首帧渲染完成再截图。
       await new Promise(resolve => setTimeout(resolve, 500));
       const image = await mainWindow.webContents.capturePage();
       const screenshot = path.join(app.getPath('userData'), 'smoke.png');
       writeFileSync(screenshot, image.toPNG());
-      const ok = !!(
+      // 两套判据，按模式二选一：
+      //   · 普通冒烟（本地 mock）：整条链路逐项断言（含新界面与分支）；
+      //   · Kilo 实时模式：只判「真实网络链路跑通」——mock 模型与依赖它的
+      //     渲染/附件/贴纸/分支探针在该模式下必然拿不到预期回复。
+      const baseOk = !!(
         probe
         && probe.bridge === true
         && probe.kv === 'ok'
@@ -257,6 +284,11 @@ function createWindow() {
         && probe.s2.loaded
         && probe.s2.counts.characters >= 1
         && probe.s2.counts.sessions >= 1
+        && probe.firstRun
+        && probe.firstRun.attempted
+      );
+      const mockOk = !!(
+        baseOk
         && probe.chat
         && probe.chat.attempted
         && probe.chat.replySeen
@@ -285,8 +317,6 @@ function createWindow() {
         && probe.backup
         && probe.backup.attempted
         && probe.backup.panelSeen
-        && probe.firstRun
-        && probe.firstRun.attempted
         && probe.settings
         && probe.settings.attempted
         && probe.settings.loaded
@@ -317,6 +347,14 @@ function createWindow() {
         && probe.branch.navSeen
         && probe.branch.switchedBack
       );
+      const kiloOk = !!(
+        baseOk
+        && probe.kilo
+        && probe.kilo.attempted
+        && probe.kilo.sendAttempted
+        && probe.kilo.replySeen
+      );
+      const ok = KILO_LIVE ? kiloOk : mockOk;
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
     } catch (error) {
@@ -362,7 +400,9 @@ app.whenReady().then(() => {
   const kvStore = createKvStore({ root: path.join(paths.userData, 'kv') });
   if (SMOKE) {
     seedSmokeSticker(paths.documentsRoot, kvStore);
-    startSmokeModelServer().then(({ baseUrl }) => {
+    // Kilo 实时模式不启动本地 mock：请求必须真的出网。
+    if (KILO_LIVE) seedSmokeApiConfig(kvStore, '');
+    else startSmokeModelServer().then(({ baseUrl }) => {
       seedSmokeApiConfig(kvStore, baseUrl);
     });
   }

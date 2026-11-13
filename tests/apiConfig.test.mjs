@@ -336,3 +336,21 @@ test('降级模型（P0-7）：落盘即归一，未配置是空数组', () => {
 test('空回复占位文本保持稳定判等', () => {
   assert.equal(String(` ${EMPTY_REPLY_TEXT} `).trim(), EMPTY_REPLY_TEXT);
 });
+
+test('normalizeApiConfig 保留 anonymous 布尔，且不能被字符串真值误开', () => {
+  // 匿名开关必须是显式 true：字符串 'true' 不该打开——否则任何手改配置
+  // 都能让请求悄悄去掉鉴权头。跑的是真实现（上面用 Babel + 桩加载的那份）。
+  const off = realApiConfigs.createApiConfig({ name: 'x', baseUrl: 'https://a.test', anonymous: 'true' });
+  assert.equal(off.anonymous, false);
+  const on = realApiConfigs.createApiConfig({ name: 'x', baseUrl: 'https://a.test', anonymous: true });
+  assert.equal(on.anonymous, true);
+});
+
+test('指纹包含 anonymous：切换匿名状态会中止在途请求', () => {
+  const base = { id: 'cfg-1', baseUrl: 'https://a.test', apiKey: '', models: ['m'], activeModel: 'm' };
+  assert.notEqual(
+    getConfigFingerprint({ ...base, anonymous: true }),
+    getConfigFingerprint({ ...base, anonymous: false }),
+    '匿名开关必须进指纹'
+  );
+});
