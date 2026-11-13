@@ -150,7 +150,7 @@ function ErrorBubble({ message, palette, fonts }) {
   );
 }
 
-export default function MessageRow({ message, palette, fonts, onRegenerate, onCommand }) {
+export default function MessageRow({ message, palette, fonts, onRegenerate, onCommand, onMenu }) {
   const { t } = useTranslation();
   const kind = resolveMessageRenderKind(message);
   const markdown = useMemo(
@@ -170,7 +170,14 @@ export default function MessageRow({ message, palette, fonts, onRegenerate, onCo
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
+    <div
+      style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 12 }}
+      onContextMenu={event => {
+        if (!onMenu || message.pending) return;
+        event.preventDefault();
+        onMenu(message, { x: event.clientX + 2, y: event.clientY + 2 });
+      }}
+    >
       {isError ? (
         <ErrorBubble message={message} palette={palette} fonts={fonts} />
       ) : (
@@ -215,22 +222,70 @@ export default function MessageRow({ message, palette, fonts, onRegenerate, onCo
           {message.pending && !isMedia && kind !== RENDER_KIND.PENDING ? (
             <span style={{ opacity: 0.65 }}> …</span>
           ) : null}
-          {!isUser && !message.pending && onRegenerate ? (
+          {!isUser && !message.pending ? (
+            <>
+              {onRegenerate ? (
+                <button
+                  type="button"
+                  onClick={() => onRegenerate(message.id)}
+                  title={t('chat.bubble.regenerate')}
+                  style={{
+                    marginLeft: 10,
+                    background: 'transparent',
+                    border: 'none',
+                    color: palette.textMuted,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    padding: 0,
+                  }}
+                >
+                  ↻
+                </button>
+              ) : null}
+              {typeof onMenu === 'function' ? (
+                <button
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onMenu(message, { x: rect.left, y: rect.bottom + 4 });
+                  }}
+                  title={t('chat.bubble.moreA11y')}
+                  style={{
+                    marginLeft: 8,
+                    background: 'transparent',
+                    border: 'none',
+                    color: palette.textFaint,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    padding: 0,
+                  }}
+                >
+                  ⋯
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          {isUser && !message.pending && typeof onMenu === 'function' ? (
             <button
               type="button"
-              onClick={() => onRegenerate(message.id)}
-              title={t('chat.bubble.regenerate')}
+              onClick={event => {
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                onMenu(message, { x: rect.left - 180, y: rect.bottom + 4 });
+              }}
+              title={t('chat.bubble.moreA11y')}
               style={{
-                marginLeft: 10,
+                marginLeft: 8,
                 background: 'transparent',
                 border: 'none',
-                color: palette.textMuted,
+                color: 'rgba(0,0,0,0.4)',
                 cursor: 'pointer',
-                fontSize: 12,
+                fontSize: 13,
                 padding: 0,
               }}
             >
-              ↻
+              ⋯
             </button>
           ) : null}
         </div>

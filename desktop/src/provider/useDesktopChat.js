@@ -255,6 +255,7 @@ export default function useDesktopChat() {
     ready,
     greetingReady,
     isSending,
+    characterName: String((character && character.name) || ''),
     input,
     onInputChange,
     sendText: send.sendText,

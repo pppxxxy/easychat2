@@ -1,7 +1,7 @@
 import { CHAT_API_VENDORS, THIRD_PARTY_RELAY_RISK } from '../network/apiVendors.js';
 import { IMAGE_PROVIDERS } from '../imageGen/providers.js';
 import { tActive } from '../i18n/index.js';
-import { DISCLAIMER_SECTIONS } from './disclaimer.js';
+import { DISCLAIMER_SECTIONS } from './disclaimerContent.js';
 import { ONBOARDING_CHAPTERS_BATCH2 } from './onboardingContentBatch2.js';
 import { getOnboardingChaptersEn } from './onboardingContentEn.js';
 

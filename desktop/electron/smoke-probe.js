@@ -44,6 +44,22 @@
 
   const bridge = window.easychat2;
   if (!bridge) return { bridge: false };
+  // ---- 首启门禁：关掉免责声明与教程（冒烟每次都是干净 profile，必然弹出）----
+  let firstRun = { attempted: false };
+  try {
+    const accept = await waitFor(() => Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent === '我知道了' || button.textContent === 'I understand'), 8000);
+    if (accept) {
+      accept.click();
+      // 同意后会进入教程（若未完成）；点「跳过」。
+      const skip = await waitFor(() => Array.from(document.querySelectorAll('button'))
+        .find(button => button.textContent === '跳过' || button.textContent === 'Skip'), 8000);
+      if (skip) skip.click();
+    }
+    firstRun = { attempted: true, dismissed: !document.body.innerText.includes('免责条款') || !!accept };
+  } catch (error) {
+    firstRun = { attempted: true, error: String((error && error.message) || error) };
+  }
   const dir = bridge.app.paths.documentDirectory;
   const key = '@easychat2_smoke_test';
   await bridge.kv.set(key, 'ok');
@@ -281,8 +297,53 @@
     backup = { attempted: true, error: String((error && error.message) || error) };
   }
 
+  // ---- S7：设置页（API 配置/采样/人设/外观/对话体验）与消息操作可达性 ----
+  let settings = { attempted: false };
+  try {
+    const settingsTab = Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent === '设置' || button.textContent === 'Settings');
+    if (!settingsTab) throw new Error('settings tab not found');
+    settingsTab.click();
+    const loaded = await waitFor(() => {
+      const text = document.body.innerText || '';
+      const hasApi = text.includes('API 配置') || text.includes('API Configuration');
+      const hasSave = text.includes('保存配置') || text.includes('Save configuration');
+      const hasModels = text.includes('模型列表') || text.includes('Model list');
+      return hasApi && hasSave && hasModels;
+    }, 8000);
+    // 分区导航逐项可达（点一个非默认分区，确认内容切换）。
+    const sections = ['生成参数', '用户人设', '外观', '全局配置'];
+    let visited = 0;
+    for (const label of sections) {
+      const button = Array.from(document.querySelectorAll('nav button'))
+        .find(item => item.textContent === label
+          || (label === '生成参数' && item.textContent === 'Sampling')
+          || (label === '用户人设' && item.textContent === 'User persona')
+          || (label === '外观' && item.textContent === 'Appearance')
+          || (label === '全局配置' && item.textContent === 'Global settings'));
+      if (!button) continue;
+      button.click();
+      const ok = await waitFor(() => {
+        const text = document.body.innerText || '';
+        if (label === '生成参数') return text.includes('温度') || text.includes('Temperature');
+        if (label === '用户人设') return text.includes('我的身份') || text.includes('My identity');
+        if (label === '外观') return text.includes('字体大小') || text.includes('Font size');
+        return text.includes('流式输出') || text.includes('Streaming');
+      }, 4000);
+      if (ok) visited += 1;
+    }
+    settings = { attempted: true, loaded: !!loaded, sectionsVisited: visited, sectionsTotal: sections.length };
+    // 回到聊天页，避免影响后续截图。
+    const chatTab = Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent === '聊天' || button.textContent === 'Chat');
+    if (chatTab) chatTab.click();
+  } catch (error) {
+    settings = { attempted: true, error: String((error && error.message) || error) };
+  }
+
   return {
     bridge: true,
+    firstRun,
     kv: kvValue,
     fs: fsText,
     exists: !!stat.exists,
@@ -299,5 +360,6 @@
     attachment,
     sticker,
     backup,
+    settings,
   };
 })()

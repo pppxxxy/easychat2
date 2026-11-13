@@ -285,6 +285,12 @@ function createWindow() {
         && probe.backup
         && probe.backup.attempted
         && probe.backup.panelSeen
+        && probe.firstRun
+        && probe.firstRun.attempted
+        && probe.settings
+        && probe.settings.attempted
+        && probe.settings.loaded
+        && probe.settings.sectionsVisited >= 3
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);

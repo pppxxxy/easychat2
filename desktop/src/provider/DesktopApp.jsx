@@ -15,15 +15,20 @@ import { AppProvider, useApp } from '../../../src/context/AppContext.js';
 import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
 import { ThemeProvider, useTheme } from '../../../src/theme/ThemeContext.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
-import { Alert, resolveAlert, subscribeAlert } from '../platform/alert.js';
-import AttachmentChips from '../attachments/AttachmentChips.jsx';
-import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
+import { resolveAlert, subscribeAlert, Alert } from '../platform/alert.js';
+import { getBridge } from '../platform/bridge.js';
+import {
+  acknowledgeDisclaimer,
+  completeOnboarding,
+  isDisclaimerAcknowledged,
+  isOnboardingDone,
+} from '../../../src/storage/settings.js';
 import BackupPanel from '../backup/BackupPanel.jsx';
-import MessageRow from '../render/MessageRow.jsx';
-import StickerNameDialog from '../stickers/StickerNameDialog.jsx';
-import StickerPanel from '../stickers/StickerPanel.jsx';
-import useDesktopStickers from '../stickers/useDesktopStickers.js';
-import useDesktopChat from './useDesktopChat.js';
+import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
+import SettingsScreen from '../settings/SettingsScreen.jsx';
+import TutorialDialog from '../settings/TutorialDialog.jsx';
+import ChatPane from './ChatPane.jsx';
+import SessionsPanel from './SessionsPanel.jsx';
 
 const DEFAULT_NEW_CHARACTER = {
   name: 'New Character',
@@ -116,291 +121,6 @@ function AlertHost({ palette, fonts }) {
   );
 }
 
-function ChatPane({ palette, fonts, t }) {
-  const chat = useDesktopChat();
-  const {
-    messages,
-    isSending,
-    input,
-    onInputChange,
-    sendText,
-    regenerateMessage,
-    modelFallbackNotice,
-    scrollRef,
-    onMessagesScroll,
-    autoScrollToBottom,
-    ready,
-    attachments,
-  } = chat;
-  const lastCountRef = useRef(0);
-  const [dragOver, setDragOver] = useState(false);
-  const attach = useDesktopAttachments({
-    attachments,
-    attachmentsRef: chat.attachmentsRef,
-    setAttachments: chat.setAttachments,
-    isSending,
-    ready,
-    captureSessionGuard: chat.captureSessionGuard,
-    isSessionGuardCurrent: chat.isSessionGuardCurrent,
-  });
-  const hasAttachments = attach.attachments.length > 0;
-  const stickersApi = useDesktopStickers({
-    ready,
-    isSending,
-    captureSessionGuard: chat.captureSessionGuard,
-    isSessionGuardCurrent: chat.isSessionGuardCurrent,
-    sendMessage: chat.sendMessage,
-    getInput: chat.getInput,
-  });
-
-  useEffect(() => {
-    globalThis.__easychat2Chat = {
-      ready,
-      greetingReady: chat.greetingReady,
-      isSending,
-      input: String(input || ''),
-      messages: messages.length,
-      attachments: attach.attachments.length,
-    };
-  }, [ready, chat.greetingReady, isSending, input, messages.length, attach.attachments.length]);
-
-  useEffect(() => {
-    if (messages.length !== lastCountRef.current) {
-      lastCountRef.current = messages.length;
-      autoScrollToBottom();
-    }
-  }, [messages, autoScrollToBottom]);
-
-  const submit = () => {
-    const text = String(input || '').trim();
-    globalThis.__easychat2Submit = {
-      calls: ((globalThis.__easychat2Submit && globalThis.__easychat2Submit.calls) || 0) + 1,
-      text,
-      attachments: attach.attachments.length,
-      isSending,
-      ready,
-      timestamp: Date.now(),
-    };
-    if ((!text && !hasAttachments) || isSending || !ready) return;
-    // 冒烟/排查用：记录 sendText 的返回值或异常（不改变正常流程）。
-    const result = sendText(text);
-    const snapshotErrors = () => {
-      try {
-        return JSON.parse(JSON.stringify(chat.errorRawRef.current || {}));
-      } catch (error) {
-        return null;
-      }
-    };
-    if (result && typeof result.then === 'function') {
-      result.then(value => {
-        globalThis.__easychat2Send = { ok: value !== false, value: String(value), rawErrors: snapshotErrors() };
-      }).catch(error => {
-        globalThis.__easychat2Send = { ok: false, error: String((error && error.message) || error), rawErrors: snapshotErrors() };
-      });
-    }
-  };
-
-  const composerDisabled = isSending || !ready || attach.loading;
-  const canSend = !isSending && ready && (!!String(input || '').trim() || hasAttachments);
-  const iconButton = {
-    width: 40,
-    height: 40,
-    flex: 'none',
-    background: 'transparent',
-    color: palette.text,
-    border: `1px solid ${palette.divider}`,
-    borderRadius: 10,
-    cursor: composerDisabled ? 'default' : 'pointer',
-    fontSize: 17,
-    lineHeight: 1,
-  };
-
-  return (
-    <div
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}
-      onDragOver={event => {
-        if (!event.dataTransfer) return;
-        const types = Array.from(event.dataTransfer.types || []);
-        if (!types.includes('Files')) return;
-        event.preventDefault();
-        if (!dragOver) setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={event => {
-        event.preventDefault();
-        setDragOver(false);
-        const files = event.dataTransfer && event.dataTransfer.files;
-        if (files && files.length > 0) attach.addFiles(files);
-      }}
-    >
-      <div
-        ref={scrollRef}
-        onScroll={onMessagesScroll}
-        style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}
-      >
-        {messages.map(message => (
-          <MessageRow
-            key={message.id || `${message.role}-${message.text}`}
-            message={message}
-            palette={palette}
-            fonts={fonts}
-            onRegenerate={regenerateMessage}
-            onCommand={command => onInputChange(command)}
-          />
-        ))}
-      </div>
-      {dragOver ? (
-        <div style={{
-          position: 'absolute',
-          inset: 10,
-          zIndex: 5,
-          border: `2px dashed ${palette.primary}`,
-          borderRadius: 14,
-          background: 'rgba(0,0,0,0.35)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          pointerEvents: 'none',
-          color: palette.text,
-          fontSize: fonts.scaled(15),
-          fontWeight: 700,
-        }}
-        >
-          {t('chat.attach.dropHint')}
-        </div>
-      ) : null}
-      {modelFallbackNotice ? (
-        <div style={{ padding: '4px 20px', color: palette.textMuted, fontSize: fonts.scaled(12) }}>
-          {String(modelFallbackNotice.text || modelFallbackNotice.model || '')}
-        </div>
-      ) : null}
-      <AttachmentChips
-        attachments={attach.attachments}
-        palette={palette}
-        fonts={fonts}
-        disabled={isSending}
-        onRemove={attach.removeAttachment}
-      />
-      {stickersApi.panelOpen ? (
-        <StickerPanel
-          stickers={stickersApi.stickers}
-          palette={palette}
-          fonts={fonts}
-          busy={stickersApi.busy}
-          disabled={isSending || !ready}
-          onSend={stickersApi.sendSticker}
-          onImport={stickersApi.importSticker}
-          onClose={() => stickersApi.setPanelOpen(false)}
-        />
-      ) : null}
-      <div style={{ borderTop: `1px solid ${palette.divider}`, padding: 12, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-        <button
-          type="button"
-          title={t('chat.attach.image.title')}
-          onClick={attach.pickImages}
-          disabled={composerDisabled}
-          style={iconButton}
-        >
-          🖼
-        </button>
-        <button
-          type="button"
-          title={t('chat.attach.video.title')}
-          onClick={attach.pickVideos}
-          disabled={composerDisabled}
-          style={iconButton}
-        >
-          🎬
-        </button>
-        <button
-          type="button"
-          title={t('chat.attach.text.title')}
-          onClick={attach.pickText}
-          disabled={composerDisabled}
-          style={iconButton}
-        >
-          📄
-        </button>
-        <button
-          type="button"
-          title={t('chat.sticker.title')}
-          onClick={stickersApi.togglePanel}
-          disabled={composerDisabled}
-          style={{ ...iconButton, background: stickersApi.panelOpen ? palette.surfaceAlt : 'transparent' }}
-        >
-          😀
-        </button>
-        <button
-          type="button"
-          title={t('chat.attach.voice.title')}
-          onClick={() => Alert.alert(t('chat.attach.voice.title'), t('chat.attach.voiceUnsupported'))}
-          style={iconButton}
-        >
-          🎤
-        </button>
-        <textarea
-          value={input}
-          onChange={event => onInputChange(event.target.value)}
-          onKeyDown={event => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          onPaste={event => {
-            const files = event.clipboardData && event.clipboardData.files;
-            if (files && files.length > 0) {
-              event.preventDefault();
-              attach.addFiles(files);
-            }
-          }}
-          placeholder={t('chat.composer.placeholder')}
-          rows={2}
-          style={{
-            flex: 1,
-            resize: 'none',
-            background: palette.surface,
-            color: palette.text,
-            border: `1px solid ${palette.divider}`,
-            borderRadius: 10,
-            padding: '10px 12px',
-            fontSize: fonts.scaled(14),
-            fontFamily: 'inherit',
-            outline: 'none',
-          }}
-        />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!canSend}
-          style={{
-            background: isSending ? palette.surfaceAlt : palette.primary,
-            color: isSending ? palette.textMuted : palette.primaryContrast,
-            border: 'none',
-            borderRadius: 10,
-            padding: '10px 16px',
-            fontWeight: 700,
-            cursor: isSending ? 'default' : 'pointer',
-            fontSize: fonts.scaled(13),
-          }}
-        >
-          {isSending ? '…' : t('chat.send.action')}
-        </button>
-      </div>
-      <StickerNameDialog
-        pending={stickersApi.pending}
-        nameDraft={stickersApi.nameDraft}
-        palette={palette}
-        fonts={fonts}
-        busy={stickersApi.busy}
-        onChange={stickersApi.setNameDraft}
-        onCancel={stickersApi.cancelPending}
-        onSave={stickersApi.confirmSave}
-      />
-    </div>
-  );
-}
-
 function Shell() {
   const { t, localeId, setLocaleId } = useTranslation();
   const { theme, fonts, themeId, setThemeId, themes } = useTheme();
@@ -417,13 +137,49 @@ function Shell() {
     ensureCharacterSession,
     switchSession,
     deleteSession,
+    pinSession,
+    cloneSession,
+    refreshSessions,
     updateCharacter,
     refreshAppData,
   } = useApp();
   const [busy, setBusy] = useState('');
   const [showSessions, setShowSessions] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [view, setView] = useState('chat');
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [firstRunStage, setFirstRunStage] = useState('loading');
+  const [appVersion, setAppVersion] = useState('');
   const ensuredRef = useRef(false);
+
+  // 首启门禁：未同意免责条款先看免责声明，同意了但没看完教程再看教程（与 App.js
+  // StartupFlow 同一顺序），完成后才允许进入主界面。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const acknowledged = await isDisclaimerAcknowledged();
+        if (cancelled) return;
+        if (!acknowledged) {
+          setFirstRunStage('disclaimer');
+          return;
+        }
+        const done = await isOnboardingDone();
+        if (cancelled) return;
+        setFirstRunStage(done ? 'done' : 'onboarding');
+      } catch (error) {
+        if (!cancelled) setFirstRunStage('disclaimer');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    getBridge().app.info()
+      .then(info => setAppVersion(String((info && info.version) || '')))
+      .catch(() => {});
+  }, []);
 
   const activeCharacter = characters.find(character => character.id === activeId) || null;
   const characterSessions = useMemo(
@@ -561,17 +317,40 @@ function Shell() {
           </span>
           {startupError ? <span style={{ color: palette.danger || '#ff8787', fontSize: fonts.scaled(12) }}>{String(startupError.title || 'startup error')}</span> : null}
           <span style={{ flex: 1 }} />
+          {[
+            { id: 'chat', label: t('app.tab.chat'), action: () => setView('chat') },
+            { id: 'settings', label: t('app.tab.settings'), action: () => setView('settings') },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              style={{ ...ghost, background: view === tab.id && !showSessions && !showBackup ? palette.surfaceAlt : 'transparent' }}
+              onClick={() => {
+                setView(tab.id);
+                setShowSessions(false);
+                setShowBackup(false);
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
           <button
             type="button"
             style={{ ...ghost, background: showBackup ? palette.surfaceAlt : 'transparent' }}
-            onClick={() => setShowBackup(value => !value)}
+            onClick={() => {
+              setShowBackup(value => !value);
+              setShowSessions(false);
+            }}
           >
             {t('backup.title')}
           </button>
           <button
             type="button"
             style={{ ...ghost, background: showSessions ? palette.surfaceAlt : 'transparent' }}
-            onClick={() => setShowSessions(value => !value)}
+            onClick={() => {
+              setShowSessions(value => !value);
+              setShowBackup(false);
+            }}
           >
             {t('app.tab.memory')}
           </button>
@@ -586,43 +365,30 @@ function Shell() {
         </header>
 
         {showSessions ? (
-          <section style={{ flex: 1, overflow: 'auto', padding: 20 }}>
-            <div style={{ color: palette.textMuted, fontSize: fonts.scaled(12), marginBottom: 10 }}>
-              {activeCharacter ? activeCharacter.name : '—'} · {t('app.tab.memory')} ({characterSessions.length})
-            </div>
-            {characterSessions.map(session => (
-              <div
-                key={session.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => { switchSession(session.id); setShowSessions(false); }}
-                onKeyDown={event => { if (event.key === 'Enter') { switchSession(session.id); setShowSessions(false); } }}
-                style={{
-                  ...row,
-                  cursor: 'pointer',
-                  background: session.id === activeSessionId ? palette.surfaceAlt : palette.surface,
-                  border: `1px solid ${session.id === activeSessionId ? palette.primaryMuted : palette.divider}`,
-                  marginBottom: 6,
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span style={{ fontSize: fonts.scaled(13) }}>{session.title || session.id.slice(0, 12)}</span>
-                <button
-                  type="button"
-                  style={{ ...ghost, padding: '2px 8px' }}
-                  disabled={!!busy}
-                  onClick={event => {
-                    event.stopPropagation();
-                    run('deleteSession', () => deleteSession(session.id));
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </section>
+          <SessionsPanel
+            palette={palette}
+            fonts={fonts}
+            character={activeCharacter}
+            sessions={characterSessions}
+            activeSessionId={activeSessionId}
+            busy={busy}
+            onSwitch={id => { switchSession(id); setShowSessions(false); }}
+            onDelete={id => run('deleteSession', () => deleteSession(id))}
+            onPin={id => run('pinSession', () => pinSession(id)).then(() => refreshSessions().catch(() => {}))}
+            onClone={id => run('cloneSession', () => cloneSession(id))}
+            onRenameDone={() => refreshSessions().catch(() => {})}
+          />
+        ) : view === 'settings' ? (
+          <SettingsScreen
+            palette={palette}
+            fonts={fonts}
+            version={appVersion}
+            onTutorial={() => setShowTutorial(true)}
+            onDisclaimer={() => setShowDisclaimer(true)}
+            onBackup={() => setShowBackup(true)}
+          />
         ) : activeSessionId ? (
-          <ChatPane palette={palette} fonts={fonts} t={t} />
+          <ChatPane palette={palette} fonts={fonts} />
         ) : (
           <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: palette.textMuted }}>
             {t('app.tab.memory')} …
@@ -642,6 +408,35 @@ function Shell() {
           updateCharacter,
           refreshAppData,
         }}
+      />
+      <TutorialDialog
+        open={showTutorial || firstRunStage === 'onboarding'}
+        onClose={() => {
+          setShowTutorial(false);
+          if (firstRunStage === 'onboarding') {
+            completeOnboarding()
+              .then(() => setFirstRunStage('done'))
+              .catch(() => {});
+          }
+        }}
+        palette={palette}
+        fonts={fonts}
+      />
+      <DisclaimerDialog
+        open={showDisclaimer || firstRunStage === 'disclaimer'}
+        onClose={() => {
+          setShowDisclaimer(false);
+          if (firstRunStage === 'disclaimer') {
+            acknowledgeDisclaimer()
+              .then(() => isOnboardingDone())
+              .then(done => setFirstRunStage(done ? 'done' : 'onboarding'))
+              .catch(() => {
+                Alert.alert(t('app.save.failed.title'), t('app.save.failed.body'));
+              });
+          }
+        }}
+        palette={palette}
+        fonts={fonts}
       />
     </div>
   );
