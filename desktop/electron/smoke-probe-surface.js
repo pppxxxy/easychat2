@@ -8,7 +8,7 @@
 //
 // 只验「入口 → 面板 → 内容真的渲染」：面板里的数据来自共享层，落盘与判定已由
 // 单测覆盖，这里不重复验算法（冒烟负责接线，单测负责语义）。
-async function runSurfaceProbe({ waitFor }) {
+async function runSurfaceProbe({ waitFor, bridge }) {
   const bodyText = () => document.body.innerText || '';
   const findButton = pattern => Array.from(document.querySelectorAll('button'))
     .find(button => pattern.test(button.textContent || ''));
@@ -147,6 +147,88 @@ async function runSurfaceProbe({ waitFor }) {
     if (chatTab) chatTab.click();
   }
 
+  // ---- S14：自动备份（设置页 → 自动备份 → 立即备份 → 落盘文件存在）----
+  let autoBackupOk = false;
+  let autoBackupBytes = 0;
+  let autoBackupClickSeen = false;
+  let autoBackupDirListing = [];
+  try {
+    // 先把可能还开着的弹出层关掉（上一步搜索/统计面板的遮罩会挡住导航点击）。
+    const overlayClose = Array.from(document.querySelectorAll('button'))
+      .find(button => button.getAttribute('aria-label') === '关闭' || button.getAttribute('aria-label') === 'Close');
+    if (overlayClose) overlayClose.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // 用 includes 而不是全等：顶栏按钮的 textContent 可能带空白或图标文本。
+    const settingsTab = Array.from(document.querySelectorAll('header button'))
+      .find(button => String(button.textContent || '').includes('设置')
+        || String(button.textContent || '').includes('Settings'));
+    if (settingsTab) {
+      settingsTab.click();
+      // 先确认**真的**到了设置页：左侧分区导航出现即可（首个分区是 API 配置）。
+      // 不等这一步就去点导航，点击会落在尚未切换的聊天页上（真跑时就是这样失败的）。
+      const settingsReady = !!(await waitFor(() => (document.querySelectorAll('nav button').length >= 3
+        ? true : null), 10000));
+      autoBackupDirListing = [`settled:${settingsReady}`, `headerBtns:${Array.from(document.querySelectorAll('header button')).map(b => String(b.textContent || '').trim()).join('|')}`];
+      // 设置页默认停在「API 配置」；再点自动备份分区。
+      const navButtons = () => Array.from(document.querySelectorAll('nav button'))
+        .map(button => String(button.textContent || '').trim());
+      const nav = await waitFor(() => Array.from(document.querySelectorAll('nav button'))
+        .find(button => String(button.textContent || '').trim() === '自动备份'
+          || String(button.textContent || '').trim() === 'Auto backup'), 8000);
+      autoBackupDirListing = [`settled:${settingsReady}`, `nav:${navButtons().join('|')}`, `found:${!!nav}`];
+      if (nav) {
+        nav.click();
+        await new Promise(resolve => setTimeout(resolve, 400));
+        autoBackupOk = !!(await waitFor(() => {
+          const text = bodyText();
+          return text.includes('自动备份') || text.includes('Auto backup');
+        }, 5000));
+        // 点「立即备份」：跑一次真实导出（mock 模式下数据量很小）。
+        const allButtons = Array.from(document.querySelectorAll('button')).map(button => String(button.textContent || '').trim()).filter(Boolean);
+        const runButton = Array.from(document.querySelectorAll('button'))
+          .find(button => String(button.textContent || '').trim() === '立即备份'
+            || String(button.textContent || '').trim() === 'Back up now');
+        autoBackupDirListing = [`hasRun:${!!runButton}`, `btns:${allButtons.slice(0, 14).join('|')}`];
+        autoBackupClickSeen = !!runButton;
+        if (runButton) {
+          if (typeof globalThis !== 'undefined') {
+            globalThis.__easychat2AutoBackupError = '';
+            globalThis.__easychat2AutoBackupResult = null;
+          }
+          autoBackupClickSeen = !runButton.disabled;
+          runButton.click();
+          // 落盘事实：auto-backups/ 下至少出现一个包。
+          for (let attempt = 0; attempt < 120; attempt += 1) {
+            // 目录来自 bridge.app.paths（preload 里是**同步取好的值**，不是函数）。
+            const paths = bridge.app.paths || {};
+            const dir = `${String(paths.documentDirectory || '')}auto-backups/`;
+            if (dir.length > 'auto-backups/'.length) {
+              try {
+                const names = await bridge.fs.readDir(dir);
+                autoBackupDirListing = (Array.isArray(names) ? names : []).slice(0, 8);
+                const match = (Array.isArray(names) ? names : []).find(name => String(name).includes('easychat2-auto-backup-'));
+                if (match) {
+                  const stat = await bridge.fs.stat(`${dir}${match}`);
+                  autoBackupBytes = Number(stat && stat.size) || 0;
+                  break;
+                }
+              } catch (error) {
+                // 目录还没建出来：继续等。
+              }
+            }
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }
+        }
+      }
+      const chatTab = Array.from(document.querySelectorAll('header button'))
+        .find(button => button.textContent === '聊天' || button.textContent === 'Chat');
+      if (chatTab) chatTab.click();
+    }
+  } catch (error) {
+    autoBackupOk = false;
+    autoBackupDirListing = [].concat(autoBackupDirListing, [`threw:${String((error && error.message) || error).slice(0, 160)}`]);
+  }
+
   return {
     attempted: true,
     moreMenuSeen,
@@ -157,6 +239,14 @@ async function runSurfaceProbe({ waitFor }) {
     extensionOpened: extensionOpened.length,
     extensionTotal: extensionEntries.length,
     extensionMissing,
+    autoBackupOk,
+    autoBackupBytes,
+    autoBackupClickSeen,
+    autoBackupDisabled: autoBackupClickSeen,
+    autoBackupDirListing,
+    autoBackupHasPanel: /自动备份|Auto backup/.test(bodyText()),
+    autoBackupError: String((globalThis.__easychat2AutoBackupError || '')).slice(0, 200),
+    autoBackupResult: globalThis.__easychat2AutoBackupResult || null,
   };
 }
 

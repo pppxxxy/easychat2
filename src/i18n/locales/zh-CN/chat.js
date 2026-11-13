@@ -552,6 +552,8 @@ export const chat = {
   'chat.search.nextA11y': '下一条匹配',
   'chat.mention.title': '提及成员',
   'chat.mention.unnamed': '未命名角色',
+  'chat.mention.everyone': '全体',
+  'chat.mention.hint': '发送时会按 @ 名字把发言权交给对应角色（@全体 则让所有人都考虑发言）。',
   'chat.sticker.namePlaceholder': '请输入表情包名称',
   'chat.sticker.empty': '还没有表情包，点「添加」导入一张图片。',
   'chat.switcher.title': '选择角色或群聊',

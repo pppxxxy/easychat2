@@ -10,6 +10,7 @@ import { useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import ApiCard from './ApiCard.jsx';
+import AutoBackupCard from './AutoBackupCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
 import MemorySettingsCard from './MemorySettingsCard.jsx';
@@ -29,6 +30,8 @@ const SECTIONS = [
   { id: 'appearance', key: 'settings.appearance.title' },
   { id: 'experience', key: 'settings.global.title' },
   { id: 'vector', key: 'settings.vector.title' },
+  // 自动备份与手机 SECTION_RENDER_ORDER 同位（security 之后、about 之前）。
+  { id: 'autoBackup', key: 'settings.autoBackup.title' },
   { id: 'about', key: 'settings.about.title' },
 ];
 
@@ -114,6 +117,9 @@ export default function SettingsScreen({
         {section === 'experience' ? <ChatOptionsCard palette={palette} fonts={fonts} /> : null}
         {section === 'vector' ? (
           <MemorySettingsCard palette={palette} fonts={fonts} character={character} />
+        ) : null}
+        {section === 'autoBackup' ? (
+          <AutoBackupCard palette={palette} fonts={fonts} appVersion={version} />
         ) : null}
         {section === 'about' ? (
           <AboutCard

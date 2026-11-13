@@ -5,7 +5,8 @@
 export const desktop = {
   'desktop.status.available': '可用',
   'desktop.status.unsupported': '桌面版暂不支持',
-        'desktop.proactive.desktopOnlyHint': '桌面这版可以配置主动消息（时段、风格、衔接会话），但**不会自己定时触发**：手机侧靠系统后台服务在应用关闭后唤起，桌面进程退出后没有等价载体。配置会保存在同一份数据里，手机端读取后即可生效。',
+          'desktop.autoBackup.hint': '桌面这版只备份到应用私有目录（可在下面的按钮打开该目录取走备份包）。手机侧的「选择文件夹」依赖 Android 的 content:// 目录授权；桌面没有可长期持有的目录句柄，一旦路径失效每次自动备份都会静默失败，所以不提供。',
+'desktop.proactive.desktopOnlyHint': '桌面这版可以配置主动消息（时段、风格、衔接会话），但**不会自己定时触发**：手机侧靠系统后台服务在应用关闭后唤起，桌面进程退出后没有等价载体。配置会保存在同一份数据里，手机端读取后即可生效。',
 'desktop.books.docxUnsupported': '桌面这版只解析纯文本与 Markdown。Word(.docx) 是压缩包内的 XML，需要额外解压与解析；请先在手机上导入，或另存为 txt / Markdown 后再导入桌面。',
 'desktop.games.nativeHint': '「每日妻子」要读角色库数据（好感度、日程、对话历史），在手机上由原生面板承载；桌面这版先只提供网页小游戏。',
 'desktop.group.unavailable': '依赖手机系统的能力',

@@ -548,6 +548,8 @@ export const chat = {
   'chat.search.nextA11y': 'Next match',
   'chat.mention.title': 'Mention member',
   'chat.mention.unnamed': 'Unnamed character',
+  'chat.mention.everyone': 'everyone',
+  'chat.mention.hint': 'On send, an @mention hands the turn to that character (@everyone lets all of them consider speaking).',
   'chat.sticker.namePlaceholder': 'Enter a sticker name',
   'chat.sticker.empty': 'No stickers yet. Tap "Add" to import an image.',
   'chat.switcher.title': 'Select a character or group chat',

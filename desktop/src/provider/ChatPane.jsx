@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { buildQuotePayload } from '../../../src/chat/chatHelpers.js';
 import { groupDisplayName, speakerNameOf } from '../group/groupModel.js';
 import GroupSettingsPanel from '../group/GroupSettingsPanel.jsx';
+import MentionPicker from '../group/MentionPicker.jsx';
 import { countCompactionMessages } from '../../../src/chat/sessionCompaction.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
@@ -65,6 +66,7 @@ export default function ChatPane({ palette, fonts }) {
   const usage = useDesktopContextUsage({ messages, characterId });
   const [usageDismissed, setUsageDismissed] = useState(false);
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
   const memberNames = groupCharacters.map(character => String(character.name || '').trim()).filter(Boolean);
   const groupName = isGroup
     ? groupDisplayName(activeSession, memberNames, t('common.groupChat'), t('character.library.group.nameJoin'))
@@ -272,6 +274,23 @@ export default function ChatPane({ palette, fonts }) {
             </span>
           ) : null}
           <span style={{ flex: 1 }} />
+          {/* 群聊 @ 提及：点选成员插入 @名字（手机侧是输入 @ 自动弹）。 */}
+          <button
+            type="button"
+            onClick={() => setMentionOpen(value => !value)}
+            title={t('chat.mention.title')}
+            style={{
+              background: mentionOpen ? palette.surface : 'transparent',
+              color: palette.textMuted,
+              border: `1px solid ${palette.divider}`,
+              borderRadius: 8,
+              padding: '3px 10px',
+              cursor: 'pointer',
+              fontSize: fonts.scaled(11),
+            }}
+          >
+            @
+          </button>
           <button
             type="button"
             onClick={() => setGroupSettingsOpen(true)}
@@ -572,6 +591,23 @@ export default function ChatPane({ palette, fonts }) {
           {isSending ? t('chat.composer.a11y.stop') : t('chat.send.action')}
         </button>
       </div>
+      {isGroup ? (
+        <MentionPicker
+          open={mentionOpen}
+          members={groupCharacters}
+          palette={palette}
+          fonts={fonts}
+          onClose={() => setMentionOpen(false)}
+          onPick={name => {
+            // 插入到文本末尾并补一个空格：桌面没有可靠的光标位置来源
+            //（textarea 是受控的，selectionStart 在输入法组合期间不可信）。
+            const current = String(input || '');
+            const prefix = current && !/\s$/.test(current) ? `${current} ` : current;
+            onInputChange(`${prefix}@${name} `);
+            setMentionOpen(false);
+          }}
+        />
+      ) : null}
       {isGroup && activeSession ? (
         <GroupSettingsPanel
           open={groupSettingsOpen}

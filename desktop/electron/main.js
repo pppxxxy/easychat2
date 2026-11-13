@@ -409,6 +409,10 @@ function createWindow() {
         && probe.surface.exportOpened
         && probe.surface.moreMenuSeen
         && probe.surface.extensionOpened === probe.surface.extensionTotal
+        // 自动备份：面板打得开 + 点「立即备份」真的写出包（bytes > 0）。
+        // 单元层的等价验证另见 tests/integration/autoBackup.test.mjs。
+        && probe.surface.autoBackupOk
+        && probe.surface.autoBackupBytes > 0
       );
       const kiloOk = !!(
         baseOk

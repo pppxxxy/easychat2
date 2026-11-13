@@ -572,7 +572,7 @@
       // 模块见 smoke-probe-surface.js（main.js 已预先注入），理由同 S11 的群聊探针：
       // 本文件已到 800 行棘轮，且这段是新增的独立检查逻辑。
       surface = globalThis.__easychat2RunSurfaceProbe
-        ? await globalThis.__easychat2RunSurfaceProbe({ waitFor })
+        ? await globalThis.__easychat2RunSurfaceProbe({ waitFor, bridge })
         : { attempted: false, skipped: true };
 
     } catch (error) {
