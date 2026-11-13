@@ -34,7 +34,7 @@ jobs:
           yes | "$SDK/cmdline-tools/20.0/bin/sdkmanager" --licenses 2>/dev/null || true
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Stamp dynamic versionCode
         # app.json 的 versionCode 是固定值，Gradle 路径每次都打同一个 versionCode，

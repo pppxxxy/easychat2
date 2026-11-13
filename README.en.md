@@ -28,7 +28,7 @@ EasyChat2 is a mobile AI chat app built on Expo + React Native. It has no backen
 - **Vector memory**: conversation fragments are vectorized and recalled by relevance into context.
 - **Web search**: search keywords are sent to the search service you choose, and results are injected into the conversation.
 - **Diary**: after midnight, characters with the feature enabled get an auto-generated diary for the day.
-- **Moments**: characters post updates; they can comment and "reply along".
+- **Moments**: post updates yourself; characters can comment and "reply along".
 - **World map**: a grid map on the Extensions tab's "World" view, where you can place houses and residents for yourself or characters.
 - **Bookshelf / music library**: import local txt/md/docx/html books and local audio; characters can read along, listen, and comment.
 - **Screen watch**: take an in-app screenshot and have a vision model comment on it.
@@ -115,7 +115,7 @@ A built-in **29-chapter** illustrated tutorial covers everything from configurin
 |---|---|
 | First launch | via "Disclaimer → Onboarding" on first start |
 | Settings | Settings → About → Tutorial |
-| Workspace | Workspace → Settings → Help |
+| Workspace | Workspace → Settings → Help & tutorial |
 
 Each chapter contains: a one-line summary, step-by-step instructions, a "location → path" quick-reference table, and notes. Every path in the tutorial matches real on-screen wording so you can follow along; chapters whose screenshots are not yet registered skip images automatically without affecting reading.
 
@@ -178,7 +178,7 @@ easychat2/
 ├── metro.config.js         # Metro bundler config (package exports enabled)
 ├── plugins/                # local config plugins: native module injection (proactive messages / local API / command execution)
 ├── assets/                 # icons, adaptive icons, splash
-├── src/                    # app code: ~25 domain subdirectories + screen entries
+├── src/                    # app code: ~40 domain subdirectories + screen entries
 │   ├── ChatScreen.js       # chat entry (UI details live in src/chat/)
 │   ├── character/          # character domain: CharacterStack (library ⇄ detail) + list/detail screens + card parsing and export
 │   ├── SettingsScreen.js   # settings

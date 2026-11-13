@@ -398,7 +398,12 @@ export default function SettingsScreen() {
       })
       .catch(() => {});
     return () => {
-      if (sectionSaveTimerRef.current) clearTimeout(sectionSaveTimerRef.current);
+      if (sectionSaveTimerRef.current) {
+        clearTimeout(sectionSaveTimerRef.current);
+        // 卸载冲刷：防抖窗口内离开设置页（或杀进程）时，把挂起的折叠状态立即落盘，
+        // 否则最后一次切换会随组件销毁而丢失（2026-10-24 审查发现）。
+        saveUiSections(sectionOpenRef.current).catch(() => {});
+      }
     };
   }, []);
 

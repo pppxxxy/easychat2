@@ -6,7 +6,7 @@
 
 ## 1. 数据与隐私：本地优先，不收集
 
-- 本项目没有自建后端、没有账号体系；网络请求由你配置的第三方服务处理，聊天请求来自 `src/api.js`，生图、向量记忆、TTS、联网搜索和设置页检测也可能在用户主动启用或操作时访问对应服务。
+- 本项目没有自建后端、没有账号体系；网络请求由你配置的第三方服务处理，聊天请求来自 `src/network/api.js`，生图、向量记忆、TTS、联网搜索和设置页检测也可能在用户主动启用或操作时访问对应服务。
 - 未接入任何分析、广告或遥测 SDK；开发者不接收、不存储、不转售你的任何数据。应用内的「诊断日志」仅把异常信息脱敏后保存在本机（`@easychat2_diagnostics`），供你自行查看与复制，不会上传到任何服务器。
 - 元数据与设置保存在设备本地 AsyncStorage；聊天图片、表情包和大型角色正文使用应用文档目录文件，键名与文件目录如下：
 
@@ -17,6 +17,9 @@
    | `@easychat2_character_index` + `@easychat2_character_item::<id>` | 角色库、世界书与正则脚本 |
    | `@easychat2_messages::<sessionId>` | 会话消息（旧的按角色/单会话键仅迁移读取） |
    | `@easychat2_session_draft::<sessionId>` | 会话级输入框草稿（仅开启「保留输入草稿」时写入） |
+   | `@easychat2_sessions` | 会话列表（id、角色、标题、置顶与时间；消息本体在 `messages::<sessionId>`） |
+   | `@easychat2_chat_options`、`@easychat2_appearance`、`@easychat2_ui_sections` | 聊天选项、外观（主题 / 字号 / 语言）与设置页折叠卡状态 |
+   | `@easychat2_security` | 应用锁状态与密码提示（锁密码本身经安全存储，本键不含密码） |
    | `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>` | 表情包元数据 |
    | `@easychat2_moments`、`@easychat2_diary_item::<id>`、`@easychat2_world_map`、`@easychat2_affinity` | 动态、日记、世界地图与好感度 |
    | `@easychat2_vector_memory_configs`、`@easychat2_vector_index::<characterId>` | 向量记忆配置与本地索引（含消息片段向量） |
@@ -28,7 +31,7 @@
    | `@easychat2_screen_watch_comments` | 看屏幕评论（含对应截图的本机路径；评论只在面板内呈现，不进聊天会话） |
    | `@easychat2_workspace` | 工作区设置（模式 ask/read/write、工作区文件夹位置、命令执行开关、工作区角色 id）；沙盒文件本身存于本机（默认 `documentDirectory/workspace/`，或你在设置里选择的外部文件夹），不在此键 |
    | `@easychat2_workspace_changes` | 工作区改动历史（每次经工具/面板写入、编辑、删除文件追加一条：路径、类型、时间与编辑摘录——摘录截断存储，仅本机、不上报）；清空历史不影响文件本身 |
-   | `@easychat2_location` | 真实地图分享开关、位置感知开关（独立 opt-in，缺省关闭）、最近一次成功位置（经纬度、全量描述与区县级粗描述）与可选瓦片模板；关闭时不取点；**位置感知未开启时不向任何模型发送位置** |
+   | `@easychat2_location` | 用户手写的位置清单（可增删改，真实地名或虚构地点均可；旧版本存过的系统定位已迁移为清单条目）、「把选中位置分享给角色」与「位置感知」两个开关（同时开启才注入对话）与可选瓦片模板；**不读取系统定位、不申请定位权限** |
    | `@easychat2_diagnostics` | 诊断日志（最近 50 条脱敏异常），仅本机、不上报 |
    | `documentDirectory/chat-images/`、`documentDirectory/stickers/` | 图片与表情包文件 |
    | `documentDirectory/voice/`、`documentDirectory/music/`、`documentDirectory/books/` | 语音消息与角色语音音频文件、导入的本地音乐文件、导入的本地书籍文件 |
@@ -58,7 +61,7 @@
 
 EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直接**发送到你填写的 API 地址（默认 `https://api.deepseek.com`）：
 
-- 系统提示词（由角色名、描述、性格、场景、系统提示词、历史后指令合成；**同时开启「真实地图」与「位置感知」时另含一行模糊位置描述——区县级，不含精确坐标**）
+- 系统提示词（由角色名、描述、性格、场景、系统提示词、历史后指令合成；**同时开启「分享位置给角色」与「位置感知」时，另含一行你在位置清单中选中的位置描述（用户手写，不含系统定位）**）
 - 命中的世界书条目
 - 历史消息与当前输入
 - 模型名
@@ -102,7 +105,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 
 **相机（`CAMERA`）**：聊天页「添加附件 → 拍照」功能需要，由 `expo-image-picker` 插件声明，用途文案为「拍摄照片发送到聊天」（iOS 对应 `NSCameraUsageDescription`）。仅在首次点「拍照」时由系统弹窗请求；拒绝后不打开相机并提示到系统设置开启，从相册选图、语音等其他功能不受影响。**不使用拍照即不会请求该权限。**注意：**曾装过 `cameraPermission:false` 旧版本的设备**，插件当时把 CAMERA 写成了屏蔽权限（`tools:node="remove"`），必须卸载重装（或覆盖安装新 release）后系统设置里才会出现相机开关。
 
-**定位（`ACCESS_COARSE_LOCATION`、`ACCESS_FINE_LOCATION`）**：真实地图功能需要，由 `expo-location` 插件声明，用途文案为「获取当前位置，让角色知道你在哪，并在真实地图上标注（仅在使用时）」（iOS 对应 `NSLocationWhenInUseUsageDescription`）。**仅前台、仅在使用时**获取；仅在「扩展 → 世界 → 地图 → 真实地图」中首次开启时由系统弹窗请求，**开启前另有隐私提醒（可取消，取消则不取点）**，拒绝授权后保持关闭并提示，网格地图等其他功能不受影响。关闭开关即停止取点并在界面上清除标注；系统定位服务关闭时给出「去系统设置打开定位」的可操作提示；首次定位超时/失败会用系统 10 分钟内的缓存位置兜底（缓存点按真实定位时间计龄）。**不开启真实地图即不会请求该权限、不会获取任何位置数据；向模型分享位置还需要在设置里单独打开「位置感知」（见下）。**
+**定位**：应用**不申请任何定位权限**——`ACCESS_COARSE_LOCATION` 与 `ACCESS_FINE_LOCATION` 已通过 `blockedPermissions` 排除，依赖与插件清单里没有 `expo-location`（有测试钉住）。「位置」功能完全由你手写：在位置清单中增删改地点（可用真实地名或虚构地点），应用不读取 GPS / 网络定位。把位置告诉角色需要**同时**开启「分享位置给角色」与「位置感知」两个开关（见 §5.5）。
 
 **主动消息与通知**：开启主动消息后，由 `withProactiveMessage` 插件声明下列权限（不开启该功能则不占用）：
 
@@ -121,8 +124,9 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`SCHEDULE_EXACT_ALARM`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC` | 主动消息（见上表） |
 | `RECORD_AUDIO` | 语音消息录音（见上） |
 | `CAMERA` | 拍照附件（见上） |
-| `ACCESS_COARSE_LOCATION`、`ACCESS_FINE_LOCATION` | 真实位置（前台、仅在使用时，见上） |
-| `SYSTEM_ALERT_WINDOW`、`VIBRATE` | Expo / React Native 模板默认值，非本应用功能所需；如需可继续通过 `blockedPermissions` 排除（`SYSTEM_ALERT_WINDOW` 与开发菜单相关，请在真机上验证后再决定） |
+| `SYSTEM_ALERT_WINDOW` | 悬浮窗看屏幕需要（「显示在其他应用上层」），由 `withScreenOverlay` 插件声明；未开启悬浮窗功能不使用 |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION`、`FOREGROUND_SERVICE_MICROPHONE` | 悬浮窗看屏幕的前台服务类型（屏幕捕获），由 `withScreenOverlay` 插件声明 |
+| `VIBRATE` | Expo / React Native 模板默认值，非本应用功能所需；如需可继续通过 `blockedPermissions` 排除 |
 
 其他加固：
 
@@ -143,7 +147,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | 一起听歌（陪伴评论） | 系统提示词、用户档案与全局预设、歌曲名与当前进度（不含音频内容本身） | 扩展 → 世界 → 听歌，打点或开播时 |
 | 一起看书（陪读评论） | 系统提示词、用户档案与全局预设、书名与当前页的段落摘录（仅文字，至多约 600 字） | 扩展 → 世界 → 看书，点「让TA聊聊这一页」时 |
 | 看屏幕（陪伴评论） | 系统提示词、用户档案与全局预设、**当前屏幕截图**；App 内截屏只用本应用画面；**开启悬浮窗后为跨应用画面（含其他应用内容）** | 扩展 → 世界 → 看屏幕，点「截屏给TA看看」或在悬浮窗点「截屏」时 |
-| 真实位置 | **仅在同时开启「真实地图分享」与「位置感知」（设置 → 全局配置，独立 opt-in）时**，把**模糊到区县级**的大概位置描述随聊天的系统提示发往**你自己配置的模型服务**（反地理编码失败时退 2 位小数 ≈1.1km 网格坐标；精确经纬度只在本机地图标注、不发送）；**瓦片底图请求由 WebView 直接发往地图服务商（默认高德）**，不含聊天内容与 API Key | 双开关均默认关闭，需手动开启并授权定位 |
+| 位置（用户手写） | **仅在同时开启「分享位置给角色」与「位置感知」（独立 opt-in，缺省关闭）时**，把你在位置清单中选中的位置描述随聊天的系统提示发往**你自己配置的模型服务**；应用不读取系统定位、不申请定位权限，内容可以是你手写的真实地名或虚构地点，不含任何系统定位 | 双开关均默认关闭，需手动开启 |
 | 对话配图 / 生图 | 提示词、可选的原图（图生图） | 关闭，需手动开启 |
 | 语音播报（TTS） | 待朗读的回复文本（经清洗去 Markdown） | 关闭 |
 | 语音转写 | 录音音频文件 | 发送语音时 |
@@ -178,7 +182,6 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 | `react-native-vector-icons` | 图标 |
 | `@babel/core`、`@babel/preset-env`（devDependency） | 构建转译与 Node 测试运行 |
 | `expo-image-picker`、`expo-image-manipulator` | 选择、缩放和处理本地图片/表情包 |
-| `expo-location` | 获取前台位置与反地理编码（真实位置功能） |
 
 建议定期执行 `npm audit` 并关注上游安全公告。
 
@@ -190,7 +193,7 @@ EasyChat2 不代理、不中转请求。发送消息时，以下内容会**直�
 - 报错信息在展示与复制前会经 `src/storage/secrets.js` 的 `maskSecrets` 屏蔽 `sk-...` 与 `Bearer ...`，但仍可能包含其他上下文，公开分享日志前请再次检查。
 - 本地聊天记录与 API 配置均以明文 JSON 存储，未加密。
 
-## 7.5 GitHub MCP 连接（z1005z2 新增）
+## 7.5 GitHub MCP 连接
 
 设置 → 工作区卡片的「GitHub 连接（MCP）」把 GitHub 远程 MCP 服务器接入工作区角色。披露如下：
 

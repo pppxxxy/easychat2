@@ -241,7 +241,7 @@ export const DISCLAIMER_SECTIONS_EN = [
 
 // 整段英文 = 分节的顺序渲染，与中文同一派生规则（英文用半角冒号 + 空格）。
 const renderSectionEn = section => (
-  `${section.title}: ${section.body}${Array.isArray(section.bullets) ? section.bullets.join('') : ''}`
+  `${section.title}: ${section.body}${Array.isArray(section.bullets) ? section.bullets.join(' ') : ''}`
 );
 
 export const DISCLAIMER_TEXT_EN = DISCLAIMER_SECTIONS_EN.map(renderSectionEn).join('\n\n');

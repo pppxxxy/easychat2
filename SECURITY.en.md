@@ -6,7 +6,7 @@ This notice explains how EasyChat2 handles data, which permissions and dependenc
 
 ## 1. Data & privacy: local-first, nothing collected
 
-- This project has no backend and no account system; network requests are handled by the third-party services you configure. Chat requests originate from `src/api.js`; image generation, vector memory, TTS, web search, and settings-page checks may also reach the corresponding services when you actively enable or use them.
+- This project has no backend and no account system; network requests are handled by the third-party services you configure. Chat requests originate from `src/network/api.js`; image generation, vector memory, TTS, web search, and settings-page checks may also reach the corresponding services when you actively enable or use them.
 - No analytics, advertising, or telemetry SDKs are integrated; the developer receives, stores, and resells none of your data. The in-app "diagnostics log" only saves masked exception information locally (`@easychat2_diagnostics`) for you to view and copy yourself; it is never uploaded to any server.
 - Metadata and settings are stored in on-device AsyncStorage; chat images, stickers, and large character bodies use files in the app documents directory. Keys and directories:
 
@@ -17,6 +17,9 @@ This notice explains how EasyChat2 handles data, which permissions and dependenc
    | `@easychat2_character_index` + `@easychat2_character_item::<id>` | character library, lorebook, and regex scripts |
    | `@easychat2_messages::<sessionId>` | session messages (legacy per-character/single-session keys are migrated reads only) |
    | `@easychat2_session_draft::<sessionId>` | per-session input drafts (written only when "keep drafts" is on) |
+   | `@easychat2_sessions` | session list (id, character, title, pin, timestamps; messages themselves live under `messages::<sessionId>`) |
+   | `@easychat2_chat_options`, `@easychat2_appearance`, `@easychat2_ui_sections` | chat options, appearance (theme / font scale / language), and settings section collapse state |
+   | `@easychat2_security` | app-lock state and passcode hint (the passcode itself goes to secure storage; this key never holds it) |
    | `@easychat2_sticker_index` + `@easychat2_sticker_item::<id>` | sticker metadata |
    | `@easychat2_moments`, `@easychat2_diary_item::<id>`, `@easychat2_world_map`, `@easychat2_affinity` | moments, diary, world map, and affinity |
    | `@easychat2_vector_memory_configs`, `@easychat2_vector_index::<characterId>` | vector memory config and local index (including message-fragment vectors) |
@@ -28,7 +31,7 @@ This notice explains how EasyChat2 handles data, which permissions and dependenc
    | `@easychat2_screen_watch_comments` | screen-watch comments (with the on-device path of the matching screenshot; comments appear only inside the panel, never in chat sessions) |
    | `@easychat2_workspace` | workspace settings (mode ask/read/write, workspace folder location, command-execution switch, workspace character id); sandbox files themselves live on-device (default `documentDirectory/workspace/`, or an external folder you select in settings), not in this key |
    | `@easychat2_workspace_changes` | workspace change history (each tool/panel write, edit, or delete appends a record: path, type, time, and an edit excerpt — excerpts are truncated, on-device only, never uploaded); clearing history does not affect the files |
-   | `@easychat2_location` | real-map share switch, location awareness switch (independent opt-in, off by default), the last successful fix (lat/lng, full description, and district-level coarse description), and an optional tile template; no fix is taken while off; **no location is sent to any model while location awareness is off** |
+   | `@easychat2_location` | the user's hand-written location list (add/edit/remove; real or fictional names; any real fix stored by old versions was migrated into the list), the "share selected location" and "location awareness" switches (both must be on for injection), and an optional tile template; **no system positioning is read and no location permission is requested** |
    | `@easychat2_diagnostics` | diagnostics log (last 50 masked exceptions), on-device only, never uploaded |
    | `documentDirectory/chat-images/`, `documentDirectory/stickers/` | image and sticker files |
    | `documentDirectory/voice/`, `documentDirectory/music/`, `documentDirectory/books/` | voice messages and character audio, imported local music, imported local books |
@@ -58,7 +61,7 @@ The workspace defaults to the app-private directory `documentDirectory/workspace
 
 EasyChat2 does not proxy or relay requests. When you send a message, the following go **directly** to the API address you entered (default `https://api.deepseek.com`):
 
-- The system prompt (composed from character name, description, personality, scenario, system prompt, and post-history instructions; **when both "real map" and "location awareness" are on, it additionally includes one line of coarse location description — district level, no precise coordinates**)
+- The system prompt (composed from character name, description, personality, scenario, system prompt, and post-history instructions; **when both "share location with characters" and "location awareness" are on, it additionally includes one line with the location you selected from your hand-written location list (user-written; no system positioning involved)**)
 - Matched lorebook entries
 - Message history and current input
 - Model name
@@ -102,7 +105,7 @@ The app uses the system file picker and system image picker and does not request
 
 **Camera (`CAMERA`)**: required by the chat's "Add attachment → Take photo", declared by the `expo-image-picker` plugin with the purpose string "Take a photo to send in chat" (iOS: `NSCameraUsageDescription`). Requested only the first time you tap "Take photo"; declining closes the camera and prompts you to enable it in system settings, while gallery picking, voice, and everything else are unaffected. **Camera unused = permission never requested.** Note: on devices that once had a `cameraPermission:false` old build, the plugin wrote CAMERA as a blocked permission (`tools:node="remove"`), so the camera switch only reappears in system settings after uninstalling and reinstalling (or upgrading over it with a new release).
 
-**Location (`ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION`)**: required by the real-map feature, declared by the `expo-location` plugin with the purpose string "Get your current location so the character knows where you are and marks it on the real map (while in use only)" (iOS: `NSLocationWhenInUseUsageDescription`). **Foreground only, while in use only**; requested by the system dialog only when first enabling "Extensions → World → Map → Real map", **preceded by a privacy reminder (cancellable — cancelling means no fix is taken)**; declining keeps it off with a hint, and the grid map and everything else are unaffected. Turning the switch off stops fixes and clears map markers; if the system location service is off, an actionable "open location in system settings" hint appears; if the first fix times out/fails, the system's cached fix from the last 10 minutes is used as a fallback (aged by its real fix time). **Real map off = permission never requested and no location data obtained; sharing location with the model additionally requires turning on "location awareness" separately in settings (see below).**
+**Location**: the app **requests no location permission at all** — `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION` are excluded via `blockedPermissions`, and `expo-location` is absent from both the dependencies and the plugin list (pinned by tests). The "location" feature is entirely user-written: you add, edit, and remove places in your location list (real place names or fictional ones); the app never reads GPS or network positioning. Telling a character your location requires **both** the "share location" and "location awareness" switches to be on (see §5.5).
 
 **Proactive messages & notifications**: when proactive messages are on, the `withProactiveMessage` plugin declares the following permissions (not occupied while the feature is off):
 
@@ -121,8 +124,9 @@ After `expo prebuild`, the manifest retains:
 | `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `SCHEDULE_EXACT_ALARM`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` | proactive messages (table above) |
 | `RECORD_AUDIO` | voice message recording (above) |
 | `CAMERA` | camera attachments (above) |
-| `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | real location (foreground, while in use only, above) |
-| `SYSTEM_ALERT_WINDOW`, `VIBRATE` | Expo / React Native template defaults, not needed by any app feature; can still be excluded via `blockedPermissions` (`SYSTEM_ALERT_WINDOW` relates to the dev menu — verify on a real device before deciding) |
+| `SYSTEM_ALERT_WINDOW` | needed by the floating-window screen watch ("Display over other apps"), declared by the `withScreenOverlay` plugin; unused while the floating window is off |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `FOREGROUND_SERVICE_MICROPHONE` | the screen-capture foreground-service types for the floating-window screen watch, declared by `withScreenOverlay` |
+| `VIBRATE` | Expo / React Native template default, not needed by any app feature; can still be excluded via `blockedPermissions` |
 
 Further hardening:
 
@@ -143,7 +147,7 @@ Beyond chat requests, the following features — when you actively use them — 
 | Listening together (companion comments) | system prompt, user profile and global presets, song title and current position (not the audio itself) | Extensions → World → Music, when marking or playing |
 | Reading together (companion comments) | system prompt, user profile and global presets, book title and an excerpt of the current page (text only, ~600 chars max) | Extensions → World → Books, when tapping "Let's talk about this page" |
 | Screen watch (companion comments) | system prompt, user profile and global presets, **the current screenshot**; in-app capture uses only this app's own screen; **with the floating window on, it captures across apps (including other apps' content)** | Extensions → World → Screen, when tapping "Show it to them" or the floating window's capture button |
-| Real location | **only when both "real map share" and "location awareness" (Settings → Global Configuration, independent opt-ins) are on**, a coarse district-level location description goes into the chat system prompt to **the model service you configured** (if reverse geocoding fails it falls back to 2 decimals ≈ a 1.1km grid; precise lat/lng only annotates the local map, never sent); **tile requests go from the WebView straight to the map provider (default: Amap)** and contain no chat content or API keys | both switches off by default; requires manual enabling and location grant |
+| Location (user-written) | **only when both "share location" and "location awareness" (independent opt-ins, off by default) are on**, the description of the place you selected from your location list goes into the chat system prompt to **the model service you configured**; the app never reads system positioning and requests no location permission — the content is whatever you wrote, real or fictional | both switches off by default; enable manually |
 | Inline images / image generation | the prompt, plus optional source images (img2img) | off; enable manually |
 | Text-to-speech (TTS) | the reply text to be read aloud (Markdown stripped) | off |
 | Speech-to-text | the recorded audio file | when sending a voice message |
@@ -178,7 +182,6 @@ The direct dependencies from `package.json` and their purposes; none were found 
 | `react-native-vector-icons` | icons |
 | `@babel/core`, `@babel/preset-env` (devDependency) | build transpilation and Node test runs |
 | `expo-image-picker`, `expo-image-manipulator` | picking, resizing, and processing local images/stickers |
-| `expo-location` | foreground location and reverse geocoding (real-location feature) |
 
 Run `npm audit` regularly and watch upstream security advisories.
 
@@ -190,7 +193,7 @@ Run `npm audit` regularly and watch upstream security advisories.
 - Error messages are masked by `maskSecrets` in `src/storage/secrets.js` before display and copying (covering `sk-...` and `Bearer ...`), but other context may remain — re-check before sharing logs publicly.
 - Local chat history and API config are stored as plaintext JSON, unencrypted.
 
-## 7.5 GitHub MCP connection (added in z1005z2)
+## 7.5 GitHub MCP connection
 
 "Settings → Workspace" card's "GitHub connection (MCP)" connects the GitHub remote MCP server to workspace characters. Disclosure:
 

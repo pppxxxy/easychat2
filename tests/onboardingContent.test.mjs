@@ -38,7 +38,7 @@ const {
 test('新手教程包含图片、表情包与大角色卡章节', () => {
   // 不断言总数：教程章节会随功能增加而增加，写死数字只会让每次加章节都红一次。
   // 真正要守的是「基础章节没被挤掉」+「每个章节结构完整」。
-  assert.ok(ONBOARDING_CHAPTERS.length >= 17, '基础章节不得少于原有 17 章');
+  assert.ok(ONBOARDING_CHAPTERS.length >= 29, '教程总章数不得少于原有规模（29：基础16+第二批12+免责1）');
   const chapter = getOnboardingChapters(['chat-media'])[0];
   assert.equal(getOnboardingChapter('chat-media'), chapter);
   assert.equal(chapter.id, 'chat-media');
@@ -369,6 +369,9 @@ test('英文教程：与中文逐章一一对应（id/顺序/图标/截图键/�
         (zh.outro.bullets || []).length,
         `${en.id} outro 要点数与中文不一致`
       );
+    }
+    if (zh.outro && zh.outro.link) {
+      assert.equal(en.outro.link.url, zh.outro.link.url, `${en.id} outro 链接 URL 必须与中文一致`);
     }
     if (Array.isArray(zh.links)) {
       assert.deepEqual(

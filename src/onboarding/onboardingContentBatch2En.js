@@ -76,19 +76,19 @@ export const ONBOARDING_CHAPTERS_BATCH2_EN = [
     image: 'music',
     summary: 'Import local music and listen — and chat — together with your character.',
     intro:
-      'The music library imports local audio files from your phone. While playing you can turn on "Listen together" — '
+      'The music library imports local audio files from your phone. While playing you can open "Companion comments" — '
       + 'the character talks about the current track, like listening side by side.',
     steps: [
       'Open the Extensions tab and tap "Music" in the "Library" group.',
       'Tap the import button and pick audio files from your phone to add them to the library.',
       'Tap any track to start playing; pause, skip, and scrub as you like.',
-      'For company, turn on "Listen together" — the character will chime in about the current track.',
+      'For company, open "Companion comments" and pick the character to listen with — the character chimes in about the current track.',
       'Long-press a track or use the row\'s action button to delete it.',
     ],
     items: [
       { name: 'Import music', where: 'Extensions → Music → Import', usage: 'Pick local audio files from the phone to add to the library.' },
       { name: 'Playback controls', where: 'Music player bar', usage: 'Play / pause, previous / next, and scrubbing.' },
-      { name: 'Listen together', where: 'Music screen switch', usage: 'When on, the character comments on the current track.' },
+      { name: 'Companion comments', where: 'Music screen → Companion comments', usage: 'Pick "Listening with"; the character speaks at your timeline markers.' },
       { name: 'Delete track', where: 'Track row actions', usage: 'Remove the track from the music library.' },
     ],
     note: 'Music files stay on this device and are never uploaded; re-import them after switching devices.',
@@ -100,19 +100,19 @@ export const ONBOARDING_CHAPTERS_BATCH2_EN = [
     image: 'books',
     summary: 'Import local novels and read — and comment — together with your character.',
     intro:
-      'The bookshelf imports books in txt / md / docx / html and splits chapters automatically. While reading you can turn on companion mode, '
+      'The bookshelf imports books in txt / md / docx / html and splits chapters automatically. While reading you can open "Reading comments", '
       + 'and the character will discuss the current chapter with you.',
     steps: [
       'Open the Extensions tab and tap "Books" in the "Library" group.',
       'Tap the import button and pick a local file; the app parses it and splits chapters automatically.',
       'Tap a book to enter the reader and use the chapter list to jump anywhere.',
-      'For company, turn on companion mode — the character will chime in about the current chapter.',
+      'For company, open "Reading comments" — the character discusses the current chapter with you.',
       'Reading progress is saved automatically; next time you open the book you resume where you left off.',
     ],
     items: [
       { name: 'Import book', where: 'Extensions → Books → Import', usage: 'Supports txt / md / docx / html with automatic chapter splitting.' },
       { name: 'Chapter list', where: 'Reader → Chapters', usage: 'Jump to any chapter.' },
-      { name: 'Reading together', where: 'Reader switch', usage: 'When on, the character comments on the current chapter.' },
+      { name: 'Reading comments', where: 'Reader → Reading comments', usage: 'Tap "Let\'s talk about this page" and the character replies about the current page.' },
       { name: 'Reading progress', where: 'Saved automatically', usage: 'Reopening a book returns to your last position.' },
     ],
     note: 'Book text stays on this device; very large files may take a few seconds to parse the first time.',
@@ -153,14 +153,14 @@ export const ONBOARDING_CHAPTERS_BATCH2_EN = [
       'Voice works in two directions: **playback** reads assistant replies aloud (TTS), and **transcription** turns your recordings into text messages (ASR). '
       + 'They are configured independently — you can use just one.',
     steps: [
-      'To toggle playback quickly in chat, tap "Playback on / off" at the top.',
+      'To toggle auto-read in chat, open the top "⋯" menu → "Voice" and turn on "Auto-read replies".',
       'To configure the voice engine, open "Settings → Voice Playback" and choose a cloud engine or the system voice, then fill in the required key.',
       'To use voice input, tap the mic button in the input bar to start recording, and tap again to finish.',
       'The transcript lands in the input box; edit it before sending if you like.',
       'If transcription is not working, check the service and key configuration under "Settings → Speech to text".',
     ],
     items: [
-      { name: 'Playback switch', where: 'Top of chat: "Playback on / off"', usage: 'Quickly control whether assistant replies are read aloud.' },
+      { name: 'Playback switch', where: '"⋯" menu → Voice → Auto-read replies', usage: 'Quickly control whether assistant replies are read aloud.' },
       { name: 'Playback engine', where: 'Settings → Voice Playback', usage: 'Choose a cloud engine or the system voice; cloud engines need a key.' },
       { name: 'Record & transcribe', where: 'Mic button in the input bar', usage: 'Recording is transcribed into text and filled into the input box when you finish.' },
       { name: 'Transcription service', where: 'Settings → Speech to text', usage: 'Configure the ASR service and key; without it, transcription cannot run.' },
@@ -208,14 +208,14 @@ export const ONBOARDING_CHAPTERS_BATCH2_EN = [
     steps: [
       'Open the Extensions tab and tap "Proactive" in the "Daily companion" group.',
       'Choose the characters to enable and add the time windows when they may speak up.',
-      'Set a daily cap per character to avoid being overwhelmed.',
+      'Each time point can be "Normal / Exact", with optional random windows and style weights.',
       'When the time comes, the character messages you based on recent conversation memory, and you can simply reply to continue.',
       'Turn a character off from its entry whenever you don\'t want it.',
     ],
     items: [
       { name: 'Enable characters', where: 'Extensions → Proactive', usage: 'Choose which characters may message you first.' },
       { name: 'Time windows', where: 'Character entry → windows', usage: 'Set the time ranges allowed for proactive messages; add as many as you like.' },
-      { name: 'Daily cap', where: 'Character entry → limit', usage: 'Limit how many proactive messages per day to avoid disturbance.' },
+      { name: 'Time point type & style', where: 'Character entry → expand a time point', usage: 'Choose "Normal / Exact", configure random windows and style weights for custom texts.' },
     ],
     note: 'Proactive messages fire within the windows you set; long screen-off periods or background restrictions may delay them.',
   },
@@ -230,16 +230,16 @@ export const ONBOARDING_CHAPTERS_BATCH2_EN = [
       + 'yesterday\'s chat points or writing a short daily recap. The task really calls the model and tools, then reports back with the result.',
     steps: [
       'Open the Extensions tab and tap "Schedule" in the "Daily companion" group.',
-      'Tap create, pick a character, and set the execution time.',
+      'Tap "Add task", pick a character, and set the execution time.',
       'Write the task (e.g. "organize today\'s chat into three key points").',
-      'If needed, specify the tools available so the task can read and write workspace files.',
-      'After saving, it runs automatically at the set time; execution records and results are viewable at any moment.',
+      'Tasks come with web search and read-only workspace access built in — no extra configuration.',
+      'After saving, it runs automatically at the set time — no manual trigger needed.',
     ],
     items: [
-      { name: 'Create task', where: 'Extensions → Schedule → Create', usage: 'Pick a character and set the time and task content.' },
+      { name: 'Create task', where: 'Extensions → Scheduled Tasks → Add task', usage: 'Pick a character and set the time and task content.' },
       { name: 'Task content', where: 'Task editor', usage: 'Describe in plain language what the character should do.' },
-      { name: 'Available tools', where: 'Task editor', usage: 'Specify which tools the task may call (e.g. reading and writing workspace files).' },
-      { name: 'Execution records', where: 'Task entry → records', usage: 'See when each run happened and what it produced.' },
+      { name: 'Task capabilities', where: 'Task editor', usage: 'Fixed set: web search and reading workspace files (read-only).' },
+      { name: 'When it runs', where: 'Task editor → time', usage: 'Runs automatically at the set moment each day; scheduling shares the system alarm with proactive messages and is rescheduled after reboot.' },
     ],
     note:
       'A task really runs the model and tools and usually takes ten-odd seconds to a minute. It does not interfere with normal chatting — '
@@ -281,13 +281,13 @@ export const ONBOARDING_CHAPTERS_BATCH2_EN = [
     steps: [
       'Open the Extensions tab and tap "Plugins" in the "Daily companion" group.',
       'Tap install and choose a plugin package or fill in a source.',
-      'Enable it in the list once installation finishes.',
+      'What the plugin provides is ready to use once installation finishes.',
       'Tools a plugin provides appear among the assistant\'s available tools; UI extensions appear where they belong.',
       'Disable or uninstall when you no longer need it.',
     ],
     items: [
       { name: 'Install plugin', where: 'Extensions → Plugins → Install', usage: 'Import a plugin package and finish installing.' },
-      { name: 'Enable / disable', where: 'Plugin entry switch', usage: 'Control whether the plugin takes effect.' },
+      { name: 'Installed list', where: 'Plugins panel → list', usage: 'See installed plugins; uninstall from the row when no longer needed.' },
       { name: 'Uninstall', where: 'Plugin entry actions', usage: 'Remove the plugin and everything it provides.' },
     ],
     note:

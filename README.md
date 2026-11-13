@@ -118,7 +118,7 @@ npm run build:apk    # EAS 预览 APK 构建
 |---|---|
 | 首次使用 | 首次启动时按「免责条款 → 新手引导」进入 |
 | 设置页 | 设置 → 关于 → 使用教程 |
-| 工作区 | 工作区 → 设置 → 使用帮助 |
+| 工作区 | 工作区 → 设置 → 帮助与教学 |
 
 每章包含：一句话摘要、逐步操作、「位置 → 路径」速查表与注意事项。教程里的每条路径都
 对应真实界面文字，可照着点；尚未配截图的章节会自动跳过图片，不影响阅读。
@@ -182,7 +182,7 @@ easychat2/
 ├── metro.config.js         # Metro 打包配置（开启 package exports）
 ├── plugins/                # 本地 config plugin：原生模块注入（主动消息 / 本地 API / 命令执行）
 ├── assets/                 # 图标、自适应图标与启动图
-├── src/                    # 业务代码：约 25 个领域子目录 + 各 Screen 入口
+├── src/                    # 业务代码：约 40 个领域子目录 + 各 Screen 入口
 │   ├── ChatScreen.js       # 聊天页入口（UI 细节拆在 src/chat/）
 │   ├── character/          # 角色域：CharacterStack（角色库⇄角色详情栈）+ 列表页/详情页 + 卡解析与导出
 │   ├── SettingsScreen.js   # 设置
