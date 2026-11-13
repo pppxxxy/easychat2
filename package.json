@@ -12,7 +12,11 @@
     "test": "node --test",
     "test:coverage": "c8 node --test",
     "lint": "eslint App.js src plugins tests",
-    "guard:structure": "node scripts/guard-structure.mjs"
+    "guard:structure": "node scripts/guard-structure.mjs",
+    "dev:desktop": "npm --prefix desktop run dev",
+    "build:desktop": "npm --prefix desktop run build",
+    "dist:desktop": "npm --prefix desktop run dist",
+    "test:desktop": "npm --prefix desktop run test"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

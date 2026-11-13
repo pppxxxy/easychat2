@@ -1,0 +1,47 @@
+{
+  "name": "easychat2-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "EasyChat2 Windows desktop shell (Electron + React DOM), sharing src/ business logic through platform aliases",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "dist": "vite build && electron-builder --win nsis zip",
+    "test": "node --test \"tests/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.4.0"
+  },
+  "build": {
+    "appId": "com.easychat2.desktop",
+    "productName": "EasyChat2",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
