@@ -7,7 +7,7 @@
 // 依赖形状刻意保持「服务工厂 + register*」两段式：ipc/*.js 全部零 Electron 依赖，
 // 适配层行为测试在 Node 里直接实例化同一份服务（见 desktop/tests/）。
 import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, safeStorage, session, shell } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,6 +21,11 @@ import { toFileUrl } from './paths.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MEDIA_SCHEME = 'easychat2-media';
+
+// 冒烟模式（npm run smoke）：在真实 Electron 运行时验证 renderer -> preload -> main
+// 全链路，并把窗口截图写到 <userData>/smoke.png。仅由环境变量开启，不影响正常启动。
+const SMOKE = process.env.EASYCHAT2_DESKTOP_SMOKE === '1';
+const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8');
 
 // 数据目录名固定为 EasyChat2（不随 package.json name 变化）：文档目录是跨版本
 // 稳定契约（design.md Requirement 1.4），改名会让老数据“消失”。
@@ -66,6 +71,24 @@ function createWindow() {
     mainWindow = null;
   });
 
+  mainWindow.webContents.once('did-finish-load', async () => {
+    if (!SMOKE) return;
+    try {
+      const probe = await mainWindow.webContents.executeJavaScript(SMOKE_PROBE, true);
+      // 等 React 首帧渲染完成再截图。
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const image = await mainWindow.webContents.capturePage();
+      const screenshot = path.join(app.getPath('userData'), 'smoke.png');
+      writeFileSync(screenshot, image.toPNG());
+      const ok = !!(probe && probe.bridge === true && probe.kv === 'ok' && probe.fs === 'hello' && probe.exists);
+      console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
+      app.exit(ok ? 0 : 1);
+    } catch (error) {
+      console.log(`SMOKE_RESULT ${JSON.stringify({ ok: false, error: String((error && error.message) || error) })}`);
+      app.exit(1);
+    }
+  });
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) mainWindow.loadURL(devServerUrl);
   else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -88,6 +111,8 @@ function applyCsp() {
     });
   });
 }
+
+if (SMOKE) app.disableHardwareAcceleration();
 
 app.whenReady().then(() => {
   const paths = userPaths();

@@ -16,7 +16,8 @@
     "dev:desktop": "npm --prefix desktop run dev",
     "build:desktop": "npm --prefix desktop run build",
     "dist:desktop": "npm --prefix desktop run dist",
-    "test:desktop": "npm --prefix desktop run test"
+    "test:desktop": "npm --prefix desktop run test",
+    "smoke:desktop": "npm --prefix desktop run smoke"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
