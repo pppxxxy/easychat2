@@ -4,7 +4,7 @@
 // 群聊/多选）」的宿主；桌面首版只保留核心聊天闭环，因此这里按 ChatScreen 的口径
 // 搭建**同形**的脚手架，但把桌面不支持的能力收敛成 no-op / 空集合：
 // - 附件与贴纸：S4 接入（当前一律空）；
-// - 语音合成/自动播报：桌面无语音（capabilities.voicePlayback=false）；
+// - 语音合成/自动播报：走 Web Speech API（platform/speech.js），已可用；录音仍不可用；
 // - 工作区/工具/群聊：capabilities 关闭，listToolsForMode 自然返回空；
 // - 记忆总结：S5 前保持 no-op（不影响发送/落盘语义）。
 //
@@ -17,6 +17,7 @@ import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { buildAssistantReplyParts } from '../../../src/chat/assistantReply.js';
 import { getInput, setInput, useInput } from '../../../src/chat/inputStore.js';
 import useChatSend from '../../../src/chat/useChatSend.js';
+import useChatTts from '../../../src/chat/useChatTts.js';
 import useSessionGuard from '../../../src/chat/useSessionGuard.js';
 import useSessionMessages from '../../../src/chat/useSessionMessages.js';
 import { getChatOptions } from '../../../src/storage/settings.js';
@@ -170,7 +171,12 @@ export default function useDesktopChat() {
       await autoSummarizeRef.current(list);
     }
   }, []);
-  const autoBroadcastMessage = useCallback(() => {}, []);
+  // 语音播报：系统引擎走 platform/speech.js（Web Speech API）。
+  // 非系统引擎（在线 TTS）需要 expo-audio 播放，桌面没有 → 那条路径会按
+  // 「audioPlaybackUnsupported」报错，界面如实提示（不静默）。
+  const tts = useChatTts({ characterId });
+  const autoBroadcastMessage = tts.autoBroadcastMessage;
+  // 角色语音形态（需非系统引擎 + 配置），桌面的系统引擎不产文件，保持 no-op。
   const synthesizeVoiceForReply = useCallback(() => {}, []);
   const syncProtectedAttachmentUris = useCallback(() => {}, []);
   const buildAssistantReply = useCallback((replyText) => {
@@ -308,6 +314,11 @@ export default function useDesktopChat() {
     sendLockRef,
     userNameRef,
     autoSummarizeRef,
+    // 播报设置（自动播报开关、手动播报）供聊天页与 VoiceSettings 使用。
+    ttsSettings: tts.ttsSettings,
+    setTtsSettings: tts.setTtsSettings,
+    toggleBroadcast: tts.toggleBroadcast,
+    broadcastMessage: tts.broadcastMessage,
     messages,
     messagesRef,
     setMessages,

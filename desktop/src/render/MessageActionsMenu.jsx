@@ -20,6 +20,7 @@ export default function MessageActionsMenu({
   onRegenerate,
   onEditUserMessage,
   onDeleteImageMessage,
+  onBroadcast,
   canRegenerate,
 }) {
   const { t } = useTranslation();
@@ -63,6 +64,10 @@ export default function MessageActionsMenu({
         }
       },
     });
+    // 手动播报：只对助手消息（播报自己的话没意义）；不受自动播报开关限制。
+    if (!isUser && onBroadcast) {
+      items.push({ key: 'broadcast', label: t('chat.bubble.broadcast'), onPress: () => onBroadcast(message) });
+    }
     if (!isUser) {
       items.push({
         key: 'copy-raw',

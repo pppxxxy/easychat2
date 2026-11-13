@@ -345,6 +345,18 @@ export default function ChatPane({ palette, fonts, tokens }) {
     onOpenModel: modelThinking.openModelPanel,
     onOpenThinking: modelThinking.openThinkingPanel,
     canSwitchModel: !!ready && !isSending,
+    // 语音播报：Web Speech API 已可用（platform/speech.js）。
+    autoBroadcast: chat.ttsSettings && chat.ttsSettings.autoBroadcast === true,
+    // 共享层 useChatTts.toggleBroadcast 是**自取反、无参**的（手机上是开关按钮）。
+    // 菜单按目标值回调，这里先与当前值比对再决定是否取反——否则传入的 value
+    // 会被静默丢弃，表面「受控」实则不控，读代码的人会误判。
+    onToggleAutoBroadcast: value => {
+      const current = chat.ttsSettings && chat.ttsSettings.autoBroadcast === true;
+      if (!!value === current) return;
+      chat.toggleBroadcast().catch(() => {
+        Alert.alert(t('chat.tts.saveFailed.title'), t('chat.tts.saveFailed.body'));
+      });
+    },
     isGroup,
     palette,
     fonts,
@@ -761,6 +773,8 @@ export default function ChatPane({ palette, fonts, tokens }) {
           }}
           onRegenerate={regenerateMessage}
           onEditUserMessage={chat.editUserMessage}
+          // 手动播报：走共享 useChatTts（会自己 resolve 角色/全局 TTS 配置）。
+          onBroadcast={target => chat.broadcastMessage(String((target && target.text) || ''))}
           canRegenerate={!isSending}
         />
       ) : null}

@@ -5,7 +5,8 @@
 export const CAPABILITIES = Object.freeze({
   desktop: true,
   voiceRecording: false,
-  voicePlayback: false,
+  // 语音播报用 Web Speech API（Chromium 自带），已可用；录音仍不可用（见 voiceRecording）。
+  voicePlayback: true,
   localModels: false,
   workspaceTools: false,
   shellCommands: false,

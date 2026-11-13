@@ -33,6 +33,8 @@ export default function ChatMoreMenu({
   onOpenModel,
   onOpenThinking,
   canSwitchModel,
+  autoBroadcast,
+  onToggleAutoBroadcast,
   onOpenConversationCard,
   canConversationCard,
   onOpenSwitcher,
@@ -114,6 +116,13 @@ export default function ChatMoreMenu({
       label: t('chat.menu.thinking'),
       disabled: !canSwitchModel,
       onClick: onOpenThinking,
+    },
+    {
+      // 自动播报：与手机 VoiceSettingsModal 的开关同一语义（手动播报不受它限制）。
+      key: 'auto-broadcast',
+      label: `${t('tts.autoBroadcast.title')}${autoBroadcast ? ' ✓' : ''}`,
+      active: !!autoBroadcast,
+      onClick: () => onToggleAutoBroadcast(!autoBroadcast),
     },
     {
       key: 'stats',

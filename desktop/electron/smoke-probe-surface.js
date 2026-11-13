@@ -34,6 +34,36 @@ async function runSurfaceProbe({ waitFor, bridge }) {
       : null;
   }, 6000));
 
+  // 菜单此刻是开着的：顺手验「自动播报」开关（S17）。
+  // 必须在这里做——后面的探针会切页/开别的面板，之后再定位菜单按钮很不可靠
+  //（实测在末尾重新找 ⋯ 会找不到，菜单压根没打开）。
+  // 文案取自 i18n：zh-CN「自动播报」/ en「Auto read aloud」。
+  const BROADCAST_LABEL = /^(自动播报|Auto read aloud)/;
+  let broadcastMenuLabels = Array.from(document.querySelectorAll('button'))
+    .map(button => String(button.textContent || '').trim())
+    .filter(Boolean)
+    .slice(0, 30);
+  let autoBroadcastMenuSeen = false;
+  let autoBroadcastToggled = false;
+  const broadcastItem = findButton(BROADCAST_LABEL);
+  if (broadcastItem) {
+    autoBroadcastMenuSeen = true;
+    const before = String(broadcastItem.textContent || '');
+    broadcastItem.click();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    // 菜单可能因点击而关闭，重新打开同一入口再读文案。
+    more.click();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const again = findButton(BROADCAST_LABEL);
+    // 开关生效的可见证据：勾选标记出现/消失（共享层写盘后按钮文案跟着变）。
+    autoBroadcastToggled = !!again && String(again.textContent || '') !== before;
+    // 复原，免得污染后续探针的会话设置。
+    if (again) again.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    more.click();
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+
   // 统计：面板必须渲染出「按 API 配置」分区（证明读到了共享层的汇总结构）。
   let statsOpened = false;
   const statsItem = findButton(/^(本会话统计|Session stats)$/);
@@ -280,6 +310,29 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     // 两项都是「界面能到达」级别的检查，失败会体现在字段值上。
   }
 
+  // ---- S17：语音播报（Web Speech API 真实可用性）----
+  // 单测用假 speechSynthesis，证明不了打包后的 Electron 里真有这个能力
+  //（语音包缺失时 getVoices 会是空数组）。这里问真渲染进程。
+  // 菜单开关的检查不在这里：它在菜单**开着**的那一刻做才可靠（见上面的 S17 段）。
+  const synth = globalThis.speechSynthesis;
+  const speechSupported = !!(synth && typeof synth.speak === 'function');
+  let voiceCount = 0;
+  let speechOk = false;
+  if (speechSupported) {
+    const voices = typeof synth.getVoices === 'function' ? synth.getVoices() : [];
+    voiceCount = Array.isArray(voices) ? voices.length : 0;
+    // 真播一条极短文本：能构造 utterance 且不抛错即算可用（不依赖真的出声）。
+    try {
+      const utterance = new globalThis.SpeechSynthesisUtterance('ok');
+      utterance.volume = 0;
+      synth.speak(utterance);
+      synth.cancel();
+      speechOk = true;
+    } catch (error) {
+      speechOk = false;
+    }
+  }
+
   return {
     attempted: true,
     moreMenuSeen,
@@ -295,6 +348,12 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     autoBackupClickSeen,
     globalSearchOk,
     presetPanelOk,
+    speechSupported,
+    speechOk,
+    voiceCount,
+    autoBroadcastMenuSeen,
+    autoBroadcastToggled,
+    broadcastMenuLabels,
     autoBackupDisabled: autoBackupClickSeen,
     autoBackupDirListing,
     autoBackupHasPanel: /自动备份|Auto backup/.test(bodyText()),
