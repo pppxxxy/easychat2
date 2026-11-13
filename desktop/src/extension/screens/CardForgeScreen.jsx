@@ -34,6 +34,7 @@ import { clearCardForge, getCardForge, saveCardForge } from '../../../../src/sto
 import { useApp } from '../../../../src/context/AppContext.js';
 import { Alert } from '../../platform/alert.js';
 import { Button, Card, Field, Row, TextInput } from '../../settings/ui.jsx';
+import { FieldAssistBox, ForgeSimulationPanel } from './forgeAssist.jsx';
 
 export default function CardForgeScreen({ palette, fonts }) {
   const { t } = useTranslation();
@@ -248,6 +249,14 @@ export default function CardForgeScreen({ palette, fonts }) {
               palette={palette}
               fonts={fonts}
             />
+            {/* 辅助生成：按用户描述让模型改写这一个字段（共享层提示词与解析）。 */}
+            <FieldAssistBox
+              fieldLabel={fieldLabel(key)}
+              currentValue={String(draft[key] || '')}
+              palette={palette}
+              fonts={fonts}
+              onApply={value => update({ ...state, draft: { ...draft, [key]: value } })}
+            />
           </Field>
         ))}
         <Field label={t('character.fields.tags.label')} palette={palette} fonts={fonts}>
@@ -269,6 +278,7 @@ export default function CardForgeScreen({ palette, fonts }) {
           />
         </Field>
       </Card>
+      <ForgeSimulationPanel draft={draft} palette={palette} fonts={fonts} />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { getBridge } from '../../platform/bridge.js';
 import { documentDirectory } from '../../platform/fileSystem.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Button, Card, Row } from '../../settings/ui.jsx';
+import RoleCommentPanel from './RoleCommentPanel.jsx';
 
 function formatDuration(ms) {
   const value = Number(ms);
@@ -207,6 +208,10 @@ export default function MusicScreen({ palette, fonts }) {
               disabled={busy}
             />
           </Row>
+          {/* 和角色一起听：让选中的角色就这首歌说一句短评。 */}
+          {playingId === item.id || items.length === 1 ? (
+            <RoleCommentPanel kind="music" target={item} palette={palette} fonts={fonts} />
+          ) : null}
         </Card>
       ))}
     </div>

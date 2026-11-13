@@ -5,7 +5,8 @@
 export const desktop = {
   'desktop.status.available': '可用',
   'desktop.status.unsupported': '桌面版暂不支持',
-                'desktop.modelPanel.noLocal': '桌面不提供本地模型（需要 llama.cpp 原生库）；这里只列出在线 API 的模型。',
+                  'desktop.roleComments.hint': '选一个角色，让它就当前内容说一句短评。桌面这版是「手动触发」；手机上还有「播放到打点自动评论」与「按音频/章节上下文评论」。',
+'desktop.modelPanel.noLocal': '桌面不提供本地模型（需要 llama.cpp 原生库）；这里只列出在线 API 的模型。',
 'desktop.presets.editOnMobile': '桌面这版提供开关（改动立即生效）。新增 / 编辑 / 删除预设条目仍在手机上完成——那是一整套多字段表单，属于独立工作量。',
 'desktop.security.appLockUnsupported': '桌面版不提供「应用锁（生物识别）」：它依赖手机的系统锁屏/指纹入口。单角色锁基于你自己设的数字密码，与平台无关，桌面同样可用（密码用 Electron safeStorage 加密保存）。',
 'desktop.autoBackup.hint': '桌面这版只备份到应用私有目录（可在下面的按钮打开该目录取走备份包）。手机侧的「选择文件夹」依赖 Android 的 content:// 目录授权；桌面没有可长期持有的目录句柄，一旦路径失效每次自动备份都会静默失败，所以不提供。',

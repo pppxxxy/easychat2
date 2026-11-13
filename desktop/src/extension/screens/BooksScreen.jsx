@@ -25,6 +25,7 @@ import { Alert } from '../../platform/alert.js';
 import { getBridge } from '../../platform/bridge.js';
 import { documentDirectory } from '../../platform/fileSystem.js';
 import { Button, Card, Row } from '../../settings/ui.jsx';
+import RoleCommentPanel from './RoleCommentPanel.jsx';
 
 export default function BooksScreen({ palette, fonts }) {
   const { t } = useTranslation();
@@ -177,6 +178,10 @@ export default function BooksScreen({ palette, fonts }) {
           {reading
             ? t('backup.progress.ratio')
             : (content && content.bookId === activeBook.id ? content.text : t('ext.home.books.desc'))}
+        </div>
+        {/* 和角色一起读：让角色就当前的阅读内容说一句。 */}
+        <div style={{ padding: '0 16px 16px', flex: 'none' }}>
+          <RoleCommentPanel kind="books" target={activeBook} palette={palette} fonts={fonts} />
         </div>
       </div>
     );
