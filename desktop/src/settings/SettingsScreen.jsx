@@ -12,6 +12,7 @@ import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import ApiCard from './ApiCard.jsx';
 import AutoBackupCard from './AutoBackupCard.jsx';
 import CharacterLockCard from './CharacterLockCard.jsx';
+import GlobalPresetCard from './GlobalPresetCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
 import MemorySettingsCard from './MemorySettingsCard.jsx';
@@ -30,6 +31,7 @@ const SECTIONS = [
   { id: 'persona', key: 'settings.persona.title' },
   { id: 'appearance', key: 'settings.appearance.title' },
   { id: 'experience', key: 'settings.global.title' },
+  { id: 'presets', key: 'preset.title.global' },
   { id: 'vector', key: 'settings.vector.title' },
   // 自动备份与手机 SECTION_RENDER_ORDER 同位（security 之后、about 之前）。
   { id: 'security', key: 'settings.security.title' },
@@ -117,6 +119,9 @@ export default function SettingsScreen({
         {section === 'persona' ? <PersonaCard palette={palette} fonts={fonts} /> : null}
         {section === 'appearance' ? <AppearanceCard palette={palette} fonts={fonts} /> : null}
         {section === 'experience' ? <ChatOptionsCard palette={palette} fonts={fonts} /> : null}
+        {section === 'presets' ? (
+          <GlobalPresetCard palette={palette} fonts={fonts} />
+        ) : null}
         {section === 'vector' ? (
           <MemorySettingsCard palette={palette} fonts={fonts} character={character} />
         ) : null}

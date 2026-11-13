@@ -229,6 +229,57 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     autoBackupDirListing = [].concat(autoBackupDirListing, [`threw:${String((error && error.message) || error).slice(0, 160)}`]);
   }
 
+  // ---- S15：全库搜索（记忆页）+ 全局预设（设置页）----
+  let globalSearchOk = false;
+  let presetPanelOk = false;
+  try {
+    // 全库搜索在记忆页工具栏。
+    const memoryTab = Array.from(document.querySelectorAll('header button'))
+      .find(button => String(button.textContent || '').includes('记忆')
+        || String(button.textContent || '').includes('Memory'));
+    if (memoryTab) {
+      memoryTab.click();
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const searchBtn = Array.from(document.querySelectorAll('button'))
+        .find(button => String(button.textContent || '').trim() === '搜索'
+          || String(button.textContent || '').trim() === 'Search');
+      if (searchBtn) {
+        searchBtn.click();
+        globalSearchOk = !!(await waitFor(() => {
+          const input = document.querySelector('input[placeholder="搜索历史聊天记录"]')
+            || document.querySelector('input[placeholder="Search chat history"]');
+          return input ? true : null;
+        }, 6000));
+        const closeBtn = Array.from(document.querySelectorAll('button'))
+          .find(button => String(button.textContent || '').trim() === '关闭'
+            || String(button.textContent || '').trim() === 'Close');
+        if (closeBtn) closeBtn.click();
+      }
+    }
+    // 全局预设在设置页。
+    const settingsTab = Array.from(document.querySelectorAll('header button'))
+      .find(button => String(button.textContent || '').includes('设置')
+        || String(button.textContent || '').includes('Settings'));
+    if (settingsTab) {
+      settingsTab.click();
+      await new Promise(resolve => setTimeout(resolve, 400));
+      const nav = await waitFor(() => Array.from(document.querySelectorAll('nav button'))
+        .find(button => String(button.textContent || '').trim() === '全局文本预设'
+          || String(button.textContent || '').trim() === 'Global text presets'), 8000);
+      if (nav) {
+        nav.click();
+        presetPanelOk = !!(await waitFor(() => (bodyText().includes('全局文本预设')
+          || bodyText().includes('Global text presets')) && bodyText().includes('预设') ? true : null), 6000);
+      }
+    }
+    const chatTab = Array.from(document.querySelectorAll('header button'))
+      .find(button => String(button.textContent || '').includes('聊天')
+        || String(button.textContent || '').includes('Chat'));
+    if (chatTab) chatTab.click();
+  } catch (error) {
+    // 两项都是「界面能到达」级别的检查，失败会体现在字段值上。
+  }
+
   return {
     attempted: true,
     moreMenuSeen,
@@ -242,6 +293,8 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     autoBackupOk,
     autoBackupBytes,
     autoBackupClickSeen,
+    globalSearchOk,
+    presetPanelOk,
     autoBackupDisabled: autoBackupClickSeen,
     autoBackupDirListing,
     autoBackupHasPanel: /自动备份|Auto backup/.test(bodyText()),

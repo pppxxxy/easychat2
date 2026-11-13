@@ -413,6 +413,8 @@ function createWindow() {
         // 单元层的等价验证另见 tests/integration/autoBackup.test.mjs。
         && probe.surface.autoBackupOk
         && probe.surface.autoBackupBytes > 0
+        && probe.surface.globalSearchOk
+        && probe.surface.presetPanelOk
       );
       const kiloOk = !!(
         baseOk

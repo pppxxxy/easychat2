@@ -70,6 +70,27 @@ test('角色锁在「读坏」时选择放行而非锁死（桌面没有换设�
   );
 });
 
+test('全局文本预设：开关复用共享存储，且真的会进提示词', () => {
+  const card = read(DESKTOP, 'src', 'settings', 'GlobalPresetCard.jsx');
+  assert.ok(card.includes("from '../../../src/storage/globalPresets.js'"), '未复用共享预设存储');
+  assert.ok(card.includes('saveGlobalPresetSettings'), '缺开关写入口');
+  // 真正的生效路径在共享层（useChatSend 读 getEnabledGlobalPresetPrompts）：
+  // 桌面只要把开关写进同一份存储，行为就与手机一致。这条断言钉住「同一个入口」。
+  const send = read(ROOT, 'src', 'chat', 'useChatSend.js');
+  assert.ok(send.includes('getEnabledGlobalPresetPrompts'), '发送链路未读取全局预设（桌面开关会失效）');
+});
+
+test('全库搜索复用共享 searchMessages（不自己扫存储）', () => {
+  const panel = read(DESKTOP, 'src', 'memory', 'GlobalSearchPanel.jsx');
+  assert.ok(panel.includes("from '../../../src/storage/sessions.js'"), '未复用共享搜索入口');
+  assert.ok(panel.includes('searchMessages'), '缺全库搜索调用');
+  assert.equal(
+    /getMessagesBySessionStatus|getSessions\(/.test(panel),
+    false,
+    '搜索面板不应自己遍历会话（分批读取与损坏过滤在共享层）'
+  );
+});
+
 test('应用锁如实说明桌面不支持（不提供点了没用的开关）', () => {
   assert.ok(LOCK_CARD.includes("t('desktop.security.appLockUnsupported')"), '缺应用锁差异说明');
   // 不能出现一个「开启应用锁」的开关（desktop localAuth shim 恒为 false）。
