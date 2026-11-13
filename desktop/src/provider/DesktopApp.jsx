@@ -133,7 +133,7 @@ function AlertHost({ palette, fonts }) {
 
 function Shell() {
   const { t, localeId, setLocaleId } = useTranslation();
-  const { theme, fonts, themeId, setThemeId, themes } = useTheme();
+  const { theme, fonts, tokens, themeId, setThemeId, themes } = useTheme();
   const {
     characters,
     activeId,
@@ -610,7 +610,7 @@ function Shell() {
             palette={palette}
             fonts={fonts}
           >
-            <ChatPane palette={palette} fonts={fonts} />
+            <ChatPane palette={palette} fonts={fonts} tokens={tokens} />
           </RoleLockGate>
         ) : (
           <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: palette.textMuted }}>

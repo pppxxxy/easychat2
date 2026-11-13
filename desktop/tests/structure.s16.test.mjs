@@ -194,6 +194,18 @@ test('分叉点入口：可展开分支列表，且切换/删除接真实链路'
   assert.ok(PANE.includes('forkBranches={branchesApi.branchesByFork}'), '未接共享层分组结果');
 });
 
+test('气泡样式：设置真的生效（不是只存了一个值）', () => {
+  // 回归：桌面曾把「气泡样式」放进设置页却不消费——改了没有任何效果。
+  const row = read(DESKTOP, 'src', 'render', 'MessageRow.jsx');
+  assert.ok(row.includes('resolveBubbleStyle'), '未消费共享决策层');
+  for (const key of ['bubbleRadius', 'tailRadius', 'userBackground', 'bubblePaddingHorizontal', 'hasShadow']) {
+    assert.ok(row.includes(key), `未使用 ${key}（样式会缺一块）`);
+  }
+  // 宿主要把 tokens 与 chatOptions.bubbleStyle 一路传到消息行。
+  assert.ok(PANE.includes('bubbleStyle={chat.chatOptions && chat.chatOptions.bubbleStyle}'), '未传 bubbleStyle');
+  assert.ok(PANE.includes('tokens={tokens}'), '未传 tokens（圆角/阴影取值来源）');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

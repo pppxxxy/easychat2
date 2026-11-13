@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { maskSecrets } from '../../../src/storage/secrets.js';
+import { resolveBubbleStyle } from '../../../src/chat/bubbleStyle.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { getBridge } from '../platform/bridge.js';
 import MediaMessage from './MediaMessage.jsx';
@@ -150,7 +151,17 @@ function ErrorBubble({ message, palette, fonts }) {
   );
 }
 
-export default function MessageRow({ message, palette, fonts, onRegenerate, onCommand, onMenu, speakerName = '' }) {
+export default function MessageRow({
+  message,
+  palette,
+  fonts,
+  tokens,
+  bubbleStyle,
+  onRegenerate,
+  onCommand,
+  onMenu,
+  speakerName = '',
+}) {
   const { t } = useTranslation();
   const kind = resolveMessageRenderKind(message);
   const markdown = useMemo(
@@ -163,6 +174,13 @@ export default function MessageRow({ message, palette, fonts, onRegenerate, onCo
   const isError = kind === RENDER_KIND.ERROR;
   const isMedia = kind === RENDER_KIND.MEDIA;
   const text = String(message.text || '');
+  // 气泡样式（圆润 / 卡片 / 无底纹）：决策在共享层 resolveBubbleStyle，
+  // 这里只把结果映射到 DOM 的 inline style —— 设置里的「气泡样式」因此真的生效。
+  const bubble = resolveBubbleStyle(bubbleStyle, { colors: palette }, tokens || {});
+  const bubbleBackground = isMedia
+    ? 'transparent'
+    : (isUser ? bubble.userBackground : bubble.assistantBackground);
+  const bubbleTextColor = isUser ? bubble.userTextColor : palette.text;
   const markdownVars = {
     '--ec-surface-alt': palette.surfaceAlt,
     '--ec-border': palette.divider,
@@ -184,11 +202,15 @@ export default function MessageRow({ message, palette, fonts, onRegenerate, onCo
         <div style={{
           maxWidth: isMedia ? '76%' : '82%',
           minWidth: 0,
-          background: isMedia ? 'transparent' : (isUser ? palette.primary : palette.surface),
-          color: isUser ? palette.primaryContrast : palette.text,
-          border: isMedia ? 'none' : (isUser ? 'none' : `1px solid ${palette.divider}`),
-          borderRadius: 12,
-          padding: isMedia ? 0 : '10px 14px',
+          background: bubbleBackground,
+          color: bubbleTextColor,
+          border: isMedia || bubble.plain ? 'none' : (isUser ? 'none' : `1px solid ${palette.divider}`),
+          // 圆润风格给「收角」方向感（用户右侧、助手左侧），卡片/无底纹四角一致。
+          borderRadius: isUser
+            ? `${bubble.bubbleRadius}px ${bubble.tailRadius}px ${bubble.bubbleRadius}px ${bubble.bubbleRadius}px`
+            : `${bubble.tailRadius}px ${bubble.bubbleRadius}px ${bubble.bubbleRadius}px ${bubble.bubbleRadius}px`,
+          padding: isMedia ? 0 : `${bubble.bubblePaddingVertical}px ${bubble.bubblePaddingHorizontal}px`,
+          boxShadow: isMedia || !bubble.hasShadow ? 'none' : '0 1px 2px rgba(0,0,0,0.12)',
           fontSize: fonts.scaled(14),
           lineHeight: 1.65,
           wordBreak: 'break-word',

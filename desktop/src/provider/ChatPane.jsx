@@ -50,7 +50,7 @@ import useDesktopChat from './useDesktopChat.js';
 import useDesktopChatSearch from '../chat/useDesktopChatSearch.js';
 import useDesktopMemorySummary from '../chat/useDesktopMemorySummary.js';
 
-export default function ChatPane({ palette, fonts }) {
+export default function ChatPane({ palette, fonts, tokens }) {
   const { t } = useTranslation();
   const chat = useDesktopChat();
   const {
@@ -443,6 +443,8 @@ export default function ChatPane({ palette, fonts }) {
           messages={messages}
           palette={palette}
           fonts={fonts}
+          tokens={tokens}
+          bubbleStyle={chat.chatOptions && chat.chatOptions.bubbleStyle}
           selecting={selection.selecting}
           selectedIds={selection.selectedIds}
           onToggleSelect={selection.toggle}
