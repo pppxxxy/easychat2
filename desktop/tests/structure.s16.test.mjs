@@ -206,6 +206,25 @@ test('气泡样式：设置真的生效（不是只存了一个值）', () => {
   assert.ok(PANE.includes('tokens={tokens}'), '未传 tokens（圆角/阴影取值来源）');
 });
 
+test('角色专属配置含 OCR 项（与手机 CharacterOverridesSection 对齐）', () => {
+  const card = read(DESKTOP, 'src', 'character', 'CharacterOverrideCard.jsx');
+  assert.ok(card.includes('ocrApiConfigId'), '缺 OCR 接口选择');
+  assert.ok(card.includes('ocrModel'), '缺 OCR 模型选择');
+  assert.ok(card.includes("t('character.overrides.ocr')"), '缺 OCR 区块标签');
+  // 生效路径必须在共享层（useChatSend 用 resolveCharacterOcrSettings）。
+  const send = read(ROOT, 'src', 'chat', 'useChatSend.js');
+  assert.ok(send.includes('resolveCharacterOcrSettings'), '发送链路未读角色专属 OCR（选择会失效）');
+});
+
+test('动态：用户可以自己发布（不只是点赞/评论）', () => {
+  const screen = read(DESKTOP, 'src', 'extension', 'screens', 'MomentsScreen.jsx');
+  assert.ok(screen.includes("t('moments.post.placeholder')"), '缺发布输入框');
+  assert.ok(screen.includes("authorType: 'user'"), '发布未标记为用户动态');
+  assert.ok(screen.includes('runUserMomentComments'), '发布后未触发角色评论');
+  // 必须走 startCommentTask：用户离开页面后评论不应被组件卸载中止。
+  assert.ok(screen.includes('startCommentTask'), '评论未交给模块级 runner（离开页面会断）');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

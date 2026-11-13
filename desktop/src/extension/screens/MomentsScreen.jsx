@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '../../../../src/i18n/I18nContext.js';
 import { getMomentsStatus, updateMoments } from '../../../../src/storage/moments.js';
 import { flattenCommentThread } from '../../../../src/moments/commentThread.js';
+import { startCommentTask } from '../../../../src/moments/commentRunner.js';
+import { runUserMomentComments } from '../../../../src/moments/runUserMomentComments.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Alert } from '../../platform/alert.js';
 import { Button, Card, Row, TextInput } from '../../settings/ui.jsx';
@@ -64,6 +66,9 @@ export default function MomentsScreen({ palette, fonts }) {
   const [corrupt, setCorrupt] = useState(false);
   const [moments, setMoments] = useState([]);
   const [commentDraft, setCommentDraft] = useState({});
+  // 用户自己发布动态（与手机同一链路：写入 authorType:'user' 的动态，再后台触发角色评论）。
+  const [postDraft, setPostDraft] = useState('');
+  const [posting, setPosting] = useState(false);
   const [busyId, setBusyId] = useState('');
 
   const load = useCallback(async () => {
@@ -100,6 +105,40 @@ export default function MomentsScreen({ palette, fonts }) {
       Alert.alert(t('moments.alert.saveFailed.title'), t('moments.alert.saveFailed.bodyReadFailed'));
     } finally {
       setBusyId('');
+    }
+  };
+
+  // 发布：先落一条用户动态，再后台串行让角色来评论（进度通过重新读库逐步刷新）。
+  // 用 startCommentTask 而不是裸 await：用户离开动态页时评论**不会**被组件卸载中止
+  // （手机侧 2026-10-11 的同类反馈）。
+  const submitPost = async () => {
+    const text = String(postDraft || '').trim();
+    if (!text || posting) return;
+    setPosting(true);
+    const momentId = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const moment = {
+      id: momentId,
+      authorType: 'user',
+      characterId: '',
+      characterName: t('moments.default.userName'),
+      avatarUri: '',
+      sessionId: '',
+      trigger: 'user-post',
+      text,
+      createdAt: Date.now(),
+      likedByUser: false,
+      likes: [],
+      comments: [],
+    };
+    try {
+      await updateMoments(list => [moment, ...(Array.isArray(list) ? list : [])]);
+      setPostDraft('');
+      await load();
+      startCommentTask(momentId, () => runUserMomentComments({ momentId, onComment: load }));
+    } catch (error) {
+      Alert.alert(t('moments.alert.postFailed.title'), t('moments.alert.postFailed.body'));
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -176,6 +215,31 @@ export default function MomentsScreen({ palette, fonts }) {
             {t('moments.alert.saveFailed.bodyReadFailed')}
           </div>
         ) : null}
+      </Card>
+
+      <Card title={t('ext.home.moments')} palette={palette} fonts={fonts}>
+        <Row>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <TextInput
+              value={postDraft}
+              onChange={setPostDraft}
+              placeholder={t('moments.post.placeholder')}
+              palette={palette}
+              fonts={fonts}
+            />
+          </div>
+          <Button
+            label={posting ? t('backup.progress.ratio') : t('moments.post.sendA11y')}
+            onClick={submitPost}
+            palette={palette}
+            fonts={fonts}
+            primary
+            disabled={posting || !String(postDraft || '').trim()}
+          />
+        </Row>
+        <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
+          {t('moments.empty.description')}
+        </div>
       </Card>
 
       {!loading && moments.length === 0 && !corrupt ? (

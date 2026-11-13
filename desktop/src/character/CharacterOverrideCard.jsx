@@ -1,7 +1,8 @@
 // 角色「专属配置」（桌面）：为本角色单独指定聊天 API 与模型，或「跟随全局」。
 //
-// 对应手机 character/CharacterOverridesSection 的**聊天**那一项。桌面没有 OCR / TTS /
-// 语音转文字（那三项依赖原生能力），所以这里只呈现聊天 API——不摆出点了没用的选择器。
+// 对应手机 character/CharacterOverridesSection 的**聊天 + OCR**两项。
+// 语音转文字与 TTS 仍然不做（依赖录音/语音合成，平台不可行），所以不摆那两项。
+// OCR 是可移植的：ImageRecognitionCard 已有全局设置，这里只是「按角色换成另一条配置」。
 //
 // 数据全部复用共享层 storage/characterOverrides：
 //   · getCharacterOverridesStatus —— 三态读（corrupt 时**拒绝编辑**，绝不把其余专属配置清空）；
@@ -66,14 +67,20 @@ export default function CharacterOverrideCard({ character, palette, fonts }) {
 
   const resolved = overrides || {};
   const current = String(resolved.chatApiConfigId || '');
+  const ocrCurrent = String(resolved.ocrApiConfigId || '');
   const configOptions = [
     { value: '', label: t('character.overrides.followGlobal') },
     ...configs.map(item => ({ value: item.id, label: item.name || t('settings.api.unnamed') })),
   ];
   const models = (configs.find(item => item.id === current) || {}).models || [];
+  const ocrModels = (configs.find(item => item.id === ocrCurrent) || {}).models || [];
   const modelOptions = [
     { value: '', label: t('character.overrides.followModel') },
     ...models.map(model => ({ value: model, label: model })),
+  ];
+  const ocrModelOptions = [
+    { value: '', label: t('character.overrides.followModel') },
+    ...ocrModels.map(model => ({ value: model, label: model })),
   ];
   const count = countCharacterOverrides(resolved);
 
@@ -127,6 +134,47 @@ export default function CharacterOverrideCard({ character, palette, fonts }) {
                 value={String(resolved.chatModel || '')}
                 options={modelOptions}
                 onChange={value => persist({ ...resolved, chatModel: value })}
+                palette={palette}
+                fonts={fonts}
+                disabled={busy}
+              />
+            </Field>
+          ) : null}
+          <Field
+            label={t('character.overrides.ocr')}
+            hint={t('character.overrides.ocrHint')}
+            palette={palette}
+            fonts={fonts}
+          >
+            <Row>
+              <Select
+                value={ocrCurrent}
+                options={configOptions}
+                onChange={value => persist({ ...resolved, ocrApiConfigId: value })}
+                palette={palette}
+                fonts={fonts}
+                disabled={busy}
+              />
+              {ocrCurrent ? (
+                <span style={{
+                  fontSize: fonts.scaled(10),
+                  color: palette.primaryMuted || palette.primary,
+                  border: `1px solid ${palette.primaryMuted || palette.primary}`,
+                  borderRadius: 999,
+                  padding: '1px 8px',
+                }}
+                >
+                  {t('character.overrides.badge')}
+                </span>
+              ) : null}
+            </Row>
+          </Field>
+          {ocrCurrent ? (
+            <Field label={t('character.overrides.model')} palette={palette} fonts={fonts}>
+              <Select
+                value={String(resolved.ocrModel || '')}
+                options={ocrModelOptions}
+                onChange={value => persist({ ...resolved, ocrModel: value })}
                 palette={palette}
                 fonts={fonts}
                 disabled={busy}
