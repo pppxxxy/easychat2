@@ -14,6 +14,7 @@ import ConversationCardPanel from '../chat/ConversationCardPanel.jsx';
 import SwitcherPanel from '../chat/SwitcherPanel.jsx';
 import PanelShell from '../chat/PanelShell.jsx';
 import ChatComposer from './ChatComposer.jsx';
+import RunningNoticeBar from '../chat/RunningNoticeBar.jsx';
 import MemorySummaryPanel from '../chat/MemorySummaryPanel.jsx';
 import { countCompactionMessages } from '../../../src/chat/sessionCompaction.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
@@ -352,6 +353,18 @@ export default function ChatPane({ palette, fonts }) {
           fonts={fonts}
         />
       ) : null}
+      {/* 后台生成提示：当前会话还在跑时可见（切走会话后回复会写回它自己的会话，
+          这里保证「正在发生什么」始终可见）。 */}
+      <RunningNoticeBar
+        visible={isSending}
+        sessionName={groupName || chat.characterName}
+        // 提示条只描述**当前会话**（桌面同一时刻只有一条前台运行），所以「切过去」
+        // 等价于滚到最新一条、看到正在生成的位置。
+        onOpen={() => chat.scrollToBottom()}
+        onStop={chat.stop}
+        palette={palette}
+        fonts={fonts}
+      />
       <ChatSearchBar
         open={search.open}
         query={search.query}
