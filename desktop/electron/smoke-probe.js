@@ -1,8 +1,18 @@
 // 冒烟探针（由主进程用 webContents.executeJavaScript 注入渲染进程执行）。
 //
-// 验证的是 S1 的完整链路：渲染进程 -> preload 白名单 -> 主进程服务 -> 磁盘。
-// 返回对象会随 SMOKE_RESULT 打印；任何一步失败都会体现在字段里。
+// S1 链路：window.easychat2 -> kv/fs -> 磁盘。
+// S2 链路：AppProvider 挂载 -> 读取角色库/会话 -> 诊断钩子 window.__easychat2S2。
 (async () => {
+  const waitFor = async (read, timeoutMs = 12000) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const value = read();
+      if (value) return value;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return null;
+  };
+
   const bridge = window.easychat2;
   if (!bridge) return { bridge: false };
   const dir = bridge.app.paths.documentDirectory;
@@ -15,6 +25,14 @@
   const stat = await bridge.fs.stat(dir + 'smoke.txt');
   const sync = bridge.fs.sync.stat(dir + 'smoke.txt');
   const info = await bridge.app.info();
+
+  const artwork = await bridge.fs.stat(dir + 'avatars/default-assistant-avatar.jpg');
+  const avatarsList = await bridge.fs.readDir(dir + 'avatars').catch(error => `ERR:${error.code || error.message}`);
+  const s2 = await waitFor(() => window.__easychat2S2);
+  const keys = await bridge.kv.keys();
+  const hasCharactersKey = keys.includes('@easychat2_character_index');
+  const hasSessionsKey = keys.includes('@easychat2_sessions');
+
   return {
     bridge: true,
     kv: kvValue,
@@ -24,5 +42,10 @@
     xhr: typeof XMLHttpRequest === 'function',
     version: info && info.version,
     documents: dir,
+    artworkExists: !!(artwork && artwork.exists),
+    artworkRaw: artwork,
+    avatarsList,
+    s2,
+    storage: { hasCharactersKey, hasSessionsKey, keyCount: keys.length },
   };
 })()

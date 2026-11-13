@@ -54,7 +54,7 @@ import {
 } from './characterLibrary.js';
 import { resolveActiveSessionId, shouldPersistResolvedId, sortSessions } from './sessionLibrary.js';
 import { normalizePendingQuote, normalizePendingTarget } from './pendingPayloads.js';
-import { materializeDefaultArtwork } from '../character/defaultCharacterAssets.js';
+import { materializeDefaultArtwork } from '../character/artworkLoader.js';
 import { measureAsync, PERF_THRESHOLDS } from '../logging/perfProbe.js';
 import { ingestProactiveMessagesInto } from './proactiveIngest.js';
 // 状态守卫文案走 tActive（同步取词）：这些 throw 的 message 会被调用方 catch 后

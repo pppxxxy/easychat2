@@ -3,20 +3,26 @@
 Windows 桌面版（Electron 外壳 + React DOM 界面）。需求与设计见
 [`.monkeycode/specs/2026-11-11-windows-desktop/`](../.monkeycode/specs/2026-11-11-windows-desktop/)。
 
-## 当前阶段：S1（骨架 + IPC + 适配层）
+## 当前阶段：S2（共享层接入：角色/会话读写）
 
-- `electron/`：主进程（窗口、键值仓、文件、密钥、流式 HTTP、媒体协议、对话框）。
+- `electron/`：主进程（窗口、键值仓、文件、密钥、流式 HTTP、媒体协议、对话框、
+  内置角色素材复制）。
 - `src/platform/`：渲染层适配层，是共享层 `src/` 的 import 落点（别名表见 `vite.config.mjs`）。
-- `src/`：渲染入口与 S1 骨架屏（角色/会话/聊天在 S2-S4 接入）。
-- `tests/`：适配层行为测试（纯 Node，不依赖 Electron 窗口）。
+- `src/provider/DesktopApp.jsx`：逐字复用 AppContext / I18nContext / ThemeContext 的
+  桌面界面骨架——角色列表（头像经 `easychat2-media://`）、会话列表、语言与主题切换。
+- `tests/`：适配层行为测试（纯 Node）；`npm run smoke` 在真实 Electron 里做全链路
+  探测并截图（S1+S2 验收物）。
+- S3 起接入聊天界面（useChatSend/useSessionMessages 编排），S5 做导入导出与
+  跨端媒体路径重写（手机↔桌面双向），S6 打包。
 
 ## 命令
 
 ```bash
 npm install                    # 首次；本仓库惯用 --ignore-scripts（跳过 electron 二进制下载）
 npm run dev                    # Vite dev server（需在另一终端起 Electron 并设置 VITE_DEV_SERVER_URL）
-npx vite build                 # 渲染层构建（S1 验收项）
-node --test tests/             # 适配层行为测试（S1 验收项）
+npx vite build                 # 渲染层构建
+node --test tests/             # 适配层行为测试
+npm run smoke                  # 真实 Electron 全链路冒烟（截图写到 <userData>/smoke.png）
 npm run dist                   # Windows NSIS + zip（需在 Windows 机器 / CI 上执行）
 ```
 

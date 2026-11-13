@@ -14,6 +14,7 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { markMediaWrite } from '../storage/mediaProtection.js';
+import { setArtworkLoader } from './artworkLoader.js';
 
 const AVATAR_MODULE = require('../../assets/easychat-assistant-avatar.jpg');
 const BG_MODULE = require('../../assets/easychat-assistant-bg.jpg');
@@ -53,3 +54,8 @@ export const DEFAULT_ARTWORK_FILES = {
   avatar: 'default-assistant-avatar.jpg',
   bg: 'default-assistant-bg.jpg',
 };
+
+// 注册为 materializeDefaultArtwork 的默认实现（Android 侧）。
+// 桌面端在入口注入自己的实现覆盖它；AppContext 只依赖 artworkLoader.js 的注册表，
+// 因此本文件（含 CJS `require` 打包资源）不会进入桌面构建的依赖图。
+setArtworkLoader(materializeDefaultArtwork);

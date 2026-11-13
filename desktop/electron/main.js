@@ -7,7 +7,7 @@
 // 依赖形状刻意保持「服务工厂 + register*」两段式：ipc/*.js 全部零 Electron 依赖，
 // 适配层行为测试在 Node 里直接实例化同一份服务（见 desktop/tests/）。
 import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, safeStorage, session, shell } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +49,31 @@ function userPaths() {
   };
 }
 
+// 内置角色素材：把随包发布的 jpg 复制到 documents/avatars/（仅缺失时）。
+// 渲染层读不到安装目录，这一步只能放主进程；与 Android 端「assets -> avatars」同语义。
+function ensureDefaultArtwork(documentsRoot) {
+  const avatarsDir = path.join(documentsRoot, 'avatars');
+  mkdirSync(avatarsDir, { recursive: true });
+  const assetRoot = app.isPackaged
+    ? path.join(process.resourcesPath, 'assets')
+    : path.resolve(__dirname, '..', '..', 'assets');
+  // 源文件名（随包发布）-> 落盘名（与 Android 端 DEFAULT_ARTWORK_FILES 一致）。
+  // 桌面与手机共用同一套「默认角色头像文件名」，备份互导后引用不会断。
+  const artwork = [
+    ['easychat-assistant-avatar.jpg', 'default-assistant-avatar.jpg'],
+    ['easychat-assistant-bg.jpg', 'default-assistant-bg.jpg'],
+  ];
+  for (const [sourceName, destName] of artwork) {
+    const dest = path.join(avatarsDir, destName);
+    if (existsSync(dest)) continue;
+    try {
+      copyFileSync(path.join(assetRoot, sourceName), dest);
+    } catch (error) {
+      // 素材缺失不阻断启动：界面按「图片不可用」回退首字母头像。
+    }
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -67,6 +92,16 @@ function createWindow() {
     },
   });
   mainWindow.once('ready-to-show', () => mainWindow && mainWindow.show());
+  // 渲染层 console 转发到主进程 stdout：冒烟/排查时不用开 DevTools 也能看到首错。
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`);
+  });
+  mainWindow.webContents.on('preload-error', (event, preloadPath, error) => {
+    console.log(`[preload-error] ${preloadPath}: ${String((error && error.message) || error)}`);
+  });
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.log(`[render-process-gone] ${JSON.stringify(details)}`);
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -80,7 +115,18 @@ function createWindow() {
       const image = await mainWindow.webContents.capturePage();
       const screenshot = path.join(app.getPath('userData'), 'smoke.png');
       writeFileSync(screenshot, image.toPNG());
-      const ok = !!(probe && probe.bridge === true && probe.kv === 'ok' && probe.fs === 'hello' && probe.exists);
+      const ok = !!(
+        probe
+        && probe.bridge === true
+        && probe.kv === 'ok'
+        && probe.fs === 'hello'
+        && probe.exists
+        && probe.artworkExists
+        && probe.s2
+        && probe.s2.loaded
+        && probe.s2.counts.characters >= 1
+        && probe.s2.counts.sessions >= 1
+      );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
     } catch (error) {
@@ -120,6 +166,7 @@ app.whenReady().then(() => {
     mkdirSync(dir, { recursive: true });
   }
 
+  ensureDefaultArtwork(paths.documentsRoot);
   fsService = createFsService({ documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
   const kvStore = createKvStore({ root: path.join(paths.userData, 'kv') });
   const secretStore = createSecretStore({ root: paths.secretsRoot, safeStorage });
