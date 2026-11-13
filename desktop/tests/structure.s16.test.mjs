@@ -42,7 +42,8 @@ test('全屏输入复用同一个 input store，而不是第二份草稿', () =>
   assert.ok(PANE.includes('value={input}'), '全屏输入未共用 input store');
   assert.ok(FULLSCREEN.includes('onSend'), '缺发送回调');
   // 发送必须走宿主 submit（含开场白拦截/附件校验/会话守卫）。
-  assert.ok(PANE.includes('onSend={() => { setFullScreenOpen(false); submit(); }}'), '发送未走宿主 submit');
+  // 弹层开关已聚合成 overlays（closeOverlay），但发送仍必须走宿主 submit。
+  assert.ok(/onSend=\{\(\) => \{[^}]*submit\(\); \}\}/.test(PANE), '发送未走宿主 submit');
 });
 
 test('多选删除：计划由纯模块算出，界面按计划执行', () => {

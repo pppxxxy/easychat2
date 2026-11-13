@@ -33,6 +33,9 @@ export default function ChatMoreMenu({
   onOpenModel,
   onOpenThinking,
   canSwitchModel,
+  onOpenConversationCard,
+  canConversationCard,
+  onOpenSwitcher,
   isGroup,
   palette,
   fonts,
@@ -88,6 +91,17 @@ export default function ChatMoreMenu({
       label: t('chat.bubble.selectMessage'),
       disabled: !canSelect,
       onClick: onOpenSelection,
+    },
+    {
+      key: 'switcher',
+      label: t('chat.switcher.title'),
+      onClick: onOpenSwitcher,
+    },
+    {
+      key: 'conversation-card',
+      label: t('desktop.conversationCard.title'),
+      disabled: !canConversationCard,
+      onClick: onOpenConversationCard,
     },
     {
       key: 'model',

@@ -2,7 +2,10 @@
 export const desktop = {
   'desktop.status.available': 'Available',
   'desktop.status.unsupported': 'Not supported on desktop',
-                  'desktop.roleComments.hint': 'Pick a character and let it say a short line about the current item. This desktop build triggers it manually; the phone also auto-comments at music markers and comments with audio/chapter context.',
+                    'desktop.conversationCard.title': 'Character card from this conversation',
+  'desktop.conversationCard.hint': 'Hand this conversation to the model and distill it into a character card, written into the forge draft; then open Extensions → Card forge to review, edit and import it. Longer chats capture speaking habits better; text is kept within the shared length limit.',
+  'desktop.conversationCard.generate': 'Generate card',
+'desktop.roleComments.hint': 'Pick a character and let it say a short line about the current item. This desktop build triggers it manually; the phone also auto-comments at music markers and comments with audio/chapter context.',
 'desktop.modelPanel.noLocal': 'Desktop does not provide local models (they need the llama.cpp native library); only online API models are listed here.',
 'desktop.presets.editOnMobile': 'This desktop build offers the toggles (changes apply immediately). Adding, editing and deleting preset entries still happens on the phone — that is a full multi-field form and a separate piece of work.',
 'desktop.security.appLockUnsupported': 'Desktop does not offer the biometric app lock: it depends on the phone’s system-lock/fingerprint entry point. Per-character locks use a passcode you choose, which is platform-independent, so they work here too (stored encrypted via Electron safeStorage).',

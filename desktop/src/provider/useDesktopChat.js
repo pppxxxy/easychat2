@@ -43,6 +43,7 @@ export default function useDesktopChat() {
     updateCharacter,
     refreshSessions,
     switchSession: switchSessionFn,
+    switchCharacter,
   } = useApp();
 
   const characterId = character.id || '';
@@ -55,6 +56,11 @@ export default function useDesktopChat() {
   sessionsRef.current = sessions;
   charactersRef.current = characters;
 
+  // 群聊会话（供「切换角色/群聊」面板列出）。与手机 ChatScreen.groupSessions 同口径。
+  const groupSessions = useMemo(
+    () => (Array.isArray(sessions) ? sessions : []).filter(item => item && item.type === 'group'),
+    [sessions]
+  );
   const activeSession = useMemo(
     () => sessions.find(session => session.id === activeSessionId) || null,
     [sessions, activeSessionId]
@@ -296,6 +302,9 @@ export default function useDesktopChat() {
     charactersRef,
     sessionsRef,
     switchSession: switchSessionFn,
+    switchCharacter,
+    characters,
+    groupSessions,
     sendLockRef,
     userNameRef,
     autoSummarizeRef,

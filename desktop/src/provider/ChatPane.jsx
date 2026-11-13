@@ -8,6 +8,11 @@ import { buildQuotePayload } from '../../../src/chat/chatHelpers.js';
 import { groupDisplayName, speakerNameOf } from '../group/groupModel.js';
 import GroupSettingsPanel from '../group/GroupSettingsPanel.jsx';
 import MentionPicker from '../group/MentionPicker.jsx';
+import GroupHeaderBar from '../chat/GroupHeaderBar.jsx';
+import CompactFocusDialog from '../chat/CompactFocusDialog.jsx';
+import ConversationCardPanel from '../chat/ConversationCardPanel.jsx';
+import SwitcherPanel from '../chat/SwitcherPanel.jsx';
+import PanelShell from '../chat/PanelShell.jsx';
 import { countCompactionMessages } from '../../../src/chat/sessionCompaction.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
@@ -128,11 +133,20 @@ export default function ChatPane({ palette, fonts }) {
     chat.autoSummarizeRef.current = summary.autoSummarize;
     return () => { chat.autoSummarizeRef.current = null; };
   }, [chat.autoSummarizeRef, summary.autoSummarize]);
-  const [statsOpen, setStatsOpen] = useState(false);
+  // 弹层开关集中成一个对象：它们同属「这一屏的浮层」，七个独立 useState 只是把组件
+  // 顶部拉长，没有一个是独立语义。
+  const [overlays, setOverlays] = useState({
+    scrubber: false,
+    compactFocus: false,
+    conversationCard: false,
+    switcher: false,
+    stats: false,
+    export: false,
+    fullScreen: false,
+  });
+  const openOverlay = (key, value = true) => setOverlays(current => ({ ...current, [key]: value }));
+  const closeOverlay = key => setOverlays(current => ({ ...current, [key]: false }));
   const [moreAnchor, setMoreAnchor] = useState(null);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [fullScreenOpen, setFullScreenOpen] = useState(false);
-  const [scrubberOpen, setScrubberOpen] = useState(false);
   // Ctrl/Cmd+F 打开对话内搜索（桌面用户的肌肉记忆；手机没有条件按组合键）。
   // 只在聊天页挂载期间生效，且不抢占浏览器/系统的其它快捷键。
   useEffect(() => {
@@ -273,6 +287,38 @@ export default function ChatPane({ palette, fonts }) {
     lineHeight: 1,
   };
 
+  // 「更多」菜单的全部条目与可用态集中在这里：一处就能看清这一屏提供了什么。
+  const moreMenuProps = {
+    open: !!moreAnchor,
+    anchor: moreAnchor,
+    onClose: () => setMoreAnchor(null),
+    onToggleSearch: () => (search.open ? search.closeSearch() : search.openSearch()),
+    searchOpen: search.open,
+    onSummarize: () => summary.summarize({}),
+    summarizing: summary.summarizing,
+    canSummarize: !!ready && !isSending,
+    onOpenStats: () => openOverlay('stats'),
+    onOpenExport: () => openOverlay('export'),
+    canExport: messages.length > 0,
+    onReselectGreeting: () => greeting.open('reselect'),
+    canReselectGreeting: !!activeSessionId && !isSending,
+    onOpenFullScreen: () => openOverlay('fullScreen'),
+    canFullScreen: !!ready && !isGroup && !!chat.greetingReady,
+    onOpenScrubber: () => openOverlay('scrubber'),
+    canScrubber: scrubber.scrubberMessages.length > 0,
+    onOpenSelection: selection.start,
+    canSelect: !!ready && messages.length > 0,
+    onOpenSwitcher: () => openOverlay('switcher'),
+    onOpenConversationCard: () => openOverlay('conversationCard'),
+    canConversationCard: !!ready && messages.length > 0,
+    onOpenModel: modelThinking.openModelPanel,
+    onOpenThinking: modelThinking.openThinkingPanel,
+    canSwitchModel: !!ready && !isSending,
+    isGroup,
+    palette,
+    fonts,
+  };
+
   return (
     <div
       style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}
@@ -292,59 +338,16 @@ export default function ChatPane({ palette, fonts }) {
       }}
     >
       {isGroup ? (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '8px 20px',
-          borderBottom: `1px solid ${palette.divider}`,
-          flex: 'none',
-          background: palette.surfaceAlt,
-        }}
-        >
-          <strong style={{ fontSize: fonts.scaled(13) }}>{groupName}</strong>
-          <span style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>
-            {t('character.library.scrubber.groupMeta', { count: groupCharacters.length })}
-          </span>
-          {groupMissingIds.length > 0 ? (
-            <span style={{ fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f' }}>
-              {t('group.members.missing', { count: groupMissingIds.length })}
-            </span>
-          ) : null}
-          <span style={{ flex: 1 }} />
-          {/* 群聊 @ 提及：点选成员插入 @名字（手机侧是输入 @ 自动弹）。 */}
-          <button
-            type="button"
-            onClick={() => setMentionOpen(value => !value)}
-            title={t('chat.mention.title')}
-            style={{
-              background: mentionOpen ? palette.surface : 'transparent',
-              color: palette.textMuted,
-              border: `1px solid ${palette.divider}`,
-              borderRadius: 8,
-              padding: '3px 10px',
-              cursor: 'pointer',
-              fontSize: fonts.scaled(11),
-            }}
-          >
-            @
-          </button>
-          <button
-            type="button"
-            onClick={() => setGroupSettingsOpen(true)}
-            style={{
-              background: 'transparent',
-              color: palette.textMuted,
-              border: `1px solid ${palette.divider}`,
-              borderRadius: 8,
-              padding: '3px 10px',
-              cursor: 'pointer',
-              fontSize: fonts.scaled(11),
-            }}
-          >
-            {t('group.settings.title')}
-          </button>
-        </div>
+        <GroupHeaderBar
+          groupName={groupName}
+          memberCount={groupCharacters.length}
+          missingCount={groupMissingIds.length}
+          mentionOpen={mentionOpen}
+          onToggleMention={() => setMentionOpen(value => !value)}
+          onOpenSettings={() => setGroupSettingsOpen(true)}
+          palette={palette}
+          fonts={fonts}
+        />
       ) : null}
       <ChatSearchBar
         open={search.open}
@@ -363,7 +366,7 @@ export default function ChatPane({ palette, fonts }) {
         dismissed={usageDismissed}
         meaningfulMessages={countCompactionMessages(messages)}
         onDismiss={() => setUsageDismissed(true)}
-        onCompact={() => compact.compact()}
+        onCompact={() => openOverlay('compactFocus')}
         compactBusy={compact.compactBusy}
         palette={palette}
         fonts={fonts}
@@ -659,9 +662,52 @@ export default function ChatPane({ palette, fonts }) {
         palette={palette}
         fonts={fonts}
       />
+      <CompactFocusDialog
+        open={overlays.compactFocus}
+        busy={compact.compactBusy}
+        onCancel={() => closeOverlay('compactFocus')}
+        onConfirm={focus => { closeOverlay('compactFocus'); compact.compact({ focus }); }}
+        palette={palette}
+        fonts={fonts}
+      />
+      <SwitcherPanel
+        open={overlays.switcher}
+        onClose={() => closeOverlay('switcher')}
+        characters={chat.characters}
+        activeId={characterId}
+        onSwitchCharacter={id => chat.switchCharacter(id)}
+        groupSessions={chat.groupSessions}
+        activeSessionId={activeSessionId}
+        onSwitchGroup={id => { chat.switchSession(id); }}
+        groupNameOf={session => groupDisplayName(
+          session,
+          (session.members || [])
+            .map(id => (chat.characters || []).find(item => item.id === id))
+            .filter(Boolean)
+            .map(item => String(item.name || '').trim())
+            .filter(Boolean),
+          t('common.groupChat'),
+          t('character.library.group.nameJoin')
+        )}
+        palette={palette}
+        fonts={fonts}
+      />
+      <PanelShell
+        open={overlays.conversationCard}
+        onClose={() => closeOverlay('conversationCard')}
+      >
+        <ConversationCardPanel
+          messages={messages}
+          characterName={chat.characterName}
+          userName={String((chat.userNameRef && chat.userNameRef.current) || '')}
+          palette={palette}
+          fonts={fonts}
+          onGenerated={() => closeOverlay('conversationCard')}
+        />
+      </PanelShell>
       <ScrollScrubber
-        open={scrubberOpen}
-        onClose={() => setScrubberOpen(false)}
+        open={overlays.scrubber}
+        onClose={() => closeOverlay('scrubber')}
         count={scrubber.scrubberMessages.length}
         previews={scrubber.previews}
         onSeek={index => { scrubber.seek(index); }}
@@ -671,11 +717,11 @@ export default function ChatPane({ palette, fonts }) {
         fonts={fonts}
       />
       <FullScreenInput
-        open={fullScreenOpen}
+        open={overlays.fullScreen}
         value={input}
         onChange={onInputChange}
-        onSend={() => { setFullScreenOpen(false); submit(); }}
-        onClose={() => setFullScreenOpen(false)}
+        onSend={() => { closeOverlay('fullScreen'); submit(); }}
+        onClose={() => closeOverlay('fullScreen')}
         palette={palette}
         fonts={fonts}
         sendLabel={t('chat.fullscreen.send')}
@@ -698,44 +744,18 @@ export default function ChatPane({ palette, fonts }) {
         onCancel={greeting.cancel}
         onConfirm={greeting.confirm}
       />
-      <ChatMoreMenu
-        open={!!moreAnchor}
-        anchor={moreAnchor}
-        onClose={() => setMoreAnchor(null)}
-        onToggleSearch={() => (search.open ? search.closeSearch() : search.openSearch())}
-        searchOpen={search.open}
-        onSummarize={() => summary.summarize({})}
-        summarizing={summary.summarizing}
-        canSummarize={!!ready && !isSending}
-        onOpenStats={() => setStatsOpen(true)}
-        onOpenExport={() => setExportOpen(true)}
-        canExport={messages.length > 0}
-        onReselectGreeting={() => greeting.open('reselect')}
-        canReselectGreeting={!!activeSessionId && !isSending}
-        onOpenFullScreen={() => setFullScreenOpen(true)}
-        canFullScreen={!!ready && !isGroup && !!chat.greetingReady}
-        onOpenScrubber={() => setScrubberOpen(true)}
-        canScrubber={scrubber.scrubberMessages.length > 0}
-        onOpenSelection={selection.start}
-        canSelect={!!ready && messages.length > 0}
-        onOpenModel={modelThinking.openModelPanel}
-        onOpenThinking={modelThinking.openThinkingPanel}
-        canSwitchModel={!!ready && !isSending}
-        isGroup={isGroup}
-        palette={palette}
-        fonts={fonts}
-      />
+      <ChatMoreMenu {...moreMenuProps} />
       <SessionStatsPanel
-        open={statsOpen}
-        onClose={() => setStatsOpen(false)}
+        open={overlays.stats}
+        onClose={() => closeOverlay('stats')}
         sessionId={activeSessionId || ''}
         messageCount={messages.filter(item => item && !item.transient).length}
         palette={palette}
         fonts={fonts}
       />
       <ConversationExportPanel
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
+        open={overlays.export}
+        onClose={() => closeOverlay('export')}
         messages={messages}
         title={isGroup
           ? groupName

@@ -5,7 +5,10 @@
 export const desktop = {
   'desktop.status.available': '可用',
   'desktop.status.unsupported': '桌面版暂不支持',
-                  'desktop.roleComments.hint': '选一个角色，让它就当前内容说一句短评。桌面这版是「手动触发」；手机上还有「播放到打点自动评论」与「按音频/章节上下文评论」。',
+                    'desktop.conversationCard.title': '从对话生成角色卡',
+  'desktop.conversationCard.hint': '把当前这段对话交给模型，提炼成一张角色卡并写进制卡草稿；之后可在「扩展 → 制卡工坊」里查看、修改、导入角色库。对话越长越能抓住说话习惯，最长会保留到共享层的字数上限。',
+  'desktop.conversationCard.generate': '生成为角色卡',
+'desktop.roleComments.hint': '选一个角色，让它就当前内容说一句短评。桌面这版是「手动触发」；手机上还有「播放到打点自动评论」与「按音频/章节上下文评论」。',
 'desktop.modelPanel.noLocal': '桌面不提供本地模型（需要 llama.cpp 原生库）；这里只列出在线 API 的模型。',
 'desktop.presets.editOnMobile': '桌面这版提供开关（改动立即生效）。新增 / 编辑 / 删除预设条目仍在手机上完成——那是一整套多字段表单，属于独立工作量。',
 'desktop.security.appLockUnsupported': '桌面版不提供「应用锁（生物识别）」：它依赖手机的系统锁屏/指纹入口。单角色锁基于你自己设的数字密码，与平台无关，桌面同样可用（密码用 Electron safeStorage 加密保存）。',
