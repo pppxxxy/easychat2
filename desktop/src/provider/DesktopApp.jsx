@@ -27,6 +27,7 @@ import {
 } from '../../../src/storage/settings.js';
 import BackupPanel from '../backup/BackupPanel.jsx';
 import { applyCharacterCard, pickCharacterCard } from '../backup/services.js';
+import { decodeCardShareCode } from '../../../src/share/cardShare.js';
 import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
 import CharacterLibraryScreen from '../character/CharacterLibraryScreen.jsx';
 import ExtensionScreen from '../extension/ExtensionScreen.jsx';
@@ -516,6 +517,22 @@ function Shell() {
               onDelete={id => run('delete', () => deleteCharacter(id))}
               onPin={(id, pinned) => run('pin', () => pinCharacter(id, pinned))}
               onImport={importCard}
+              onImportShareCode={async text => {
+                // 分享码 → 卡片 JSON → 走与「导入角色卡」同一条落库链路。
+                const json = decodeCardShareCode(text);
+                const fields = JSON.parse(json);
+                const applied = await applyCharacterCard(
+                  { patch: fields, fields, isPng: false },
+                  { addCharacter, ensureCharacterSession, updateCharacter }
+                );
+                Alert.alert(
+                  t('character.detail.importOk.title'),
+                  t('backup.card.importDone', {
+                    name: (applied.created && applied.created.name) || fields.name || '',
+                  })
+                );
+                setCharacterScreen('library');
+              }}
             />
           ) : (
             <CharacterEditScreen

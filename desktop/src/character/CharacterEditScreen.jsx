@@ -16,6 +16,7 @@ import { createRegexScript } from '../../../src/character/cardParser/regexScript
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { markMediaWrite } from '../../../src/storage/mediaProtection.js';
 import { Alert } from '../platform/alert.js';
+import CharacterOverrideCard from './CharacterOverrideCard.jsx';
 import { getBridge } from '../platform/bridge.js';
 import { documentDirectory } from '../platform/fileSystem.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
@@ -436,6 +437,10 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
           ) : null}
         </Row>
       </Card>
+      {/* 专属配置（聊天 API）：与手机「专属配置」区同一语义，只保留桌面可用的那一项。 */}
+      {character && character.id ? (
+        <CharacterOverrideCard character={character} palette={palette} fonts={fonts} />
+      ) : null}
     </div>
   );
 }

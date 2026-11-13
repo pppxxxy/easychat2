@@ -10,6 +10,7 @@ import { Alert } from '../platform/alert.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
 import { characterSummary, filterCharacters, sortCharacters } from './libraryView.js';
 import { exportCharacterCard } from '../backup/services.js';
+import CharacterShareDialog from './CharacterShareDialog.jsx';
 
 function Avatar({ uri, name, palette, fonts, size = 56 }) {
   const src = useMemo(() => (uri ? mediaUrl(uri) : null), [uri]);
@@ -54,6 +55,7 @@ export default function CharacterLibraryScreen({
   onDelete,
   onPin,
   onImport,
+  onImportShareCode,
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
@@ -83,6 +85,9 @@ export default function CharacterLibraryScreen({
       ]
     );
   };
+
+  // 分享面板（分享码/二维码/从剪贴板导入）：与导出对话框同样的入口密度。
+  const [shareTarget, setShareTarget] = useState(null);
 
   const exportCard = character => {
     Alert.alert(t('character.detail.export.dialogTitle'), t('character.detail.export.body'), [
@@ -259,6 +264,9 @@ export default function CharacterLibraryScreen({
                   <button type="button" style={ghost} disabled={!!busy} onClick={() => exportCard(character)}>
                     {t('backup.card.exportJson')}
                   </button>
+                  <button type="button" style={ghost} disabled={!!busy} onClick={() => setShareTarget(character)}>
+                    {t('character.share.entry')}
+                  </button>
                   {character.id !== 'default' ? (
                     <button type="button" style={ghost} disabled={!!busy} onClick={() => confirmDelete(character)}>
                       {t('common.delete')}
@@ -270,6 +278,15 @@ export default function CharacterLibraryScreen({
           })}
         </div>
       )}
+      {shareTarget ? (
+        <CharacterShareDialog
+          character={shareTarget}
+          palette={palette}
+          fonts={fonts}
+          onClose={() => setShareTarget(null)}
+          onImportCard={onImportShareCode}
+        />
+      ) : null}
     </section>
   );
 }
