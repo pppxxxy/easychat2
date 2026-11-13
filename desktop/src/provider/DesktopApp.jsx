@@ -159,7 +159,6 @@ function Shell() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [firstRunStage, setFirstRunStage] = useState('loading');
   const [appVersion, setAppVersion] = useState('');
-  const ensuredRef = useRef(false);
 
   // 首启门禁：未同意免责条款先看免责声明，同意了但没看完教程再看教程（与 App.js
   // StartupFlow 同一顺序），完成后才允许进入主界面。
@@ -195,12 +194,22 @@ function Shell() {
     [sessions, activeId]
   );
 
+  // 每个角色第一次成为当前角色时补一个开场白会话。
+  // 注意不能只做一次（原 ensuredRef 是一次性锁）：新建角色或在库里切换到一个还没有会话的
+  // 角色后，聊天页会一直停在空态——用户只能靠顶栏「+」自救。这里按角色 id 记账。
+  const ensuredCharacterRef = useRef('');
   useEffect(() => {
-    if (!loaded || ensuredRef.current || !activeCharacter) return;
-    ensuredRef.current = true;
-    if (!sessions.some(session => session.characterId === activeId)) {
-      ensureCharacterSession(activeId).catch(() => {});
+    if (!loaded || !activeCharacter || !activeId) return;
+    if (ensuredCharacterRef.current === activeId) return;
+    if (sessions.some(session => session.characterId === activeId)) {
+      ensuredCharacterRef.current = activeId;
+      return;
     }
+    ensuredCharacterRef.current = activeId;
+    ensureCharacterSession(activeId).catch(() => {
+      // 建会话失败就允许下次重试（否则这个角色永远没有会话）。
+      ensuredCharacterRef.current = '';
+    });
   }, [loaded, activeCharacter, sessions, activeId, ensureCharacterSession]);
 
   useEffect(() => {
@@ -314,7 +323,22 @@ function Shell() {
             >
               ☰
             </button>
-            <button type="button" style={ghost} disabled={!!busy} onClick={() => run('add', () => addCharacter(DEFAULT_NEW_CHARACTER))}>
+            <button
+              type="button"
+              style={ghost}
+              disabled={!!busy}
+              title={t('character.library.new')}
+              onClick={() => {
+                // 新建后直接进编辑页（新角色已由 addCharacter 设为当前角色）。
+                run('add', () => addCharacter(DEFAULT_NEW_CHARACTER))
+                  .then(() => {
+                    setCharacterScreen('edit');
+                    setView('character');
+                    setShowSessions(false);
+                    setShowBackup(false);
+                  });
+              }}
+            >
               +
             </button>
           </div>
@@ -497,7 +521,7 @@ function Shell() {
           <ChatPane palette={palette} fonts={fonts} />
         ) : (
           <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: palette.textMuted }}>
-            {t('app.tab.memory')} …
+            {t('chat.list.emptyTitle')} …
           </section>
         )}
       </main>

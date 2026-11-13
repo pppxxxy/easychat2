@@ -65,6 +65,26 @@ test('角色库卡片：搜索/新建/导入/导出/删除入口齐全', () => {
   }
 });
 
+test('每个角色首次成为当前角色时补开场白会话（不能只做一次）', () => {
+  // 回归：原先 ensuredRef 是**一次性**锁，新建角色或切到没有会话的角色后聊天页永远空着。
+  assert.ok(APP.includes('ensuredCharacterRef'), '缺少按角色 id 的记账');
+  assert.equal(APP.includes('const ensuredRef = useRef(false)'), false, '一次性锁已移除');
+  assert.ok(
+    APP.includes('ensuredCharacterRef.current === activeId'),
+    '必须按 activeId 判重，否则切角色不会补会话'
+  );
+  assert.ok(APP.includes('ensuredCharacterRef.current = \'\''), '建会话失败要允许下次重试');
+  assert.ok(APP.includes("ensureCharacterSession(activeId).catch"), '补建会话的调用不存在');
+});
+
+test('侧栏「+」新建角色后直接进编辑页', () => {
+  assert.ok(
+    APP.includes("run('add', () => addCharacter(DEFAULT_NEW_CHARACTER))")
+      && APP.includes("setCharacterScreen('edit')"),
+    '新建角色后没有进编辑页'
+  );
+});
+
 test('聊天页接线：占用条 + 分支切换器 + 压缩入口都存在', () => {
   assert.ok(PANE.includes('<ContextUsageBar'), '占用条未挂载');
   assert.ok(PANE.includes('<BranchSwitcher'), '分支切换器未挂载');
