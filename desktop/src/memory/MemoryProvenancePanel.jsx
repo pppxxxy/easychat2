@@ -1,8 +1,7 @@
 // 记忆溯源（桌面）：把向量记忆摊开，看每条是从哪段对话的哪条消息切出来的。
 //
-// 对应手机 memory/MemoryProvenanceModal 的**溯源**部分。冲突检测与合并（需要模型调用）
-// 是同一面板的另一半，本文件暂不包含——先把「这些记忆是从哪来的」这件事给出可见性，
-// 那是用户最常问的。
+// 对应手机 memory/MemoryProvenanceModal 的**溯源**部分。冲突检测与合并是同一面板的
+// 另一半，由 memory/MemoryConflictPanel.jsx 承担（两者在设置页「向量记忆」分区里相邻渲染）。
 //
 // 数据与判定全部复用共享层：
 //   · storage/vector.js 的 getVectorIndexStatus —— 三态读（ok / missing / corrupt）；

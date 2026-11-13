@@ -3,14 +3,13 @@
 // 与手机 ProactivePanel 同一份数据（storage/moments.js 的 PROACTIVE_SETTINGS_KEY）：
 //   slots[] 每个槽 = 角色 + 时间 + 时段长度 + 模式 + 风格权重表 + 衔接会话。
 //
-// **桌面只做配置，不负责定时触发**：手机侧靠 WorkManager / 前台服务在后台唤起；
-// 桌面进程退出后没有等价载体（这条已如实写在扩展页的「依赖手机系统的能力」里）。
-// 但配置是可移植的——用户在桌面配好，手机端（或桌面开着时的启动补跑）就能用；
-// 反过来手机配好的也能在桌面查看/修改。
+// **窗口开着时会到点触发**（useProactiveForeground 每分钟检查一次，用系统通知提醒
+// 并把消息写进会话）；窗口关闭后不触发——手机侧靠 WorkManager / 前台服务在后台唤起，
+// 桌面没有等价载体。配置存在同一份数据里，手机端读取后同样生效。
 //
 // 保存走 saveProactiveSettings：它内部串行入队 + 读失败拒绝整键覆盖
 // （读坏时「当前设置」是 {slots: []}，直接写回会把用户每个角色的时段全清）。
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useApp } from '../../../../src/context/AppContext.js';
 import { useTranslation } from '../../../../src/i18n/I18nContext.js';
@@ -25,6 +24,7 @@ import {
 } from '../../../../src/storage/moments.js';
 import { Alert } from '../../platform/alert.js';
 import { Button, Card, Field, Row, Select, TextInput, Toggle } from '../../settings/ui.jsx';
+import useProactiveForeground from '../../proactive/useProactiveForeground.js';
 
 const MODE_LABELS = {
   WORK: 'proactive.mode.work',
@@ -41,6 +41,10 @@ const TYPE_LABELS = {
 export default function ProactiveScreen({ palette, fonts }) {
   const { t } = useTranslation();
   const { characters, sessions } = useApp();
+  const charactersRef = useRef(characters);
+  charactersRef.current = characters;
+  // 窗口开着时到点触发（关闭后不触发，见文件头说明）。
+  useProactiveForeground({ enabled: true, charactersRef });
   const [settings, setSettings] = useState(null);
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);

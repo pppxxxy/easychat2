@@ -98,6 +98,10 @@ const bridge = {
   clipboard: {
     write: text => invoke('clipboard:write', text),
   },
+  notify: {
+    // 系统通知：桌面没有后台服务，窗口开着时到点提醒（诚实版的部分实现）。
+    show: payload => invoke('notify:show', payload),
+  },
   http: {
     start: payload => invoke('http:start', payload),
     abort: requestId => invoke('http:abort', requestId),

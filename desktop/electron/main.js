@@ -6,7 +6,7 @@
 //
 // 依赖形状刻意保持「服务工厂 + register*」两段式：ipc/*.js 全部零 Electron 依赖，
 // 适配层行为测试在 Node 里直接实例化同一份服务（见 desktop/tests/）。
-import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -20,6 +20,7 @@ import { createMediaHandler } from './ipc/media.js';
 import { registerMediaPickIpc } from './ipc/mediaPick.js';
 import { registerBackupFileIpc } from './ipc/backupFiles.js';
 import { registerDialogIpc } from './ipc/dialog.js';
+import { registerNotifyIpc } from './ipc/notify.js';
 import * as smokeFixtures from './smoke-fixtures.js';
 import { toFileUrl } from './paths.js';
 
@@ -487,6 +488,11 @@ app.whenReady().then(() => {
   registerSecretIpc(ipcMain, secretStore);
   registerHttpIpc(ipcMain, httpProxy);
   registerDialogIpc(ipcMain, { dialog, shell, clipboard, resolver: fsService.resolver });
+  // 系统通知：桌面没有后台服务，但窗口开着时到点仍能提醒（诚实版的部分实现）。
+  registerNotifyIpc(ipcMain, {
+    Notification,
+    getWindow: () => mainWindow,
+  });
   registerMediaPickIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
   registerBackupFileIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
 

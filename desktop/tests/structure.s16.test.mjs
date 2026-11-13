@@ -264,6 +264,21 @@ test('动态：角色回复我的评论（两条规则都接上）', () => {
   );
 });
 
+test('主动消息：窗口开着时真的会触发（不再是「只配置不触发」）', () => {
+  const screen = read(DESKTOP, 'src', 'extension', 'screens', 'ProactiveScreen.jsx');
+  const hook = read(DESKTOP, 'src', 'proactive', 'useProactiveForeground.js');
+  const timing = read(DESKTOP, 'src', 'proactive', 'slotTiming.js');
+  assert.ok(screen.includes('useProactiveForeground'), '未启用前台调度');
+  assert.ok(hook.includes('isSlotDue') && hook.includes('pickVariant'), '未复用槽位判定');
+  assert.ok(hook.includes('buildProactiveVariants'), '未复用风格抽取（共享层）');
+  assert.ok(hook.includes('appendProactiveMessage'), '未把消息写进会话');
+  assert.ok(hook.includes('buildProactiveMessageId'), '缺幂等 id（同槽同日会重复）');
+  assert.ok(hook.includes('notify.show'), '缺系统通知');
+  // 判定必须抽成零依赖叶子模块，否则 Node 里 import 会拖进 expo-file-system。
+  assert.ok(timing.includes('export function isSlotDue'), '槽位判定未抽成纯函数');
+  assert.equal(/from '.+\.js'/.test(timing), false, '纯叶子模块不应有任何 import');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');
