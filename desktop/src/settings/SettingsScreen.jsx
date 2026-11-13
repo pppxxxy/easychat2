@@ -14,6 +14,7 @@ import AutoBackupCard from './AutoBackupCard.jsx';
 import CharacterLockCard from './CharacterLockCard.jsx';
 import DiagnosticsCard from './DiagnosticsCard.jsx';
 import GlobalPresetCard from './GlobalPresetCard.jsx';
+import LocationCard from './LocationCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
 import MemorySettingsCard from './MemorySettingsCard.jsx';
@@ -35,6 +36,8 @@ const SECTIONS = [
   { id: 'appearance', key: 'settings.appearance.title' },
   { id: 'experience', key: 'settings.global.title' },
   { id: 'presets', key: 'preset.title.global' },
+  // 位置：影响提示词注入（[当前位置]），与全局预设同属「对话里给模型什么」的一类。
+  { id: 'location', key: 'world.map.real.places.title' },
   { id: 'vector', key: 'settings.vector.title' },
   // 自动备份与手机 SECTION_RENDER_ORDER 同位（security 之后、about 之前）。
   { id: 'security', key: 'settings.security.title' },
@@ -126,6 +129,9 @@ export default function SettingsScreen({
         {section === 'experience' ? <ChatOptionsCard palette={palette} fonts={fonts} /> : null}
         {section === 'presets' ? (
           <GlobalPresetCard palette={palette} fonts={fonts} />
+        ) : null}
+        {section === 'location' ? (
+          <LocationCard palette={palette} fonts={fonts} />
         ) : null}
         {section === 'vector' ? (
           <>
