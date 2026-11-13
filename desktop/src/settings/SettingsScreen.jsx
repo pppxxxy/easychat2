@@ -18,6 +18,7 @@ import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
 import MemorySettingsCard from './MemorySettingsCard.jsx';
 import MemoryProvenancePanel from '../memory/MemoryProvenancePanel.jsx';
+import MemoryConflictPanel from '../memory/MemoryConflictPanel.jsx';
 import PersonaCard from './PersonaCard.jsx';
 import SamplingCard from './SamplingCard.jsx';
 import useApiConfigs from './useApiConfigs.js';
@@ -130,6 +131,7 @@ export default function SettingsScreen({
           <>
             <MemorySettingsCard palette={palette} fonts={fonts} character={character} />
             <MemoryProvenancePanel palette={palette} fonts={fonts} character={character} />
+            <MemoryConflictPanel palette={palette} fonts={fonts} character={character} />
           </>
         ) : null}
         {section === 'security' ? (
