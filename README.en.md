@@ -63,6 +63,12 @@ npm run start        # start the Expo dev server
 npm run android      # open directly on Android
 npm run prebuild     # expo prebuild --clean, regenerate android/
 npm run build:apk    # EAS preview APK build
+
+# Windows desktop build (Electron shell + React DOM UI, reusing the same src/ logic)
+npm run dev:desktop    # dev mode (Vite HMR + Electron window)
+npm run test:desktop   # desktop pure-logic / adapter behaviour tests
+npm run smoke:desktop  # real-window smoke: send, render, attachments, stickers, backup panel
+npm run dist:desktop   # unsigned NSIS installer + portable zip into desktop/release/
 ```
 
 > This project ships `npm test` Node regression tests; native modules, WebView, permissions, and touch interactions still require running `npm run start` and manually walking the affected paths.
@@ -177,6 +183,13 @@ easychat2/
 ├── eas.json                # EAS Build configuration
 ├── metro.config.js         # Metro bundler config (package exports enabled)
 ├── plugins/                # local config plugins: native module injection (proactive messages / local API / command execution)
+├── desktop/                # Windows desktop build (Electron main process + React DOM renderer, reusing src/)
+│   ├── electron/           # main process: kv/fs/secrets/streaming HTTP/media protocol/dialogs/backup file IPC
+│   ├── src/platform/       # adapters for shared-layer deps (AsyncStorage, expo-file-system, Alert, XHR…)
+│   ├── src/render/         # message rendering (Markdown / sandboxed rich-HTML iframe / media)
+│   ├── src/attachments/    # attachments and stickers (pick/paste/drop, limits shared with Android)
+│   ├── src/backup/         # backup restore plus character card import/export
+│   └── tests/              # adapter behaviour tests + real-path integration tests (no Electron needed)
 ├── assets/                 # icons, adaptive icons, splash
 ├── src/                    # app code: ~40 domain subdirectories + screen entries
 │   ├── ChatScreen.js       # chat entry (UI details live in src/chat/)
@@ -184,7 +197,7 @@ easychat2/
 │   ├── SettingsScreen.js   # settings
 │   ├── ...                 # remaining screens (memory / extensions / search / image gen / panels)
 │   └── <domain>/           # agent / storage / chat / workspace / localModel / moments / ...
-└── .github/workflows/      # CI (unit test gate + Kotlin compile + APK builds)
+└── .github/workflows/      # CI (unit test gate + Kotlin compile + APK builds + Windows desktop packaging)
 ```
 
 > The full module map lives in `.monkeycode/docs/INTERFACES.md` and the "Architecture map" section of `AGENTS.md`.

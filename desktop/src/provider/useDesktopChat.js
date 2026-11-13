@@ -138,7 +138,6 @@ export default function useDesktopChat() {
   const synthesizeVoiceForReply = useCallback(() => {}, []);
   const syncProtectedAttachmentUris = useCallback(() => {}, []);
   const buildAssistantReply = useCallback((replyText) => {
-    const opts = chatOptionsRef.current || {};
     const result = buildAssistantReplyParts({
       replyText,
       stickers: stickersRef.current,

@@ -492,7 +492,7 @@ function Shell() {
         <div style={{ padding: '14px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <strong style={{ fontSize: fonts.scaled(15) }}>{t('app.tab.character')}</strong>
           <button type="button" style={ghost} disabled={!!busy} onClick={() => run('add', () => addCharacter(DEFAULT_NEW_CHARACTER))}>
-            ＋
+            +
           </button>
         </div>
         <div style={{ overflow: 'auto', flex: 1, padding: '0 8px 12px' }}>
@@ -581,7 +581,7 @@ function Shell() {
             disabled={!!busy || !activeCharacter}
             onClick={() => run('session', () => ensureCharacterSession(activeId))}
           >
-            ＋
+            +
           </button>
         </header>
 

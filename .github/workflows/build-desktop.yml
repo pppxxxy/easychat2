@@ -1,0 +1,86 @@
+# Windows 桌面版构建（design.md Requirement 12）。
+#
+# 与 Android 的 workflow 关系：桌面产物另起一个 workflow（windows-latest），
+# 不改动 Android 的 app.json/plugins/构建脚本（Requirement 12.3）。
+#
+# 失败归因（Requirement 12.4）：渲染层构建（vite build）与安装包打包（electron-builder）
+# **分成两步**，这样失败时一眼看出是哪一层坏了——同 unit-tests.yml 把 Kotlin 编译
+# 单独拆成 job 的理由：CI 红了要能自己说清是哪个环节。
+name: Build Windows desktop
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'src/**'
+      - 'assets/**'
+      - 'package.json'
+      - '.github/workflows/build-desktop.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/build-desktop.yml'
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows x64 (unsigned)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        # --ignore-scripts 与 Android 侧一致：不执行任意 postinstall。Electron 的下载
+        # 由下一步显式补（npm 的 allow-scripts 策略也会拦它，踩过一次）。
+        working-directory: desktop
+        run: npm ci --ignore-scripts
+
+      - name: Install Electron binary
+        # electron postinstall 被 --ignore-scripts 跳过，这里手动执行其官方安装脚本。
+        # 用 npmmirror 镜像：GitHub Release 在国内网络下经常超时（本机实测）。
+        working-directory: desktop
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+        run: node node_modules/electron/install.js
+
+      - name: Desktop unit tests
+        working-directory: desktop
+        run: npm test
+
+      - name: Renderer build
+        # 第 1 层：Vite 构建（共享层别名 + JSX-in-.js 转译都在这层验证）。
+        working-directory: desktop
+        run: npx vite build
+
+      - name: Package installer
+        # 第 2 层：electron-builder 出 NSIS + zip。无签名证书 ⇒ 未签名包
+        # （用户首次运行会看到 SmartScreen 提示，属预期）。
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+        run: npx electron-builder --win nsis zip --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: easychat2-desktop-windows-x64
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+          if-no-files-found: error

@@ -26,7 +26,7 @@
 // 2026-10-08 Stage 5：WorkspacePanel.js 迁至 workspace/screen/FilesPanel.js，33 → 32。
 // 2026-10-11：resourceMutex.js（纯工具）迁至 utils/resourceMutex.js，32 → 31。
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -284,5 +284,72 @@ if (cycles.length > 0) {
   process.exit(1);
 }
 console.log('[guard:structure] ok：无模块循环依赖。');
+
+// ---- 桌面（desktop/）独立棘轮（Requirement 11.3）----
+// 与 Android 侧同一套口径（上限 800 行、不留空转余量），但基线文件独立：
+// desktop/architecture-baseline.json。桌面新增文件不得把 800 行上限当摆设；
+// 确需放宽必须在基线文件里改数并写理由（与 Android 侧相同的出口）。
+const desktopDir = path.join(repoRoot, 'desktop');
+if (existsSync(desktopDir)) {
+const desktopPolicy = JSON.parse(readFileSync(path.join(desktopDir, 'architecture-baseline.json'), 'utf8'));
+const DESKTOP_MAX_FILE_LINES = Number(desktopPolicy.maxFileLines) || 800;
+const DESKTOP_MAX_ROOT_FILES = Number(desktopPolicy.maxRootFiles) || 4;
+const DESKTOP_SKIP_DIRS = new Set(['node_modules', 'dist', 'release', '.vite', '.cache']);
+const DESKTOP_SOURCE_EXT = /\.(?:js|jsx|mjs|cjs)$/;
+function collectDesktopSources(dir, out = []) {
+  let entries = [];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return out;
+  }
+  for (const entry of entries) {
+    if (DESKTOP_SKIP_DIRS.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectDesktopSources(full, out);
+    else if (DESKTOP_SOURCE_EXT.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+const desktopSources = ['src', 'electron', 'tests']
+  .flatMap(name => collectDesktopSources(path.join(desktopDir, name)));
+const desktopBaseline = desktopPolicy.fileLineBaseline || {};
+const desktopGrowth = [];
+const desktopOversize = [];
+for (const file of desktopSources) {
+  const rel = relPath(file);
+  const lines = countLines(readFileSync(file, 'utf8'));
+  const limit = desktopBaseline[rel];
+  if (limit !== undefined) {
+    if (lines > limit) desktopGrowth.push(`${rel}：${lines} 行 > 基线 ${limit}`);
+  } else if (lines > DESKTOP_MAX_FILE_LINES) {
+    desktopOversize.push(`${rel}：${lines} 行 > 上限 ${DESKTOP_MAX_FILE_LINES}`);
+  }
+}
+if (desktopGrowth.length > 0 || desktopOversize.length > 0) {
+  console.error(
+    '[guard:structure] 桌面源码行数超限：\n'
+    + [...desktopGrowth, ...desktopOversize].map(item => `  ${item}`).join('\n')
+    + '\n请拆分模块；确需抬高时把 desktop/architecture-baseline.json 的基线改成实际值并写明理由。'
+  );
+  process.exit(1);
+}
+const desktopRootFiles = readdirSync(path.join(desktopDir, 'src'))
+  .filter(name => /\.(?:js|jsx)$/.test(name));
+if (desktopRootFiles.length > DESKTOP_MAX_ROOT_FILES) {
+  console.error(
+    `[guard:structure] desktop/src 根目录有 ${desktopRootFiles.length} 个文件，超过上限 ${DESKTOP_MAX_ROOT_FILES}。\n`
+    + '新文件请按领域放进子目录（provider/ render/ platform/ attachments/ backup/ stickers/ ...）。'
+  );
+  process.exit(1);
+}
+console.log(
+  `[guard:structure] ok：桌面结构（上限 ${DESKTOP_MAX_FILE_LINES}，`
+  + `根文件 ${desktopRootFiles.length}/${DESKTOP_MAX_ROOT_FILES}，基线 ${Object.keys(desktopBaseline).length} 个）。`
+);
+} else {
+  console.log('[guard:structure] 跳过桌面结构检查（无 desktop/ 目录）。');
+}
+
 
 

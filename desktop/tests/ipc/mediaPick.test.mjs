@@ -88,7 +88,7 @@ test('media:pick：文本按 base64 返回、不落盘', async () => {
 
 test('media:pick：表情包源图落到 cache/sticker-import', async () => {
   const source = 'C:/tmp/cute.png';
-  const { invoke, calls } = createHarness({ selected: [source], sizes: { [source]: 1024 } });
+  const { invoke } = createHarness({ selected: [source], sizes: { [source]: 1024 } });
   const result = await invoke('sticker-source');
   assert.equal(result.items.length, 1);
   assert.ok(result.items[0].uri.includes('/cache/sticker-import/sticker-src-'));

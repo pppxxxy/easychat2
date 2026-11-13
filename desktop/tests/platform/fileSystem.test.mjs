@@ -4,7 +4,6 @@
 // readDirectoryAsync 只返回直接子项、EncodingType 与 expo 一致。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { makeSandbox } from '../helpers/sandbox.mjs';

@@ -1,0 +1,8 @@
+{
+  "maxFileLines": 800,
+  "maxRootFiles": 4,
+  "fileLineBaseline": {},
+  "_baselineChangeLog": [
+    "2026-11-13：建立桌面独立基线。当时没有任何文件超过 800 行，fileLineBaseline 为空；桌面根目录（desktop/src 直接子文件）只有 main.jsx 与 polyfills.js。阈值与 Android 侧一致，不放松。"
+  ]
+}

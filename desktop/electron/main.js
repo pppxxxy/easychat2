@@ -20,6 +20,7 @@ import { createMediaHandler } from './ipc/media.js';
 import { registerMediaPickIpc } from './ipc/mediaPick.js';
 import { registerBackupFileIpc } from './ipc/backupFiles.js';
 import { registerDialogIpc } from './ipc/dialog.js';
+import * as smokeFixtures from './smoke-fixtures.js';
 import { toFileUrl } from './paths.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,27 +29,9 @@ const MEDIA_SCHEME = 'easychat2-media';
 // 冒烟模式（npm run smoke）：在真实 Electron 运行时验证 renderer -> preload -> main
 // 全链路，并把窗口截图写到 <userData>/smoke.png。仅由环境变量开启，不影响正常启动。
 const SMOKE = process.env.EASYCHAT2_DESKTOP_SMOKE === '1';
-// 探针按这个常量在界面/存储里找回复（与 electron/smoke-probe.js 保持一致）。
-const SMOKE_REPLY = '桌面流式回复 OK';
-// S4 渲染验收用的两种回复：用户消息里带标记时切换（同类容错，不影响其它场景）。
-const MARKDOWN_SMOKE_REPLY = [
-  '**加粗OK**',
-  '',
-  '- 列表甲',
-  '- 列表乙',
-  '',
-  '```js',
-  'const smoke = 1;',
-  '```',
-].join(String.fromCharCode(10));
-const RICH_HTML_SMOKE_REPLY = [
-  '<style>.smoke-card{background:#123456;color:#ffffff;padding:12px;border-radius:8px;}</style>',
-  '<div class="smoke-card" id="smoke-card"><strong>富 HTML OK</strong></div>',
-  '<details id="smoke-details"><summary>展开</summary><p>折叠内容</p></details>',
-  '<button id="smoke-button" onclick="triggerSlash(\'/send 卡片命令\')">卡片命令按钮</button>',
-  '<script>window.__smokePwned = true;</script>',
-].join(String.fromCharCode(10));
 const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8');
+// 冒烟夹具（模型回复正文）单独放文件：它们是测试数据，不是界面文案，且被 i18n 规则豁免。
+const { SMOKE_REPLY, MARKDOWN_SMOKE_REPLY, RICH_HTML_SMOKE_REPLY } = smokeFixtures;
 
 // 允许交给系统打开的外部 URL scheme（与共享层 classifyRichHtmlLink 的口径一致）。
 const EXTERNAL_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);

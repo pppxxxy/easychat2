@@ -54,7 +54,7 @@ function Placeholder({ palette, fonts, name }) {
   );
 }
 
-function Lightbox({ src, alt, palette, fonts, onClose }) {
+function Lightbox({ src, alt, fonts, onClose }) {
   const { t } = useTranslation();
   useEffect(() => {
     const onKeyDown = event => {
@@ -208,7 +208,6 @@ export default function MediaMessage({ image, kind, palette, fonts }) {
         <Lightbox
           src={src}
           alt={name}
-          palette={palette}
           fonts={fonts}
           onClose={() => setPreviewOpen(false)}
         />

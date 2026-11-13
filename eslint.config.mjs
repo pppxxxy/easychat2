@@ -5,8 +5,8 @@ import noHardcodedChinese, { noHardcodedChineseText } from './eslint-rules/no-ha
 
 export default [
   {
-    files: ['**/*.js', '**/*.mjs'],
-    ignores: ['node_modules/**', 'android/**', 'ios/**'],
+    files: ['**/*.js', '**/*.mjs', '**/*.jsx', '**/*.cjs'],
+    ignores: ['node_modules/**', 'android/**', 'ios/**', 'desktop/node_modules/**', 'desktop/dist/**', 'desktop/release/**'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
@@ -44,6 +44,32 @@ export default [
     },
   },
   {
+    // 桌面渲染进程是浏览器环境：window/document/Image 等是运行时标准全局，
+    // 与 RN 侧（Hermes）不同，必须在这里显式登记，否则 no-undef 会整片误报。
+    files: ['desktop/**/*.js', 'desktop/**/*.jsx', 'desktop/**/*.mjs', 'desktop/**/*.cjs'],
+    ignores: ['desktop/node_modules/**', 'desktop/dist/**', 'desktop/release/**'],
+    languageOptions: {
+      globals: {
+        Response: 'readonly',
+        Event: 'readonly',
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        Image: 'readonly',
+        Blob: 'readonly',
+        File: 'readonly',
+        FileReader: 'readonly',
+        DataTransfer: 'readonly',
+        DragEvent: 'readonly',
+        HTMLTextAreaElement: 'readonly',
+        ResizeObserver: 'readonly',
+        MutationObserver: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
+      },
+    },
+  },
+  {
     // i18n 防复发（第一批）：用户可见文案（Alert.alert / throw new Error）不得硬编码中文。
     // 判定用本地规则 eslint-rules/no-hardcoded-chinese.mjs（AST 级，注释不算）。
     // 本批仍有的覆盖边界：只统计 Alert.alert / throw new Error 的**直接**中文字符串参数——
@@ -55,9 +81,10 @@ export default [
     // 最后 12 处（memorySummary / CardForgeEditor / ChatScreen / modelCatalog / storage/location）
     // 全部迁完，规则现对全仓零豁免生效。清单只允许变短；新文件一律不得加入。
     // 迁移方式 = 把文案换成 t('<key>') / tActive('<key>') 并补 src/i18n/locales 双语言词条。
-    files: ['src/**/*.js', 'App.js'],
+    files: ['src/**/*.js', 'App.js', 'desktop/src/**/*.js', 'desktop/src/**/*.jsx', 'desktop/electron/**/*.js'],
     ignores: [
       'src/i18n/**',
+      'desktop/electron/smoke-fixtures.js',
 // 首批规则（Alert.alert / throw new Error）的存量清单已**清空**（2026-10-12，m1012m14）：
       // 剩余 12 处（memorySummary 6 / CardForgeEditor 2 / ChatScreen 2 / modelCatalog 1 /
       // storage/location 1）全部迁到 t()/tActive() 并补齐 zh-CN/en 词条，规则现在对全仓零豁免生效。
@@ -109,9 +136,10 @@ export default [
     //       发给模型的提示词（仓库铁律：模型提示词不进 i18n）、settings/searchIndex.js
     //       是匹配用关键词、navigation/routeNames.js 是路由名。这类文件留在这里表示
     //       「已知且不迁」，迁移方向是把中文从常量里挪走（改为 key/表驱动），而不是塞进 locale。
-    files: ['src/**/*.js', 'App.js'],
+    files: ['src/**/*.js', 'App.js', 'desktop/src/**/*.js', 'desktop/src/**/*.jsx', 'desktop/electron/**/*.js'],
     ignores: [
       'src/i18n/**',
+      'desktop/electron/smoke-fixtures.js',
       // ---- (b) 永久豁免：内容**不该进 i18n**（模型提示词 / 匹配关键词 / 内部标识符）----
       // 这些文件里的中文是发给模型的提示词、参与匹配的关键词，或用户自己输入的固定
       // 命令字（如 @全体、路由名）。迁移方向是「把中文从常量里挪到表驱动」，不是塞进 locale。

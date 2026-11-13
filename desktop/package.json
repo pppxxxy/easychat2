@@ -8,17 +8,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "dist": "vite build && electron-builder --win nsis zip",
+    "dist": "vite build && electron-builder --win nsis zip --publish never",
     "test": "node --test \"tests/**/*.test.mjs\"",
-    "smoke": "vite build && node scripts/smoke.mjs"
+    "smoke": "vite build && node scripts/smoke.mjs",
+    "test:coverage": "c8 --check-coverage --lines 60 --reporter=text --include=src/render/*.js --include=src/attachments/mediaFile.js --include=src/stickers/stickerImage.js --include=src/platform/fileSystem.js --include=src/platform/fileNext.js --include=src/platform/asyncStorage.js --include=src/platform/mediaUrl.js --include=src/platform/xhr.js --include=src/platform/secureStore.js --include=src/platform/bridge.js --include=electron/paths.js --include=electron/ipc/kv.js --include=electron/ipc/fs.js --include=electron/ipc/secret.js --include=electron/ipc/http.js --include=electron/ipc/media.js --include=electron/ipc/mediaPick.js --include=electron/ipc/backupFiles.js node --test \"tests/**/*.test.mjs\""
   },
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "buffer": "^6.0.3",
     "marked": "^15.0.12",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
-  },
-  "devDependencies": {
+    "react-dom": "19.1.0",
+    "c8": "^12.0.0",
     "electron": "^33.0.0",
     "electron-builder": "^24.13.3",
     "vite": "^5.4.0"
@@ -26,23 +27,43 @@
   "build": {
     "appId": "com.easychat2.desktop",
     "productName": "EasyChat2",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**",
       "electron/**",
-      "package.json"
+      "package.json",
+      "!node_modules/**",
+      "!build/**"
     ],
+    "asar": true,
+    "compression": "normal",
     "win": {
       "target": [
-        "nsis",
-        "zip"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "extraResources": [
       {
@@ -53,5 +74,8 @@
         ]
       }
     ]
+  },
+  "author": {
+    "name": "EasyChat2"
   }
 }

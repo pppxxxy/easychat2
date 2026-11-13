@@ -63,6 +63,12 @@ npm run start        # 启动 Expo 开发服务器
 npm run android      # 直接在 Android 上打开
 npm run prebuild     # expo prebuild --clean，重新生成 android/
 npm run build:apk    # EAS 预览 APK 构建
+
+# Windows 桌面版（Electron 外壳 + React DOM 界面，复用同一套 src/ 业务逻辑）
+npm run dev:desktop    # 开发模式（Vite HMR + Electron 窗口）
+npm run test:desktop   # 桌面纯逻辑/适配层行为测试
+npm run smoke:desktop  # 真机冒烟：真实窗口内发消息/渲染/附件/表情包/备份面板
+npm run dist:desktop   # 打包未签名安装包（NSIS）与免安装 zip 到 desktop/release/
 ```
 
 > 本项目提供 `npm test` Node 回归测试；原生模块、WebView、权限和触摸交互仍需运行 `npm run start` 并手动走通受影响路径。
@@ -181,6 +187,13 @@ easychat2/
 ├── eas.json                # EAS Build 配置
 ├── metro.config.js         # Metro 打包配置（开启 package exports）
 ├── plugins/                # 本地 config plugin：原生模块注入（主动消息 / 本地 API / 命令执行）
+├── desktop/                # Windows 桌面版（Electron 主进程 + React DOM 渲染层，复用 src/）
+│   ├── electron/           # 主进程：kv/fs/密钥/流式 HTTP/媒体协议/对话框/备份文件 IPC
+│   ├── src/platform/       # 共享层依赖的适配层（AsyncStorage、expo-file-system、Alert、XHR…）
+│   ├── src/render/         # 消息渲染（Markdown / 富 HTML 沙箱 iframe / 媒体）
+│   ├── src/attachments/    # 附件与表情包（选择/粘贴/拖入，限额复用共享层）
+│   ├── src/backup/         # 备份恢复与角色卡导入导出
+│   └── tests/              # 适配层行为测试 + 真机级集成测试（无 Electron 也能跑）
 ├── assets/                 # 图标、自适应图标与启动图
 ├── src/                    # 业务代码：约 40 个领域子目录 + 各 Screen 入口
 │   ├── ChatScreen.js       # 聊天页入口（UI 细节拆在 src/chat/）
@@ -188,7 +201,7 @@ easychat2/
 │   ├── SettingsScreen.js   # 设置
 │   ├── ...                 # 其余屏幕（记忆 / 扩展 / 搜索 / 生图 / 各面板）
 │   └── <domain>/           # agent / storage / chat / workspace / localModel / moments / ...
-└── .github/workflows/      # CI（单元测试门禁 + Kotlin 编译 + APK 构建）
+└── .github/workflows/      # CI（单元测试门禁 + Kotlin 编译 + APK 构建 + Windows 桌面打包）
 ```
 
 > 完整模块清单见 `.monkeycode/docs/INTERFACES.md` 与 `AGENTS.md` 的「Architecture map」。

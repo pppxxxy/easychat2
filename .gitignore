@@ -42,3 +42,7 @@ default.jpg
 # （测试里已用 PYTHONDONTWRITEBYTECODE 从源头禁止，这里是兜底）
 __pycache__/
 *.pyc
+
+# 桌面打包产物（安装包/解包目录）与本地构建缓存
+desktop/release/
+desktop/.vite/
