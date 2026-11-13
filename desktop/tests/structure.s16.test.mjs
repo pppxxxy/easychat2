@@ -145,6 +145,31 @@ test('制卡「按图片生成」：走识图能力判定 + 共享提示词', ()
   assert.ok(forge.includes('mergeDraft'), '未复用草稿合并');
 });
 
+test('后台运行提示条：读应用级登记表，且只列非当前会话', () => {
+  const bar = read(DESKTOP, 'src', 'chat', 'RunningNoticeBar.jsx');
+  // 数据源必须是 sessionRuns（应用级事实），而不是宿主传进来的单个布尔——
+  // 后者只能表达「当前会话在跑」，看不到切走后仍在后台跑的那一段。
+  assert.ok(bar.includes("agent/runtime/sessionRuns.js"), '未读应用级登记表');
+  assert.ok(bar.includes('sessionRuns.subscribe'), '未订阅运行变更');
+  assert.ok(bar.includes('sessionRuns.cancel'), '缺停止后台运行');
+  // 当前会话不重复显示（由输入区的停止键体现，与手机同口径）。
+  assert.ok(bar.includes('!== String(activeSessionId'), '未过滤当前会话');
+  // 宿主必须真的能切过去（不是空实现）。
+  assert.ok(PANE.includes('chat.switchSession(sessionId)'), '「切过去」未接会话切换');
+});
+
+test('群聊成员增删：勾选即写回，且上限来自共享常量', () => {
+  const dialog = read(DESKTOP, 'src', 'group', 'GroupSettingsPanel.jsx');
+  assert.ok(dialog.includes('setGroupMembers'), '未接成员写入');
+  assert.ok(dialog.includes('MAX_GROUP_MEMBERS'), '上限未复用共享常量');
+  assert.ok(dialog.includes('MIN_GROUP_MEMBERS'), '下限未复用共享常量');
+  assert.ok(dialog.includes('allCharacters'), '勾选列表未接全部角色');
+  // 共享层的校验不能只靠界面：直接调存储也必须拒绝越界。
+  const mutations = read(ROOT, 'src', 'storage', 'sessionList', 'mutations.js');
+  assert.ok(mutations.includes('MIN_GROUP_MEMBERS') && mutations.includes('MAX_GROUP_MEMBERS'), '共享层未校验人数');
+  assert.ok(mutations.includes('delete profiles[id]'), '移除成员时未清理 memberProfiles（会留下幽灵简介）');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

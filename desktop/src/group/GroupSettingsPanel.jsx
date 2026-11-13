@@ -6,7 +6,8 @@
 import { useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
-import { setGroupMode, updateSessionInfo } from '../../../src/storage/sessionList.js';
+import { setGroupMembers, setGroupMode, updateSessionInfo } from '../../../src/storage/sessionList.js';
+import { MAX_GROUP_MEMBERS, MIN_GROUP_MEMBERS } from '../../../src/chat/groupChat/groupLimits.js';
 import { markMediaWrite } from '../../../src/storage/mediaProtection.js';
 import { Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
@@ -19,6 +20,7 @@ export default function GroupSettingsPanel({
   onClose,
   session,
   members,
+  allCharacters,
   missingIds,
   palette,
   fonts,
@@ -58,6 +60,35 @@ export default function GroupSettingsPanel({
       const saved = await setGroupMode(session.id, mode);
       if (saved && typeof onSaved === 'function') onSaved(saved);
       Alert.alert(t('group.mode.title'), t('group.mode.saved'));
+    } catch (error) {
+      Alert.alert(t('group.alert.saveFailed.title'), t('group.alert.saveFailed.body'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 成员增删：勾选即改，改完立刻写回（与发言方式同一纪律：勾了就落盘）。
+  // 上限校验在共享层 setGroupMembers（与创建时同一份常量），界面提前拦一道只为给出提示。
+  const selectedIds = (Array.isArray(session && session.members) ? session.members : []).map(String);
+  const toggleMember = async id => {
+    if (saving) return;
+    const target = String(id || '');
+    if (!target) return;
+    const next = selectedIds.includes(target)
+      ? selectedIds.filter(item => item !== target)
+      : [...selectedIds, target];
+    if (next.length > MAX_GROUP_MEMBERS) {
+      Alert.alert(t('character.library.group.limit.title'), t('character.library.group.limit.body'));
+      return;
+    }
+    if (next.length < MIN_GROUP_MEMBERS) {
+      Alert.alert(t('group.members.tooFew.title'), t('group.members.tooFew.body', { count: MIN_GROUP_MEMBERS }));
+      return;
+    }
+    setSaving(true);
+    try {
+      const saved = await setGroupMembers(session.id, next);
+      if (saved && typeof onSaved === 'function') onSaved(saved);
     } catch (error) {
       Alert.alert(t('group.alert.saveFailed.title'), t('group.alert.saveFailed.body'));
     } finally {
@@ -175,32 +206,65 @@ export default function GroupSettingsPanel({
 
         <div style={{ borderTop: `1px solid ${palette.divider}`, paddingTop: 10 }}>
           <div style={{ fontSize: fonts.scaled(12), color: palette.textMuted, marginBottom: 6 }}>
-            {t('character.library.group.selectMembers', { count: members.length })}
+            {t('character.library.group.selectMembers', { count: selectedIds.length })}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {members.map(member => (
-              <div key={member.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {member.avatarUri ? (
-                  <img src={mediaUrl(member.avatarUri) || ''} alt="" style={{ width: 24, height: 24, borderRadius: 12, objectFit: 'cover' }} />
-                ) : (
-                  <span style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    background: palette.surfaceAlt,
-                    color: palette.textMuted,
+          {/* 勾选即增删：全部角色都列出来，已选的打勾。 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflow: 'auto' }}>
+            {(Array.isArray(allCharacters) ? allCharacters : []).map(character => {
+              const checked = selectedIds.includes(String(character.id));
+              const atLimit = selectedIds.length >= MAX_GROUP_MEMBERS;
+              const wouldBeTooFew = checked && selectedIds.length <= MIN_GROUP_MEMBERS;
+              return (
+                <label
+                  key={character.id}
+                  style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: fonts.scaled(10),
+                    gap: 8,
+                    padding: '4px 8px',
+                    borderRadius: 8,
+                    cursor: saving ? 'default' : 'pointer',
+                    background: checked ? palette.surfaceAlt : 'transparent',
+                    opacity: (!checked && atLimit) || wouldBeTooFew ? 0.55 : 1,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={saving}
+                    onChange={() => toggleMember(character.id)}
+                  />
+                  {character.avatarUri ? (
+                    <img src={mediaUrl(character.avatarUri) || ''} alt="" style={{ width: 24, height: 24, borderRadius: 12, objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      background: palette.surfaceAlt,
+                      color: palette.textMuted,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: fonts.scaled(10),
+                    }}
+                    >
+                      {String(character.name || '?').slice(0, 1)}
+                    </span>
+                  )}
+                  <span style={{
+                    fontSize: fonts.scaled(12),
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                   }}
                   >
-                    {String(member.name || '?').slice(0, 1)}
+                    {character.name || t('common.unnamedCharacter')}
                   </span>
-                )}
-                <span style={{ fontSize: fonts.scaled(12) }}>{member.name || t('common.unnamedCharacter')}</span>
-              </div>
-            ))}
+                </label>
+              );
+            })}
           </div>
           {Array.isArray(missingIds) && missingIds.length > 0 ? (
             <div style={{ marginTop: 8, fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f' }}>

@@ -171,3 +171,78 @@ test('setGroupMode：同值不写盘（避免无意义的 updatedAt 变化）', 
   const same = await sessions.setGroupMode('g1', 'ensemble');
   assert.equal(same.updatedAt, 1000, '同值时不应刷新 updatedAt');
 });
+
+
+// ---- 群聊成员增删（setGroupMembers）----
+
+test('setGroupMembers：增删成员并落盘，顺序按传入顺序', async () => {
+  const sessions = loadSessions();
+  const group = await createGroup(sessions, 'g1', { members: ['c1', 'c2'] });
+  store.set('@easychat2_sessions', JSON.stringify([group]));
+
+  const added = await sessions.setGroupMembers('g1', ['c2', 'c1', 'c3']);
+  assert.deepEqual(added.members, ['c2', 'c1', 'c3'], '顺序跟随传入，便于用户自行排序');
+  assert.deepEqual(JSON.parse(store.get('@easychat2_sessions'))[0].members, ['c2', 'c1', 'c3']);
+
+  const removed = await sessions.setGroupMembers('g1', ['c1', 'c2']);
+  assert.deepEqual(removed.members, ['c1', 'c2']);
+});
+
+test('setGroupMembers：人数越界直接拒绝（2–8，与创建时同一份常量）', async () => {
+  const sessions = loadSessions();
+  const group = await createGroup(sessions, 'g1');
+  store.set('@easychat2_sessions', JSON.stringify([group]));
+
+  assert.equal(await sessions.setGroupMembers('g1', []), null, '0 人不是群聊');
+  assert.equal(await sessions.setGroupMembers('g1', ['c1']), null, '1 人不是群聊');
+  const nine = Array.from({ length: 9 }, (_, i) => `c${i + 1}`);
+  assert.equal(await sessions.setGroupMembers('g1', nine), null, '超过上限应拒绝');
+  // 拒绝后不得改动。
+  assert.deepEqual(JSON.parse(store.get('@easychat2_sessions'))[0].members, ['c1', 'c2']);
+  // 边界内两个值都可用。
+  assert.ok(await sessions.setGroupMembers('g1', ['c1', 'c2']));
+  assert.ok(await sessions.setGroupMembers('g1', Array.from({ length: 8 }, (_, i) => `n${i + 1}`)));
+});
+
+test('setGroupMembers：重复 id 去重（同一角色不能占两个发言位）', async () => {
+  const sessions = loadSessions();
+  const group = await createGroup(sessions, 'g1');
+  store.set('@easychat2_sessions', JSON.stringify([group]));
+
+  const result = await sessions.setGroupMembers('g1', ['c1', 'c1', 'c2', 'c2', 'c3']);
+  assert.deepEqual(result.members, ['c1', 'c2', 'c3']);
+  // 去重后只剩 3 个仍在范围外？仍在 [2,8] 内，所以应成功。
+  assert.equal(result.members.length, 3);
+});
+
+test('setGroupMembers：移除成员时一并删除它的 memberProfiles（否则留下幽灵简介）', async () => {
+  const sessions = loadSessions();
+  const group = await createGroup(sessions, 'g1', {
+    members: ['c1', 'c2', 'c3'],
+    memberProfiles: { c1: '甲', c2: '乙', c3: '丙' },
+  });
+  store.set('@easychat2_sessions', JSON.stringify([group]));
+
+  const result = await sessions.setGroupMembers('g1', ['c1', 'c2']);
+  assert.deepEqual(result.members, ['c1', 'c2']);
+  assert.deepEqual(Object.keys(result.memberProfiles).sort(), ['c1', 'c2'], '被移除成员的简介必须清掉');
+  const persisted = JSON.parse(store.get('@easychat2_sessions'))[0];
+  assert.deepEqual(Object.keys(persisted.memberProfiles).sort(), ['c1', 'c2']);
+});
+
+test('setGroupMembers：同值不写盘；单聊不受影响', async () => {
+  const sessions = loadSessions();
+  const group = await createGroup(sessions, 'g1', { members: ['c1', 'c2'], updatedAt: 1000 });
+  const single = {
+    id: 's1', type: 'single', characterId: 'c1', members: [], name: '',
+    createdAt: 1, updatedAt: 1,
+  };
+  store.set('@easychat2_sessions', JSON.stringify([group, single]));
+
+  const same = await sessions.setGroupMembers('g1', ['c1', 'c2']);
+  assert.equal(same.updatedAt, 1000, '同值不应刷新 updatedAt');
+
+  const onSingle = await sessions.setGroupMembers('s1', ['c1', 'c2']);
+  assert.notEqual(onSingle && onSingle.type, 'group');
+  assert.deepEqual(JSON.parse(store.get('@easychat2_sessions'))[1].members, [], '单聊成员不应被写入');
+});

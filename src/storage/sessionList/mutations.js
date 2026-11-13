@@ -22,6 +22,7 @@ import {
 } from '../vector.js';
 import { readJsonStatus } from '../io.js';
 import { tActive } from '../../i18n/index.js';
+import { MAX_GROUP_MEMBERS, MIN_GROUP_MEMBERS } from '../../chat/groupChat/groupLimits.js';
 import { markMediaWrite } from '../mediaProtection.js';
 import { collectChatImageFiles, collectVoiceFiles } from '../sessionFiles.js';
 import { getMessagesBySessionStatus } from '../sessionMessages.js';
@@ -209,6 +210,50 @@ async function setGroupModeInternal(sessionId, mode) {
   return updated;
 }
 
+// 群聊成员（中途增删）。
+//
+// 为什么需要独立入口：updateSessionInfo 只处理 name/avatarUri/bgUri 三个展示字段，
+// 成员会改变**调度器与发言方**（requestGroupReply 读 members + memberProfiles），
+// 语义完全不同，与 setGroupMode 同属「机制」而不是「外观」。
+//
+// 三条约束都是真会出问题的：
+//   · 人数必须落在 [MIN, MAX]（共享常量，与创建时同一来源）——少于 2 人就不再是群聊，
+//     多于上限调度器只取前几个，表现为「某些角色永远不说话」；
+//   · id 去重且保序：重复 id 会让同一角色在一轮里占两个发言位；
+//   · **被移除成员的 memberProfiles 必须一并删除**：留着就是幽灵键——下次它被加回来时
+//     会直接复用旧简介（可能已与当前角色卡不符），而界面上又看不到它。
+async function setGroupMembersInternal(sessionId, memberIds) {
+  const sessions = await requireSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target || target.type !== 'group') return target || null;
+
+  const incoming = (Array.isArray(memberIds) ? memberIds : [])
+    .map(id => String(id || '').trim())
+    .filter(Boolean);
+  const next = [];
+  const seen = new Set();
+  incoming.forEach(id => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    next.push(id);
+  });
+  if (next.length < MIN_GROUP_MEMBERS || next.length > MAX_GROUP_MEMBERS) return null;
+
+  // 未变化就不写盘（避免无意义的 updatedAt 变化，与 setGroupMode 同口径）。
+  const current = Array.isArray(target.members) ? target.members : [];
+  const same = current.length === next.length && current.every((id, index) => id === next[index]);
+  if (same) return target;
+
+  const profiles = { ...(target.memberProfiles || {}) };
+  Object.keys(profiles).forEach(id => {
+    if (!seen.has(id)) delete profiles[id];
+  });
+
+  const updated = { ...target, members: next, memberProfiles: profiles, updatedAt: Date.now() };
+  await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
+  return updated;
+}
+
 async function updateSessionMemberProfilesInternal(sessionId, memberProfiles) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
@@ -391,6 +436,10 @@ export function setSessionGreetingSelected(sessionId, selected = true) {
 
 export function createGroupSession(members, name, extras = {}) {
   return enqueueSessionMutation(() => createGroupSessionInternal(members, name, extras));
+}
+
+export function setGroupMembers(sessionId, memberIds) {
+  return enqueueSessionMutation(() => setGroupMembersInternal(sessionId, memberIds));
 }
 
 export function setGroupMode(sessionId, mode) {

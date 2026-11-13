@@ -353,15 +353,35 @@ export default function ChatPane({ palette, fonts }) {
           fonts={fonts}
         />
       ) : null}
-      {/* 后台生成提示：当前会话还在跑时可见（切走会话后回复会写回它自己的会话，
-          这里保证「正在发生什么」始终可见）。 */}
+      {/* 后台生成提示：列出**非当前会话**正在跑的运行（当前会话由输入区的停止键体现）。
+          数据源是应用级登记表 sessionRuns——切走会话不会中止运行，回复会写回它自己的会话。 */}
       <RunningNoticeBar
-        visible={isSending}
-        sessionName={groupName || chat.characterName}
-        // 提示条只描述**当前会话**（桌面同一时刻只有一条前台运行），所以「切过去」
-        // 等价于滚到最新一条、看到正在生成的位置。
-        onOpen={() => chat.scrollToBottom()}
-        onStop={chat.stop}
+        activeSessionId={activeSessionId}
+        sessionLabelOf={run => {
+          const session = (chat.sessionsRef.current || []).find(item => item.id === run.sessionId);
+          if (session && session.type === 'group') {
+            return groupDisplayName(
+              session,
+              (session.members || [])
+                .map(id => (chat.characters || []).find(item => item.id === id))
+                .filter(Boolean)
+                .map(item => String(item.name || '').trim())
+                .filter(Boolean),
+              t('common.groupChat'),
+              t('character.library.group.nameJoin')
+            );
+          }
+          const owner = (chat.characters || []).find(item => item.id === String((session && session.characterId) || run.characterId || ''));
+          return String((owner && owner.name) || (session && session.name) || '');
+        }}
+        onOpen={sessionId => {
+          // 切到正在跑的那段会话：先切角色再切会话（与会话列表的打开逻辑同一顺序）。
+          const session = (chat.sessionsRef.current || []).find(item => item.id === sessionId);
+          if (session && session.type !== 'group' && session.characterId && session.characterId !== characterId) {
+            chat.switchCharacter(session.characterId).catch(() => {});
+          }
+          chat.switchSession(sessionId);
+        }}
         palette={palette}
         fonts={fonts}
       />
@@ -543,6 +563,8 @@ export default function ChatPane({ palette, fonts }) {
           onClose={() => setGroupSettingsOpen(false)}
           session={activeSession}
           members={groupCharacters}
+          // 全部角色：成员勾选要从这里增删（members 只是已选中的那些）。
+          allCharacters={chat.characters}
           missingIds={groupMissingIds}
           palette={palette}
           fonts={fonts}
