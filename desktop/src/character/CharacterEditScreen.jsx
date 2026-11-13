@@ -13,6 +13,7 @@ import {
 } from '../../../src/character/cardHelpers.js';
 import { createWorldEntry, WORLD_POSITION_LABELS } from '../../../src/character/cardParser/worldInfo.js';
 import { createRegexScript } from '../../../src/character/cardParser/regexScripts.js';
+import { makeCharacterPresetId } from '../../../src/character/characterPresets.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { markMediaWrite } from '../../../src/storage/mediaProtection.js';
 import { Alert } from '../platform/alert.js';
@@ -421,6 +422,99 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
             })}
             onRemove={() => patch({ regexScripts: form.regexScripts.filter((item, position) => position !== index) })}
           />
+        ))}
+
+        {/* 角色预设：只对这个角色生效的提示词片段（与全局预设互补）。 */}
+        <Divider palette={palette} />
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <strong style={{ fontSize: fonts.scaled(12) }}>{t('character.detail.presets.character')}</strong>
+          <Button
+            label={t('preset.add')}
+            onClick={() => patch({
+              presets: [...(Array.isArray(form.presets) ? form.presets : []), {
+                id: makeCharacterPresetId(Array.isArray(form.presets) ? form.presets : []),
+                name: '',
+                description: '',
+                prompt: '',
+                enabled: true,
+              }],
+            })}
+            palette={palette}
+            fonts={fonts}
+          />
+        </div>
+        <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint }}>
+          {t('character.detail.presets.hint')}
+        </div>
+        {(Array.isArray(form.presets) ? form.presets : []).map((preset, index) => (
+          <div
+            key={preset.id || `preset-${index}`}
+            style={{
+              border: `1px solid ${palette.divider}`,
+              borderRadius: 8,
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <Row>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <TextInput
+                  value={preset.name || ''}
+                  onChange={value => patch({
+                    presets: form.presets.map((item, position) => (
+                      position === index ? { ...item, name: value } : item
+                    )),
+                  })}
+                  placeholder={t('preset.editor.namePlaceholder')}
+                  palette={palette}
+                  fonts={fonts}
+                />
+              </div>
+              <Toggle
+                checked={preset.enabled !== false}
+                onChange={value => patch({
+                  presets: form.presets.map((item, position) => (
+                    position === index ? { ...item, enabled: value } : item
+                  )),
+                })}
+                label={t('preset.memory.title')}
+                palette={palette}
+                fonts={fonts}
+              />
+              <Button
+                label={t('common.delete')}
+                onClick={() => patch({ presets: form.presets.filter((_, position) => position !== index) })}
+                palette={palette}
+                fonts={fonts}
+                tone={palette.danger || '#ff5a5f'}
+              />
+            </Row>
+            <textarea
+              value={preset.prompt || ''}
+              onChange={event => patch({
+                presets: form.presets.map((item, position) => (
+                  position === index ? { ...item, prompt: event.target.value } : item
+                )),
+              })}
+              placeholder={t('preset.editor.promptPlaceholder')}
+              rows={3}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+                background: palette.surfaceAlt,
+                color: palette.text,
+                border: `1px solid ${palette.divider}`,
+                borderRadius: 8,
+                padding: '8px 10px',
+                fontSize: fonts.scaled(12),
+                fontFamily: 'inherit',
+                outline: 'none',
+              }}
+            />
+          </div>
         ))}
 
         <Row>
