@@ -102,6 +102,7 @@
   let branch = { attempted: false };
   let newSession = { attempted: false };
   let groupChat = { attempted: false };
+  let surface = { attempted: false };
 
   if (MOCK_MODE) {
     // ---- S3：真实界面发一条消息 ----
@@ -601,28 +602,89 @@
         ? await globalThis.__easychat2RunGroupChatProbe({ waitFor, sendButton })
         : { attempted: false, skipped: true };
 
-      // ---- S10：顶栏「+」真的新建一段会话（不是复用旧会话）----
+      // ---- S12：顶栏「+」新建会话，且新会话**真的发得出消息** ----
+      // 修复前的故障：不带开场白建会话 ⇒ greetingSelected=false ⇒ 共享层
+      // useChatSend 的闸门 `if (!isGroup && !greetingReady) return false` 静默拦下
+      // 每一条消息。所以冒烟不能只数会话条数，必须验到落盘标志位 + 真发一条。
       try {
-        const before = await bridge.kv.get('@easychat2_sessions');
-        const beforeCount = Array.isArray(JSON.parse(before || '[]')) ? JSON.parse(before || '[]').length : 0;
+        const readSessions = async () => {
+          const raw = await bridge.kv.get('@easychat2_sessions');
+          try {
+            const list = JSON.parse(raw || '[]');
+            return Array.isArray(list) ? list : [];
+          } catch (error) {
+            return [];
+          }
+        };
+        const beforeList = await readSessions();
+        const beforeCount = beforeList.length;
+        const beforeIds = new Set(beforeList.map(item => item && item.id));
         const plus = Array.from(document.querySelectorAll('header button'))
           .find(button => button.textContent === '+');
         if (!plus) throw new Error('plus button not found');
         plus.click();
-        // 确认弹窗里的「新建」
         const confirm = await waitFor(() => Array.from(document.querySelectorAll('button'))
           .find(button => button.textContent === '新建' || button.textContent === 'New'), 6000);
         if (!confirm) throw new Error('confirm button not found');
         confirm.click();
-        // 会话数必须真的增加（复用旧会话时数量不变 = 回归）。
+        // 开场白选择器必须出现 —— 出现了才说明「+」没绕过开场白直接建会话。
+        const pickerSeen = !!(await waitFor(() => {
+          const text = document.body.innerText || '';
+          return /选择开场白|Choose a greeting/.test(text)
+            && Array.from(document.querySelectorAll('button'))
+              .some(button => button.textContent === '使用此开场白' || button.textContent === 'Use this greeting');
+        }, 8000));
+        if (pickerSeen) {
+          // 选「不使用开场白」这条最难的分支：此时正文为空，仍然必须传 opening 对象，
+          // 否则 greetingSelected 又变回 false（老 bug 原样复发）。
+          const useButton = Array.from(document.querySelectorAll('button'))
+            .find(button => button.textContent === '使用此开场白' || button.textContent === 'Use this greeting');
+          if (useButton) useButton.click();
+        }
         let afterCount = beforeCount;
-        for (let attempt = 0; attempt < 60; attempt += 1) {
-          const raw = await bridge.kv.get('@easychat2_sessions');
-          afterCount = Array.isArray(JSON.parse(raw || '[]')) ? JSON.parse(raw || '[]').length : 0;
-          if (afterCount > beforeCount) break;
+        let createdSession = null;
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+          const list = await readSessions();
+          afterCount = list.length;
+          if (afterCount > beforeCount) {
+            createdSession = list.find(item => item && !beforeIds.has(item.id)) || null;
+            break;
+          }
           await new Promise(resolve => setTimeout(resolve, 100));
         }
-        newSession = { attempted: true, beforeCount, afterCount, created: afterCount > beforeCount };
+        const greetingSelected = !!(createdSession && createdSession.greetingSelected === true);
+        // 端到端再验一次「真能发」：只信标志位不够。
+        let sendable = false;
+        if (createdSession) {
+          const textarea = document.querySelector('textarea');
+          const state0 = window.__easychat2Chat || {};
+          if (textarea && state0.ready && !state0.isSending) {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(textarea, '新会话可用性检查');
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            const before = Number(state0.messages) || 0;
+            const button = await waitFor(() => {
+              const candidate = sendButton();
+              return candidate && !candidate.disabled ? candidate : null;
+            }, 8000);
+            if (button) {
+              button.click();
+              sendable = !!(await waitFor(() => {
+                const state = window.__easychat2Chat || {};
+                return Number(state.messages) >= before + 2 && state.isSending !== true ? true : null;
+              }, 20000));
+            }
+          }
+        }
+        newSession = {
+          attempted: true,
+          beforeCount,
+          afterCount,
+          created: afterCount > beforeCount,
+          pickerSeen,
+          greetingSelected,
+          sendable,
+        };
       } catch (error) {
         newSession = { attempted: true, error: String((error && error.message) || error) };
       }
@@ -636,6 +698,14 @@
         indexBefore,
         indexAfter,
       };
+
+      // ---- S12b：「更多」菜单里的四项能力 ----
+      // 模块见 smoke-probe-surface.js（main.js 已预先注入），理由同 S11 的群聊探针：
+      // 本文件已到 800 行棘轮，且这段是新增的独立检查逻辑。
+      surface = globalThis.__easychat2RunSurfaceProbe
+        ? await globalThis.__easychat2RunSurfaceProbe({ waitFor })
+        : { attempted: false, skipped: true };
+
     } catch (error) {
       branch = { attempted: true, error: String((error && error.message) || error) };
     }
@@ -719,6 +789,7 @@
     branch: MOCK_MODE ? branch : { attempted: false, skipped: true },
     newSession: MOCK_MODE ? newSession : { attempted: false, skipped: true },
     groupChat: MOCK_MODE ? groupChat : { attempted: false, skipped: true },
+    surface: MOCK_MODE ? surface : { attempted: false, skipped: true },
     kilo,
   };
 })()

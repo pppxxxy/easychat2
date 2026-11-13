@@ -109,16 +109,21 @@ test('桌面源码里不再存在死掉的会话侧栏组件', () => {
 
 test('顶栏「+」真的新建会话（不是复用旧会话）', () => {
   // 回归：ensureCharacterSession 遇到已有会话只返回旧会话，按了「+」等于没反应。
-  // 手机版走的是「⋯ → 新对话」→ startNewSession，桌面照它改。
-  assert.ok(APP.includes("from '../../../src/storage/sessionList.js'"), '未引入 startNewSession 所在模块');
-  assert.ok(APP.includes('startNewSession(activeId)'), '「+」必须调用 startNewSession');
+  // 手机版走的是「⋯ → 新对话」→ 开场白选择 → startNewSession，桌面照它改。
+  //
+  // S12 起实际调用点在 chat/useDesktopGreeting.js（选择器选完才建会话），
+  // 因为不带 opening 建出来的会话 greetingSelected=false 会发不出消息 ——
+  // 「+」只负责发起请求。这里断言整条链路仍然建得出会话，而不是钉死调用位置。
+  const GREETING_HOOK = read(DESKTOP, 'src', 'chat', 'useDesktopGreeting.js');
+  assert.ok(APP.includes('requestGreetingPicker'), '「+」未发起新建流程');
+  assert.ok(GREETING_HOOK.includes('startNewSession('), '新建流程未调用 startNewSession');
   assert.equal(
     /onClick=\{\(\) => run\('session', \(\) => ensureCharacterSession\(activeId\)\)\}/.test(APP),
     false,
     '不应再用 ensureCharacterSession 冒充新建'
   );
   // 新建后要切过去（否则用户看到的是旧会话，观感仍是「没反应」）。
-  assert.ok(APP.includes('switchSession(created.id)'), '新建后未切换到新会话');
+  assert.ok(GREETING_HOOK.includes('onCreated'), '新建后未切换到新会话');
   // 与手机一致的二次确认（新建是可感知的破坏性操作，旧对话要留在记忆里）。
   assert.ok(APP.includes("t('chat.session.newChat.bodySingle')"), '缺少新建确认说明');
 });

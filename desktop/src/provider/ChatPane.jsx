@@ -14,16 +14,25 @@ import AttachmentChips from '../attachments/AttachmentChips.jsx';
 import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
 import { buildBranchNav } from '../chat/branchNav.js';
 import BranchSwitcher from '../chat/BranchSwitcher.jsx';
+import ChatMoreMenu from '../chat/ChatMoreMenu.jsx';
+import ChatSearchBar from '../chat/ChatSearchBar.jsx';
+import ConversationExportPanel from '../chat/ConversationExportPanel.jsx';
 import ContextUsageBar from '../chat/ContextUsageBar.jsx';
+import GreetingPicker from '../chat/GreetingPicker.jsx';
+import SessionStatsPanel from '../chat/SessionStatsPanel.jsx';
+import { consumeGreetingPicker, subscribe as subscribeGreetingRequest } from '../chat/greetingRequest.js';
 import useDesktopBranches from '../chat/useDesktopBranches.js';
 import useDesktopCompaction from '../chat/useDesktopCompaction.js';
 import useDesktopContextUsage from '../chat/useDesktopContextUsage.js';
+import useDesktopGreeting from '../chat/useDesktopGreeting.js';
 import MessageActionsMenu from '../render/MessageActionsMenu.jsx';
 import MessageRow from '../render/MessageRow.jsx';
 import StickerNameDialog from '../stickers/StickerNameDialog.jsx';
 import StickerPanel from '../stickers/StickerPanel.jsx';
 import useDesktopStickers from '../stickers/useDesktopStickers.js';
 import useDesktopChat from './useDesktopChat.js';
+import useDesktopChatSearch from '../chat/useDesktopChatSearch.js';
+import useDesktopMemorySummary from '../chat/useDesktopMemorySummary.js';
 
 export default function ChatPane({ palette, fonts }) {
   const { t } = useTranslation();
@@ -61,6 +70,55 @@ export default function ChatPane({ palette, fonts }) {
     ? groupDisplayName(activeSession, memberNames, t('common.groupChat'), t('character.library.group.nameJoin'))
     : '';
   const compact = useDesktopCompaction({ setMessages, messagesRef: chat.messagesRef, characterId, usage });
+  // 对话内搜索：命中与推进口径复用共享层 chatSearchMath，桌面只补滚动与高亮。
+  const search = useDesktopChatSearch({ messages, scrollRef });
+  // 记忆总结：共享层 useChatSend 的 maybeAutoSummarize 在桌面是 no-op，
+  // 手动入口此前也没有 —— 整套记忆系统在桌面上空转。这里补上显式入口与自动触发。
+  const summary = useDesktopMemorySummary({
+    charactersRef: chat.charactersRef,
+    sessionsRef: chat.sessionsRef,
+    character: chat.character,
+    messagesRef: chat.messagesRef,
+    activeSessionId,
+    updateCharacter: chat.updateCharacter,
+    refreshSessions: chat.refreshSessions,
+  });
+  // 把自动总结接到共享层的发送链路（useChatSend 回复落盘后调 maybeAutoSummarize）。
+  // 用 ref 转发而不是改 hook 的参数：实例在面板里创建，hook 不能反向依赖它。
+  useEffect(() => {
+    if (!chat.autoSummarizeRef) return undefined;
+    chat.autoSummarizeRef.current = summary.autoSummarize;
+    return () => { chat.autoSummarizeRef.current = null; };
+  }, [chat.autoSummarizeRef, summary.autoSummarize]);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [moreAnchor, setMoreAnchor] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  // Ctrl/Cmd+F 打开对话内搜索（桌面用户的肌肉记忆；手机没有条件按组合键）。
+  // 只在聊天页挂载期间生效，且不抢占浏览器/系统的其它快捷键。
+  useEffect(() => {
+    const onKeyDown = event => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (String(event.key || '').toLowerCase() !== 'f') return;
+      if (messages.length === 0) return;
+      event.preventDefault();
+      if (search.open) search.closeSearch();
+      else search.openSearch();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [messages.length, search]);
+  // 开场白：手机版新建对话前先选开场白（选完写回角色卡并作为首条消息）。
+  // 桌面缺这一步时新会话 greetingSelected=false，共享发送链路会静默拒绝发送。
+  const greeting = useDesktopGreeting({
+    character: chat.character,
+    messagesRef: chat.messagesRef,
+    activeSessionId,
+    updateCharacter: chat.updateCharacter,
+    setMessages,
+    setGreetingReady: chat.setGreetingReady,
+    refreshSessions: chat.refreshSessions,
+    onCreated: created => chat.switchSession(created.id),
+  });
   const branchesApi = useDesktopBranches({
     activeSessionId,
     setMessages,
@@ -105,6 +163,19 @@ export default function ChatPane({ palette, fonts }) {
     };
   }, [ready, chat.greetingReady, isSending, input, messages.length, attach.attachments.length]);
 
+  // 顶栏「+」的请求：ChatPane 是唯一持有 messagesRef/setMessages 的地方，
+  // 所以选择器在这里开。请求是一次性动作，读一次即清（见 greetingRequest.js）。
+  // 两条路径都要接：① 已经在本页时直接收到通知；② 请求发生在 ChatPane 未挂载期间
+  // （顶栏先 setView('chat') 再发请求，而本次渲染可能还没提交），挂载时再消费一次。
+  useEffect(() => {
+    const openPending = () => {
+      const purpose = consumeGreetingPicker();
+      if (purpose) greeting.open(purpose);
+    };
+    openPending();
+    return subscribeGreetingRequest(openPending);
+  }, [greeting.open]);
+
   useEffect(() => {
     if (messages.length !== lastCountRef.current) {
       lastCountRef.current = messages.length;
@@ -123,6 +194,12 @@ export default function ChatPane({ palette, fonts }) {
       timestamp: Date.now(),
     };
     if ((!text && !hasAttachments) || isSending || !ready) return;
+    // 与手机 ChatScreen.onSend 同一条前置分支：单聊还没选过开场白时，发送不是静默失败，
+    // 而是先让用户选开场白（共享层 useChatSend 此时会直接 return false，什么都不会发生）。
+    if (!isGroup && !chat.greetingReady) {
+      greeting.open(activeSessionId ? 'reselect' : 'new');
+      return;
+    }
     // 冒烟/排查用：记录 sendText 的返回值或异常（不改变正常流程）。
     const result = sendText(text);
     const snapshotErrors = () => {
@@ -212,6 +289,18 @@ export default function ChatPane({ palette, fonts }) {
           </button>
         </div>
       ) : null}
+      <ChatSearchBar
+        open={search.open}
+        query={search.query}
+        onChangeQuery={search.changeQuery}
+        matchCount={search.matchCount}
+        activeMatchIndex={search.activeMatchIndex}
+        onPrev={search.prev}
+        onNext={search.next}
+        onClose={search.closeSearch}
+        palette={palette}
+        fonts={fonts}
+      />
       <ContextUsageBar
         usage={usage}
         dismissed={usageDismissed}
@@ -228,7 +317,18 @@ export default function ChatPane({ palette, fonts }) {
         style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}
       >
         {messages.map(message => (
-          <div key={message.id || `${message.role}-${message.text}`}>
+          <div
+            key={message.id || `${message.role}-${message.text}`}
+            // 搜索跳转用：桌面不是虚拟列表，靠这个锚点 scrollIntoView（见 useDesktopChatSearch）。
+            data-message-id={String(message.id || '')}
+            style={search.focusedId && String(message.id || '') === search.focusedId
+              ? {
+                outline: `2px solid ${palette.primaryMuted || palette.primary}`,
+                outlineOffset: 4,
+                borderRadius: 12,
+              }
+              : undefined}
+          >
             <MessageRow
               message={message}
               palette={palette}
@@ -354,6 +454,15 @@ export default function ChatPane({ palette, fonts }) {
       <div style={{ borderTop: `1px solid ${palette.divider}`, padding: 12, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
         <button
           type="button"
+          title={t('chat.menu.search')}
+          onClick={() => (search.open ? search.closeSearch() : search.openSearch())}
+          disabled={!ready || messages.length === 0}
+          style={{ ...iconButton, background: search.open ? palette.surfaceAlt : 'transparent' }}
+        >
+          🔍
+        </button>
+        <button
+          type="button"
           title={t('chat.attach.image.title')}
           onClick={attach.pickImages}
           disabled={composerDisabled}
@@ -396,6 +505,20 @@ export default function ChatPane({ palette, fonts }) {
         >
           🎤
         </button>
+        {/* 「更多」：手机上这些动作都在 ⋯ 菜单里（搜索/总结/统计/导出/重选开场白）。
+            放在最右而不是中间，避免把输入区挤得太窄。 */}
+        <button
+          type="button"
+          title={t('chat.menu.more.a11y')}
+          onClick={event => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMoreAnchor({ x: rect.left - 150, y: rect.bottom + 6 });
+          }}
+          disabled={!ready}
+          style={iconButton}
+        >
+          ⋯
+        </button>
         <textarea
           value={input}
           onChange={event => onInputChange(event.target.value)}
@@ -427,22 +550,26 @@ export default function ChatPane({ palette, fonts }) {
             outline: 'none',
           }}
         />
+        {/* 与手机一致：生成中「发送」变「停止」（abort 走共享层同一个 abortRef，
+            已生成的部分照常落盘，未完成的一轮不会丢）。 */}
         <button
           type="button"
-          onClick={submit}
-          disabled={!canSend}
+          onClick={isSending ? chat.stop : submit}
+          disabled={!isSending && !canSend}
+          title={isSending ? t('chat.composer.a11y.stop') : t('chat.send.action')}
           style={{
             background: isSending ? palette.surfaceAlt : palette.primary,
-            color: isSending ? palette.textMuted : palette.primaryContrast,
-            border: 'none',
+            color: isSending ? palette.text : palette.primaryContrast,
+            border: isSending ? `1px solid ${palette.divider}` : 'none',
             borderRadius: 10,
             padding: '10px 16px',
             fontWeight: 700,
-            cursor: isSending ? 'default' : 'pointer',
+            cursor: !isSending && !canSend ? 'default' : 'pointer',
             fontSize: fonts.scaled(13),
+            flex: 'none',
           }}
         >
-          {isSending ? '…' : t('chat.send.action')}
+          {isSending ? t('chat.composer.a11y.stop') : t('chat.send.action')}
         </button>
       </div>
       {isGroup && activeSession ? (
@@ -466,6 +593,53 @@ export default function ChatPane({ palette, fonts }) {
         onChange={stickersApi.setNameDraft}
         onCancel={stickersApi.cancelPending}
         onSave={stickersApi.confirmSave}
+      />
+      <GreetingPicker
+        {...greeting.pickerProps}
+        palette={palette}
+        fonts={fonts}
+        busy={greeting.busy}
+        onCancel={greeting.cancel}
+        onConfirm={greeting.confirm}
+      />
+      <ChatMoreMenu
+        open={!!moreAnchor}
+        anchor={moreAnchor}
+        onClose={() => setMoreAnchor(null)}
+        onToggleSearch={() => (search.open ? search.closeSearch() : search.openSearch())}
+        searchOpen={search.open}
+        onSummarize={() => summary.summarize({})}
+        summarizing={summary.summarizing}
+        canSummarize={!!ready && !isSending}
+        onOpenStats={() => setStatsOpen(true)}
+        onOpenExport={() => setExportOpen(true)}
+        canExport={messages.length > 0}
+        onReselectGreeting={() => greeting.open('reselect')}
+        canReselectGreeting={!!activeSessionId && !isSending}
+        isGroup={isGroup}
+        palette={palette}
+        fonts={fonts}
+      />
+      <SessionStatsPanel
+        open={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        sessionId={activeSessionId || ''}
+        messageCount={messages.filter(item => item && !item.transient).length}
+        palette={palette}
+        fonts={fonts}
+      />
+      <ConversationExportPanel
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        messages={messages}
+        title={isGroup
+          ? groupName
+          : String((chat.character && chat.character.name) || '')}
+        characterName={String((chat.character && chat.character.name) || '')}
+        userName={String((chat.userNameRef && chat.userNameRef.current) || '')}
+        isGroup={isGroup}
+        palette={palette}
+        fonts={fonts}
       />
       {menu ? (
         <MessageActionsMenu

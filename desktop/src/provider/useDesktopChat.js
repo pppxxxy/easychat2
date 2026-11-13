@@ -42,6 +42,7 @@ export default function useDesktopChat() {
     loaded,
     updateCharacter,
     refreshSessions,
+    switchSession: switchSessionFn,
   } = useApp();
 
   const characterId = character.id || '';
@@ -153,8 +154,16 @@ export default function useDesktopChat() {
     atBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 32;
   }, []);
 
-  // ---- 桌面不支持的编排：no-op（保留参数位，S4/S5 再接线）----
-  const maybeAutoSummarize = useCallback(async () => {}, []);
+  // ---- 桌面不支持的编排：no-op（保留参数位）----
+  // 记忆总结由 ChatPane 的 useDesktopMemorySummary 实现（它需要角色/向量/会话范围
+  // 判定，都在共享层 memorySummary 里）。这里经 ref 转发：useChatSend 在回复落盘后
+  // 调它，而 hook 无法反向依赖面板里创建的实例。
+  const autoSummarizeRef = useRef(null);
+  const maybeAutoSummarize = useCallback(async list => {
+    if (typeof autoSummarizeRef.current === 'function') {
+      await autoSummarizeRef.current(list);
+    }
+  }, []);
   const autoBroadcastMessage = useCallback(() => {}, []);
   const synthesizeVoiceForReply = useCallback(() => {}, []);
   const syncProtectedAttachmentUris = useCallback(() => {}, []);
@@ -178,6 +187,7 @@ export default function useDesktopChat() {
     messagesRef,
     ready,
     greetingReady,
+    setGreetingReady,
   } = useSessionMessages({
     activeSessionId,
     loaded,
@@ -269,8 +279,25 @@ export default function useDesktopChat() {
   // 桌面 Composer 订阅输入 store（与 ChatComposer 同源）。
   const input = useInput();
 
+  // 停止生成：手机版聊天输入区把「发送」换成「停止」，桌面此前只有发送按钮，
+  // 长回复只能等它跑完。abort 走的是共享层同一个 abortRef（useSessionGuard），
+  // 与手机上点停止是同一条路径（endSendOperation 收尾、已生成的部分照常落盘）。
+  const stop = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort();
+  }, [abortRef]);
+
   return {
     t,
+    stop,
+    setGreetingReady,
+    updateCharacter,
+    refreshSessions,
+    character,
+    charactersRef,
+    sessionsRef,
+    switchSession: switchSessionFn,
+    userNameRef,
+    autoSummarizeRef,
     messages,
     messagesRef,
     setMessages,

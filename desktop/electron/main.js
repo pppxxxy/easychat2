@@ -30,8 +30,10 @@ const MEDIA_SCHEME = 'easychat2-media';
 // 全链路，并把窗口截图写到 <userData>/smoke.png。仅由环境变量开启，不影响正常启动。
 const SMOKE = process.env.EASYCHAT2_DESKTOP_SMOKE === '1';
 const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8');
-// 群聊探针是独立模块（smoke-probe-group.js），先注入把函数挂到 globalThis，主探针再调用。
+// 群聊探针与「更多菜单」探针各是独立模块（smoke-probe-group.js / smoke-probe-surface.js），
+// 先注入把函数挂到 globalThis，主探针再调用（两个文件都各自撞到 800 行棘轮）。
 const SMOKE_PROBE_GROUP = readFileSync(path.join(__dirname, 'smoke-probe-group.js'), 'utf8');
+const SMOKE_PROBE_SURFACE = readFileSync(path.join(__dirname, 'smoke-probe-surface.js'), 'utf8');
 // 冒烟夹具（模型回复正文）单独放文件：它们是测试数据，不是界面文案，且被 i18n 规则豁免。
 const {
   SMOKE_REPLY,
@@ -290,6 +292,7 @@ function createWindow() {
     try {
       // 群聊探针模块先注入（定义函数并挂到 globalThis），主探针随后调用。
       await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_GROUP, true);
+      await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_SURFACE, true);
       // 把模式标记先写进渲染层：探针据此决定是否跳过依赖本地 mock 的段落。
       await mainWindow.webContents.executeJavaScript(
         `globalThis.__easychat2KiloLive = ${KILO_LIVE ? 'true' : 'false'};`,
@@ -383,6 +386,10 @@ function createWindow() {
         && probe.newSession
         && probe.newSession.attempted
         && probe.newSession.created
+        // S12：新建会话必须真的能发消息（不带开场白建出来的会话会被共享层静默拦住）。
+        && probe.newSession.pickerSeen
+        && probe.newSession.greetingSelected
+        && probe.newSession.sendable
         && probe.groupChat
         && probe.groupChat.attempted
         && probe.groupChat.opened
@@ -390,6 +397,14 @@ function createWindow() {
         && probe.groupChat.sent
         && probe.groupChat.replySeen
         && probe.groupChat.speakerSeen
+        // S12b：手机版有、桌面此前缺的四项能力（搜索 / 统计 / 导出 / 记忆总结）。
+        && probe.surface
+        && probe.surface.attempted
+        && probe.surface.searchOpened
+        && probe.surface.searchMatchSeen
+        && probe.surface.statsOpened
+        && probe.surface.exportOpened
+        && probe.surface.moreMenuSeen
       );
       const kiloOk = !!(
         baseOk

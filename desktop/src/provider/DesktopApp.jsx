@@ -14,7 +14,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppProvider, useApp } from '../../../src/context/AppContext.js';
 import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
 import { ThemeProvider, useTheme } from '../../../src/theme/ThemeContext.js';
-import { createGroupSession, startNewSession } from '../../../src/storage/sessionList.js';
+import { createGroupSession } from '../../../src/storage/sessionList.js';
+import { requestGreetingPicker } from '../chat/greetingRequest.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
 import { resolveAlert, subscribeAlert, Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
@@ -446,7 +447,10 @@ function Shell() {
           ))}
           {/* 新建会话：与手机「聊天页 ⋯ → 新对话」同语义——**真的新建**一段，
               旧对话保留在「记忆」里。此前这里调 ensureCharacterSession，它遇到已有会话
-              就只返回旧会话，按了等于没反应（手机版没有这个问题，故照它修）。 */}
+              就只返回旧会话，按了等于没反应（手机版没有这个问题，故照它修）。
+              现在改走「先选开场白、再建会话」：不带开场白建出来的会话
+              greetingSelected=false，共享发送链路会**静默拒绝发送**（这是手机版
+              靠开场白选择器规避的坑，桌面此前踩在上面）。 */}
           <button
             type="button"
             style={ghost}
@@ -460,12 +464,12 @@ function Shell() {
                   { text: t('common.cancel'), style: 'cancel' },
                   {
                     text: t('chat.session.newChat.confirm'),
-                    onPress: () => run('session', async () => {
-                      const created = await startNewSession(activeId);
-                      await refreshSessions().catch(() => {});
-                      if (created && created.id) await switchSession(created.id).catch(() => {});
+                    onPress: () => {
+                      // 选择器挂在 ChatPane 里（它持有 messagesRef / setMessages），
+                      // 顶栏只发一次请求，由 ChatPane 消费。
                       setView('chat');
-                    }),
+                      requestGreetingPicker();
+                    },
                   },
                 ]
               );
