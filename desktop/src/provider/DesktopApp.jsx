@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppProvider, useApp } from '../../../src/context/AppContext.js';
 import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
 import { ThemeProvider, useTheme } from '../../../src/theme/ThemeContext.js';
+import { startNewSession } from '../../../src/storage/sessionList.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
 import { resolveAlert, subscribeAlert, Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
@@ -28,12 +29,11 @@ import { applyCharacterCard, pickCharacterCard } from '../backup/services.js';
 import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
 import CharacterLibraryScreen from '../character/CharacterLibraryScreen.jsx';
 import ExtensionScreen from '../extension/ExtensionScreen.jsx';
-import MemoryScreen from '../memory/MemoryScreen.jsx';
+import MemoryListScreen from '../memory/MemoryListScreen.jsx';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
 import ChatPane from './ChatPane.jsx';
-import SessionsPanel from './SessionsPanel.jsx';
 
 const DEFAULT_NEW_CHARACTER = {
   name: 'New Character',
@@ -141,16 +141,12 @@ function Shell() {
     deleteCharacter,
     ensureCharacterSession,
     switchSession,
-    deleteSession,
-    pinSession,
-    cloneSession,
     refreshSessions,
     updateCharacter,
     pinCharacter,
     refreshAppData,
   } = useApp();
   const [busy, setBusy] = useState('');
-  const [showSessions, setShowSessions] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [view, setView] = useState('chat');
   // 角色库页（卡片网格）与角色编辑页分开：库页是「选谁」，编辑页是「改什么」。
@@ -189,10 +185,6 @@ function Shell() {
   }, []);
 
   const activeCharacter = characters.find(character => character.id === activeId) || null;
-  const characterSessions = useMemo(
-    () => sessions.filter(session => session.characterId === activeId),
-    [sessions, activeId]
-  );
 
   // 每个角色第一次成为当前角色时补一个开场白会话。
   // 注意不能只做一次（原 ensuredRef 是一次性锁）：新建角色或在库里切换到一个还没有会话的
@@ -317,7 +309,6 @@ function Shell() {
               onClick={() => {
                 setCharacterScreen('library');
                 setView('character');
-                setShowSessions(false);
                 setShowBackup(false);
               }}
             >
@@ -334,8 +325,7 @@ function Shell() {
                   .then(() => {
                     setCharacterScreen('edit');
                     setView('character');
-                    setShowSessions(false);
-                    setShowBackup(false);
+                        setShowBackup(false);
                   });
               }}
             >
@@ -419,65 +409,52 @@ function Shell() {
             <button
               key={tab.id}
               type="button"
-              style={{ ...ghost, background: view === tab.id && !showSessions && !showBackup ? palette.surfaceAlt : 'transparent' }}
+              style={{ ...ghost, background: view === tab.id && !showBackup ? palette.surfaceAlt : 'transparent' }}
               onClick={() => {
                 setView(tab.id);
-                setShowSessions(false);
                 setShowBackup(false);
               }}
             >
               {tab.label}
             </button>
           ))}
-          <button
-            type="button"
-            style={{ ...ghost, background: showBackup ? palette.surfaceAlt : 'transparent' }}
-            onClick={() => {
-              setShowBackup(value => !value);
-              setShowSessions(false);
-            }}
-          >
-            {t('backup.title')}
-          </button>
-          <button
-            type="button"
-            style={{ ...ghost, background: showSessions ? palette.surfaceAlt : 'transparent' }}
-            onClick={() => {
-              setShowSessions(value => !value);
-              setShowBackup(false);
-            }}
-          >
-            {t('app.tab.sessions')}
-          </button>
+          {/* 新建会话：与手机「聊天页 ⋯ → 新对话」同语义——**真的新建**一段，
+              旧对话保留在「记忆」里。此前这里调 ensureCharacterSession，它遇到已有会话
+              就只返回旧会话，按了等于没反应（手机版没有这个问题，故照它修）。 */}
           <button
             type="button"
             style={ghost}
+            title={t('chat.session.newChat.title')}
             disabled={!!busy || !activeCharacter}
-            onClick={() => run('session', () => ensureCharacterSession(activeId))}
+            onClick={() => {
+              Alert.alert(
+                t('chat.session.newChat.title'),
+                t('chat.session.newChat.bodySingle'),
+                [
+                  { text: t('common.cancel'), style: 'cancel' },
+                  {
+                    text: t('chat.session.newChat.confirm'),
+                    onPress: () => run('session', async () => {
+                      const created = await startNewSession(activeId);
+                      await refreshSessions().catch(() => {});
+                      if (created && created.id) await switchSession(created.id).catch(() => {});
+                      setView('chat');
+                    }),
+                  },
+                ]
+              );
+            }}
           >
             +
           </button>
         </header>
 
-        {showSessions ? (
-          <SessionsPanel
-            palette={palette}
-            fonts={fonts}
-            character={activeCharacter}
-            sessions={characterSessions}
-            activeSessionId={activeSessionId}
-            busy={busy}
-            onSwitch={id => { switchSession(id); setShowSessions(false); }}
-            onDelete={id => run('deleteSession', () => deleteSession(id))}
-            onPin={id => run('pinSession', () => pinSession(id)).then(() => refreshSessions().catch(() => {}))}
-            onClone={id => run('cloneSession', () => cloneSession(id))}
-            onRenameDone={() => refreshSessions().catch(() => {})}
-          />
-        ) : view === 'settings' ? (
+        {view === 'settings' ? (
           <SettingsScreen
             palette={palette}
             fonts={fonts}
             version={appVersion}
+            character={activeCharacter}
             onTutorial={() => setShowTutorial(true)}
             onDisclaimer={() => setShowDisclaimer(true)}
             onBackup={() => setShowBackup(true)}
@@ -514,7 +491,19 @@ function Shell() {
             />
           )
         ) : view === 'memory' ? (
-          <MemoryScreen palette={palette} fonts={fonts} character={activeCharacter} />
+          <MemoryListScreen
+            palette={palette}
+            fonts={fonts}
+            onOpenSession={session => {
+              // 与手机一致：切换角色 + 会话后再进聊天页。
+              if (session.type !== 'group' && session.characterId && session.characterId !== activeId) {
+                switchCharacter(session.characterId).catch(() => {});
+              }
+              switchSession(session.id);
+              setView('chat');
+            }}
+            onTutorial={() => setShowTutorial(true)}
+          />
         ) : view === 'extension' ? (
           <ExtensionScreen palette={palette} fonts={fonts} />
         ) : activeSessionId ? (

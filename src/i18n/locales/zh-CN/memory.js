@@ -104,6 +104,7 @@ export const memory = {
   'memory.a11y.filter': '筛选：{label}',
   'memory.localModelLine': '本地 · {name}',
   'memory.localModelFallback': '本地模型',
+  'memory.searchPlaceholder': '搜索标题、内容或角色名',
   'memory.selectAll': '全选',
   'memory.unselectAll': '取消全选',
   'memory.deleteCount': '删除（{count}）',

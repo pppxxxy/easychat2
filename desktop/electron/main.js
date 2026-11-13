@@ -327,6 +327,8 @@ function createWindow() {
         && probe.screens.characterOk
         && probe.screens.worldAddSeen
         && probe.screens.memoryOk
+        && probe.screens.memoryBucketsSeen
+        && probe.screens.vectorOk
         && probe.screens.summaryOk
         && probe.screens.extensionOk
         && probe.screens.reasonSeen
@@ -346,6 +348,9 @@ function createWindow() {
         && probe.branch.branchArchived
         && probe.branch.navSeen
         && probe.branch.switchedBack
+        && probe.newSession
+        && probe.newSession.attempted
+        && probe.newSession.created
       );
       const kiloOk = !!(
         baseOk

@@ -1,25 +1,34 @@
 // 桌面设置页：左侧分区导航 + 右侧卡片流。
 //
-// 分区与 Android 侧的 SECTION_RENDER_ORDER 对齐（api/sampling/persona/appearance/
-// experience/about），暂不可用的分区（本地模型、工作区、MCP、插件等）不显示入口，
-// 避免点进去发现是空的。
+// 分区与 Android 侧的 SECTION_RENDER_ORDER 对齐，**顺序也照抄**（api → sampling →
+// persona → appearance → experience → extensions → vector → …）。手机版里「向量记忆」
+// 是设置页的一个分区，不是「记忆」标签——记忆标签是会话列表管理。
+//
+// 桌面上不可用的分区（本地模型 / 工作区 / GitHub / MCP / 安全 / 自动备份 / 语言）
+// 不显示入口，避免点进去发现是空的；它们的状态在「扩展」页统一说明。
 import { useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import ApiCard from './ApiCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
+import MemorySettingsCard from './MemorySettingsCard.jsx';
 import PersonaCard from './PersonaCard.jsx';
 import SamplingCard from './SamplingCard.jsx';
 import useApiConfigs from './useApiConfigs.js';
 import { Button, Card } from './ui.jsx';
 
+// 与 Android settings/sectionOrder.js 的可渲染子集同序：
+//   api / sampling / persona / appearance / experience / extensions / vector / about
+// extensions 在桌面是独立标签页（顶栏「扩展」），故此处不重复列出；
+// about 在手机是最后一卡，桌面保留（备份入口归属这一卡，与手机一致）。
 const SECTIONS = [
   { id: 'api', key: 'settings.api.title' },
   { id: 'sampling', key: 'settings.sampling.title' },
   { id: 'persona', key: 'settings.persona.title' },
   { id: 'appearance', key: 'settings.appearance.title' },
   { id: 'experience', key: 'settings.global.title' },
+  { id: 'vector', key: 'settings.vector.title' },
   { id: 'about', key: 'settings.about.title' },
 ];
 
@@ -48,6 +57,7 @@ export default function SettingsScreen({
   palette,
   fonts,
   version,
+  character,
   onTutorial,
   onDisclaimer,
   onBackup,
@@ -102,6 +112,9 @@ export default function SettingsScreen({
         {section === 'persona' ? <PersonaCard palette={palette} fonts={fonts} /> : null}
         {section === 'appearance' ? <AppearanceCard palette={palette} fonts={fonts} /> : null}
         {section === 'experience' ? <ChatOptionsCard palette={palette} fonts={fonts} /> : null}
+        {section === 'vector' ? (
+          <MemorySettingsCard palette={palette} fonts={fonts} character={character} />
+        ) : null}
         {section === 'about' ? (
           <AboutCard
             palette={palette}

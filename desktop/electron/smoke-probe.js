@@ -93,6 +93,7 @@
   let library = { attempted: false };
   let usage = { attempted: false };
   let branch = { attempted: false };
+  let newSession = { attempted: false };
 
   if (MOCK_MODE) {
     // ---- S3：真实界面发一条消息 ----
@@ -289,10 +290,18 @@
     }
 
     // ---- S5：备份面板可见性（导出/恢复真正执行需要原生对话框，交给集成测试） ----
+    // 入口与手机一致：设置 → 关于 → 「备份与恢复」（顶栏不再单独占一个按钮）。
     try {
-      const openButton = Array.from(document.querySelectorAll('button'))
-        .find(button => button.textContent === '备份与恢复' || button.textContent === 'Backup & Restore');
-      if (!openButton) throw new Error('backup button not found');
+      const settingsEntry = Array.from(document.querySelectorAll('header button'))
+        .find(button => button.textContent === '设置' || button.textContent === 'Settings');
+      if (!settingsEntry) throw new Error('settings tab not found');
+      settingsEntry.click();
+      const aboutNav = await waitFor(() => Array.from(document.querySelectorAll('nav button'))
+        .find(button => button.textContent === '关于' || button.textContent === 'About'), 6000);
+      if (aboutNav) aboutNav.click();
+      const openButton = await waitFor(() => Array.from(document.querySelectorAll('button'))
+        .find(button => button.textContent === '备份与恢复' || button.textContent === 'Backup & Restore'), 6000);
+      if (!openButton) throw new Error('backup entry not found in About');
       openButton.click();
       const panelSeen = await waitFor(() => {
         const text = document.body.innerText || '';
@@ -315,6 +324,11 @@
         .find(button => button.textContent === '设置' || button.textContent === 'Settings');
       if (!settingsTab) throw new Error('settings tab not found');
       settingsTab.click();
+      // 设置页会记住上次的分区（前面的备份探针停在「关于」）：显式切回 API 分区，
+      // 否则这里断言的是「关于」卡，永远看不到 API 配置。
+      const apiNav = await waitFor(() => Array.from(document.querySelectorAll('nav button'))
+        .find(button => button.textContent === 'API 配置' || button.textContent === 'API Configuration'), 6000);
+      if (apiNav) apiNav.click();
       const loaded = await waitFor(() => {
         const text = document.body.innerText || '';
         const hasApi = text.includes('API 配置') || text.includes('API Configuration');
@@ -375,10 +389,29 @@
       // 角色编辑页：确认存在世界书与正则的添加入口。
       const worldAddSeen = Array.from(document.querySelectorAll('button'))
         .some(button => button.textContent === '添加世界书条目' || button.textContent === 'Add world entry');
-      const memoryOk = await openTab('记忆', 'Memory', '向量记忆', 6000)
-        || await openTab('记忆', 'Memory', 'Vector memory', 6000);
-      const summaryOk = (document.body.innerText || '').includes('记忆总结')
-        || (document.body.innerText || '').includes('Memory summary');
+      // 记忆标签 = 会话列表管理（与手机同定位）；向量记忆/记忆总结在「设置 → 向量记忆」。
+      const memoryOk = await openTab('记忆', 'Memory', '编辑', 6000)
+        || await openTab('记忆', 'Memory', '全部', 6000);
+      const memoryBucketsSeen = ['置顶', '最近 7 天', '更早', 'Pinned', 'Last 7 days', 'Older', '还没有历史对话']
+        .some(label => (document.body.innerText || '').includes(label));
+      const settingsTabForVector = Array.from(document.querySelectorAll('header button'))
+        .find(button => button.textContent === '设置' || button.textContent === 'Settings');
+      let vectorOk = false;
+      let summaryOk = false;
+      if (settingsTabForVector) {
+        settingsTabForVector.click();
+        const vectorNav = await waitFor(() => Array.from(document.querySelectorAll('nav button'))
+          .find(button => button.textContent === '向量记忆' || button.textContent === 'Vector memory'), 6000);
+        if (vectorNav) {
+          vectorNav.click();
+          vectorOk = !!(await waitFor(() => {
+            const text = document.body.innerText || '';
+            return text.includes('向量记忆') || text.includes('Vector memory');
+          }, 4000));
+          summaryOk = (document.body.innerText || '').includes('记忆总结')
+            || (document.body.innerText || '').includes('Memory summary');
+        }
+      }
       const extensionOk = await openTab('扩展', 'Extensions', '桌面版首版只提供核心聊天闭环', 6000)
         || await openTab('扩展', 'Extensions', 'core chat loop only', 6000);
       // 展开一条禁用态说明，确认原因文案可见。
@@ -399,6 +432,8 @@
         characterOk,
         worldAddSeen,
         memoryOk: !!memoryOk,
+        memoryBucketsSeen,
+        vectorOk,
         summaryOk: !!summaryOk,
         extensionOk: !!extensionOk,
         reasonSeen,
@@ -553,6 +588,32 @@
           indexAfter = ((document.body.innerText || '').match(/\d+\/\/\/\d+/) || [''])[0];
         }
       }
+      // ---- S10：顶栏「+」真的新建一段会话（不是复用旧会话）----
+      try {
+        const before = await bridge.kv.get('@easychat2_sessions');
+        const beforeCount = Array.isArray(JSON.parse(before || '[]')) ? JSON.parse(before || '[]').length : 0;
+        const plus = Array.from(document.querySelectorAll('header button'))
+          .find(button => button.textContent === '+');
+        if (!plus) throw new Error('plus button not found');
+        plus.click();
+        // 确认弹窗里的「新建」
+        const confirm = await waitFor(() => Array.from(document.querySelectorAll('button'))
+          .find(button => button.textContent === '新建' || button.textContent === 'New'), 6000);
+        if (!confirm) throw new Error('confirm button not found');
+        confirm.click();
+        // 会话数必须真的增加（复用旧会话时数量不变 = 回归）。
+        let afterCount = beforeCount;
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const raw = await bridge.kv.get('@easychat2_sessions');
+          afterCount = Array.isArray(JSON.parse(raw || '[]')) ? JSON.parse(raw || '[]').length : 0;
+          if (afterCount > beforeCount) break;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        newSession = { attempted: true, beforeCount, afterCount, created: afterCount > beforeCount };
+      } catch (error) {
+        newSession = { attempted: true, error: String((error && error.message) || error) };
+      }
+
       branch = {
         attempted: true,
         branchArchived,
@@ -643,6 +704,7 @@
     library: MOCK_MODE ? library : { attempted: false, skipped: true },
     usage: MOCK_MODE ? usage : { attempted: false, skipped: true },
     branch: MOCK_MODE ? branch : { attempted: false, skipped: true },
+    newSession: MOCK_MODE ? newSession : { attempted: false, skipped: true },
     kilo,
   };
 })()

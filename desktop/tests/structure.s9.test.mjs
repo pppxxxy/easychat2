@@ -27,15 +27,11 @@ const EN_APP = read(ROOT, 'src', 'i18n', 'locales', 'en', 'app.js');
 test('会话列表用独立词条：顶栏不再出现两个「记忆」', () => {
   assert.ok(ZH_APP.includes("'app.tab.sessions': '会话'"), '中文词条缺失');
   assert.ok(EN_APP.includes("'app.tab.sessions': 'Sessions'"), '英文词条缺失');
-  // 顶栏的会话入口必须用 app.tab.sessions（此前误用 app.tab.memory）。
-  const sessionsButton = APP.slice(APP.indexOf('showSessions ? palette.surfaceAlt'));
-  assert.ok(sessionsButton.includes("t('app.tab.sessions')"), '会话入口未改用独立词条');
-  assert.equal(
-    /onClick=\{\(\) => \{\s*setShowSessions\(value => !value\)/.test(APP)
-      && APP.includes("{t('app.tab.memory')}\n          </button>"),
-    false,
-    '仍有一个 session 入口显示「记忆」'
-  );
+  // S10 起顶栏拓扑按手机版收敛：会话列表就是「记忆」标签本身，
+  // 因此独立「会话」按钮已移除（拓扑改由 structure.s10 钉住）。
+  assert.equal(APP.includes("t('app.tab.sessions')"), false, '顶栏不应再出现独立「会话」按钮');
+  // 词条本身保留：其他位置（如未来入口）仍可用；重复的「记忆」不会因两处共用而出现。
+  assert.ok(ZH_APP.includes("'app.tab.memory': '记忆'"));
 });
 
 test('角色页默认进角色库，编辑页带返回入口', () => {

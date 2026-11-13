@@ -1,4 +1,8 @@
-// 记忆页（桌面）：记忆总结设置 + 向量记忆配置。
+// 设置页「向量记忆」分区（桌面）：记忆总结 + 向量记忆配置。
+//
+// 位置对齐手机版：Android 的这两个设置都在「设置 → 向量记忆」（settings/sectionOrder.js
+// 的 'vector' 分区），不在「记忆」标签里——记忆标签是会话列表管理（见 memory/MemoryListScreen.jsx）。
+// 桌面此前把它们放进了记忆标签，导致顶栏还要额外塞一个「会话」入口；本次归位。
 //
 // 两者都复用共享层存储：
 //   · 记忆总结：patchMemorySummarySettings（读-合并-写，不会把「记忆长度」重置）
@@ -20,7 +24,7 @@ import { testVectorConnection } from '../../../src/vectorMemory/index.js';
 import { VECTOR_TOP_K_MAX } from '../../../src/vectorMemory/limits.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
-import { Button, Card, Divider, Field, Row, Select, TextInput, Toggle } from '../settings/ui.jsx';
+import { Button, Card, Divider, Field, Row, Select, TextInput, Toggle } from './ui.jsx';
 
 function SummaryCard({ palette, fonts }) {
   const { t } = useTranslation();
@@ -356,15 +360,15 @@ function VectorCard({ palette, fonts, character }) {
   );
 }
 
-export default function MemoryScreen({ palette, fonts, character }) {
+export default function MemorySettingsCard({ palette, fonts, character }) {
   const { t } = useTranslation();
   return (
-    <div style={{ flex: 1, overflow: 'auto', padding: 16, minWidth: 0 }}>
+    <>
       <SummaryCard palette={palette} fonts={fonts} />
       <VectorCard palette={palette} fonts={fonts} character={character} />
       <Card title={t('settings.vector.clear.title')} palette={palette} fonts={fonts}>
         <div style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>{t('settings.vector.hint')}</div>
       </Card>
-    </div>
+    </>
   );
 }

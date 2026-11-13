@@ -103,6 +103,7 @@ export const memory = {
   'memory.a11y.filter': 'Filter: {label}',
   'memory.localModelLine': 'Local · {name}',
   'memory.localModelFallback': 'Local model',
+  'memory.searchPlaceholder': 'Search title, content or character name',
   'memory.selectAll': 'Select All',
   'memory.unselectAll': 'Deselect All',
   'memory.deleteCount': 'Delete ({count})',
