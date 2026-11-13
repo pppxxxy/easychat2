@@ -6,13 +6,13 @@
 import { useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
-import { updateSessionInfo } from '../../../src/storage/sessionList.js';
+import { setGroupMode, updateSessionInfo } from '../../../src/storage/sessionList.js';
 import { markMediaWrite } from '../../../src/storage/mediaProtection.js';
 import { Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
 import { documentDirectory } from '../platform/fileSystem.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
-import { Button, Field, Row, TextInput } from '../settings/ui.jsx';
+import { Button, Field, Row, Select, TextInput } from '../settings/ui.jsx';
 
 export default function GroupSettingsPanel({
   open,
@@ -46,6 +46,22 @@ export default function GroupSettingsPanel({
       Alert.alert(t('app.save.failed.title'), t('app.save.failed.body'));
     } finally {
       getBridge().fs.delete(item.uri, true).catch(() => {});
+    }
+  };
+
+  // 发言方式（合议 / 轮流）：改了就落盘并让宿主刷新——它会改变发送链路的分支
+  // （useChatSend 里 `groupMode !== 'turn'` 决定走合议还是轮流）。
+  const changeMode = async mode => {
+    if (saving || !session) return;
+    setSaving(true);
+    try {
+      const saved = await setGroupMode(session.id, mode);
+      if (saved && typeof onSaved === 'function') onSaved(saved);
+      Alert.alert(t('group.mode.title'), t('group.mode.saved'));
+    } catch (error) {
+      Alert.alert(t('group.alert.saveFailed.title'), t('group.alert.saveFailed.body'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -122,6 +138,26 @@ export default function GroupSettingsPanel({
           <Button label={t('character.library.group.avatarLabel')} onClick={() => pickImage('avatar')} palette={palette} fonts={fonts} />
           <Button label={t('character.library.group.bgLabel')} onClick={() => pickImage('bg')} palette={palette} fonts={fonts} />
         </Row>
+
+        {/* 发言方式：两个模式在共享层是真实分支，不是展示开关。 */}
+        <Field
+          label={t('group.mode.title')}
+          hint={session.groupMode === 'turn' ? t('group.mode.turnHint') : t('group.mode.ensembleHint')}
+          palette={palette}
+          fonts={fonts}
+        >
+          <Select
+            value={session.groupMode === 'turn' ? 'turn' : 'ensemble'}
+            options={[
+              { value: 'ensemble', label: t('group.mode.ensemble') },
+              { value: 'turn', label: t('group.mode.turn') },
+            ]}
+            onChange={changeMode}
+            palette={palette}
+            fonts={fonts}
+            disabled={saving}
+          />
+        </Field>
 
         <Field label={t('character.library.group.nameLabel')} palette={palette} fonts={fonts}>
           <TextInput value={nameDraft} onChange={setNameDraft} palette={palette} fonts={fonts} />

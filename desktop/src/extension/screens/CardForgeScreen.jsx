@@ -18,7 +18,13 @@ import {
   parseCardPatch,
 } from '../../../../src/cardForge/forge.js';
 import { createForgeDraft, draftToCharacterPatch } from '../../../../src/cardForge/forge/draft.js';
-import { buildGeneratePrompt } from '../../../../src/cardForge/forge/prompts.js';
+import { buildGeneratePrompt, buildImageCardPrompt } from '../../../../src/cardForge/forge/prompts.js';
+import { readImageDataUri } from '../../../../src/chat/attachments.js';
+import { capabilitiesForModel, getActiveModel } from '../../../../src/storage/apiConfigs.js';
+import { markMediaWrite } from '../../../../src/storage/mediaProtection.js';
+import { getBridge } from '../../platform/bridge.js';
+import { documentDirectory } from '../../platform/fileSystem.js';
+import { mediaUrl } from '../../platform/mediaUrl.js';
 import {
   FORGE_QUESTIONS,
   createForgeState,
@@ -43,6 +49,9 @@ export default function CardForgeScreen({ palette, fonts }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [freeDraft, setFreeDraft] = useState('');
+  // 按图片生成：参考图 + 补充要求（与手机同一条链路，只是选图走 media.pick）。
+  const [referenceUri, setReferenceUri] = useState('');
+  const [imageHint, setImageHint] = useState('');
   const abortRef = useRef(null);
 
   // 读回上次的草稿（含问答进度）。读失败时用全新状态，但**不**自动保存覆盖。
@@ -114,6 +123,77 @@ export default function CardForgeScreen({ palette, fonts }) {
 
   const stop = () => {
     if (abortRef.current) abortRef.current.abort();
+  };
+
+  // 「按图片生成角色」：把所选图片作为识图输入发给当前模型，读图后写回整卡文本字段。
+  // 与手机同一判定：先看**当前模型**是否 declared supportsVision，没有就明确拒绝
+  //（不要退化成「发纯文字」，那会让用户以为模型读了图）。
+  const imageToCard = async () => {
+    if (busy) return;
+    if (!referenceUri) {
+      Alert.alert(t('forge.alert.pickImageFirst.title'), t('forge.alert.pickImageFirst.bodyAvatar'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const { configs, activeId } = await getApiConfigs();
+      const current = configs.find(item => item.id === activeId) || configs[0];
+      if (!current) throw new Error(t('forge.error.noModel'));
+      const vision = capabilitiesForModel(current, getActiveModel(current)).supportsVision === true;
+      if (!vision) throw new Error(t('forge.screen.error.visionUnsupported'));
+
+      const dataUri = await readImageDataUri(referenceUri);
+      if (!dataUri) throw new Error(t('forge.screen.error.readImageFailed'));
+      const prompt = buildImageCardPrompt({ hint: imageHint, hasAvatar: true, hasBg: false });
+      const raw = await sendChatMessage([
+        { role: 'system', content: FORGE_SYSTEM },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: dataUri } },
+          ],
+        },
+      ], {
+        stream: false,
+        expectedConfigId: String(current.id || ''),
+        expectedConfigFingerprint: getConfigFingerprint(current),
+        overrides: FORGE_SAMPLING_OVERRIDES,
+      });
+      if (!String(raw || '').trim() || raw === EMPTY_REPLY_TEXT) {
+        throw new Error(t('forge.screen.error.emptyAiReply'));
+      }
+      const patch = parseCardPatch(raw);
+      if (!patch) throw new Error(t('forge.screen.note.generateNoJson'));
+      // 只合并文本字段：世界书/正则/预设等集合保持草稿原样（与手机同口径）。
+      update(mergeDraft(state, patch));
+      Alert.alert(t('settings.api.saved.title'), t('forge.screen.note.generated', { fields: Object.keys(patch).join(', ') }));
+    } catch (error) {
+      Alert.alert(
+        t('forge.screen.alert.generateFailed.title'),
+        String((error && error.message) || t('forge.screen.alert.retryLater'))
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 选图：复制到 documents/card-forge/ 并登记媒体保护（备份导出不会把它当孤儿清掉）。
+  const pickReference = async () => {
+    const picked = await getBridge().media.pick('image');
+    const item = picked && !picked.canceled && Array.isArray(picked.items) ? picked.items[0] : null;
+    if (!item) return;
+    const ext = (String(item.uri || '').split('.').pop() || 'png').slice(0, 5);
+    const destination = `${documentDirectory}card-forge/ref-${Date.now()}.${ext}`;
+    try {
+      await getBridge().fs.copy(item.uri, destination);
+      markMediaWrite(destination);
+      setReferenceUri(destination);
+    } catch (error) {
+      Alert.alert(t('forge.alert.readImageFailed.title'), t('forge.alert.readImageFailed.body'));
+    } finally {
+      getBridge().fs.delete(item.uri, true).catch(() => {});
+    }
   };
 
   // 导入角色库：走共享层 draftToCharacterPatch，再交给 AppContext 建角色 + 建会话。
@@ -238,6 +318,50 @@ export default function CardForgeScreen({ palette, fonts }) {
             </Row>
           </>
         )}
+      </Card>
+
+      <Card title={t('forge.imageCard.title')} hint={t('forge.imageCard.hint')} palette={palette} fonts={fonts}>
+        <Row>
+          <Button label={t('forge.imageCard.pick')} onClick={pickReference} palette={palette} fonts={fonts} disabled={busy} />
+          {referenceUri ? (
+            <>
+              <img
+                src={mediaUrl(referenceUri) || ''}
+                alt=""
+                style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: `1px solid ${palette.divider}` }}
+              />
+              <Button
+                label={t('character.fields.image.clear')}
+                onClick={() => setReferenceUri('')}
+                palette={palette}
+                fonts={fonts}
+                disabled={busy}
+              />
+            </>
+          ) : null}
+        </Row>
+        <Field label={t('forge.alert.describeFirst.body')} palette={palette} fonts={fonts}>
+          <TextInput
+            value={imageHint}
+            onChange={setImageHint}
+            placeholder={t('forge.alert.describeFirst.body')}
+            palette={palette}
+            fonts={fonts}
+          />
+        </Field>
+        <Row>
+          <Button
+            label={busy ? t('forge.screen.busy') : t('forge.imageCard.generate')}
+            onClick={imageToCard}
+            palette={palette}
+            fonts={fonts}
+            primary
+            disabled={busy || !referenceUri}
+          />
+          <span style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
+            {t('forge.screen.error.visionUnsupported')}
+          </span>
+        </Row>
       </Card>
 
       <Card title={t('forge.title')} hint={t('forge.hint')} palette={palette} fonts={fonts}>

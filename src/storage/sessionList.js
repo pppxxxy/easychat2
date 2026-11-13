@@ -10,6 +10,7 @@ export {
   setSessionGreetingSelected,
   createGroupSession,
   updateSessionInfo,
+  setGroupMode,
   setSessionPinned,
   markSessionModel,
   markSessionRead,

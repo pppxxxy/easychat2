@@ -108,6 +108,43 @@ test('角色评论的评论形状与共享层 normalize 一致（不自己编字
   }
 });
 
+test('群聊发言方式：开关写回共享存储，且与发送链路的判据一致', () => {
+  const dialog = read(DESKTOP, 'src', 'group', 'GroupSettingsPanel.jsx');
+  assert.ok(dialog.includes('setGroupMode'), '群聊设置未接发言方式写入');
+  assert.ok(dialog.includes("t('group.mode.ensemble')"), '缺合议选项');
+  assert.ok(dialog.includes("t('group.mode.turn')"), '缺轮流选项');
+  // 发送链路读的字段必须与写入的一致（否则开关是摆设）。
+  const send = read(ROOT, 'src', 'chat', 'useChatSend.js');
+  assert.ok(send.includes('activeSessionRef.current?.groupMode'), '发送链路未读 groupMode');
+  // 存储入口存在且是独立函数（不混进 updateSessionInfo 的三个展示字段）。
+  const mutations = read(ROOT, 'src', 'storage', 'sessionList', 'mutations.js');
+  assert.ok(mutations.includes('export function setGroupMode'), '共享层缺 setGroupMode');
+  assert.equal(
+    /updateSessionInfoInternal[\s\S]{0,600}groupMode/.test(mutations),
+    false,
+    'groupMode 不应被塞进 updateSessionInfo（展示字段与发言机制混在一条写路径）'
+  );
+});
+
+test('制卡「按图片生成」：走识图能力判定 + 共享提示词', () => {
+  const forge = read(DESKTOP, 'src', 'extension', 'screens', 'CardForgeScreen.jsx');
+  assert.ok(forge.includes('buildImageCardPrompt'), '未复用共享图片提示词');
+  assert.ok(forge.includes('readImageDataUri'), '未复用共享图片读取');
+  // 必须先判能力再发请求：没有识图能力时发纯文字会让用户以为模型读了图。
+  // 断言限定在 imageToCard 函数体内（文件顶部的 import 行也含这些标识符）。
+  const fnStart = forge.indexOf('const imageToCard = async');
+  assert.ok(fnStart > 0, '找不到 imageToCard');
+  const fnBody = forge.slice(fnStart, forge.indexOf('const pickReference', fnStart));
+  assert.ok(fnBody.includes('supportsVision'), '缺识图能力判定');
+  assert.ok(
+    fnBody.indexOf('supportsVision') < fnBody.indexOf('readImageDataUri'),
+    '能力判定必须发生在读图与请求之前'
+  );
+  assert.ok(fnBody.indexOf('readImageDataUri') < fnBody.indexOf('sendChatMessage'), '读图必须在请求之前');
+  // 只合并文本字段：集合字段（世界书/正则/预设）不得被按图生成覆盖。
+  assert.ok(forge.includes('mergeDraft'), '未复用草稿合并');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

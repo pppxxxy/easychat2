@@ -189,6 +189,26 @@ async function updateSessionInfoInternal(sessionId, patch = {}) {
   return updated;
 }
 
+// 群聊发言模式（'ensemble' 合议 / 'turn' 轮流）。
+//
+// 为什么不塞进 updateSessionInfo：那个入口刻意只处理 name/avatarUri/bgUri 三个
+// 「展示性」字段，并在文档里写明了「只对群聊生效」。发言模式会改变发送链路的分支
+// （useChatSend 的 `groupMode !== 'turn'` 决定走合议还是轮流），语义完全不同——
+// 混进去会让「改个名字」和「换发言机制」走同一条写路径，日后谁改一个都容易误伤另一个。
+const GROUP_MODES = ['ensemble', 'turn'];
+
+async function setGroupModeInternal(sessionId, mode) {
+  const nextMode = GROUP_MODES.includes(String(mode || '')) ? String(mode) : '';
+  if (!nextMode) return null;
+  const sessions = await requireSessions();
+  const target = sessions.find(session => session.id === sessionId);
+  if (!target || target.type !== 'group') return target || null;
+  if (target.groupMode === nextMode) return target;
+  const updated = { ...target, groupMode: nextMode, updatedAt: Date.now() };
+  await saveSessionsInternal(sessions.map(session => (session.id === sessionId ? updated : session)));
+  return updated;
+}
+
 async function updateSessionMemberProfilesInternal(sessionId, memberProfiles) {
   const sessions = await requireSessions();
   const target = sessions.find(session => session.id === sessionId);
@@ -371,6 +391,10 @@ export function setSessionGreetingSelected(sessionId, selected = true) {
 
 export function createGroupSession(members, name, extras = {}) {
   return enqueueSessionMutation(() => createGroupSessionInternal(members, name, extras));
+}
+
+export function setGroupMode(sessionId, mode) {
+  return enqueueSessionMutation(() => setGroupModeInternal(sessionId, mode));
 }
 
 export function updateSessionInfo(sessionId, patch = {}) {
