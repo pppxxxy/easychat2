@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 
 // 顺序敏感：polyfills 必须先于任何共享层模块执行（Buffer / XMLHttpRequest）。
 import './polyfills.js';
+import './styles/render.css';
 import { getBridge } from './platform/bridge.js';
 import { installDesktopArtworkLoader } from './platform/artwork.js';
 import DesktopApp from './provider/DesktopApp.jsx';

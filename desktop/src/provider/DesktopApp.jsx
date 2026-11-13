@@ -7,7 +7,8 @@
 // 保留配置指纹校验、迟到回复丢弃、串行落盘与草稿恢复等既有语义。
 //
 // 界面只做桌面首版所需：角色列表 / 会话列表 / 文本收发（流式）/ 重新生成 /
-// 语言与主题切换 / 应用内 Alert。附件、Markdown、富 HTML 在 S4 接入。
+// 语言与主题切换 / 应用内 Alert；正文渲染（Markdown/富 HTML/媒体）见 render/。
+// 附件与表情包发送在 S4b 接入。
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppProvider, useApp } from '../../../src/context/AppContext.js';
@@ -15,6 +16,7 @@ import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
 import { ThemeProvider, useTheme } from '../../../src/theme/ThemeContext.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
 import { resolveAlert, subscribeAlert } from '../platform/alert.js';
+import MessageRow from '../render/MessageRow.jsx';
 import useDesktopChat from './useDesktopChat.js';
 
 const DEFAULT_NEW_CHARACTER = {
@@ -108,51 +110,6 @@ function AlertHost({ palette, fonts }) {
   );
 }
 
-function MessageRow({ message, palette, fonts, onRegenerate }) {
-  const isUser = message.role === 'user';
-  if (!message || message.kind === 'media') return null;
-  const text = String(message.text || '');
-  if (!text && !message.pending) return null;
-  return (
-    <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
-      <div style={{
-        maxWidth: '76%',
-        background: isUser ? palette.primary : palette.surface,
-        color: isUser ? palette.primaryContrast : palette.text,
-        border: isUser ? 'none' : `1px solid ${palette.divider}`,
-        borderRadius: 12,
-        padding: '10px 14px',
-        fontSize: fonts.scaled(14),
-        lineHeight: 1.65,
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-      }}
-      >
-        {text}
-        {message.pending ? <span style={{ opacity: 0.6 }}>…</span> : null}
-        {!isUser && !message.pending ? (
-          <button
-            type="button"
-            onClick={() => onRegenerate(message.id)}
-            title="regenerate"
-            style={{
-              marginLeft: 10,
-              background: 'transparent',
-              border: 'none',
-              color: palette.textMuted,
-              cursor: 'pointer',
-              fontSize: 12,
-              padding: 0,
-            }}
-          >
-            ↻
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function ChatPane({ palette, fonts, t }) {
   const chat = useDesktopChat();
   const {
@@ -229,6 +186,7 @@ function ChatPane({ palette, fonts, t }) {
             palette={palette}
             fonts={fonts}
             onRegenerate={regenerateMessage}
+            onCommand={command => onInputChange(command)}
           />
         ))}
       </div>

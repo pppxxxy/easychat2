@@ -28,7 +28,28 @@ const MEDIA_SCHEME = 'easychat2-media';
 const SMOKE = process.env.EASYCHAT2_DESKTOP_SMOKE === '1';
 // 探针按这个常量在界面/存储里找回复（与 electron/smoke-probe.js 保持一致）。
 const SMOKE_REPLY = '桌面流式回复 OK';
+// S4 渲染验收用的两种回复：用户消息里带标记时切换（同类容错，不影响其它场景）。
+const MARKDOWN_SMOKE_REPLY = [
+  '**加粗OK**',
+  '',
+  '- 列表甲',
+  '- 列表乙',
+  '',
+  '```js',
+  'const smoke = 1;',
+  '```',
+].join(String.fromCharCode(10));
+const RICH_HTML_SMOKE_REPLY = [
+  '<style>.smoke-card{background:#123456;color:#ffffff;padding:12px;border-radius:8px;}</style>',
+  '<div class="smoke-card" id="smoke-card"><strong>富 HTML OK</strong></div>',
+  '<details id="smoke-details"><summary>展开</summary><p>折叠内容</p></details>',
+  '<button id="smoke-button" onclick="triggerSlash(\'/send 卡片命令\')">卡片命令按钮</button>',
+  '<script>window.__smokePwned = true;</script>',
+].join(String.fromCharCode(10));
 const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8');
+
+// 允许交给系统打开的外部 URL scheme（与共享层 classifyRichHtmlLink 的口径一致）。
+const EXTERNAL_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
 // 数据目录名固定为 EasyChat2（不随 package.json name 变化）：文档目录是跨版本
 // 稳定契约（design.md Requirement 1.4），改名会让老数据“消失”。
@@ -90,14 +111,20 @@ function ensureDefaultArtwork(documentsRoot) {
 function startSmokeModelServer() {
   const server = http.createServer((request, response) => {
     console.log(`[smoke-model] ${request.method} ${request.url}`);
-    request.on('data', () => {});
+    let requestBody = '';
+    request.on('data', chunk => {
+      requestBody += chunk;
+    });
     request.on('error', error => console.log(`[smoke-model] request error: ${error.message}`));
     request.on('end', () => {
+      const reply = requestBody.includes('富HTML测试')
+        ? RICH_HTML_SMOKE_REPLY
+        : (requestBody.includes('渲染测试') ? MARKDOWN_SMOKE_REPLY : SMOKE_REPLY);
       // SSE 块以两个换行结尾；用 fromCharCode 构造，避免转义层级（源码可读、零歧义）。
       const separator = String.fromCharCode(10) + String.fromCharCode(10);
       const event = payload => 'data: ' + JSON.stringify(payload) + separator;
       response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-      response.write(event({ choices: [{ delta: { content: SMOKE_REPLY } }] }));
+      response.write(event({ choices: [{ delta: { content: reply } }] }));
       response.write(event({ choices: [{ delta: {}, finish_reason: 'stop' }] }));
       response.write('data: [DONE]' + separator);
       response.end();
@@ -154,6 +181,24 @@ function createWindow() {
   mainWindow.webContents.on('render-process-gone', (event, details) => {
     console.log(`[render-process-gone] ${JSON.stringify(details)}`);
   });
+  // 渲染进程不允许自己开新窗口或整页跳走：外链交给系统浏览器，其余一律拦下。
+  // 富 HTML 卡片在 sandbox iframe 内，本来就没有脚本与顶层导航能力，这是第二道兜底。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (EXTERNAL_URL_SCHEMES.has((() => {
+      try {
+        return new URL(String(url)).protocol;
+      } catch (error) {
+        return '';
+      }
+    })())) {
+      shell.openExternal(String(url)).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url === mainWindow.webContents.getURL()) return;
+    event.preventDefault();
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -183,6 +228,16 @@ function createWindow() {
         && probe.chat.replySeen
         && probe.chat.userMessagePersisted
         && probe.chat.replyPersisted
+        && probe.render
+        && probe.render.attempted
+        && probe.render.markdownSeen
+        && probe.render.richHtmlSeen
+        && probe.render.cardStyled
+        && probe.render.detailsSeen
+        && probe.render.scriptBlocked
+        && probe.render.frameHeight >= 40
+        && probe.render.commandBridged
+        && probe.render.richHtmlPersisted
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
@@ -207,7 +262,8 @@ function applyCsp() {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-          + "img-src 'self' data: easychat2-media:; media-src 'self' easychat2-media:; "
+          + "img-src 'self' data: blob: https: easychat2-media:; "
+          + "media-src 'self' https: easychat2-media:; "
           + "connect-src 'self'; font-src 'self' data:",
         ],
       },
@@ -258,6 +314,38 @@ app.whenReady().then(() => {
     documents: paths.documentDirectory,
     cache: paths.cacheDirectory,
   }));
+
+  // 卡片/消息里的外链交给系统浏览器或邮件客户端；只放行明确的外部 scheme，
+  // 其余（file:/javascript:/data: 等）一律拒绝——渲染层已用 classifyRichHtmlLink
+  // 做过一次判定，这里是主进程侧的最后一道口子。
+  ipcMain.handle('app:openExternal', async (event, rawUrl) => {
+    const value = String(rawUrl || '').trim();
+    let parsed = null;
+    try {
+      parsed = new URL(value);
+    } catch (error) {
+      parsed = null;
+    }
+    if (!parsed || !EXTERNAL_URL_SCHEMES.has(parsed.protocol)) {
+      const error = new Error('Unsupported URL scheme');
+      error.code = 'UNSUPPORTED_SCHEME';
+      throw error;
+    }
+    await shell.openExternal(parsed.href);
+    return true;
+  });
+
+  // 视频等本地媒体交给系统默认程序：路径必须先过 documents/cache 边界校验。
+  ipcMain.handle('app:openPath', async (event, uri) => {
+    const systemPath = fsService.resolver.resolve(String(uri || ''));
+    const failure = await shell.openPath(systemPath);
+    if (failure) {
+      const error = new Error('Unable to open file');
+      error.code = 'OPEN_FAILED';
+      throw error;
+    }
+    return true;
+  });
 
   protocol.handle(MEDIA_SCHEME, createMediaHandler({ documentsRoot: paths.documentsRoot }).handler);
   applyCsp();

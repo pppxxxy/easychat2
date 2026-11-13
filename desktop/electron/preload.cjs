@@ -35,6 +35,8 @@ const bridge = {
   app: {
     paths,
     info: () => invoke('app:info'),
+    openExternal: url => invoke('app:openExternal', url),
+    openPath: uri => invoke('app:openPath', uri),
   },
   kv: {
     get: key => invoke('kv:get', key),
