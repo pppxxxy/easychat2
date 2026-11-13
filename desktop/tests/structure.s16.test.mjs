@@ -239,6 +239,31 @@ test('对话长图：三种格式齐全，长图走 canvas 重绘并与文本共
   assert.ok(panel.includes('imageSaved'), '长图未接另存为');
 });
 
+test('动态：角色回复我的评论（两条规则都接上）', () => {
+  const screen = read(DESKTOP, 'src', 'extension', 'screens', 'MomentsScreen.jsx');
+  // 规则一：角色发的动态 + 我评论 → 发帖角色回复。
+  assert.ok(screen.includes('runCharacterMomentReply'), '缺「发帖角色回复」');
+  assert.ok(screen.includes('commentId: comment.id'), '未按 commentId 定位要回复的那条');
+  // 规则二：我发的动态 + 我回复某条角色评论 → 那个角色接话。
+  assert.ok(screen.includes("mode: 'reply'"), '缺「回复角色评论」的模式');
+  assert.ok(screen.includes('responderIds:'), '未指定接话的角色');
+  assert.ok(screen.includes('focusCommentId'), '未定位被回复的评论');
+  // 两个都必须走模块级 runner（离开页面也要跑完）。
+  assert.equal(
+    (screen.match(/startCommentTask/g) || []).length >= 3,
+    true,
+    '发布与两条回复都应交由 startCommentTask'
+  );
+  // 评论形状必须与共享层一致：commentThread 读 name / replyToId。
+  assert.ok(screen.includes("by: 'user'"), '评论形状缺 by（commentThread 依赖）');
+  assert.ok(screen.includes('replyToId:'), '评论形状缺 replyToId（回复会平铺）');
+  assert.equal(
+    /author: t\(/.test(screen),
+    false,
+    '不应再写 author 字段（共享层读 name）'
+  );
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

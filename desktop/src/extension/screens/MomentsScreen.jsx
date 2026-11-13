@@ -10,8 +10,10 @@
 //   · 点赞/评论走 updateMoments（内部串行队列 + 读失败拒绝写），不在界面里直接存档；
 //   · 删除是破坏性操作，二次确认。
 //
-// 桌面不做的部分：「角色回复评论」需要模型调用 + 后台任务，手机侧由 commentRunner
-// 驱动；桌面只保留用户自己的评论（写入同一份数据结构，手机端会读到）。
+// 「角色回复我的评论」两条规则（与手机 MomentsView 一致）：
+//   · 角色发的动态 + 我评论 → 发帖角色回复我这条（runCharacterMomentReply）；
+//   · 我发的动态 + 我回复某条角色评论 → 那个角色接话（runUserMomentComments 的 reply 模式）。
+// 两者都交给模块级 startCommentTask：离开动态页也会跑完并写库。
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from '../../../../src/i18n/I18nContext.js';
@@ -19,6 +21,7 @@ import { getMomentsStatus, updateMoments } from '../../../../src/storage/moments
 import { flattenCommentThread } from '../../../../src/moments/commentThread.js';
 import { startCommentTask } from '../../../../src/moments/commentRunner.js';
 import { runUserMomentComments } from '../../../../src/moments/runUserMomentComments.js';
+import { runCharacterMomentReply } from '../../../../src/moments/runCharacterMomentReply.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Alert } from '../../platform/alert.js';
 import { Button, Card, Row, TextInput } from '../../settings/ui.jsx';
@@ -69,6 +72,8 @@ export default function MomentsScreen({ palette, fonts }) {
   // 用户自己发布动态（与手机同一链路：写入 authorType:'user' 的动态，再后台触发角色评论）。
   const [postDraft, setPostDraft] = useState('');
   const [posting, setPosting] = useState(false);
+  // 每条动态的「正在回复哪条评论」（空 = 顶层评论）。与手机 MomentsView 的 replyTargets 同语义。
+  const [replyTargets, setReplyTargets] = useState({});
   const [busyId, setBusyId] = useState('');
 
   const load = useCallback(async () => {
@@ -142,17 +147,25 @@ export default function MomentsScreen({ palette, fonts }) {
     }
   };
 
-  const addComment = async moment => {
+  // 评论（可选：回复某条角色评论）。
+  // 形状必须与共享层一致——commentThread 读 replyToId 组线程、读 name 显示说话人，
+  // 早先写的 author/byUser 它认不出来，回复会平铺成两条独立评论。
+  const addComment = async (moment, replyTarget = null) => {
     const draft = String((commentDraft[moment.id] || '')).trim();
     if (!moment || !draft || busyId) return;
     setBusyId(String(moment.id));
+    const targetId = String((replyTarget && replyTarget.id) || '');
     try {
       const comment = {
-        id: `c-${Date.now()}`,
-        author: t('moments.default.userName'),
+        id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        by: 'user',
+        characterId: '',
+        name: t('moments.default.userName'),
         text: draft,
         createdAt: Date.now(),
-        byUser: true,
+        likedByCharacter: false,
+        // 空串 = 顶层评论；非空 = 挂在那条评论下（共享层用它组线程）。
+        replyToId: targetId,
       };
       let next = null;
       await updateMoments(list => list.map(item => {
@@ -165,6 +178,37 @@ export default function MomentsScreen({ palette, fonts }) {
         setMoments(current => current.map(item => (item && item.id === moment.id ? next : item)));
       }
       setCommentDraft(current => ({ ...current, [moment.id]: '' }));
+      if (next) {
+        // 规则一：角色发的动态 → 发帖角色回复我这条。
+        // 规则二：我发的动态 + 我回复了某条角色评论 → 那个角色接话。
+        // 顶层评论不触发新一轮群评（发布时已经评过一轮，再跑只会刷屏）——与手机同口径。
+        if (next.authorType !== 'user') {
+          startCommentTask(moment.id, ({ signal }) => runCharacterMomentReply({
+            momentId: moment.id,
+            commentId: comment.id,
+            signal,
+            onComment: load,
+            onError: error => {
+              const reason = String((error && error.message) || '');
+              // 角色已被删除是真实可能的状态，如实说明；其余失败静默（增值功能）。
+              if (reason === 'moment-character-missing') {
+                Alert.alert(t('moments.alert.noReply.title'), t('moments.alert.noReply.bodyMissing'));
+              } else if (reason === 'moment-reply-empty') {
+                Alert.alert(t('moments.alert.noReply.title'), t('moments.alert.noReply.bodyRetry'));
+              }
+            },
+          }));
+        } else if (targetId && replyTarget && replyTarget.characterId) {
+          startCommentTask(moment.id, ({ signal }) => runUserMomentComments({
+            momentId: moment.id,
+            signal,
+            mode: 'reply',
+            focusCommentId: comment.id,
+            responderIds: [String(replyTarget.characterId)],
+            onComment: load,
+          }));
+        }
+      }
     } catch (error) {
       // 评论仍留在输入框里（与手机一致的提示口径），用户可重试。
       Alert.alert(t('moments.alert.commentSaveFailed.title'), t('moments.alert.commentSaveFailed.body'));
@@ -283,14 +327,55 @@ export default function MomentsScreen({ palette, fonts }) {
                 gap: 4,
               }}
               >
-                {comments.map((comment, index) => (
-                  <div key={comment.id || `comment-${index}`} style={{ fontSize: fonts.scaled(11), lineHeight: 1.6 }}>
-                    <span style={{ color: palette.primaryMuted || palette.primary, fontWeight: 700 }}>
-                      {comment.author || t('moments.default.characterName')}
-                    </span>
-                    <span style={{ color: palette.text }}>: {String(comment.text || '')}</span>
-                  </div>
-                ))}
+                {comments.map((entry, index) => {
+                  const comment = entry.comment || entry;
+                  const isReply = entry.depth === 1;
+                  const name = String(comment.name || '').trim() || t('moments.default.characterName');
+                  return (
+                    <div
+                      key={comment.id || `comment-${index}`}
+                      style={{
+                        fontSize: fonts.scaled(11),
+                        lineHeight: 1.6,
+                        // 回复缩进一格（与手机同口径），让「谁答谁」一眼可见。
+                        marginLeft: isReply ? 14 : 0,
+                        borderLeft: isReply ? `2px solid ${palette.divider}` : 'none',
+                        paddingLeft: isReply ? 8 : 0,
+                      }}
+                    >
+                      <span style={{ color: palette.primaryMuted || palette.primary, fontWeight: 700 }}>
+                        {name}
+                      </span>
+                      {isReply && entry.parentName ? (
+                        <span style={{ color: palette.textFaint }}>
+                          {' '}→ {String(entry.parentName)}
+                        </span>
+                      ) : null}
+                      <span style={{ color: palette.text }}>: {String(comment.text || '')}</span>
+                      {/* 回复只能对着角色评论（用户回复自己没意义，也与手机的判定一致）。 */}
+                      {!isReply && comment.by === 'character' ? (
+                        <button
+                          type="button"
+                          onClick={() => setReplyTargets(current => ({
+                            ...current,
+                            [moment.id]: current[moment.id] === String(comment.id) ? null : String(comment.id),
+                          }))}
+                          style={{
+                            marginLeft: 6,
+                            background: 'transparent',
+                            border: 'none',
+                            color: palette.textMuted,
+                            cursor: 'pointer',
+                            fontSize: fonts.scaled(10),
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          {t('moments.comment.replyPlaceholder').replace('…', '')}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
 
@@ -324,9 +409,18 @@ export default function MomentsScreen({ palette, fonts }) {
               </div>
               <Button
                 label={t('common.save')}
-                onClick={() => addComment(moment)}
+                onClick={() => {
+                  const targetId = String(replyTargets[moment.id] || '');
+                  const target = targetId
+                    ? (Array.isArray(moment.comments) ? moment.comments : []).find(item => String(item.id) === targetId)
+                    : null;
+                  addComment(moment, target || null);
+                  // 发出去就清掉回复目标，避免下一条无意间又挂到同一处。
+                  setReplyTargets(current => ({ ...current, [moment.id]: null }));
+                }}
                 palette={palette}
                 fonts={fonts}
+                primary
                 disabled={busyId === String(moment.id) || !String(commentDraft[moment.id] || '').trim()}
               />
             </Row>
