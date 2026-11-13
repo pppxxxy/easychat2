@@ -24,6 +24,9 @@ import {
   isOnboardingDone,
 } from '../../../src/storage/settings.js';
 import BackupPanel from '../backup/BackupPanel.jsx';
+import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
+import ExtensionScreen from '../extension/ExtensionScreen.jsx';
+import MemoryScreen from '../memory/MemoryScreen.jsx';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
@@ -319,6 +322,9 @@ function Shell() {
           <span style={{ flex: 1 }} />
           {[
             { id: 'chat', label: t('app.tab.chat'), action: () => setView('chat') },
+            { id: 'character', label: t('app.tab.character'), action: () => setView('character') },
+            { id: 'memory', label: t('app.tab.memory'), action: () => setView('memory') },
+            { id: 'extension', label: t('app.tab.extension'), action: () => setView('extension') },
             { id: 'settings', label: t('app.tab.settings'), action: () => setView('settings') },
           ].map(tab => (
             <button
@@ -387,6 +393,17 @@ function Shell() {
             onDisclaimer={() => setShowDisclaimer(true)}
             onBackup={() => setShowBackup(true)}
           />
+        ) : view === 'character' ? (
+          <CharacterEditScreen
+            character={activeCharacter}
+            palette={palette}
+            fonts={fonts}
+            onSaved={next => updateCharacter(next)}
+          />
+        ) : view === 'memory' ? (
+          <MemoryScreen palette={palette} fonts={fonts} character={activeCharacter} />
+        ) : view === 'extension' ? (
+          <ExtensionScreen palette={palette} fonts={fonts} />
         ) : activeSessionId ? (
           <ChatPane palette={palette} fonts={fonts} />
         ) : (

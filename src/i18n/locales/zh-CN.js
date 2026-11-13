@@ -23,6 +23,7 @@ import { chat } from './zh-CN/chat.js';
 import { common } from './zh-CN/common.js';
 import { confirmFlow } from './zh-CN/confirmFlow.js';
 import { dailyWife } from './zh-CN/dailyWife.js';
+import { desktop } from './zh-CN/desktop.js';
 import { diagnostics } from './zh-CN/diagnostics.js';
 import { diary } from './zh-CN/diary.js';
 import { error } from './zh-CN/error.js';
@@ -71,6 +72,7 @@ export const zhCN = {
   ...common,
   ...confirmFlow,
   ...dailyWife,
+  ...desktop,
   ...diagnostics,
   ...diary,
   ...error,

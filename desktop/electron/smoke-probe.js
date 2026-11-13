@@ -341,6 +341,55 @@
     settings = { attempted: true, error: String((error && error.message) || error) };
   }
 
+  // ---- S8：角色编辑 / 记忆页 / 扩展页 ----
+  let screens = { attempted: false };
+  try {
+    const tabButton = label => Array.from(document.querySelectorAll('header button'))
+      .find(button => button.textContent === label);
+    const openTab = async (zh, en, marker, timeout = 6000) => {
+      const button = tabButton(zh) || tabButton(en);
+      if (!button) return false;
+      button.click();
+      return !!(await waitFor(() => (document.body.innerText || '').includes(marker), timeout));
+    };
+    const characterOk = await openTab('角色', 'Characters', '人设 / 系统提示词', 6000)
+      || await openTab('角色', 'Characters', 'System prompt', 6000);
+    // 角色编辑页：确认存在世界书与正则的添加入口。
+    const worldAddSeen = Array.from(document.querySelectorAll('button'))
+      .some(button => button.textContent === '添加世界书条目' || button.textContent === 'Add world entry');
+    const memoryOk = await openTab('记忆', 'Memory', '向量记忆', 6000)
+      || await openTab('记忆', 'Memory', 'Vector memory', 6000);
+    const summaryOk = (document.body.innerText || '').includes('记忆总结')
+      || (document.body.innerText || '').includes('Memory summary');
+    const extensionOk = await openTab('扩展', 'Extensions', '桌面版首版只提供核心聊天闭环', 6000)
+      || await openTab('扩展', 'Extensions', 'core chat loop only', 6000);
+    // 展开一条禁用态说明，确认原因文案可见。
+    const entry = Array.from(document.querySelectorAll('button'))
+      .find(button => String(button.textContent || '').includes('生图')
+        || String(button.textContent || '').includes('Image gen'));
+    let reasonSeen = false;
+    if (entry) {
+      entry.click();
+      reasonSeen = !!(await waitFor(() => {
+        const text = document.body.innerText || '';
+        return text.includes('原生图片处理') || text.includes('native image processing');
+      }, 4000));
+    }
+    screens = {
+      attempted: true,
+      characterOk: !!characterOk,
+      worldAddSeen,
+      memoryOk: !!memoryOk,
+      summaryOk: !!summaryOk,
+      extensionOk: !!extensionOk,
+      reasonSeen,
+    };
+    const chatTab = tabButton('聊天') || tabButton('Chat');
+    if (chatTab) chatTab.click();
+  } catch (error) {
+    screens = { attempted: true, error: String((error && error.message) || error) };
+  }
+
   return {
     bridge: true,
     firstRun,
@@ -361,5 +410,6 @@
     sticker,
     backup,
     settings,
+    screens,
   };
 })()

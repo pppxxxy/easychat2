@@ -1,0 +1,27 @@
+// i18n 词条 · desktop 域（zh-CN 基准）：桌面版入口与「暂不支持」说明。
+//
+// 为什么单独成域：这些文案只服务 Windows 桌面版（Electron），Android 在线包里用不到。
+// 但词条仍走同一套 mechanism（t(key) + 双语言），避免桌面出现硬编码中文。
+export const desktop = {
+  'desktop.status.available': '可用',
+  'desktop.status.unsupported': '桌面版暂不支持',
+  'desktop.unsupported.intro': '桌面版首版只提供核心聊天闭环。下面是手机上已有、桌面版暂未实现的能力——入口保留在这里，点开可以看到原因与手机上的用法。',
+  'desktop.unsupported.imageGen': '生图依赖手机端的原生图片处理与相册写入；桌面版首版没有接入图像生成服务，也不能把生成的图保存到相册。需要生图请在手机上使用，生成后用「备份与恢复」把角色与聊天同步到桌面。',
+  'desktop.unsupported.tts': '语音播报（TTS）依赖系统语音合成引擎。桌面版首版未接入，聊天中不会自动朗读回复，也没有手动朗读按钮。',
+  'desktop.unsupported.transcription': '语音转文字（ASR）依赖录音与语音识别能力。桌面版首版不支持录音，也就没有转写入口——语音消息在桌面只显示为占位。',
+  'desktop.unsupported.localModels': '本地模型推理依赖 llama.rn 原生库（Android/iOS 专用），Windows 上没有对应实现。桌面版只能连接在线 API 接口。',
+  'desktop.unsupported.workspace': '工作区（文件管理、命令执行、GitHub 集成、Python 工具）依赖原生 shell 与文件系统权限。桌面版出于安全边界（渲染进程沙箱 + IPC 白名单）首版未开放。',
+  'desktop.unsupported.plugins': '插件运行时依赖 Android 侧的原生桥接与 JS 沙箱。桌面版首版未实现插件加载，扩展页只显示内置能力状态。',
+  'desktop.unsupported.mcp': '内置 MCP 服务器需要常驻后台监听端口并调用原生能力。桌面版首版未实现，外部 agent 无法连接本应用。',
+  'desktop.unsupported.screenWatch': '看屏幕（悬浮窗截图 + 帧序列识别）依赖 Android 的屏幕捕获与悬浮窗权限。桌面版没有对应能力。',
+  'desktop.unsupported.proactive': '主动消息与定时任务依赖 Android 后台服务（WorkManager / 前台服务）。桌面版只在窗口打开时运行，不会在后台定时触发。',
+  'desktop.unsupported.scheduled': '定时任务依赖系统闹钟与后台唤醒。桌面版首版未实现调度器；需要定时任务请在手机上使用。',
+  'desktop.entry.localModels': '本地模型',
+  'desktop.entry.workspace': '工作区与工具',
+  'desktop.entry.plugins': '插件',
+  'desktop.entry.mcp': 'MCP 服务器',
+  'desktop.entry.screenWatch': '看屏幕',
+  'desktop.entry.scheduled': '定时任务',
+};
+
+export default desktop;

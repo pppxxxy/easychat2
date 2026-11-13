@@ -19,6 +19,7 @@ import { chat } from './en/chat.js';
 import { common } from './en/common.js';
 import { confirmFlow } from './en/confirmFlow.js';
 import { dailyWife } from './en/dailyWife.js';
+import { desktop } from './en/desktop.js';
 import { diagnostics } from './en/diagnostics.js';
 import { diary } from './en/diary.js';
 import { error } from './en/error.js';
@@ -68,6 +69,7 @@ export const en = {
   ...common,
   ...confirmFlow,
   ...dailyWife,
+  ...desktop,
   ...diagnostics,
   ...diary,
   ...error,

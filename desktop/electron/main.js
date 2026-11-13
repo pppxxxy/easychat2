@@ -291,6 +291,14 @@ function createWindow() {
         && probe.settings.attempted
         && probe.settings.loaded
         && probe.settings.sectionsVisited >= 3
+        && probe.screens
+        && probe.screens.attempted
+        && probe.screens.characterOk
+        && probe.screens.worldAddSeen
+        && probe.screens.memoryOk
+        && probe.screens.summaryOk
+        && probe.screens.extensionOk
+        && probe.screens.reasonSeen
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
