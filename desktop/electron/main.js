@@ -293,12 +293,29 @@ function createWindow() {
         && probe.settings.sectionsVisited >= 3
         && probe.screens
         && probe.screens.attempted
+        && probe.screens.libraryTabOk
         && probe.screens.characterOk
         && probe.screens.worldAddSeen
         && probe.screens.memoryOk
         && probe.screens.summaryOk
         && probe.screens.extensionOk
         && probe.screens.reasonSeen
+        && probe.library
+        && probe.library.attempted
+        && probe.library.gridOk
+        && probe.library.searchSeen
+        && probe.library.searchFiltered
+        && probe.library.searchRestored
+        && probe.library.backSeen
+        && probe.usage
+        && probe.usage.attempted
+        && probe.usage.barSeen
+        && probe.usage.tokenText
+        && probe.branch
+        && probe.branch.attempted
+        && probe.branch.branchArchived
+        && probe.branch.navSeen
+        && probe.branch.switchedBack
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);

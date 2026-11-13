@@ -24,7 +24,9 @@ import {
   isOnboardingDone,
 } from '../../../src/storage/settings.js';
 import BackupPanel from '../backup/BackupPanel.jsx';
+import { applyCharacterCard, pickCharacterCard } from '../backup/services.js';
 import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
+import CharacterLibraryScreen from '../character/CharacterLibraryScreen.jsx';
 import ExtensionScreen from '../extension/ExtensionScreen.jsx';
 import MemoryScreen from '../memory/MemoryScreen.jsx';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
@@ -144,12 +146,15 @@ function Shell() {
     cloneSession,
     refreshSessions,
     updateCharacter,
+    pinCharacter,
     refreshAppData,
   } = useApp();
   const [busy, setBusy] = useState('');
   const [showSessions, setShowSessions] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [view, setView] = useState('chat');
+  // 角色库页（卡片网格）与角色编辑页分开：库页是「选谁」，编辑页是「改什么」。
+  const [characterScreen, setCharacterScreen] = useState('library');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [firstRunStage, setFirstRunStage] = useState('loading');
@@ -217,6 +222,51 @@ function Shell() {
     }
   };
 
+  // 角色卡导入（角色库页入口）：解析成功才落库；错误按「过大 / 解析失败 / 其它」分档。
+  const importCard = async () => {
+    if (busy) return;
+    setBusy('importCard');
+    try {
+      const picked = await pickCharacterCard();
+      if (picked.canceled) return;
+      if (picked.empty) {
+        Alert.alert(t('character.detail.importEmpty.title'), t('character.detail.importEmpty.body'));
+        return;
+      }
+      const applied = await applyCharacterCard(picked, {
+        addCharacter,
+        ensureCharacterSession,
+        updateCharacter,
+      });
+      Alert.alert(
+        t('character.detail.importOk.title'),
+        t('backup.card.importDone', {
+          name: (applied.created && applied.created.name) || picked.patch.name || '',
+        })
+      );
+      setCharacterScreen('library');
+    } catch (error) {
+      if (error && error.code === 'TOO_LARGE') {
+        Alert.alert(
+          t('character.detail.importTooLarge.title'),
+          t('character.detail.importTooLarge.body', { size: '32 MB' })
+        );
+      } else if (error && error.code === 'PARSE') {
+        Alert.alert(
+          t('character.detail.importParseFail.title'),
+          error.detail || t('character.detail.importParseFail.fallback')
+        );
+      } else {
+        Alert.alert(
+          t('character.detail.importFail.title'),
+          String((error && error.message) || t('common.error.retryLater'))
+        );
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
   const palette = theme.colors;
   const page = {
     height: '100vh',
@@ -250,9 +300,24 @@ function Shell() {
       <aside style={sidebar}>
         <div style={{ padding: '14px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <strong style={{ fontSize: fonts.scaled(15) }}>{t('app.tab.character')}</strong>
-          <button type="button" style={ghost} disabled={!!busy} onClick={() => run('add', () => addCharacter(DEFAULT_NEW_CHARACTER))}>
-            +
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              style={ghost}
+              title={t('character.library.cardTitle')}
+              onClick={() => {
+                setCharacterScreen('library');
+                setView('character');
+                setShowSessions(false);
+                setShowBackup(false);
+              }}
+            >
+              ☰
+            </button>
+            <button type="button" style={ghost} disabled={!!busy} onClick={() => run('add', () => addCharacter(DEFAULT_NEW_CHARACTER))}>
+              +
+            </button>
+          </div>
         </div>
         <div style={{ overflow: 'auto', flex: 1, padding: '0 8px 12px' }}>
           {characters.map(character => (
@@ -358,7 +423,7 @@ function Shell() {
               setShowBackup(false);
             }}
           >
-            {t('app.tab.memory')}
+            {t('app.tab.sessions')}
           </button>
           <button
             type="button"
@@ -394,12 +459,36 @@ function Shell() {
             onBackup={() => setShowBackup(true)}
           />
         ) : view === 'character' ? (
-          <CharacterEditScreen
-            character={activeCharacter}
-            palette={palette}
-            fonts={fonts}
-            onSaved={next => updateCharacter(next)}
-          />
+          characterScreen === 'library' ? (
+            <CharacterLibraryScreen
+              characters={characters}
+              activeId={activeId}
+              palette={palette}
+              fonts={fonts}
+              busy={!!busy}
+              onOpen={id => {
+                // 打开 = 切换角色 + 进聊天页（与侧栏点击同义）。
+                switchCharacter(id);
+                setView('chat');
+              }}
+              onCreate={() => run('add', () => addCharacter(DEFAULT_NEW_CHARACTER)).then(() => setCharacterScreen('edit'))}
+              onEdit={id => {
+                if (id !== activeId) switchCharacter(id);
+                setCharacterScreen('edit');
+              }}
+              onDelete={id => run('delete', () => deleteCharacter(id))}
+              onPin={(id, pinned) => run('pin', () => pinCharacter(id, pinned))}
+              onImport={importCard}
+            />
+          ) : (
+            <CharacterEditScreen
+              character={activeCharacter}
+              palette={palette}
+              fonts={fonts}
+              onBack={() => setCharacterScreen('library')}
+              onSaved={next => updateCharacter(next)}
+            />
+          )
         ) : view === 'memory' ? (
           <MemoryScreen palette={palette} fonts={fonts} character={activeCharacter} />
         ) : view === 'extension' ? (

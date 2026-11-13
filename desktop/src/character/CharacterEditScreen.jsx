@@ -210,7 +210,7 @@ function RegexEditor({ script, palette, fonts, onChange, onRemove }) {
   );
 }
 
-export default function CharacterEditScreen({ character, palette, fonts, onSaved }) {
+export default function CharacterEditScreen({ character, palette, fonts, onSaved, onBack }) {
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
@@ -269,7 +269,12 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: 16, minWidth: 0 }}>
-      <Card title={t('app.tab.character')} palette={palette} fonts={fonts}>
+      <Card title={t('character.edit.title')} palette={palette} fonts={fonts}>
+        {typeof onBack === 'function' ? (
+          <Row>
+            <Button label={t('character.detail.back')} onClick={onBack} palette={palette} fonts={fonts} />
+          </Row>
+        ) : null}
         <Row>
           {form.avatarUri ? (
             <img src={mediaUrl(form.avatarUri) || ''} alt="" style={{ width: 64, height: 64, borderRadius: 32, objectFit: 'cover' }} />

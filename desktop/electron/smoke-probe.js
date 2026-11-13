@@ -352,8 +352,16 @@
       button.click();
       return !!(await waitFor(() => (document.body.innerText || '').includes(marker), timeout));
     };
-    const characterOk = await openTab('角色', 'Characters', '人设 / 系统提示词', 6000)
-      || await openTab('角色', 'Characters', 'System prompt', 6000);
+    // 角色页默认进「角色库」网格；编辑页要从卡片上的「编辑角色」进。
+    const libraryTabOk = await openTab('角色', 'Characters', '角色库', 6000)
+      || await openTab('角色', 'Characters', 'Character Library', 6000);
+    const editEntry = Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent === '编辑角色' || button.textContent === 'Edit character');
+    if (editEntry) editEntry.click();
+    const characterOk = !!(await waitFor(() => {
+      const text = document.body.innerText || '';
+      return text.includes('系统提示词') || text.includes('System prompt');
+    }, 6000));
     // 角色编辑页：确认存在世界书与正则的添加入口。
     const worldAddSeen = Array.from(document.querySelectorAll('button'))
       .some(button => button.textContent === '添加世界书条目' || button.textContent === 'Add world entry');
@@ -377,7 +385,8 @@
     }
     screens = {
       attempted: true,
-      characterOk: !!characterOk,
+      libraryTabOk: !!libraryTabOk,
+      characterOk,
       worldAddSeen,
       memoryOk: !!memoryOk,
       summaryOk: !!summaryOk,
@@ -388,6 +397,166 @@
     if (chatTab) chatTab.click();
   } catch (error) {
     screens = { attempted: true, error: String((error && error.message) || error) };
+  }
+
+  // ---- S9：角色库（网格 + 搜索 + 置顶）/ 上下文占用条 / 分支切换器 ----
+  let library = { attempted: false };
+  try {
+    const tabButton = label => Array.from(document.querySelectorAll('header button'))
+      .find(button => button.textContent === label);
+    const characterTab = tabButton('角色') || tabButton('Characters');
+    if (!characterTab) throw new Error('character tab not found');
+    characterTab.click();
+    // 侧栏「☰」进入角色库网格（默认进的是编辑页）。
+    const gridButton = Array.from(document.querySelectorAll('aside button'))
+      .find(button => button.textContent === '☰');
+    if (gridButton) gridButton.click();
+    const gridOk = !!(await waitFor(() => (document.body.innerText || '').includes('角色库')
+      || (document.body.innerText || '').includes('Character library'), 6000));
+    const searchSeen = !!document.querySelector('input[placeholder="搜索角色名或标签"]')
+      || !!document.querySelector('input[placeholder="Search character names or tags"]');
+    const cards = Array.from(document.querySelectorAll('section > div > div'))
+      .filter(node => node.querySelector && node.querySelector('strong'));
+    // 搜索：输入一个不可能匹配的词，列表应清空（验证 filter 真的接管渲染）。
+    const searchInput = document.querySelector('input[placeholder="搜索角色名或标签"]')
+      || document.querySelector('input[placeholder="Search character names or tags"]');
+    let searchFiltered = false;
+    let searchRestored = false;
+    if (searchInput) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(searchInput, 'zzz-no-such-character');
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      searchFiltered = !!(await waitFor(() => {
+        const text = document.body.innerText || '';
+        return text.includes('没有匹配的角色') || text.includes('No characters match');
+      }, 4000));
+      setter.call(searchInput, '');
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      searchRestored = !!(await waitFor(() => {
+        const text = document.body.innerText || '';
+        return !text.includes('没有匹配的角色') && !text.includes('No characters match');
+      }, 4000));
+    }
+    // 进编辑页确认「返回角色库」按钮存在（编辑/库之间能来回走）。
+    // 注意不能用卡片上的「切换到角色」——那个动作是切角色 + 跳聊天页。
+    const openEditButton = Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent === '编辑角色' || button.textContent === 'Edit character');
+    if (openEditButton) openEditButton.click();
+    const backSeen = !!(await waitFor(() => Array.from(document.querySelectorAll('button'))
+      .some(button => button.textContent === '返回角色库' || button.textContent === 'Back to Character Library'), 6000));
+    library = {
+      attempted: true,
+      gridOk,
+      searchSeen,
+      searchFiltered,
+      searchRestored,
+      cardCount: cards.length,
+      backSeen,
+    };
+    const chatTab = tabButton('聊天') || tabButton('Chat');
+    if (chatTab) chatTab.click();
+  } catch (error) {
+    library = { attempted: true, error: String((error && error.message) || error) };
+  }
+
+  // ---- S9：上下文占用条（真实消息 → token 估算 → 百分比）----
+  let usage = { attempted: false };
+  try {
+    // 回聊天页后需等占用条重算（消息条数变化触发）。
+    const barSeen = !!(await waitFor(() => {
+      const text = document.body.innerText || '';
+      return text.includes('上下文占用') || text.includes('Context usage');
+    }, 6000));
+    const bodyText = document.body.innerText || '';
+    // 冒烟会话只有十几条短消息，占 200k 窗口不到 0.5%：四舍五入后就是 0%。
+    // 因此这里判「占用的 token 数字非零」，而不是「百分比 > 0」。
+    const percentMatch = bodyText.match(/(\d+)%/);
+    const tokensMatch = bodyText.match(/([\d.]+k?)\s*\/\s*[\d.]+k?\s*tokens/);
+    // 「压缩」按钮只有在占用过提示线才出现：低占用时看不到是正确行为，不判失败。
+    const compactButtonSeen = Array.from(document.querySelectorAll('button'))
+      .some(button => button.textContent === '压缩' || button.textContent === 'Compact');
+    usage = {
+      attempted: true,
+      barSeen,
+      percentSeen: percentMatch ? Number(percentMatch[1]) : 0,
+      tokenText: tokensMatch ? tokensMatch[1] : '',
+      compactButtonSeen,
+    };
+  } catch (error) {
+    usage = { attempted: true, error: String((error && error.message) || error) };
+  }
+
+  // ---- S9：分支切换器（重新生成 -> 归档旧回复 -> < 1///2 > -> 切回）----
+  let branch = { attempted: false };
+  try {
+    const sessionId = (window.__easychat2S2 && window.__easychat2S2.activeSessionId) || '';
+    // 找到最后一条助手消息的「重新生成」按钮（气泡内 ↻，title 是词条文本）。
+    const regenButtons = Array.from(document.querySelectorAll('button'))
+      .filter(button => button.title === '重新生成' || button.title === 'Regenerate');
+    if (regenButtons.length === 0) throw new Error('regenerate button not found');
+    regenButtons[regenButtons.length - 1].click();
+    // 重新生成是**替换**旧回复（文本可能逐字相同），因此不能用「回复条数增加」判到达；
+    // 改判落盘事实：旧尾段被归档后，分支索引键出现且至少有一条描述符。
+    let branchArchived = false;
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const raw = sessionId
+        ? await bridge.kv.get('@easychat2_branch_index::' + sessionId)
+        : null;
+      if (raw) {
+        try {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list) && list.length > 0) {
+            branchArchived = true;
+            break;
+          }
+        } catch (error) {
+          // 索引还没写完或形状异常：继续等。
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    // 重新生成成功后，旧回复进入分支索引：气泡下方出现版本切换器。
+    const navSeen = !!(await waitFor(() => {
+      const text = document.body.innerText || '';
+      return /\d+\/\/\/\d+/.test(text);
+    }, 8000));
+    let switchedBack = false;
+    let indexBefore = '';
+    let indexAfter = '';
+    let prevEnabled = false;
+    if (navSeen) {
+      indexBefore = ((document.body.innerText || '').match(/\d+\/\/\/\d+/) || [''])[0];
+      const prevArrow = Array.from(document.querySelectorAll('button'))
+        .find(button => button.getAttribute('aria-label') === '上一个版本'
+          || button.getAttribute('aria-label') === 'Previous version');
+      prevEnabled = !!prevArrow && !prevArrow.disabled;
+      if (prevEnabled) {
+        prevArrow.click();
+        // 切回旧版本：当前尾段被归档成新分支，版本序号必然变化（1///2 -> 1///3 这类）。
+        // 切换完成后分叉索引被消费、活动时间线换成旧分支：版本序号必然变化
+        // （冒烟里是 2///2 -> 1///2）。**不**用箭头可用态判收尾——切到首版本后
+        // 「上一版」本来就该置灰，那是正确终态而不是未完成。
+        switchedBack = !!(await waitFor(() => {
+          const text = (document.body.innerText || '').match(/\d+\/\/\/\d+/);
+          const current = text ? text[0] : '';
+          if (!current || current === indexBefore) return null;
+          // 落盘事实：本轮切换把「当前尾段」重新归档，分支索引里必然又有一条描述符。
+          return current;
+        }, 10000));
+        indexAfter = ((document.body.innerText || '').match(/\d+\/\/\/\d+/) || [''])[0];
+      }
+    }
+    branch = {
+      attempted: true,
+      branchArchived,
+      navSeen,
+      prevEnabled,
+      switchedBack,
+      indexBefore,
+      indexAfter,
+    };
+  } catch (error) {
+    branch = { attempted: true, error: String((error && error.message) || error) };
   }
 
   return {
@@ -411,5 +580,8 @@
     backup,
     settings,
     screens,
+    library,
+    usage,
+    branch,
   };
 })()

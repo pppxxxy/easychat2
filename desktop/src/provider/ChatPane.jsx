@@ -5,10 +5,17 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { buildQuotePayload } from '../../../src/chat/chatHelpers.js';
+import { countCompactionMessages } from '../../../src/chat/sessionCompaction.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
 import AttachmentChips from '../attachments/AttachmentChips.jsx';
 import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
+import { buildBranchNav } from '../chat/branchNav.js';
+import BranchSwitcher from '../chat/BranchSwitcher.jsx';
+import ContextUsageBar from '../chat/ContextUsageBar.jsx';
+import useDesktopBranches from '../chat/useDesktopBranches.js';
+import useDesktopCompaction from '../chat/useDesktopCompaction.js';
+import useDesktopContextUsage from '../chat/useDesktopContextUsage.js';
 import MessageActionsMenu from '../render/MessageActionsMenu.jsx';
 import MessageRow from '../render/MessageRow.jsx';
 import StickerNameDialog from '../stickers/StickerNameDialog.jsx';
@@ -32,10 +39,31 @@ export default function ChatPane({ palette, fonts }) {
     autoScrollToBottom,
     ready,
     attachments,
+    characterId,
+    activeSessionId,
+    setMessages,
   } = chat;
   const lastCountRef = useRef(0);
   const [dragOver, setDragOver] = useState(false);
   const [menu, setMenu] = useState(null);
+  // 上下文占用：窗口取当前模型声明值（桌面无本地模型），只在消息条数变化时重算。
+  const usage = useDesktopContextUsage({ messages, characterId });
+  const [usageDismissed, setUsageDismissed] = useState(false);
+  const compact = useDesktopCompaction({ setMessages, messagesRef: chat.messagesRef, characterId, usage });
+  const branchesApi = useDesktopBranches({
+    activeSessionId,
+    setMessages,
+    messagesRef: chat.messagesRef,
+    isSending,
+    ready,
+    refreshToken: chat.branchesRefreshToken || 0,
+  });
+  // 版本切换器挂在「分叉点之后的第一条助手消息」上（与 Android MessageList 同口径）。
+  const branchNav = buildBranchNav(messages, branchesApi.branchesByFork);
+  // 切会话后「已忽略提示」复位：提示条是「本次进入会话内不再出现」。
+  useEffect(() => {
+    setUsageDismissed(false);
+  }, [activeSessionId]);
   const attach = useDesktopAttachments({
     attachments,
     attachmentsRef: chat.attachmentsRef,
@@ -135,21 +163,52 @@ export default function ChatPane({ palette, fonts }) {
         if (files && files.length > 0) attach.addFiles(files);
       }}
     >
+      <ContextUsageBar
+        usage={usage}
+        dismissed={usageDismissed}
+        meaningfulMessages={countCompactionMessages(messages)}
+        onDismiss={() => setUsageDismissed(true)}
+        onCompact={() => compact.compact()}
+        compactBusy={compact.compactBusy}
+        palette={palette}
+        fonts={fonts}
+      />
       <div
         ref={scrollRef}
         onScroll={onMessagesScroll}
         style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}
       >
         {messages.map(message => (
-          <MessageRow
-            key={message.id || `${message.role}-${message.text}`}
-            message={message}
-            palette={palette}
-            fonts={fonts}
-            onRegenerate={regenerateMessage}
-            onCommand={command => onInputChange(command)}
-            onMenu={(target, anchor) => setMenu({ message: target, anchor })}
-          />
+          <div key={message.id || `${message.role}-${message.text}`}>
+            <MessageRow
+              message={message}
+              palette={palette}
+              fonts={fonts}
+              onRegenerate={regenerateMessage}
+              onCommand={command => onInputChange(command)}
+              onMenu={(target, anchor) => setMenu({ message: target, anchor })}
+            />
+            {branchNav.get(String(message.id || '')) ? (
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: -8, marginBottom: 6, paddingLeft: 4 }}>
+                <BranchSwitcher
+                  nav={branchNav.get(String(message.id || ''))}
+                  onPrev={() => {
+                    const nav = branchNav.get(String(message.id || ''));
+                    const target = nav && nav.branches.find(branch => branch.id === nav.prevId);
+                    if (target) branchesApi.checkout(target);
+                  }}
+                  onNext={() => {
+                    const nav = branchNav.get(String(message.id || ''));
+                    const target = nav && nav.branches.find(branch => branch.id === nav.nextId);
+                    if (target) branchesApi.checkout(target);
+                  }}
+                  disabled={isSending || branchesApi.checkingOut}
+                  palette={palette}
+                  fonts={fonts}
+                />
+              </div>
+            ) : null}
+          </div>
         ))}
       </div>
       {dragOver ? (

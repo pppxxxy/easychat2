@@ -44,7 +44,7 @@ export default function SessionsPanel({
   return (
     <section style={{ flex: 1, overflow: 'auto', padding: 20 }}>
       <div style={{ color: palette.textMuted, fontSize: fonts.scaled(12), marginBottom: 10 }}>
-        {character ? character.name : '—'} · {t('app.tab.memory')} ({sessions.length})
+        {character ? character.name : '—'} · {t('app.tab.sessions')} ({sessions.length})
       </div>
       {sessions.map(session => (
         <div

@@ -3,6 +3,7 @@
 export const app = {
   'app.tab.chat': '聊天',
   'app.tab.memory': '记忆',
+  'app.tab.sessions': '会话',
   'app.tab.character': '角色',
   'app.tab.extension': '扩展',
   'app.tab.settings': '设置',

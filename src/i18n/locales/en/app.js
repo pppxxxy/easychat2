@@ -3,6 +3,7 @@
 export const app = {
   'app.tab.chat': 'Chat',
   'app.tab.memory': 'Memory',
+  'app.tab.sessions': 'Sessions',
   'app.tab.character': 'Characters',
   'app.tab.extension': 'Extensions',
   'app.tab.settings': 'Settings',
