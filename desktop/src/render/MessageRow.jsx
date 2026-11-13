@@ -150,7 +150,7 @@ function ErrorBubble({ message, palette, fonts }) {
   );
 }
 
-export default function MessageRow({ message, palette, fonts, onRegenerate, onCommand, onMenu }) {
+export default function MessageRow({ message, palette, fonts, onRegenerate, onCommand, onMenu, speakerName = '' }) {
   const { t } = useTranslation();
   const kind = resolveMessageRenderKind(message);
   const markdown = useMemo(
@@ -194,6 +194,17 @@ export default function MessageRow({ message, palette, fonts, onRegenerate, onCo
           wordBreak: 'break-word',
         }}
         >
+          {!isUser && String(speakerName || '').trim() ? (
+            <div style={{
+              marginBottom: 4,
+              fontSize: fonts.scaled(11),
+              fontWeight: 700,
+              color: palette.primaryMuted || palette.primary,
+            }}
+            >
+              {String(speakerName).trim()}
+            </div>
+          ) : null}
           {!isUser ? <Reasoning text={message.reasoning} palette={palette} fonts={fonts} /> : null}
           <Quote quoted={message.quoted} palette={palette} fonts={fonts} />
           {isMedia ? (

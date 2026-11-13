@@ -5,6 +5,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { buildQuotePayload } from '../../../src/chat/chatHelpers.js';
+import { groupDisplayName, speakerNameOf } from '../group/groupModel.js';
+import GroupSettingsPanel from '../group/GroupSettingsPanel.jsx';
 import { countCompactionMessages } from '../../../src/chat/sessionCompaction.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
@@ -42,6 +44,10 @@ export default function ChatPane({ palette, fonts }) {
     characterId,
     activeSessionId,
     setMessages,
+    isGroup,
+    groupCharacters,
+    groupMissingIds,
+    activeSession,
   } = chat;
   const lastCountRef = useRef(0);
   const [dragOver, setDragOver] = useState(false);
@@ -49,6 +55,11 @@ export default function ChatPane({ palette, fonts }) {
   // 上下文占用：窗口取当前模型声明值（桌面无本地模型），只在消息条数变化时重算。
   const usage = useDesktopContextUsage({ messages, characterId });
   const [usageDismissed, setUsageDismissed] = useState(false);
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
+  const memberNames = groupCharacters.map(character => String(character.name || '').trim()).filter(Boolean);
+  const groupName = isGroup
+    ? groupDisplayName(activeSession, memberNames, t('common.groupChat'), t('character.library.group.nameJoin'))
+    : '';
   const compact = useDesktopCompaction({ setMessages, messagesRef: chat.messagesRef, characterId, usage });
   const branchesApi = useDesktopBranches({
     activeSessionId,
@@ -163,6 +174,44 @@ export default function ChatPane({ palette, fonts }) {
         if (files && files.length > 0) attach.addFiles(files);
       }}
     >
+      {isGroup ? (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '8px 20px',
+          borderBottom: `1px solid ${palette.divider}`,
+          flex: 'none',
+          background: palette.surfaceAlt,
+        }}
+        >
+          <strong style={{ fontSize: fonts.scaled(13) }}>{groupName}</strong>
+          <span style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>
+            {t('character.library.scrubber.groupMeta', { count: groupCharacters.length })}
+          </span>
+          {groupMissingIds.length > 0 ? (
+            <span style={{ fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f' }}>
+              {t('group.members.missing', { count: groupMissingIds.length })}
+            </span>
+          ) : null}
+          <span style={{ flex: 1 }} />
+          <button
+            type="button"
+            onClick={() => setGroupSettingsOpen(true)}
+            style={{
+              background: 'transparent',
+              color: palette.textMuted,
+              border: `1px solid ${palette.divider}`,
+              borderRadius: 8,
+              padding: '3px 10px',
+              cursor: 'pointer',
+              fontSize: fonts.scaled(11),
+            }}
+          >
+            {t('group.settings.title')}
+          </button>
+        </div>
+      ) : null}
       <ContextUsageBar
         usage={usage}
         dismissed={usageDismissed}
@@ -187,6 +236,9 @@ export default function ChatPane({ palette, fonts }) {
               onRegenerate={regenerateMessage}
               onCommand={command => onInputChange(command)}
               onMenu={(target, anchor) => setMenu({ message: target, anchor })}
+              speakerName={isGroup && !message.isUser && message.role !== 'user'
+                ? speakerNameOf(message, memberNames, groupName)
+                : ''}
             />
             {branchNav.get(String(message.id || '')) ? (
               <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: -8, marginBottom: 6, paddingLeft: 4 }}>
@@ -393,6 +445,18 @@ export default function ChatPane({ palette, fonts }) {
           {isSending ? '…' : t('chat.send.action')}
         </button>
       </div>
+      {isGroup && activeSession ? (
+        <GroupSettingsPanel
+          open={groupSettingsOpen}
+          onClose={() => setGroupSettingsOpen(false)}
+          session={activeSession}
+          members={groupCharacters}
+          missingIds={groupMissingIds}
+          palette={palette}
+          fonts={fonts}
+          onSaved={() => chat.refreshSessions().catch(() => {})}
+        />
+      ) : null}
       <StickerNameDialog
         pending={stickersApi.pending}
         nameDraft={stickersApi.nameDraft}

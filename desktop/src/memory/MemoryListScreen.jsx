@@ -55,7 +55,7 @@ const ghost = (palette, fonts, extra = {}) => ({
   ...extra,
 });
 
-export default function MemoryListScreen({ palette, fonts, onOpenSession, onTutorial }) {
+export default function MemoryListScreen({ palette, fonts, onOpenSession, onTutorial, onCreateGroup }) {
   const { t, localeId } = useTranslation();
   const {
     sessions,
@@ -206,6 +206,11 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
             onClick={() => (editing ? exitEdit() : setEditing(true))}
           >
             {editing ? t('common.done') : t('memory.edit')}
+          </button>
+        ) : null}
+        {typeof onCreateGroup === 'function' ? (
+          <button type="button" style={ghost(palette, fonts)} onClick={onCreateGroup}>
+            {t('character.library.group.createTitle')}
           </button>
         ) : null}
         <button type="button" style={ghost(palette, fonts)} onClick={() => setCheckupOpen(true)}>

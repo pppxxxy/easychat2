@@ -23,4 +23,6 @@ export const group = {
   'group.cancel': '取消',
   'group.saving': '保存中...',
   'group.save': '保存',
+  'group.settings.title': '群聊设置',
+  'group.members.missing': '有 {count} 位成员的角色卡已被删除，他们不会再发言。',
 };

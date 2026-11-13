@@ -23,3 +23,10 @@ export const RICH_HTML_SMOKE_REPLY = [
   '<button id="smoke-button" onclick="triggerSlash(\'/send 卡片命令\')">卡片命令按钮</button>',
   '<script>window.__smokePwned = true;</script>',
 ].join(String.fromCharCode(10));
+
+// 群聊冒烟：调度器请求（系统提示里含「群聊调度器」）要回 JSON 名单，
+// 各角色发言则回带自己名字的正文，便于断言「谁说了话」。
+export const GROUP_SCHEDULER_MARK = '群聊调度器';
+export function buildGroupSchedulerReply(names) {
+  return JSON.stringify({ speakers: Array.isArray(names) ? names.slice(0, 2) : [] });
+}

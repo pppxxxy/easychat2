@@ -23,4 +23,6 @@ export const group = {
   'group.cancel': 'Cancel',
   'group.saving': 'Saving...',
   'group.save': 'Save',
+  'group.settings.title': 'Group settings',
+  'group.members.missing': '{count} member character(s) were deleted; they will no longer speak.',
 };

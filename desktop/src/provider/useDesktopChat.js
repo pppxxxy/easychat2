@@ -20,6 +20,7 @@ import useChatSend from '../../../src/chat/useChatSend.js';
 import useSessionGuard from '../../../src/chat/useSessionGuard.js';
 import useSessionMessages from '../../../src/chat/useSessionMessages.js';
 import { getChatOptions } from '../../../src/storage/settings.js';
+import { resolveGroupMembers } from '../group/groupModel.js';
 
 const DEFAULT_CHAT_OPTIONS = {
   streaming: true,
@@ -40,6 +41,7 @@ export default function useDesktopChat() {
     activeSessionId,
     loaded,
     updateCharacter,
+    refreshSessions,
   } = useApp();
 
   const characterId = character.id || '';
@@ -68,8 +70,27 @@ export default function useDesktopChat() {
     && !!activeSession
     && String(activeSession.characterId || '') !== String(characterId);
 
-  // ---- 桌面不支持的特性：保持稳定引用，避免 hook 依赖抖动 ----
-  const groupCharactersRef = useRef([]);
+  // ---- 群聊成员解析（与手机 ChatScreen 的 groupCharacters 同口径）----
+  // 共享层 requestGroupReply 只读 groupCharactersRef.current：空数组时它会直接拒绝并
+  // 提示「没有成员」。此前桌面把它恒设为 []，群聊等于不可用；这里按活动会话的
+  // members 解析角色，并跳过已被删除的成员（缺失成员由界面显式提示）。
+  const characterMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(characters) ? characters : []).forEach(item => {
+      if (item && item.id) map.set(item.id, item);
+    });
+    return map;
+  }, [characters]);
+  const { members: groupCharacters, missingIds: groupMissingIds } = useMemo(
+    () => resolveGroupMembers(activeSession, characterMap),
+    [activeSession, characterMap]
+  );
+  const groupCharactersRef = useRef(groupCharacters);
+  groupCharactersRef.current = groupCharacters;
+  const groupMissingIdsRef = useRef(groupMissingIds);
+  groupMissingIdsRef.current = groupMissingIds;
+
+  // ---- 其余桌面不支持的特性：保持稳定引用，避免 hook 依赖抖动 ----
   const memberProfilesRef = useRef({ sessionId: '', profiles: {} });
   const stickersRef = useRef([]);
   const attachmentsRef = useRef([]);
@@ -258,6 +279,11 @@ export default function useDesktopChat() {
     isSending,
     characterId,
     activeSessionId,
+    activeSession,
+    isGroup,
+    refreshSessions,
+    groupCharacters,
+    groupMissingIds,
     chatOptions,
     characterName: String((character && character.name) || ''),
     input,

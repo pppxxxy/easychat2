@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 
 import { ROUTE_NAMES } from '../navigation/routeNames.js';
 import { createGroupSession } from '../storage/sessions.js';
+import { MAX_GROUP_MEMBERS, MIN_GROUP_MEMBERS } from '../chat/groupChat/groupLimits.js';
 
 // 群聊创建的状态与编排：成员选择（上限 8）、头像/背景挑选、创建会话与跳转。
 // 从 CharacterLibraryScreen 原样搬出（行为不变），依赖经参数注入。
@@ -15,7 +16,7 @@ export default function useGroupCreation({ characters, refreshSessions, navigati
   const [creatingGroup, setCreatingGroup] = useState(false);
 
   const toggleGroupMember = useCallback(id => {
-    if (!groupSelected.includes(id) && groupSelected.length >= 8) {
+    if (!groupSelected.includes(id) && groupSelected.length >= MAX_GROUP_MEMBERS) {
       Alert.alert(t('character.library.group.limit.title'), t('character.library.group.limit.body'));
       return;
     }
@@ -27,7 +28,7 @@ export default function useGroupCreation({ characters, refreshSessions, navigati
   }, [groupSelected, t]);
 
   const onCreateGroup = useCallback(async () => {
-    if (groupSelected.length < 2 || groupSelected.length > 8) {
+    if (groupSelected.length < MIN_GROUP_MEMBERS || groupSelected.length > MAX_GROUP_MEMBERS) {
       Alert.alert(t('character.library.group.count.title'), t('character.library.group.count.body'));
       return;
     }

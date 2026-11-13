@@ -73,7 +73,14 @@
 
   const artwork = await bridge.fs.stat(dir + 'avatars/default-assistant-avatar.jpg');
   const avatarsList = await bridge.fs.readDir(dir + 'avatars').catch(error => 'ERR:' + (error.code || error.message));
-  const s2 = await waitFor(() => window.__easychat2S2);
+  // 会话由「首次成为当前角色时补建」的 effect 异步创建，而 __easychat2S2 快照写在
+  // 另一个 effect 里——直接读一次会拿到 sessions:0 的中间态（实测踩到）。
+  // 等会话真正出现再取快照，超时仍为 0 才算失败。
+  const s2 = await waitFor(() => {
+    const snapshot = window.__easychat2S2;
+    if (!snapshot) return null;
+    return snapshot.counts && snapshot.counts.sessions >= 1 ? snapshot : null;
+  }, 15000) || await waitFor(() => window.__easychat2S2, 1000);
   const keys = await bridge.kv.keys();
   const hasCharactersKey = keys.includes('@easychat2_character_index');
   const hasSessionsKey = keys.includes('@easychat2_sessions');
@@ -94,6 +101,7 @@
   let usage = { attempted: false };
   let branch = { attempted: false };
   let newSession = { attempted: false };
+  let groupChat = { attempted: false };
 
   if (MOCK_MODE) {
     // ---- S3：真实界面发一条消息 ----
@@ -588,6 +596,11 @@
           indexAfter = ((document.body.innerText || '').match(/\d+\/\/\/\d+/) || [''])[0];
         }
       }
+      // ---- S11：群聊探针（模块见 smoke-probe-group.js，main.js 已预先注入）----
+      groupChat = globalThis.__easychat2RunGroupChatProbe
+        ? await globalThis.__easychat2RunGroupChatProbe({ waitFor, sendButton })
+        : { attempted: false, skipped: true };
+
       // ---- S10：顶栏「+」真的新建一段会话（不是复用旧会话）----
       try {
         const before = await bridge.kv.get('@easychat2_sessions');
@@ -705,6 +718,7 @@
     usage: MOCK_MODE ? usage : { attempted: false, skipped: true },
     branch: MOCK_MODE ? branch : { attempted: false, skipped: true },
     newSession: MOCK_MODE ? newSession : { attempted: false, skipped: true },
+    groupChat: MOCK_MODE ? groupChat : { attempted: false, skipped: true },
     kilo,
   };
 })()

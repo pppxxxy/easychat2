@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppProvider, useApp } from '../../../src/context/AppContext.js';
 import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
 import { ThemeProvider, useTheme } from '../../../src/theme/ThemeContext.js';
-import { startNewSession } from '../../../src/storage/sessionList.js';
+import { createGroupSession, startNewSession } from '../../../src/storage/sessionList.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
 import { resolveAlert, subscribeAlert, Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
@@ -30,6 +30,7 @@ import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
 import CharacterLibraryScreen from '../character/CharacterLibraryScreen.jsx';
 import ExtensionScreen from '../extension/ExtensionScreen.jsx';
 import MemoryListScreen from '../memory/MemoryListScreen.jsx';
+import GroupCreatePanel from '../group/GroupCreatePanel.jsx';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
@@ -151,6 +152,8 @@ function Shell() {
   const [view, setView] = useState('chat');
   // 角色库页（卡片网格）与角色编辑页分开：库页是「选谁」，编辑页是「改什么」。
   const [characterScreen, setCharacterScreen] = useState('library');
+  // 创建群聊：与手机一致从角色库/记忆侧发起，成功后直接进聊天页。
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [firstRunStage, setFirstRunStage] = useState('loading');
@@ -263,6 +266,29 @@ function Shell() {
           String((error && error.message) || t('common.error.retryLater'))
         );
       }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const createGroup = async ({ members, name, avatarUri, bgUri }) => {
+    if (busy) return null;
+    setBusy('group');
+    try {
+      const created = await createGroupSession(members, name, { avatarUri, bgUri });
+      await refreshSessions().catch(() => {});
+      setGroupCreateOpen(false);
+      if (created && created.id) {
+        await switchSession(created.id).catch(() => {});
+        setView('chat');
+      }
+      return created;
+    } catch (error) {
+      Alert.alert(
+        t('character.library.group.createFail.title'),
+        String((error && error.message) || t('common.error.storageOrPermission'))
+      );
+      return null;
     } finally {
       setBusy('');
     }
@@ -503,6 +529,7 @@ function Shell() {
               setView('chat');
             }}
             onTutorial={() => setShowTutorial(true)}
+            onCreateGroup={() => setGroupCreateOpen(true)}
           />
         ) : view === 'extension' ? (
           <ExtensionScreen palette={palette} fonts={fonts} />
@@ -514,6 +541,15 @@ function Shell() {
           </section>
         )}
       </main>
+      <GroupCreatePanel
+        open={groupCreateOpen}
+        onClose={() => setGroupCreateOpen(false)}
+        characters={characters}
+        palette={palette}
+        fonts={fonts}
+        busy={busy === 'group'}
+        onCreate={createGroup}
+      />
       <AlertHost palette={palette} fonts={fonts} />
       <BackupPanel
         open={showBackup}

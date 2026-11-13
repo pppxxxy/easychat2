@@ -30,8 +30,16 @@ const MEDIA_SCHEME = 'easychat2-media';
 // 全链路，并把窗口截图写到 <userData>/smoke.png。仅由环境变量开启，不影响正常启动。
 const SMOKE = process.env.EASYCHAT2_DESKTOP_SMOKE === '1';
 const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8');
+// 群聊探针是独立模块（smoke-probe-group.js），先注入把函数挂到 globalThis，主探针再调用。
+const SMOKE_PROBE_GROUP = readFileSync(path.join(__dirname, 'smoke-probe-group.js'), 'utf8');
 // 冒烟夹具（模型回复正文）单独放文件：它们是测试数据，不是界面文案，且被 i18n 规则豁免。
-const { SMOKE_REPLY, MARKDOWN_SMOKE_REPLY, RICH_HTML_SMOKE_REPLY } = smokeFixtures;
+const {
+  SMOKE_REPLY,
+  MARKDOWN_SMOKE_REPLY,
+  RICH_HTML_SMOKE_REPLY,
+  GROUP_SCHEDULER_MARK,
+  buildGroupSchedulerReply,
+} = smokeFixtures;
 
 // 允许交给系统打开的外部 URL scheme（与共享层 classifyRichHtmlLink 的口径一致）。
 const EXTERNAL_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
@@ -110,9 +118,13 @@ function startSmokeModelServer() {
       // 只按**最后一条用户消息**选回复：整段 body 包含历史里的标记，用 body.includes
       // 会让第一次渲染测试之后的每一轮都返回富 HTML。
       let lastUserText = '';
+      let isScheduler = false;
       try {
         const parsed = JSON.parse(requestBody);
         const messages = Array.isArray(parsed && parsed.messages) ? parsed.messages : [];
+        // 群聊调度器：系统提示里带标识，且要求只输出 JSON 名单。
+        isScheduler = messages.some(message => message && message.role === 'system'
+          && String(message.content || '').includes(GROUP_SCHEDULER_MARK));
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           const message = messages[index];
           if (!message || message.role !== 'user') continue;
@@ -127,9 +139,27 @@ function startSmokeModelServer() {
       } catch (error) {
         lastUserText = '';
       }
-      const reply = lastUserText.includes('富HTML测试')
-        ? RICH_HTML_SMOKE_REPLY
-        : (lastUserText.includes('渲染测试') ? MARKDOWN_SMOKE_REPLY : SMOKE_REPLY);
+      let reply;
+      if (isScheduler) {
+        // 从 roster 行「- 名字: …」取前两个成员名回给调度器。
+        const rosterNames = [];
+        try {
+          const parsed = JSON.parse(requestBody);
+          const nl = String.fromCharCode(10);
+          const sys = (parsed.messages || []).map(message => String((message && message.content) || '')).join(nl);
+          for (const line of sys.split(nl)) {
+            const match = line.match(/^- ([^:]+):/);
+            if (match) rosterNames.push(match[1].trim());
+          }
+        } catch (error) {}
+        reply = buildGroupSchedulerReply(rosterNames);
+      } else if (lastUserText.includes('富HTML测试')) {
+        reply = RICH_HTML_SMOKE_REPLY;
+      } else if (lastUserText.includes('渲染测试')) {
+        reply = MARKDOWN_SMOKE_REPLY;
+      } else {
+        reply = SMOKE_REPLY;
+      }
       // SSE 块以两个换行结尾；用 fromCharCode 构造，避免转义层级（源码可读、零歧义）。
       const separator = String.fromCharCode(10) + String.fromCharCode(10);
       const event = payload => 'data: ' + JSON.stringify(payload) + separator;
@@ -258,6 +288,8 @@ function createWindow() {
   mainWindow.webContents.once('did-finish-load', async () => {
     if (!SMOKE) return;
     try {
+      // 群聊探针模块先注入（定义函数并挂到 globalThis），主探针随后调用。
+      await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_GROUP, true);
       // 把模式标记先写进渲染层：探针据此决定是否跳过依赖本地 mock 的段落。
       await mainWindow.webContents.executeJavaScript(
         `globalThis.__easychat2KiloLive = ${KILO_LIVE ? 'true' : 'false'};`,
@@ -351,6 +383,13 @@ function createWindow() {
         && probe.newSession
         && probe.newSession.attempted
         && probe.newSession.created
+        && probe.groupChat
+        && probe.groupChat.attempted
+        && probe.groupChat.opened
+        && probe.groupChat.created
+        && probe.groupChat.sent
+        && probe.groupChat.replySeen
+        && probe.groupChat.speakerSeen
       );
       const kiloOk = !!(
         baseOk
