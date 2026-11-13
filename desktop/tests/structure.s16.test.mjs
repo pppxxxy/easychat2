@@ -225,6 +225,20 @@ test('动态：用户可以自己发布（不只是点赞/评论）', () => {
   assert.ok(screen.includes('startCommentTask'), '评论未交给模块级 runner（离开页面会断）');
 });
 
+test('对话长图：三种格式齐全，长图走 canvas 重绘并与文本共用同一份条目', () => {
+  const panel = read(DESKTOP, 'src', 'chat', 'ConversationExportPanel.jsx');
+  assert.ok(panel.includes("['markdown', 'html', 'image']"), '缺长图格式');
+  assert.ok(panel.includes('planShareCard') && panel.includes('drawShareCard'), '长图未走 canvas 重绘');
+  // 版式逻辑必须可单测（纯函数抽在 shareCardImage.js 里）。
+  const card = read(DESKTOP, 'src', 'chat', 'shareCardImage.js');
+  assert.ok(card.includes('export function planShareCard'), '版式计算未抽成纯函数');
+  assert.ok(card.includes('export function wrapLines'), '换行逻辑未抽成纯函数');
+  // 截断口径必须与文本导出同源（EXPORT_MAX_MESSAGES），否则两种格式条数不一致。
+  assert.ok(card.includes('EXPORT_MAX_MESSAGES'), '长图未复用导出的截断上限');
+  // 保存走 backup.saveAs（桌面没有系统分享面板）。
+  assert.ok(panel.includes('imageSaved'), '长图未接另存为');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

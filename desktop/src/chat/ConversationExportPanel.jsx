@@ -1,8 +1,8 @@
 // 对话导出（桌面）：Markdown / HTML 两种格式，写出后经系统「另存为」保存。
 //
-// 与手机的差别（都是平台差异，不是口径差异）：
-//   · 手机的三种格式里有「长图」——靠 react-native-view-shot 截屏；桌面没有等价物，
-//     而且桌面用户要的是可归档的文本文件，所以只提供 Markdown / HTML；
+// 与手机的差别只在实现手段，不在格式：
+//   · 「长图」手机用 react-native-view-shot 截 React 视图；桌面没有该原生模块，
+//     改用 canvas 按同一版式重绘（shareCardImage.js），产出同样是 PNG；
 //   · 手机写进 cache 后交给系统分享面板；桌面写进 cache 后弹「另存为」对话框
 //     （backup:saveAs，源必须在 documents/cache 内 —— 见 electron/ipc/backupFiles.js）。
 //
@@ -20,12 +20,15 @@ import {
   toHtml,
   toMarkdown,
 } from '../../../src/chat/conversationExport.js';
+// 长图：canvas 重绘（shareCardImage.js），与文本导出共用同一份 entries。
 import { writeChatExportText } from '../../../src/storage/chatExport.js';
+import { CARD_WIDTH, drawShareCard, planShareCard } from './shareCardImage.js';
 import { Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
+import { documentDirectory } from '../platform/fileSystem.js';
 import { Button } from '../settings/ui.jsx';
 
-const FORMATS = ['markdown', 'html'];
+const FORMATS = ['markdown', 'html', 'image'];
 
 export default function ConversationExportPanel({
   open,
@@ -72,6 +75,53 @@ export default function ConversationExportPanel({
     if (busy || empty) return;
     setBusy(true);
     try {
+      if (format === 'image') {
+        // 长图：把同一条目的列表画成 PNG。宽度固定、高度按内容算（与手机 ShareCard 同版式）。
+        const canvas = document.createElement('canvas');
+        const probe = canvas.getContext('2d');
+        probe.font = '14px sans-serif';
+        const measure = text => probe.measureText(String(text)).width;
+        const plan = planShareCard({
+          entries: prepared.entries,
+          meta: {
+            title: prepared.docTitle,
+            metaText: t('chat.export.meta', { time: prepared.exportedAt, count: prepared.entries.length }),
+          },
+          measure,
+          width: CARD_WIDTH,
+        });
+        canvas.width = plan.width;
+        canvas.height = plan.height;
+        drawShareCard(canvas.getContext('2d'), plan, {
+          background: palette.surface,
+          text: palette.text,
+          userBubble: palette.primary,
+          userText: palette.primaryContrast,
+          assistantBubble: palette.surfaceAlt,
+          assistantText: palette.text,
+          faint: palette.textFaint,
+        });
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+        const imageName = exportFileName(
+          { title: prepared.docTitle, exportedAt: prepared.exportedAt },
+          'png'
+        );
+        const imageUri = `${documentDirectory}chat-export/${imageName}`;
+        await getBridge().fs.mkdir(`${documentDirectory}chat-export/`, true).catch(() => {});
+        await getBridge().fs.write(imageUri, base64, 'base64');
+        const imageSaved = await getBridge().backup.saveAs(
+          imageUri,
+          imageName,
+          [{ name: 'PNG', extensions: ['png'] }]
+        );
+        if (imageSaved && !imageSaved.canceled) {
+          getBridge().fs.delete(imageUri, true).catch(() => {});
+          onClose();
+        }
+        return;
+      }
+
       const content = format === 'html'
         ? toHtml(prepared.entries, prepared.meta)
         : toMarkdown(prepared.entries, prepared.meta);
@@ -160,7 +210,11 @@ export default function ConversationExportPanel({
 
         <div style={{ display: 'flex', gap: 8 }}>{FORMATS.map(tab)}</div>
         <div style={{ fontSize: fonts.scaled(11), color: palette.textMuted, lineHeight: 1.6 }}>
-          {t(format === 'html' ? 'chat.export.hint.html' : 'chat.export.hint.markdown')}
+          {t(format === 'image'
+            ? 'chat.export.hint.image'
+            : format === 'html'
+              ? 'chat.export.hint.html'
+              : 'chat.export.hint.markdown')}
         </div>
 
         <div style={{ fontSize: fonts.scaled(11), color: palette.textFaint }}>
@@ -170,12 +224,14 @@ export default function ConversationExportPanel({
             : ''}
         </div>
 
-        {empty ? (
+        {/* 长图没有文本预览；空会话给明确提示（不导出空文件）。 */}
+        {format === 'image' ? (
+          <div style={{ fontSize: fonts.scaled(11), color: palette.textFaint }}>{t('desktop.export.imageNote')}</div>
+        ) : empty ? (
           <div style={{ fontSize: fonts.scaled(12), color: palette.textMuted }}>{t('chat.export.empty')}</div>
         ) : (
-          // 文本预览：Markdown 直接显示原文（桌面用户看得懂源码），
-          // HTML 不能内嵌 iframe（CSP 会拦），改为显示同源的 Markdown 视图 +
-          // 说明「HTML 是排版版」。比手机省一个 WebView，也不假装能所见即所得。
+          // 文本预览：Markdown 直接显示原文（桌面用户看得懂源码）；
+          // HTML 不能内嵌 iframe（CSP 会拦），改为显示同源的 Markdown 视图。
           <div style={{
             maxHeight: '46vh',
             overflow: 'auto',
@@ -191,7 +247,7 @@ export default function ConversationExportPanel({
             fontFamily: 'ui-monospace, "SFMono-Regular", Consolas, monospace',
           }}
           >
-            {toMarkdown(prepared.entries, { title: title || t('chat.export.defaultTitle') })}
+            {toMarkdown(prepared.entries, prepared.meta)}
           </div>
         )}
 

@@ -2,7 +2,8 @@
 export const desktop = {
   'desktop.status.available': 'Available',
   'desktop.status.unsupported': 'Not supported on desktop',
-                    'desktop.conversationCard.title': 'Character card from this conversation',
+                      'desktop.export.imageNote': 'The long-image export redraws the current message list as a single PNG (same layout as the phone). The preview area shows source text for text formats only.',
+'desktop.conversationCard.title': 'Character card from this conversation',
   'desktop.conversationCard.hint': 'Hand this conversation to the model and distill it into a character card, written into the forge draft; then open Extensions → Card forge to review, edit and import it. Longer chats capture speaking habits better; text is kept within the shared length limit.',
   'desktop.conversationCard.generate': 'Generate card',
 'desktop.roleComments.hint': 'Pick a character and let it say a short line about the current item. This desktop build triggers it manually; the phone also auto-comments at music markers and comments with audio/chapter context.',

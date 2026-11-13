@@ -5,7 +5,8 @@
 export const desktop = {
   'desktop.status.available': '可用',
   'desktop.status.unsupported': '桌面版暂不支持',
-                    'desktop.conversationCard.title': '从对话生成角色卡',
+                      'desktop.export.imageNote': '长图会按当前消息列表重绘为一张 PNG（与手机「长图」同版式）。预览区只对文本格式展示源码。',
+'desktop.conversationCard.title': '从对话生成角色卡',
   'desktop.conversationCard.hint': '把当前这段对话交给模型，提炼成一张角色卡并写进制卡草稿；之后可在「扩展 → 制卡工坊」里查看、修改、导入角色库。对话越长越能抓住说话习惯，最长会保留到共享层的字数上限。',
   'desktop.conversationCard.generate': '生成为角色卡',
 'desktop.roleComments.hint': '选一个角色，让它就当前内容说一句短评。桌面这版是「手动触发」；手机上还有「播放到打点自动评论」与「按音频/章节上下文评论」。',
