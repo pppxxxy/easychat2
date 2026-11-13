@@ -170,6 +170,30 @@ test('群聊成员增删：勾选即写回，且上限来自共享常量', () =>
   assert.ok(mutations.includes('delete profiles[id]'), '移除成员时未清理 memberProfiles（会留下幽灵简介）');
 });
 
+test('运行中补充指令：走共享判定，且清草稿', () => {
+  // 共享层的机会：resolveSteeringSend 区分 send/queued/blocked 三种结果，
+  // 分别对应「正常发送」「注入下一轮」「不能注入（本轮不是工具循环 / 带附件）」。
+  assert.ok(PANE.includes('resolveSteeringSend'), '未复用共享判定');
+  assert.ok(PANE.includes('pushSteering'), '未接注入');
+  assert.ok(PANE.includes("t('chat.send.steering.noLoop')"), '缺「本轮不能注入」的提示');
+  // 注入后必须清掉落盘草稿，否则重启会把已注入的那句当未发草稿恢复。
+  assert.ok(PANE.includes('persistDraftNow(activeSessionId'), '注入后未清草稿');
+});
+
+test('分叉点入口：可展开分支列表，且切换/删除接真实链路', () => {
+  const row = read(DESKTOP, 'src', 'chat', 'BranchForkRow.jsx');
+  // 两处都带参数（{ count }），所以只断言键名出现。
+  assert.ok(row.includes('chat.branch.forkEntry'), '缺分叉点入口文案');
+  assert.ok(row.includes('chat.branch.forkEntryRoot'), '缺「开头」分支的文案分支');
+  assert.ok(row.includes("t('chat.branch.checkout')"), '缺切换');
+  assert.ok(row.includes("t('chat.branch.delete')"), '缺删除');
+  // 文本预览与条数来自共享层分组结果，不在这里重算。
+  assert.ok(row.includes('branch.preview') && row.includes('branch.messageCount'), '未使用分支描述符字段');
+  // 宿主必须真的接上 useDesktopBranches 的两个动作。
+  assert.ok(PANE.includes('onDeleteBranch={target => branchesApi.remove(target)}'), '删除未接真实链路');
+  assert.ok(PANE.includes('forkBranches={branchesApi.branchesByFork}'), '未接共享层分组结果');
+});
+
 test('角色评论：音乐/书籍共用一套，且落库走共享 append', () => {
   assert.ok(COMMENTS.includes('buildTriggerCommentPrompt'), '音乐未复用提示词');
   assert.ok(COMMENTS.includes('buildPassageCommentPrompt'), '书籍未复用提示词');

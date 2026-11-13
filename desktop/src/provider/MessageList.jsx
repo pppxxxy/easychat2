@@ -4,6 +4,7 @@
 // 所有状态（搜索聚焦、多选、分支导航）都由宿主传入回调，本文件不持有任何状态，
 // 也不读存储——这样它才能被单独读懂、也才不会再把 ChatPane 撑爆。
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
+import BranchForkRow from '../chat/BranchForkRow.jsx';
 import BranchSwitcher from '../chat/BranchSwitcher.jsx';
 import MessageRow from '../render/MessageRow.jsx';
 
@@ -28,7 +29,9 @@ export default function MessageList({
   onMenu,
   // 分支
   branchNav,
+  forkBranches,
   onCheckoutBranch,
+  onDeleteBranch,
   branchDisabled,
 }) {
   useTranslation(); // 保持与其余面板一致的翻译订阅（本文件暂无自有文案）
@@ -98,6 +101,18 @@ export default function MessageList({
                 ? speakerNameOf(message, memberNames, groupName)
                 : ''}
             />
+            {/* 分叉点入口：该点有未激活的分支时展开可选（比线性翻页更完整）。 */}
+            {onDeleteBranch && forkBranches && forkBranches.get(id) ? (
+              <BranchForkRow
+                forkMessageId={id}
+                branches={forkBranches.get(id)}
+                onCheckout={onCheckoutBranch}
+                onDelete={onDeleteBranch}
+                disabled={branchDisabled}
+                palette={palette}
+                fonts={fonts}
+              />
+            ) : null}
             {branchNav && branchNav.get(id) ? (
               <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: -8, marginBottom: 6, paddingLeft: 4 }}>
                 <BranchSwitcher

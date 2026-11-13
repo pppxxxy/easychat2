@@ -5,6 +5,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { buildQuotePayload } from '../../../src/chat/chatHelpers.js';
+import { Alert } from '../platform/alert.js';
+import { resolveSteeringSend } from '../../../src/chat/steeringSend.js';
 import { groupDisplayName, speakerNameOf } from '../group/groupModel.js';
 import GroupSettingsPanel from '../group/GroupSettingsPanel.jsx';
 import MentionPicker from '../group/MentionPicker.jsx';
@@ -242,6 +244,31 @@ export default function ChatPane({ palette, fonts }) {
 
   const submit = () => {
     const text = String(input || '').trim();
+    // I1：本轮还在跑（工具循环）时按下发送 = 把这句话注入下一轮，而不是排队等。
+    // 判定与提示文案全部复用共享层 resolveSteeringSend。
+    const steeringDecision = resolveSteeringSend({
+      inFlight: isSending,
+      text,
+      hasAttachments,
+      steeringAvailable: !!chat.steeringAvailable,
+    });
+    if (steeringDecision.action === 'queued') {
+      if (chat.pushSteering(steeringDecision.text)) {
+        onInputChange('');
+        // 清掉落盘草稿：否则重启会把已注入的那句当成未发送的草稿恢复出来。
+        Promise.resolve(chat.persistDraftNow(activeSessionId, '')).catch(() => {});
+      }
+      return;
+    }
+    if (steeringDecision.action === 'blocked') {
+      if (steeringDecision.reason === 'attachments') {
+        Alert.alert(t('chat.send.steering.title'), t('chat.send.steering.attachments'));
+      } else if (steeringDecision.reason === 'noLoop') {
+        // 本轮不是工具循环：没有「下一轮」可注入，文字留在输入框里等本轮结束再发。
+        chat.setSteeringNote(t('chat.send.steering.noLoop'));
+      }
+      return;
+    }
     globalThis.__easychat2Submit = {
       calls: ((globalThis.__easychat2Submit && globalThis.__easychat2Submit.calls) || 0) + 1,
       text,
@@ -428,7 +455,10 @@ export default function ChatPane({ palette, fonts }) {
           onCommand={command => onInputChange(command)}
           onMenu={(target, anchor) => setMenu({ message: target, anchor })}
           branchNav={branchNav}
+          // 分叉点的全部分支（按 forkMessageId 分组，共享层 branchTree 的结果）。
+          forkBranches={branchesApi.branchesByFork}
           onCheckoutBranch={target => branchesApi.checkout(target)}
+          onDeleteBranch={target => branchesApi.remove(target)}
           branchDisabled={isSending || branchesApi.checkingOut}
         />
       </div>

@@ -330,6 +330,13 @@ export default function useDesktopChat() {
     regenerateMessage: send.regenerateMessage,
     editUserMessage: send.editUserMessage,
     modelFallbackNotice: send.modelFallbackNotice,
+    // I1：运行中补充指令（本轮工具循环还在跑时，把新输入注入下一轮而不是排队等）。
+    steeringAvailable: send.steeringAvailable,
+    pushSteering: send.pushSteering,
+    steeringNote: send.steeringNote,
+    setSteeringNote: send.setSteeringNote,
+    // 补充指令入队后要清掉草稿（否则重启会把已注入的那句当成未发草稿恢复）。
+    persistDraftNow,
     contextBreakdown: send.contextBreakdown,
     branchesRefreshToken: send.branchesRefreshToken,
     requestReply: send.requestReply,
