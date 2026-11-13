@@ -30,6 +30,7 @@ import { applyCharacterCard, pickCharacterCard } from '../backup/services.js';
 import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
 import CharacterLibraryScreen from '../character/CharacterLibraryScreen.jsx';
 import ExtensionScreen from '../extension/ExtensionScreen.jsx';
+import { resolveExtensionRoute } from '../extension/extensionRoutes.js';
 import MemoryListScreen from '../memory/MemoryListScreen.jsx';
 import GroupCreatePanel from '../group/GroupCreatePanel.jsx';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
@@ -155,6 +156,8 @@ function Shell() {
   const [characterScreen, setCharacterScreen] = useState('library');
   // 创建群聊：与手机一致从角色库/记忆侧发起，成功后直接进聊天页。
   const [groupCreateOpen, setGroupCreateOpen] = useState(false);
+  // 扩展页的二级路由（手机侧是 native-stack，桌面用 id → 组件表，见 extension/extensionRoutes.js）。
+  const [extensionScreenId, setExtensionScreenId] = useState('');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [firstRunStage, setFirstRunStage] = useState('loading');
@@ -440,6 +443,8 @@ function Shell() {
               onClick={() => {
                 setView(tab.id);
                 setShowBackup(false);
+                // 切走扩展页时回到扩展首页（手机上 Stack 也是这个行为）。
+                setExtensionScreenId('');
               }}
             >
               {tab.label}
@@ -536,7 +541,48 @@ function Shell() {
             onCreateGroup={() => setGroupCreateOpen(true)}
           />
         ) : view === 'extension' ? (
-          <ExtensionScreen palette={palette} fonts={fonts} />
+          extensionScreenId ? (
+            (() => {
+              const RouteScreen = resolveExtensionRoute(extensionScreenId);
+              if (!RouteScreen) return null;
+              return (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  {/* 返回栏：手机侧由 native-stack 自带，桌面这里显式给一个。 */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 16px',
+                    borderBottom: `1px solid ${palette.divider}`,
+                    flex: 'none',
+                  }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExtensionScreenId('')}
+                      style={{
+                        background: 'transparent',
+                        color: palette.textMuted,
+                        border: `1px solid ${palette.divider}`,
+                        borderRadius: 8,
+                        padding: '4px 10px',
+                        cursor: 'pointer',
+                        fontSize: fonts.scaled(12),
+                      }}
+                    >
+                      {t('common.back')}
+                    </button>
+                    <strong style={{ fontSize: fonts.scaled(14) }}>
+                      {t(`ext.home.${extensionScreenId === 'image' ? 'image' : extensionScreenId}`)}
+                    </strong>
+                  </div>
+                  <RouteScreen palette={palette} fonts={fonts} />
+                </div>
+              );
+            })()
+          ) : (
+            <ExtensionScreen palette={palette} fonts={fonts} onOpen={setExtensionScreenId} />
+          )
         ) : activeSessionId ? (
           <ChatPane palette={palette} fonts={fonts} />
         ) : (

@@ -34,6 +34,7 @@ const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8')
 // 先注入把函数挂到 globalThis，主探针再调用（两个文件都各自撞到 800 行棘轮）。
 const SMOKE_PROBE_GROUP = readFileSync(path.join(__dirname, 'smoke-probe-group.js'), 'utf8');
 const SMOKE_PROBE_SURFACE = readFileSync(path.join(__dirname, 'smoke-probe-surface.js'), 'utf8');
+const SMOKE_PROBE_SCREENS = readFileSync(path.join(__dirname, 'smoke-probe-screens.js'), 'utf8');
 // 冒烟夹具（模型回复正文）单独放文件：它们是测试数据，不是界面文案，且被 i18n 规则豁免。
 const {
   SMOKE_REPLY,
@@ -293,6 +294,7 @@ function createWindow() {
       // 群聊探针模块先注入（定义函数并挂到 globalThis），主探针随后调用。
       await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_GROUP, true);
       await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_SURFACE, true);
+      await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_SCREENS, true);
       // 把模式标记先写进渲染层：探针据此决定是否跳过依赖本地 mock 的段落。
       await mainWindow.webContents.executeJavaScript(
         `globalThis.__easychat2KiloLive = ${KILO_LIVE ? 'true' : 'false'};`,
@@ -366,6 +368,7 @@ function createWindow() {
         && probe.screens.vectorOk
         && probe.screens.summaryOk
         && probe.screens.extensionOk
+        && probe.screens.groupsSeen
         && probe.screens.reasonSeen
         && probe.library
         && probe.library.attempted
@@ -405,6 +408,7 @@ function createWindow() {
         && probe.surface.statsOpened
         && probe.surface.exportOpened
         && probe.surface.moreMenuSeen
+        && probe.surface.extensionOpened === probe.surface.extensionTotal
       );
       const kiloOk = !!(
         baseOk

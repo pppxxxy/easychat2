@@ -2,6 +2,11 @@
 export const desktop = {
   'desktop.status.available': 'Available',
   'desktop.status.unsupported': 'Not supported on desktop',
+        'desktop.proactive.desktopOnlyHint': 'This desktop build can configure proactive messages (time slots, styles, continuation session) but does not fire them on its own: on the phone a system background service wakes the app, which has no equivalent once the desktop process exits. The configuration is stored in the same data the phone reads, so it takes effect there.',
+'desktop.books.docxUnsupported': 'This desktop build parses plain text and Markdown only. Word (.docx) is zipped XML and needs extra unpacking/parsing; import it on your phone, or save it as txt / Markdown and import that here.',
+'desktop.games.nativeHint': '“Daily Wife” reads character-library data (affinity, schedule, chat history) and runs in a native panel on the phone; the desktop build ships the web games only for now.',
+'desktop.group.unavailable': 'Capabilities that need the phone OS',
+  'desktop.group.unavailable.hint': 'These entries depend on Android/Expo system capabilities (screen-capture permission, overlays, headless background wake-up, native inference libraries, restricted shell). The desktop build has no equivalent. Open one to read why; everything else is available here.',
   'desktop.unsupported.intro': 'The first desktop release covers the core chat loop only. Capabilities that exist on mobile but are not implemented here stay listed, so you can open each one to see why and how to use it on your phone.',
   'desktop.unsupported.imageGen': 'Image generation relies on native image processing and gallery writes on the phone. The desktop first release does not connect to any image service and cannot save generated images. Generate on your phone, then sync characters and chats to the desktop with Backup & Restore.',
   'desktop.unsupported.tts': 'Text-to-speech depends on the system speech engine. The desktop first release does not include it: replies are never read aloud and there is no manual read-aloud button.',

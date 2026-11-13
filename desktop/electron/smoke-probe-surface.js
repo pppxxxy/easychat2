@@ -98,6 +98,55 @@ async function runSurfaceProbe({ waitFor }) {
     }
   }
 
+  // ---- S13：扩展页的每个子页面都必须真的打得开（不是空壳）----
+  // 手机侧是 native-stack；桌面是 id → 组件表。这里逐个点进去、看标题渲染、再返回。
+  const extensionEntries = [
+    { label: ['制卡工坊', 'Card forge'], title: ['制卡工坊', 'Card forge'] },
+    { label: ['图像生成', 'Image generation'], title: ['图像生成', 'Image generation'] },
+    { label: ['动态', 'Moments'], title: ['动态', 'Moments'] },
+    { label: ['主动消息', 'Proactive messages'], title: ['主动消息', 'Proactive messages'] },
+    { label: ['作息', 'Schedule'], title: ['作息', 'Schedule'] },
+    { label: ['日记', 'Diary'], title: ['日记', 'Diary'] },
+    { label: ['音乐', 'Music'], title: ['音乐', 'Music'] },
+    { label: ['书籍', 'Books'], title: ['书籍', 'Books'] },
+    { label: ['世界地图', 'World map'], title: ['世界地图', 'World map'] },
+    { label: ['小游戏', 'Mini games'], title: ['小游戏', 'Mini games'] },
+  ];
+  const extensionOpened = [];
+  const extensionMissing = [];
+  const extensionTab = findButtonByTitleOrLabel(['扩展', 'Extensions'])
+    || Array.from(document.querySelectorAll('header button'))
+      .find(button => button.textContent === '扩展' || button.textContent === 'Extensions');
+  if (extensionTab) {
+    for (const item of extensionEntries) {
+      extensionTab.click();
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const label = Array.from(document.querySelectorAll('button'))
+        .find(button => item.label.some(text => String(button.textContent || '').includes(text)));
+      if (!label) {
+        extensionMissing.push(item.label[0]);
+        continue;
+      }
+      label.click();
+      // 子页面的特征：出现返回按钮 + 该入口的标题。
+      const opened = !!(await waitFor(() => {
+        const text = bodyText();
+        const hasBack = Array.from(document.querySelectorAll('button'))
+          .some(button => button.textContent === '返回' || button.textContent === 'Back');
+        return hasBack && item.title.some(title => text.includes(title)) ? true : null;
+      }, 5000));
+      if (opened) extensionOpened.push(item.label[0]);
+      else extensionMissing.push(item.label[0]);
+      const back = Array.from(document.querySelectorAll('button'))
+        .find(button => button.textContent === '返回' || button.textContent === 'Back');
+      if (back) back.click();
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    const chatTab = Array.from(document.querySelectorAll('header button'))
+      .find(button => button.textContent === '聊天' || button.textContent === 'Chat');
+    if (chatTab) chatTab.click();
+  }
+
   return {
     attempted: true,
     moreMenuSeen,
@@ -105,6 +154,9 @@ async function runSurfaceProbe({ waitFor }) {
     exportOpened,
     searchOpened,
     searchMatchSeen,
+    extensionOpened: extensionOpened.length,
+    extensionTotal: extensionEntries.length,
+    extensionMissing,
   };
 }
 

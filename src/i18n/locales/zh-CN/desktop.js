@@ -5,6 +5,11 @@
 export const desktop = {
   'desktop.status.available': '可用',
   'desktop.status.unsupported': '桌面版暂不支持',
+        'desktop.proactive.desktopOnlyHint': '桌面这版可以配置主动消息（时段、风格、衔接会话），但**不会自己定时触发**：手机侧靠系统后台服务在应用关闭后唤起，桌面进程退出后没有等价载体。配置会保存在同一份数据里，手机端读取后即可生效。',
+'desktop.books.docxUnsupported': '桌面这版只解析纯文本与 Markdown。Word(.docx) 是压缩包内的 XML，需要额外解压与解析；请先在手机上导入，或另存为 txt / Markdown 后再导入桌面。',
+'desktop.games.nativeHint': '「每日妻子」要读角色库数据（好感度、日程、对话历史），在手机上由原生面板承载；桌面这版先只提供网页小游戏。',
+'desktop.group.unavailable': '依赖手机系统的能力',
+  'desktop.group.unavailable.hint': '以下入口依赖 Android/Expo 系统能力（截屏授权、悬浮窗、Headless 后台唤起、原生推理库、受限 shell），桌面没有等价物。点开可看具体原因；其余功能桌面均已提供。',
   'desktop.unsupported.intro': '桌面版首版只提供核心聊天闭环。下面是手机上已有、桌面版暂未实现的能力——入口保留在这里，点开可以看到原因与手机上的用法。',
   'desktop.unsupported.imageGen': '生图依赖手机端的原生图片处理与相册写入；桌面版首版没有接入图像生成服务，也不能把生成的图保存到相册。需要生图请在手机上使用，生成后用「备份与恢复」把角色与聊天同步到桌面。',
   'desktop.unsupported.tts': '语音播报（TTS）依赖系统语音合成引擎。桌面版首版未接入，聊天中不会自动朗读回复，也没有手动朗读按钮。',

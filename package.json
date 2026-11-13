@@ -11,13 +11,14 @@
     "prebuild": "npx expo prebuild --clean",
     "test": "node --test",
     "test:coverage": "c8 node --test",
-    "lint": "eslint --ext .js,.jsx,.mjs,.cjs App.js src plugins tests desktop/src desktop/electron desktop/tests desktop/vite.config.mjs",
+    "lint": "eslint --ext .js,.jsx,.mjs,.cjs App.js src plugins tests desktop/src desktop/electron desktop/tests desktop/vite.config.mjs && node scripts/check-desktop-i18n.mjs",
     "guard:structure": "node scripts/guard-structure.mjs",
     "dev:desktop": "npm --prefix desktop run dev",
     "build:desktop": "npm --prefix desktop run build",
     "dist:desktop": "npm --prefix desktop run dist",
     "test:desktop": "npm --prefix desktop run test",
-    "smoke:desktop": "npm --prefix desktop run smoke"
+    "smoke:desktop": "npm --prefix desktop run smoke",
+    "check:desktop-i18n": "node scripts/check-desktop-i18n.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
