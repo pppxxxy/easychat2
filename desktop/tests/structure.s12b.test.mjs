@@ -120,7 +120,9 @@ test('四项能力都有入口（否则功能等于不存在）', () => {
 test('「更多」按钮有独立词条，不与消息气泡的 moreA11y 撞名', () => {
   // 真跑冒烟时踩过的坑：两者都叫「更多操作」时，探针/用户看到的两个同名按钮无法区分，
   // 探针先命中的是第一条消息气泡上的菜单（点开的是消息操作，不是会话菜单）。
-  assert.ok(PANE.includes("t('chat.menu.more.a11y')"), '会话「更多」按钮未使用独立词条');
+  // S16 起输入区外提为 ChatComposer，「更多」按钮在那里。
+  const COMPOSER = read('src', 'provider', 'ChatComposer.jsx');
+  assert.ok(COMPOSER.includes("t('chat.menu.more.a11y')"), '会话「更多」按钮未使用独立词条');
   assert.equal(
     /title=\{t\('chat\.bubble\.moreA11y'\)\}\s*\n?\s*disabled=\{!ready\}/.test(PANE),
     false,

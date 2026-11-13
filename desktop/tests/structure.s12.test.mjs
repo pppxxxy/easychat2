@@ -95,9 +95,11 @@ test('开场白选择器已挂载，且两种用途都有落点', () => {
 test('停止生成按钮已接上（生成中发送键变停止键）', () => {
   assert.ok(CHAT.includes('const stop = useCallback'), 'useDesktopChat 未暴露 stop');
   assert.ok(CHAT.includes('abortRef.current.abort()'), 'stop 未走共享 abortRef');
-  assert.ok(PANE.includes('chat.stop'), '聊天面板未使用 stop');
+  // S16 起输入区外提为 ChatComposer（ChatPane 撞 800 行棘轮），停止键在那里。
+  const COMPOSER = read(DESKTOP, 'src', 'provider', 'ChatComposer.jsx');
+  assert.ok(COMPOSER.includes('chat.stop'), '输入区未使用 stop');
   // 必须与发送键同位（同一个按钮的两种态），而不是另加一个只在特定时刻出现的按钮。
-  assert.ok(PANE.includes('onClick={isSending ? chat.stop : submit}'), '停止未与发送键同位');
+  assert.ok(COMPOSER.includes('onClick={isSending ? chat.stop : submit}'), '停止未与发送键同位');
 });
 
 test('「+」的请求在 ChatPane 未挂载期间也不丢', () => {
