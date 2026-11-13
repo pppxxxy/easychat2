@@ -92,4 +92,14 @@ export function createFileNext(bridge) {
   return { File: DesktopFile };
 }
 
-export default createLazyDefault(createFileNext);
+const defaultInstance = createLazyDefault(createFileNext);
+
+// 共享层 backup.js 使用命名导入：`import { File } from 'expo-file-system'`。
+// 构造函数直接返回惰性实例里的真实实现（构造器返回对象即覆盖 this）。
+export class File {
+  constructor(uri) {
+    return new defaultInstance.File(uri);
+  }
+}
+
+export default defaultInstance;

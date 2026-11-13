@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { makeSandbox } from '../helpers/sandbox.mjs';
-import { createFileNext } from '../../src/platform/fileNext.js';
+import { createFileNext, File as LazyFile } from '../../src/platform/fileNext.js';
 
 function sliceRead(file, chunkSizes) {
   const handle = file.open();
@@ -96,6 +96,20 @@ test('File 适配：create + handle.writeBytes 流式写、整块 write、delete
     assert.equal(new File(uri).exists, false);
     assert.throws(() => new File(uri).delete(), '与 expo File.delete 一致：不存在时抛错');
   } finally {
+    sandbox.cleanup();
+  }
+});
+
+test('命名导出 File：共享层 `import { File }` 依赖的静态形状可用', () => {
+  const sandbox = makeSandbox();
+  const previous = globalThis.easychat2;
+  globalThis.easychat2 = sandbox.bridge;
+  try {
+    const uri = `${sandbox.documentDirectory}named.txt`;
+    new LazyFile(uri).write('named export');
+    assert.equal(new LazyFile(uri).text(), 'named export');
+  } finally {
+    globalThis.easychat2 = previous;
     sandbox.cleanup();
   }
 });

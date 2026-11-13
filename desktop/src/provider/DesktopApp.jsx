@@ -18,6 +18,7 @@ import { mediaUrl } from '../platform/mediaUrl.js';
 import { Alert, resolveAlert, subscribeAlert } from '../platform/alert.js';
 import AttachmentChips from '../attachments/AttachmentChips.jsx';
 import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
+import BackupPanel from '../backup/BackupPanel.jsx';
 import MessageRow from '../render/MessageRow.jsx';
 import StickerNameDialog from '../stickers/StickerNameDialog.jsx';
 import StickerPanel from '../stickers/StickerPanel.jsx';
@@ -416,9 +417,12 @@ function Shell() {
     ensureCharacterSession,
     switchSession,
     deleteSession,
+    updateCharacter,
+    refreshAppData,
   } = useApp();
   const [busy, setBusy] = useState('');
   const [showSessions, setShowSessions] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const ensuredRef = useRef(false);
 
   const activeCharacter = characters.find(character => character.id === activeId) || null;
@@ -559,6 +563,13 @@ function Shell() {
           <span style={{ flex: 1 }} />
           <button
             type="button"
+            style={{ ...ghost, background: showBackup ? palette.surfaceAlt : 'transparent' }}
+            onClick={() => setShowBackup(value => !value)}
+          >
+            {t('backup.title')}
+          </button>
+          <button
+            type="button"
             style={{ ...ghost, background: showSessions ? palette.surfaceAlt : 'transparent' }}
             onClick={() => setShowSessions(value => !value)}
           >
@@ -619,6 +630,19 @@ function Shell() {
         )}
       </main>
       <AlertHost palette={palette} fonts={fonts} />
+      <BackupPanel
+        open={showBackup}
+        onClose={() => setShowBackup(false)}
+        palette={palette}
+        fonts={fonts}
+        app={{
+          character: activeCharacter,
+          addCharacter,
+          ensureCharacterSession,
+          updateCharacter,
+          refreshAppData,
+        }}
+      />
     </div>
   );
 }

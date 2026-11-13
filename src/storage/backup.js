@@ -21,6 +21,7 @@ import { tActive } from '../i18n/index.js';
 import { readJsonStatus, readLargeAsyncStorageValue } from './io.js';
 import { readSecureValue, removeSecureValue, writeSecureValue } from './secretStore.js';
 import { createBackupChunkGenerator } from './backupStream.js';
+import { rewriteBackupMediaPaths } from './backupMediaPaths.js';
 
 const MANAGED_PREFIX = '@easychat2_';
 const CORRUPT_SUFFIX = '__corrupt_backup';
@@ -529,6 +530,14 @@ async function writeBackupStream(uri, payload, { signal, report }) {
 }
 
 export async function importBackup(payload, mode = 'merge') {
+  // 跨平台 / 跨安装媒体路径：**必须先于校验与规划**。validateBackupPayload 的
+  // isAllowedMediaPath 只接受相对路径，绝对路径的旧包会在这里被直接判为无效，
+  // 根本走不到改写；而旧安装的 avatarUri/image.uri 又必须在写盘前收敛到当前
+  // documentDirectory。因此顺序固定为：改写 payload -> plan/校验 -> 快照 -> 写入。
+  const mediaRewrite = rewriteBackupMediaPaths(payload, {
+    documentDirectory: FileSystem.documentDirectory || '',
+    directories: BACKUP_MEDIA_DIRECTORIES,
+  });
   const plan = planBackupImport(payload, mode);
 // plan.error 来自 validateBackupPayload（走 tActive 的用户文案）⇒ 标成 userFacing，
   // 发布构建里也要原样透出，而不是被换成笼统的「备份文件无法恢复」。
@@ -627,5 +636,7 @@ export async function importBackup(payload, mode = 'merge') {
     opaqueCount,
     secretsCount,
     secretsFailed,
+    rewrittenMediaPaths: mediaRewrite.rewrittenMediaPaths,
+    rewrittenUris: mediaRewrite.rewrittenUris,
   };
 }

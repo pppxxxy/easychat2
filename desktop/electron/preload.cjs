@@ -89,6 +89,12 @@ const bridge = {
     // 用户主动选择文件：对话框与复制都在主进程完成，渲染层只拿到 documents/ 下的结果。
     pick: kind => invoke('media:pick', kind),
   },
+  backup: {
+    // 备份/角色卡：pick 选入并暂存到 cache，saveAs 把渲染层产物另存到用户选择的位置。
+    pick: () => invoke('backup:pick'),
+    saveAs: (sourceUri, defaultName, filters) => invoke('backup:saveAs', sourceUri, defaultName, filters),
+    pickCard: () => invoke('card:pick'),
+  },
   clipboard: {
     write: text => invoke('clipboard:write', text),
   },

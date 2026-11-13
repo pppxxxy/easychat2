@@ -259,6 +259,28 @@
     sticker = { attempted: true, error: String((error && error.message) || error) };
   }
 
+  // ---- S5：备份面板可见性（导出/恢复真正执行需要原生对话框，交给集成测试） ----
+  let backup = { attempted: false };
+  try {
+    const openButton = Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent === '备份与恢复' || button.textContent === 'Backup & Restore');
+    if (!openButton) throw new Error('backup button not found');
+    openButton.click();
+    const panelSeen = await waitFor(() => {
+      const text = document.body.innerText || '';
+      const hasExport = text.includes('导出备份') || text.includes('Export backup');
+      const hasImport = text.includes('合并恢复') || text.includes('Merge restore');
+      const hasCard = text.includes('导出 PNG') || text.includes('Export PNG');
+      return hasExport && hasImport && hasCard;
+    }, 5000);
+    backup = { attempted: true, panelSeen: !!panelSeen };
+    const closeButton = Array.from(document.querySelectorAll('button'))
+      .find(button => button.title === '关闭' || button.title === 'Close');
+    if (closeButton) closeButton.click();
+  } catch (error) {
+    backup = { attempted: true, error: String((error && error.message) || error) };
+  }
+
   return {
     bridge: true,
     kv: kvValue,
@@ -276,5 +298,6 @@
     render,
     attachment,
     sticker,
+    backup,
   };
 })()

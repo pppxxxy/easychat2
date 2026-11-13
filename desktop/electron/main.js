@@ -18,6 +18,7 @@ import { createSecretStore, registerSecretIpc } from './ipc/secret.js';
 import { createHttpProxy, registerHttpIpc } from './ipc/http.js';
 import { createMediaHandler } from './ipc/media.js';
 import { registerMediaPickIpc } from './ipc/mediaPick.js';
+import { registerBackupFileIpc } from './ipc/backupFiles.js';
 import { registerDialogIpc } from './ipc/dialog.js';
 import { toFileUrl } from './paths.js';
 
@@ -298,6 +299,9 @@ function createWindow() {
         && probe.sticker.tileSeen
         && probe.sticker.replySeen
         && probe.sticker.persisted
+        && probe.backup
+        && probe.backup.attempted
+        && probe.backup.panelSeen
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
@@ -361,6 +365,7 @@ app.whenReady().then(() => {
   registerHttpIpc(ipcMain, httpProxy);
   registerDialogIpc(ipcMain, { dialog, shell, clipboard, resolver: fsService.resolver });
   registerMediaPickIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
+  registerBackupFileIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
 
   // 同步路径（preload 需要在模块加载期拿到，documentDirectory 是同步读取的）。
   ipcMain.on('app:paths', event => {
