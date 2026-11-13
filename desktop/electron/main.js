@@ -7,7 +7,8 @@
 // 依赖形状刻意保持「服务工厂 + register*」两段式：ipc/*.js 全部零 Electron 依赖，
 // 适配层行为测试在 Node 里直接实例化同一份服务（见 desktop/tests/）。
 import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, safeStorage, session, shell } from 'electron';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,11 +26,21 @@ const MEDIA_SCHEME = 'easychat2-media';
 // 冒烟模式（npm run smoke）：在真实 Electron 运行时验证 renderer -> preload -> main
 // 全链路，并把窗口截图写到 <userData>/smoke.png。仅由环境变量开启，不影响正常启动。
 const SMOKE = process.env.EASYCHAT2_DESKTOP_SMOKE === '1';
+// 探针按这个常量在界面/存储里找回复（与 electron/smoke-probe.js 保持一致）。
+const SMOKE_REPLY = '桌面流式回复 OK';
 const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8');
 
 // 数据目录名固定为 EasyChat2（不随 package.json name 变化）：文档目录是跨版本
 // 稳定契约（design.md Requirement 1.4），改名会让老数据“消失”。
 app.setName('EasyChat2');
+
+// 冒烟使用**独立 profile**：不碰真实用户数据，且每次从干净状态开始（可复现）。
+if (SMOKE) {
+  const smokeRoot = path.join(app.getPath('userData'), 'smoke-profile');
+  rmSync(smokeRoot, { recursive: true, force: true });
+  mkdirSync(smokeRoot, { recursive: true });
+  app.setPath('userData', smokeRoot);
+}
 
 let mainWindow = null;
 let fsService = null;
@@ -72,6 +83,47 @@ function ensureDefaultArtwork(documentsRoot) {
       // 素材缺失不阻断启动：界面按「图片不可用」回退首字母头像。
     }
   }
+}
+
+// 冒烟用的本地 OpenAI 兼容 SSE 服务：固定回复 SMOKE_REPLY。
+// 端口随机（127.0.0.1:0），只监听本机，进程随冒烟退出。
+function startSmokeModelServer() {
+  const server = http.createServer((request, response) => {
+    console.log(`[smoke-model] ${request.method} ${request.url}`);
+    request.on('data', () => {});
+    request.on('error', error => console.log(`[smoke-model] request error: ${error.message}`));
+    request.on('end', () => {
+      // SSE 块以两个换行结尾；用 fromCharCode 构造，避免转义层级（源码可读、零歧义）。
+      const separator = String.fromCharCode(10) + String.fromCharCode(10);
+      const event = payload => 'data: ' + JSON.stringify(payload) + separator;
+      response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+      response.write(event({ choices: [{ delta: { content: SMOKE_REPLY } }] }));
+      response.write(event({ choices: [{ delta: {}, finish_reason: 'stop' }] }));
+      response.write('data: [DONE]' + separator);
+      response.end();
+    });
+  });
+  return new Promise(resolve => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, baseUrl: 'http://127.0.0.1:' + server.address().port + '/v1' });
+    });
+  });
+}
+
+function seedSmokeApiConfig(kvStore, baseUrl) {
+  // 存储形状与 src/storage/apiConfigs.js 一致：{ configs, activeId }。
+  kvStore.set('@easychat2_api_configs', JSON.stringify({
+    configs: [{
+      id: 'cfg-smoke',
+      name: 'Smoke Mock',
+      baseUrl,
+      apiKey: 'smoke-key',
+      protocol: 'openai',
+      models: ['mock-model'],
+      activeModel: 'mock-model',
+    }],
+    activeId: 'cfg-smoke',
+  }));
 }
 
 function createWindow() {
@@ -126,6 +178,11 @@ function createWindow() {
         && probe.s2.loaded
         && probe.s2.counts.characters >= 1
         && probe.s2.counts.sessions >= 1
+        && probe.chat
+        && probe.chat.attempted
+        && probe.chat.replySeen
+        && probe.chat.userMessagePersisted
+        && probe.chat.replyPersisted
       );
       console.log(`SMOKE_RESULT ${JSON.stringify({ ok, screenshot, probe })}`);
       app.exit(ok ? 0 : 1);
@@ -169,6 +226,11 @@ app.whenReady().then(() => {
   ensureDefaultArtwork(paths.documentsRoot);
   fsService = createFsService({ documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
   const kvStore = createKvStore({ root: path.join(paths.userData, 'kv') });
+  if (SMOKE) {
+    startSmokeModelServer().then(({ baseUrl }) => {
+      seedSmokeApiConfig(kvStore, baseUrl);
+    });
+  }
   const secretStore = createSecretStore({ root: paths.secretsRoot, safeStorage });
   httpProxy = createHttpProxy({
     sendEvent: payload => {

@@ -1,6 +1,4 @@
 // expo-document-picker 适配：走主进程原生对话框。
-import { createLazyDefault } from './bridge.js';
-
 export function createDocumentPicker(bridge) {
   return {
     getDocumentAsync: async ({ type, multiple } = {}) => {
@@ -13,10 +11,19 @@ export function createDocumentPicker(bridge) {
       }
       return {
         canceled: false,
-        assets: result.files.map(file => ({ uri: `file:///${String(file.path).replace(/\\/g, '/').replace(/^\//, '')}`, name: file.name })),
+        assets: result.files.map(file => ({ uri: file.uri, name: file.name })),
       };
     },
   };
 }
 
-export default createLazyDefault(createDocumentPicker);
+const bridge = typeof globalThis !== 'undefined' ? globalThis.easychat2 : null;
+const instance = bridge ? createDocumentPicker(bridge) : null;
+const ensure = () => {
+  if (!instance) throw new Error('desktop bridge unavailable');
+  return instance;
+};
+
+export const getDocumentAsync = (...args) => ensure().getDocumentAsync(...args);
+
+export default instance || { getDocumentAsync };

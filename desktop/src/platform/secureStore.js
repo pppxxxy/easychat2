@@ -1,8 +1,9 @@
 // expo-secure-store 适配（design.md「适配层契约 3」）：四个方法的形状与 expo 一致。
-// 真实加密在主进程（safeStorage / DPAPI）；`secure:v1:<id>` 引用格式由共享层维护，
-// 这里只是按 id 存取。
-import { createLazyDefault } from './bridge.js';
-
+//
+// 两种消费方式都要覆盖：
+//   · storage/secretStore.js 的惰性 `require('expo-secure-store')`（由 polyfills 的
+//     require 桥映射到本模块的 default 实例）；
+//   · 共享层（或未来桌面代码）的命名导入。
 export function createSecureStore(bridge) {
   const secret = bridge.secret;
   return {
@@ -13,4 +14,16 @@ export function createSecureStore(bridge) {
   };
 }
 
-export default createLazyDefault(createSecureStore);
+const bridge = typeof globalThis !== 'undefined' ? globalThis.easychat2 : null;
+const instance = bridge ? createSecureStore(bridge) : null;
+const ensure = () => {
+  if (!instance) throw new Error('desktop bridge unavailable');
+  return instance;
+};
+
+export const isAvailableAsync = (...args) => ensure().isAvailableAsync(...args);
+export const getItemAsync = (...args) => ensure().getItemAsync(...args);
+export const setItemAsync = (...args) => ensure().setItemAsync(...args);
+export const deleteItemAsync = (...args) => ensure().deleteItemAsync(...args);
+
+export default instance || { isAvailableAsync, getItemAsync, setItemAsync, deleteItemAsync };

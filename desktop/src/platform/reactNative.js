@@ -7,6 +7,8 @@
 //   「偷偷复用 RN 组件」的退化路径依旧在构建期失败。
 import { useEffect, useState } from 'react';
 
+import { mediaUrl } from './mediaUrl.js';
+
 export { Alert } from './alert.js';
 export { Platform } from './platform.js';
 
@@ -33,3 +35,27 @@ export function useWindowDimensions() {
   }, []);
   return dimensions;
 }
+
+// 仅静态方法：共享层（chat/attachments.js）用 Image.getSize 探测本地图片尺寸。
+// 刻意不提供组件形态（`<Image/>` 用法不会得到 RN 的组件，桌面界面用自己的 <img>）；
+// 本地 file:// 先转 easychat2-media:// 再交给 DOM 加载，与界面渲染同一套协议。
+export const Image = Object.freeze({
+  getSize(uri, success, failure) {
+    const src = mediaUrl(uri) || String(uri || '');
+    if (!src) {
+      if (typeof failure === 'function') failure(new Error('empty image uri'));
+      return;
+    }
+    const probe = new globalThis.Image();
+    probe.onload = () => {
+      if (typeof success === 'function') success(probe.naturalWidth || probe.width, probe.naturalHeight || probe.height);
+    };
+    probe.onerror = () => {
+      if (typeof failure === 'function') failure(new Error(`image load failed: ${src}`));
+    };
+    probe.src = src;
+  },
+  prefetch() {
+    // 渲染进程无需预取（图片走自定义协议，本地读取无网络成本）。
+  },
+});

@@ -4,6 +4,7 @@
 // 不走这里；dialog:alert 保留给主进程侧需要原生模态的场景（如启动失败弹窗）。
 // 文件选择/保存/在文件夹中显示是需要原生能力的部分，只能走主进程。
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export function registerDialogIpc(ipcMain, { dialog, shell, clipboard, resolver } = {}) {
   const requireResolver = resolver || null;
@@ -40,7 +41,13 @@ export function registerDialogIpc(ipcMain, { dialog, shell, clipboard, resolver 
     });
     return {
       canceled: result.canceled,
-      files: (result.filePaths || []).map(filePath => ({ name: path.basename(filePath), path: filePath })),
+      // uri 由主进程给出（唯一能做 path -> file URL 转换的一侧），渲染层不再处理
+      // Windows 反斜杠；path 保留给需要「在文件夹中显示」等主进程侧用途。
+      files: (result.filePaths || []).map(filePath => ({
+        name: path.basename(filePath),
+        path: filePath,
+        uri: pathToFileURL(filePath).href,
+      })),
     };
   });
 

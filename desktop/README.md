@@ -3,17 +3,20 @@
 Windows 桌面版（Electron 外壳 + React DOM 界面）。需求与设计见
 [`.monkeycode/specs/2026-11-11-windows-desktop/`](../.monkeycode/specs/2026-11-11-windows-desktop/)。
 
-## 当前阶段：S2（共享层接入：角色/会话读写）
+## 当前阶段：S3（聊天主流程：文本收发 + 流式 + 落盘）
 
 - `electron/`：主进程（窗口、键值仓、文件、密钥、流式 HTTP、媒体协议、对话框、
   内置角色素材复制）。
 - `src/platform/`：渲染层适配层，是共享层 `src/` 的 import 落点（别名表见 `vite.config.mjs`）。
 - `src/provider/DesktopApp.jsx`：逐字复用 AppContext / I18nContext / ThemeContext 的
-  桌面界面骨架——角色列表（头像经 `easychat2-media://`）、会话列表、语言与主题切换。
+  桌面界面骨架——角色列表（头像经 `easychat2-media://`）、会话列表、聊天（文本收发/
+  流式/重新生成）、语言与主题切换、应用内 Alert。
+- `src/provider/useDesktopChat.js`：复用 useSessionMessages + useChatSend 的发送/落盘编排
+  （配置指纹、迟到回复丢弃、串行落盘、草稿恢复），桌面不支持的能力收敛为 no-op。
 - `tests/`：适配层行为测试（纯 Node）；`npm run smoke` 在真实 Electron 里做全链路
   探测并截图（S1+S2 验收物）。
-- S3 起接入聊天界面（useChatSend/useSessionMessages 编排），S5 做导入导出与
-  跨端媒体路径重写（手机↔桌面双向），S6 打包。
+- S4 接入 Markdown/富 HTML/附件/贴纸与媒体渲染；S5 做导入导出与跨端媒体路径重写
+  （手机↔桌面双向）；S6 打包与 Windows CI。
 
 ## 命令
 

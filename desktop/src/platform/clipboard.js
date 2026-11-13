@@ -1,6 +1,4 @@
 // expo-clipboard 适配：写走主进程（Electron clipboard），读走 navigator.clipboard。
-import { createLazyDefault } from './bridge.js';
-
 export function createClipboard(bridge) {
   return {
     setStringAsync: async text => {
@@ -13,4 +11,14 @@ export function createClipboard(bridge) {
   };
 }
 
-export default createLazyDefault(createClipboard);
+const bridge = typeof globalThis !== 'undefined' ? globalThis.easychat2 : null;
+const instance = bridge ? createClipboard(bridge) : null;
+const ensure = () => {
+  if (!instance) throw new Error('desktop bridge unavailable');
+  return instance;
+};
+
+export const setStringAsync = (...args) => ensure().setStringAsync(...args);
+export const getStringAsync = (...args) => ensure().getStringAsync(...args);
+
+export default instance || { setStringAsync, getStringAsync };

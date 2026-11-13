@@ -102,7 +102,15 @@ export function createFsService({ documentsRoot, cacheRoot, fetchImpl = globalTh
       fs.mkdirSync(resolve(uri), { recursive: !!intermediates });
     },
     async readDir(uri) {
-      return fs.readdirSync(resolve(uri));
+      try {
+        return fs.readdirSync(resolve(uri));
+      } catch (error) {
+        // 媒体目录首次启动时不存在是常态（chat-images/voice/... 按需创建）。
+        // Android 的 readDirectoryAsync 抛错、由调用方 catch；桌面归一到「空目录」，
+        // 语义等价且不制造 IPC 错误日志。
+        if (error && error.code === 'ENOENT') return [];
+        throw error;
+      }
     },
     async copy(from, to) {
       const source = resolve(from);
