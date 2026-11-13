@@ -2,7 +2,8 @@
 export const desktop = {
   'desktop.status.available': 'Available',
   'desktop.status.unsupported': 'Not supported on desktop',
-          'desktop.autoBackup.hint': 'This desktop build backs up only into the app-private directory (the button below opens it). The phone’s “choose folder” relies on Android content:// directory grants; desktop has no long-lived directory handle, and a stale path would make every automatic backup fail silently, so it is not offered.',
+            'desktop.security.appLockUnsupported': 'Desktop does not offer the biometric app lock: it depends on the phone’s system-lock/fingerprint entry point. Per-character locks use a passcode you choose, which is platform-independent, so they work here too (stored encrypted via Electron safeStorage).',
+'desktop.autoBackup.hint': 'This desktop build backs up only into the app-private directory (the button below opens it). The phone’s “choose folder” relies on Android content:// directory grants; desktop has no long-lived directory handle, and a stale path would make every automatic backup fail silently, so it is not offered.',
 'desktop.proactive.desktopOnlyHint': 'This desktop build can configure proactive messages (time slots, styles, continuation session) but does not fire them on its own: on the phone a system background service wakes the app, which has no equivalent once the desktop process exits. The configuration is stored in the same data the phone reads, so it takes effect there.',
 'desktop.books.docxUnsupported': 'This desktop build parses plain text and Markdown only. Word (.docx) is zipped XML and needs extra unpacking/parsing; import it on your phone, or save it as txt / Markdown and import that here.',
 'desktop.games.nativeHint': '“Daily Wife” reads character-library data (affinity, schedule, chat history) and runs in a native panel on the phone; the desktop build ships the web games only for now.',

@@ -31,6 +31,7 @@ import CharacterEditScreen from '../character/CharacterEditScreen.jsx';
 import CharacterLibraryScreen from '../character/CharacterLibraryScreen.jsx';
 import ExtensionScreen from '../extension/ExtensionScreen.jsx';
 import { resolveExtensionRoute } from '../extension/extensionRoutes.js';
+import RoleLockGate from '../settings/RoleLockGate.jsx';
 import MemoryListScreen from '../memory/MemoryListScreen.jsx';
 import GroupCreatePanel from '../group/GroupCreatePanel.jsx';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
@@ -584,7 +585,16 @@ function Shell() {
             <ExtensionScreen palette={palette} fonts={fonts} onOpen={setExtensionScreenId} />
           )
         ) : activeSessionId ? (
-          <ChatPane palette={palette} fonts={fonts} />
+          // 单角色锁：上锁的角色要先输入密码才渲染聊天面板。
+          // 闸门放在 ChatPane 之前而不是包住整个 App——手机上它也只在聊天路由判定。
+          <RoleLockGate
+            characterId={activeCharacter ? activeCharacter.id : ''}
+            characterName={activeCharacter ? activeCharacter.name : ''}
+            palette={palette}
+            fonts={fonts}
+          >
+            <ChatPane palette={palette} fonts={fonts} />
+          </RoleLockGate>
         ) : (
           <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: palette.textMuted }}>
             {t('chat.list.emptyTitle')} …
