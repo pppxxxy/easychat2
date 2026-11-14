@@ -37,6 +37,9 @@ export default function BookReader({
   fonts,
   onBack,
   onProgressSaved = null,
+  // 当前章上报：评论面板要按「读者正在读的那一章」生成短评并锚定到该章。
+  // 手机 BookCommentsModal 的「按章生成」就是这个语义（chapterTitle + anchor）。
+  onChapterChange = null,
 }) {
   const { t } = useTranslation();
   const [chapterIndex, setChapterIndex] = useState(0);
@@ -60,6 +63,14 @@ export default function BookReader({
   const bodyText = hasChapters && current
     ? blocks[current.blockIndex] && blocks[current.blockIndex].text || ''
     : String(text || '');
+
+  // 把「当前章」上报给宿主：评论生成与锚定都用它，否则评论会锚到第 0 章。
+  const chapterTitle = hasChapters && current ? String(current.title || '') : '';
+  const chapterBlockIndex = hasChapters && current ? Number(current.blockIndex) || 0 : 0;
+  useEffect(() => {
+    if (typeof onChapterChange !== 'function') return;
+    onChapterChange({ title: chapterTitle, blockIndex: chapterBlockIndex });
+  }, [chapterBlockIndex, chapterTitle, onChapterChange]);
 
   // 恢复上次进度：chapterProgress 是 { [blockIndex]: { percent } }，取第一个有记录的章。
   const restoredRef = useRef(false);

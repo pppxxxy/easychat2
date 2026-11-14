@@ -60,8 +60,13 @@ test('聊天页菜单：ported/done 项在桌面确实存在，denied 项理由�
   assert.ok(menu.includes("key: 'edit-role'"), '缺编辑角色菜单项');
   assert.ok(pane.includes('onEditRole'), '聊天页未把编辑角色接进菜单');
   assert.ok(read('src', 'provider', 'DesktopApp.jsx').includes('onEditCharacter'), '宿主未提供编辑角色回调');
-  // denied：公告是远端订阅（桌面无该 Feed），本地日志依赖本地模型运行时。
-  assert.ok(!/chat\.menu\.notice/.test(menu), '公告入口不该凭空出现（无远端 Feed）');
+  // S38 起公告已实现（AnnouncementDialog + 免责条款复用），不再是 denied。
+  // 判据改为「入口与宿主回调链都在」——避免只加菜单项、点了没反应。
+  assert.ok(/chat\.menu\.notice/.test(menu), '缺公告菜单项');
+  assert.ok(menu.includes('onOpenNotice'), '菜单未接公告回调');
+  assert.ok(pane.includes('onOpenNotice'), '聊天页未透传公告回调');
+  assert.ok(read('src', 'provider', 'DesktopApp.jsx').includes('setShowDisclaimer(true)'),
+    '宿主未把公告接到免责条款弹层');
 });
 
 // ---------------------------------------------------------------------------

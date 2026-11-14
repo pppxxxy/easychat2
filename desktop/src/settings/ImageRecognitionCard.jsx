@@ -111,6 +111,27 @@ export default function ImageRecognitionCard({ palette, fonts }) {
           disabled={busy}
         />
       </Field>
+      {/* 画面识别来源：看屏幕时走主模型直接看图，还是先用 OCR 转成文字描述。
+          共享层 resolveScreenWatchSource 一直支持这两种，但桌面此前没有切换入口，
+          用户改不了 → 永远走默认 main。手机在「设置 → 图片识别」里有这一项。 */}
+      <Field
+        label={t('settings.imageRecognition.screenWatch.label')}
+        hint={t('settings.imageRecognition.screenWatch.hint')}
+        palette={palette}
+        fonts={fonts}
+      >
+        <Select
+          value={String(settings.screenWatchSource || 'main')}
+          options={[
+            { value: 'main', label: t('settings.imageRecognition.screenWatch.main') },
+            { value: 'ocr', label: t('settings.imageRecognition.screenWatch.ocr') },
+          ]}
+          onChange={value => persist({ screenWatchSource: value })}
+          palette={palette}
+          fonts={fonts}
+          disabled={busy}
+        />
+      </Field>
       <Field label={t('settings.imageRecognition.prompt')} hint={t('settings.imageRecognition.promptHint')} palette={palette} fonts={fonts}>
         <textarea
           value={String(settings.prompt || '')}

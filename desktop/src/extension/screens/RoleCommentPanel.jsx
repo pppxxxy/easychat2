@@ -39,6 +39,9 @@ export default function RoleCommentPanel({
   // 与手机「播到打点自动评论」同一语义（位置进提示词，见 buildTriggerCommentPrompt）。
   triggerPositionMs = null,
   onTriggerConsumed = null,
+  // 书籍：读者当前所在的章。手机 BookCommentsModal 的「按章生成」就是这个语义。
+  chapterTitle = '',
+  chapterBlockIndex = 0,
 }) {
   const { t } = useTranslation();
   const { characters } = useApp();
@@ -88,7 +91,9 @@ export default function RoleCommentPanel({
         })
         : buildPassageCommentPrompt({
           bookName: String(target.name || ''),
-          chapterTitle: '',
+          // 用读者当前章，而不是空串——否则提示词里没有章节上下文，
+          // 角色只能对着「一句摘录」说空话。
+          chapterTitle: String(chapterTitle || ''),
           excerpt: String(note || ''),
         });
 
@@ -120,8 +125,13 @@ export default function RoleCommentPanel({
       } else {
         await appendBookComment(targetId, {
           ...base,
-          anchor: { blockIndex: 0, anchorText: '', excerpt: String(note || '').slice(0, 120) },
-          chapterTitle: '',
+          // 锚定到当前章：否则所有评论都堆在第 0 章，翻到后面看不到。
+          anchor: {
+            blockIndex: Number(chapterBlockIndex) || 0,
+            anchorText: '',
+            excerpt: String(note || '').slice(0, 120),
+          },
+          chapterTitle: String(chapterTitle || ''),
         });
       }
       await load();

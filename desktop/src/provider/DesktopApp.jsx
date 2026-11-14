@@ -705,12 +705,9 @@ function Shell() {
               palette={palette}
               fonts={fonts}
               tokens={tokens}
-              onEditCharacter={() => {
-                // 「编辑角色」提为聊天页菜单的一等公民（手机 chat.menu 同款）：
-                // 从聊天直接进编辑页，不必先绕到角色库再点编辑。
-                setCharacterScreen('edit');
-                setView('character');
-              }}
+              // 「编辑角色」是聊天菜单的一等公民（手机同款）；公告复用免责条款弹层。
+              onEditCharacter={() => { setCharacterScreen('edit'); setView('character'); }}
+              onOpenNotice={() => setShowDisclaimer(true)}
             />
           </RoleLockGate>
         ) : (

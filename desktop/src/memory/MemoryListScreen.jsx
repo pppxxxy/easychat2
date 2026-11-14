@@ -294,6 +294,20 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
         <button type="button" style={ghost(palette, fonts)} onClick={() => onTutorial && onTutorial('memory')}>
           {t('memory.a11y.tutorial')}
         </button>
+        {/* 展开/折叠全部：手机「记忆页 ⋯」的第三项，桌面此前只有逐组点击。 */}
+        <button
+          type="button"
+          style={ghost(palette, fonts)}
+          disabled={groups.length === 0}
+          onClick={() => {
+            const allOpen = groups.every(group => expanded.has(group.id));
+            setExpanded(allOpen ? new Set() : new Set(groups.map(group => group.id)));
+          }}
+        >
+          {groups.length > 0 && groups.every(group => expanded.has(group.id))
+            ? t('memory.collapseAll')
+            : t('memory.expandAll')}
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 6, padding: '0 20px 8px', flexWrap: 'wrap', alignItems: 'center' }}>

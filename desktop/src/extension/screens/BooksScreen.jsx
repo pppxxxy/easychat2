@@ -71,6 +71,8 @@ export default function BooksScreen({ palette, fonts }) {
     [shelfFilter, items]
   );
   const [activeId, setActiveId] = useState('');
+  // 阅读器当前章（由 BookReader 上报）：评论按这一章生成并锚定。
+  const [readerChapter, setReaderChapter] = useState({ title: '', blockIndex: 0 });
   const [content, setContent] = useState(null);
   const [reading, setReading] = useState(false);
 
@@ -224,10 +226,18 @@ export default function BooksScreen({ palette, fonts }) {
           palette={palette}
           fonts={fonts}
           onBack={() => { setActiveId(''); setContent(null); }}
+          onChapterChange={setReaderChapter}
         />
         {/* 和角色一起读：让角色就当前的阅读内容说一句。 */}
         <div style={{ padding: '0 16px 16px', flex: 'none' }}>
-          <RoleCommentPanel kind="books" target={activeBook} palette={palette} fonts={fonts} />
+          <RoleCommentPanel
+            kind="books"
+            target={activeBook}
+            palette={palette}
+            fonts={fonts}
+            chapterTitle={readerChapter.title}
+            chapterBlockIndex={readerChapter.blockIndex}
+          />
         </div>
       </div>
     );

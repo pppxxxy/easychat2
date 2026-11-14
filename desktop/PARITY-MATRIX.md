@@ -20,12 +20,12 @@
 | 区域 | 手机功能面 | 已对齐 | 平台差异 | 不适用 | Agent 排除 | 待补 |
 |---|---|---|---|---|---|
 | 全局 | 10 | 7 | 1 | 2 | 0 | 0 |
-| 聊天 | 32 | 25 | 4 | 0 | 3 | 0 |
-| 记忆 | 10 | 9 | 1 | 0 | 0 | 0 |
+| 聊天 | 32 | 27 | 2 | 0 | 3 | 0 |
+| 记忆 | 10 | 10 | 0 | 0 | 0 | 0 |
 | 角色 | 22 | 20 | 2 | 0 | 0 | 0 |
-| 扩展 | 42 | 31 | 3 | 5 | 3 | 0 |
+| 扩展 | 42 | 33 | 1 | 5 | 3 | 0 |
 | 设置 | 33 | 28 | 1 | 0 | 4 | 0 |
-| **合计** | **149** | **120** | **12** | **7** | **10** | **0** |
+| **合计** | **149** | **125** | **7** | **7** | **10** | **0** |
 
 > 手机上同一个弹层可能从多个入口进（免责声明、教程、预设、转写、本地模型、导入扩展），
 > 上表按「入口 × 区域」各计一次，与手机端排查时看到的入口数一致。
@@ -72,11 +72,11 @@
 | 角色编辑（聊天内） | `CharacterEditForm.js` | `character/CharacterEditScreen.jsx` | 已对齐 |
 | 群聊编辑（聊天内） | `GroupEditForm.js` | `group/GroupSettingsPanel.jsx` | 已对齐 |
 | 开场白选择 | `GreetingPickerModal.js` | `chat/GreetingPicker.jsx` | 已对齐 |
-| 公告（聊天菜单） | `onboarding/disclaimer.js` | `settings/DisclaimerDialog.jsx`（从设置进） | 平台差异：桌面不从聊天菜单重复开一份，入口归到设置→关于 |
+| 公告（聊天菜单） | `onboarding/disclaimer.js` | `chat/ChatMoreMenu.jsx`（复用 DisclaimerDialog） | 已对齐（S38 补：手机在「更多 → 公告」里有入口，桌面此前只有设置→关于） |
 | 模型切换 | `chat/ModelPanelModal.js` | `chat/ModelThinkingPanels.jsx`（ModelPanel） | 已对齐 |
 | 思考设置 | `chat/ThinkingPanelModal.js` | `chat/ModelThinkingPanels.jsx`（ThinkingPanel） | 已对齐 |
 | 运行中角色条 | `chat/RunningRunsBar.js` | `chat/RunningNoticeBar.jsx` | 已对齐 |
-| 图片消息操作（保存/存表情/引用/删除） | `ChatScreen.js:2247-2274` | `MessageActionsMenu` + `MediaMessage.jsx` | 平台差异：不支持「保存到相册」；存表情/引用/删除已对齐（删除项 S36 前是死条目，已修） |
+| 图片消息操作（保存/存表情/引用/删除） | `ChatScreen.js:2247-2274` | `MessageActionsMenu` + `chat/saveImageAs.js` | 已对齐（S38 补「另存为」：相册的桌面等价物是系统另存为对话框） |
 | 本地模型中心（聊天入口） | `LocalModelPanel.js` | 无 | Agent 排除 |
 | 工具执行确认 | `chat/toolApproval.js` | 无 | Agent 排除 |
 | ask_user 选择询问 | `chat/askUserPrompt.js` | 无 | Agent 排除 |
@@ -93,7 +93,7 @@
 | 记忆体检 | `memory/MemoryCheckupModal.js` | `memory/MemoryCheckupPanel.jsx` | 已对齐 |
 | 丢失会话恢复 | `SessionRecoveryModal.js` | `memory/OrphanRecoveryPanel.jsx` | 已对齐 |
 | 屏幕对话管理 | `MemoryScreen.js:455-468` | `memory/ScreenWatchThreadsPanel.jsx` | 已对齐 |
-| 记忆页 ⋯ 菜单 | `MemoryScreen.js:134-154` | `MemoryListScreen`（体检/恢复/搜索直出） | 平台差异：桌面没有折叠菜单，三个入口直接平铺（点击路径更短） |
+| 记忆页 ⋯ 菜单 | `MemoryScreen.js:134-154` | `MemoryListScreen`（体检/教程/展开折叠全部 + 恢复/搜索） | 已对齐（S38 补「展开/折叠全部」；其余项本就平铺，入口更短） |
 | 记忆教学 | `MemoryScreen.js:643` + `books/ChapterModal.js` | `settings/TutorialDialog.jsx`（记忆页「教程」） | 已对齐 |
 | 记忆溯源 | `memory/MemoryProvenanceModal.js` | `memory/MemoryProvenancePanel.jsx` | 已对齐 |
 
@@ -150,12 +150,12 @@
 | 阅读器字号增减 | `BookReaderView.js:616-619` | `BookReader.jsx`（A-/A+，共享 `books/readerFont.js`） | 已对齐（S36 补） |
 | 阅读器翻页方式（点击/滑动/仿真翻书） | `BookReaderView` + `readerSettings.js` | 无 | 不适用：依赖 RN 文本测量做逐行分页；桌面是滚动阅读，翻页手势无对应物 |
 | 章节目录 | `BookChaptersModal.js` | `BookReader.jsx`（章节下拉） | 已对齐 |
-| 陪读评论 | `BookCommentsModal.js` | `RoleCommentPanel.jsx`（kind=books） | 平台差异：手机按页/按章批量生成，桌面按当前章手动生成 |
+| 陪读评论 | `BookCommentsModal.js` | `RoleCommentPanel.jsx`（kind=books，读当前章） | 已对齐（S38 修正：原先 `chapterTitle`/`anchor` 写死为空，评论不锚定到读者所在章；现由 BookReader 上报当前章） |
 | 书架命名 / 选择 | `ui/CollectionModals.js` | `BookshelfPanel.jsx` | 已对齐 |
 | 屏幕注视 | `screenWatch/ScreenWatchScreen.js` | `extension/screens/ScreenWatchScreen.jsx` | 已对齐（截本应用画面） |
 | 悬浮窗控制 | `screenWatch/ScreenWatchScreen.js:442-478` | 无 | 不适用：SYSTEM_ALERT_WINDOW + MediaProjection |
 | 无障碍服务卡 | `screenWatch/AccessibilityCard.js` | 无 | 不适用：Android 无障碍服务 |
-| 画面识别来源卡（主模型直看 / OCR 先转文字） | `screenWatch/FrameRecognitionCard.js` | 设置→图片识别（OCR 开关） | 平台差异：能力存在但不在该页就地切换 |
+| 画面识别来源卡（主模型直看 / OCR 先转文字） | `screenWatch/FrameRecognitionCard.js` | `settings/ImageRecognitionCard.jsx`（`screenWatchSource` 选择器） | 已对齐（S38 补：共享 hook 一直支持两种来源，但桌面缺切换入口 → 永远走默认 main） |
 | 悬浮球头像卡 | `screenWatch/AvatarCard.js` | 无 | 不适用：悬浮窗子功能 |
 | 主动消息 | `ProactivePanel.js:148` | `extension/screens/ProactiveScreen.jsx` | 平台差异：桌面只在窗口开着时到点触发（无后台服务） |
 | 主动消息风格/时段编辑 | `proactive/ProactiveStyleEditor.js` | `ProactiveScreen.jsx`（风格权重表） | 已对齐 |
@@ -213,8 +213,8 @@
 
 **矩阵内已无「待补」。** 手机端 149 个用户可达功能面全部落到下面四种状态之一：
 
-- **已对齐 120**：桌面有等价功能面，且判定/数据来自共享层（不是重写一份）。
-- **平台差异 12**：桌面有等价功能面，交互形态因平台不同（如相机→文件选择、系统分享→另存为）。
+- **已对齐 125**：桌面有等价功能面，且判定/数据来自共享层（不是重写一份）。
+- **平台差异 7**：桌面有等价功能面，交互形态因平台不同（如相机→文件选择、系统分享→另存为）。
 - **不适用 7**：依赖手机独有硬件/系统能力（生物识别、悬浮窗、无障碍、系统权限）。
 - **Agent 排除 10**：按本次任务范围排除（agent 运行时、MCP、插件运行时、工作区、本地模型）。
 

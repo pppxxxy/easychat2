@@ -22,6 +22,7 @@ export default function MessageActionsMenu({
   onDeleteImageMessage,
   onBroadcast,
   onSaveAsSticker = null,
+  onSaveImage = null,
   canRegenerate,
 }) {
   const { t } = useTranslation();
@@ -57,6 +58,16 @@ export default function MessageActionsMenu({
         key: 'sticker',
         label: t('chat.bubble.saveAsSticker'),
         onPress: () => onSaveAsSticker(message.image),
+      });
+    }
+    // 另存为：手机是「保存到相册」（expo-media-library），桌面没有相册概念，
+    // 等价物是系统另存为对话框。共享层 chatMedia 的 URI 已在 documents 下，
+    // backup:saveAs 只接受 documents/cache 内的源，所以先复制进 cache 再另存。
+    if (onSaveImage) {
+      items.push({
+        key: 'save-image',
+        label: t('chat.saveImage.dialogTitle'),
+        onPress: () => onSaveImage(message.image),
       });
     }
     if (onQuote) items.push({ key: 'quote', label: t('chat.bubble.quote'), onPress: () => onQuote(message) });

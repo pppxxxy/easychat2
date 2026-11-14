@@ -37,6 +37,7 @@ import { ModelPanel, ThinkingPanel } from '../chat/ModelThinkingPanels.jsx';
 import ContextUsageBar from '../chat/ContextUsageBar.jsx';
 import GreetingPicker from '../chat/GreetingPicker.jsx';
 import ChatInfoPanels from '../chat/ChatInfoPanels.jsx';
+import { saveImageAs } from '../chat/saveImageAs.js';
 import { consumeGreetingPicker, subscribe as subscribeGreetingRequest } from '../chat/greetingRequest.js';
 import useDesktopBranches from '../chat/useDesktopBranches.js';
 import useDesktopCompaction from '../chat/useDesktopCompaction.js';
@@ -50,7 +51,7 @@ import useDesktopChat from './useDesktopChat.js';
 import useDesktopChatSearch from '../chat/useDesktopChatSearch.js';
 import useDesktopMemorySummary from '../chat/useDesktopMemorySummary.js';
 
-export default function ChatPane({ palette, fonts, tokens, onEditCharacter = null, onOpenTranscription = null }) {
+export default function ChatPane({ palette, fonts, tokens, onEditCharacter = null, onOpenTranscription = null, onOpenNotice = null }) {
   const { t } = useTranslation();
   const chat = useDesktopChat();
   const {
@@ -337,6 +338,8 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
     canSummarize: !!ready && !isSending,
     onOpenStats: () => openOverlay('stats'),
     onOpenVoiceSettings: () => openOverlay('voiceSettings'),
+    // 公告：与设置→关于→免责条款是同一份内容（宿主传 onOpenNotice 进来）。
+    onOpenNotice: typeof onOpenNotice === 'function' ? onOpenNotice : null,
     onOpenExport: () => openOverlay('export'),
     canExport: messages.length > 0,
     onReselectGreeting: () => greeting.open('reselect'),
@@ -775,6 +778,8 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
           onDeleteImageMessage={selection.removeOne}
           // 手动播报：走共享 useChatTts（会自己 resolve 角色/全局 TTS 配置）。
           onBroadcast={target => chat.broadcastMessage(String((target && target.text) || ''))}
+          // 另存为：手机的「保存到相册」在桌面的等价物（逻辑见 chat/saveImageAs.js）。
+          onSaveImage={saveImageAs}
           // 存为表情包：复用桌面图片链路（scale + JPEG，与手机同口径），处理完进命名对话框。
           onSaveAsSticker={image => {
             if (!image || !image.uri) return;

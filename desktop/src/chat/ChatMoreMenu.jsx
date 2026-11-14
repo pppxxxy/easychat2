@@ -21,6 +21,7 @@ export default function ChatMoreMenu({
   canSummarize,
   onOpenStats,
   onOpenVoiceSettings,
+  onOpenNotice,
   onOpenExport,
   canExport,
   onReselectGreeting,
@@ -145,6 +146,9 @@ export default function ChatMoreMenu({
       disabled: !canExport,
       onClick: onOpenExport,
     },
+    // 公告：手机在「更多 → 公告」里复用免责声明弹层（同一份内容，只读）。
+    // 桌面此前只把免责声明放在设置→关于，聊天里没有入口。
+    { key: 'notice', label: t('chat.menu.notice'), onClick: onOpenNotice },
     // 群聊没有「开场白」概念（首条消息由调度器生成），只在单聊里给这个入口。
     isGroup ? null : {
       key: 'greeting',
