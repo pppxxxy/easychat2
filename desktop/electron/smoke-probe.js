@@ -386,6 +386,12 @@
             && (text.includes('相对文字') || text.includes('Relative to text'));
         }, 5000));
       }
+      // 聊天内工具开关（S27）：共享层早支持，桌面此前没有 UI。
+      // 文案取自 i18n：settings.global.chatTools =「聊天内工具（联网搜索）」。
+      const chatToolsToggleSeen = !!(await waitFor(() => {
+        const text = document.body.innerText || '';
+        return text.includes('聊天内工具') || text.includes('In-chat tools');
+      }, 4000));
       settings = {
         attempted: true,
         loaded: !!loaded,
@@ -393,6 +399,7 @@
         sectionsTotal: sections.length,
         inlineImageCardSeen,
         stickerControlsSeen,
+        chatToolsToggleSeen,
       };
       // 回到聊天页，避免影响后续截图。
       const chatTab = Array.from(document.querySelectorAll('button'))

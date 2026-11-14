@@ -17,14 +17,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from '../../../../src/i18n/I18nContext.js';
-import { getMomentsStatus, updateMoments } from '../../../../src/storage/moments.js';
+import {
+  getMomentsSettings,
+  getMomentsStatus,
+  saveMomentsSettings,
+  updateMoments,
+} from '../../../../src/storage/moments.js';
 import { flattenCommentThread } from '../../../../src/moments/commentThread.js';
 import { startCommentTask } from '../../../../src/moments/commentRunner.js';
 import { runUserMomentComments } from '../../../../src/moments/runUserMomentComments.js';
 import { runCharacterMomentReply } from '../../../../src/moments/runCharacterMomentReply.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Alert } from '../../platform/alert.js';
-import { Button, Card, Row, TextInput } from '../../settings/ui.jsx';
+import { Button, Card, Row, TextInput, Toggle } from '../../settings/ui.jsx';
 
 // 时间格式与手机 moments.time.format 同口径（纯展示）。
 function formatMomentTime(timestamp, t) {
@@ -66,6 +71,8 @@ function Avatar({ uri, name, palette, fonts, size = 34 }) {
 export default function MomentsScreen({ palette, fonts }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
+  // 动态总开关（手机 settings.global.moments）。读失败按「不知道」处理，不显示假开关。
+  const [settings, setSettings] = useState(null);
   const [corrupt, setCorrupt] = useState(false);
   const [moments, setMoments] = useState([]);
   const [commentDraft, setCommentDraft] = useState({});
@@ -82,6 +89,10 @@ export default function MomentsScreen({ palette, fonts }) {
       const status = await getMomentsStatus();
       setMoments(status.moments || []);
       setCorrupt(status.status === 'corrupt');
+      // 总开关与列表分开读：列表读坏不该让开关显示成「关」。
+      getMomentsSettings()
+        .then(value => { if (value) setSettings(value); })
+        .catch(() => {});
     } catch (error) {
       // 读异常（不是 corrupt）同样不能当成空表：保留当前列表并告知。
       setCorrupt(true);
@@ -258,6 +269,26 @@ export default function MomentsScreen({ palette, fonts }) {
           <div style={{ fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f', lineHeight: 1.6 }}>
             {t('moments.alert.saveFailed.bodyReadFailed')}
           </div>
+        ) : null}
+        {/* 动态总开关（手机 settings.global.moments）：关掉后扩展页入口变灰、
+            不再生成新动态。读不出设置时不显示假的「已开启」状态。 */}
+        {settings ? (
+          <Row>
+            <Toggle
+              checked={settings.enabled !== false}
+              onChange={async value => {
+                try {
+                  const saved = await saveMomentsSettings({ ...settings, enabled: value });
+                  setSettings(saved);
+                } catch (error) {
+                  Alert.alert(t('moments.alert.saveFailed.title'), t('moments.alert.saveFailed.bodyStorage'));
+                }
+              }}
+              label={t('settings.global.moments')}
+              palette={palette}
+              fonts={fonts}
+            />
+          </Row>
         ) : null}
       </Card>
 

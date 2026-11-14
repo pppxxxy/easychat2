@@ -134,6 +134,19 @@ export default function ChatOptionsCard({ palette, fonts }) {
             palette={palette}
             fonts={fonts}
           />
+          {/* 聊天内工具（联网搜索/抓取）：模型自主决定是否联网。
+              与扩展页的「联网搜索」插件是两件事——那个是关键词命中就自动搜。
+              hint 里必须保留「数据外发」说明（与手机同一份文案）。 */}
+          <Toggle
+            checked={options.chatTools === true}
+            onChange={value => patch({ chatTools: value })}
+            label={t('settings.global.chatTools')}
+            palette={palette}
+            fonts={fonts}
+          />
+          <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
+            {t('settings.global.chatToolsHint')}
+          </div>
           <Row>
             <Field label={t('settings.global.thinkingDisplay')} palette={palette} fonts={fonts}>
               <Select

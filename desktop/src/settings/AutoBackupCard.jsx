@@ -151,6 +151,11 @@ export default function AutoBackupCard({ palette, fonts, appVersion = '' }) {
             palette={palette}
             fonts={fonts}
           />
+          {/* 手机文案说的是「切到后台」；桌面没有后台，映射为「窗口隐藏/最小化」，
+              所以这里补一句平台映射，避免用户按手机语义理解。 */}
+          <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
+            {t('settings.autoBackup.onExitHint')}
+          </div>
           <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
             {t('desktop.autoBackup.hint')}
           </div>
