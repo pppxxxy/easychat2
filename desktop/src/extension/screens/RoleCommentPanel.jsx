@@ -35,6 +35,10 @@ export default function RoleCommentPanel({
   palette,
   fonts,
   onCountChange,
+  // 打点触发：播放头跨过某个打点时，宿主把这个位置传进来，面板据此自动生成一条评论。
+  // 与手机「播到打点自动评论」同一语义（位置进提示词，见 buildTriggerCommentPrompt）。
+  triggerPositionMs = null,
+  onTriggerConsumed = null,
 }) {
   const { t } = useTranslation();
   const { characters } = useApp();
@@ -78,7 +82,7 @@ export default function RoleCommentPanel({
       const prompt = isMusic
         ? buildTriggerCommentPrompt({
           songName: String(target.name || ''),
-          positionMs: 0,
+          positionMs: Number(triggerPositionMs) || 0,
           durationMs: Number(target.durationMs) || 0,
           note: String(note || ''),
         })
@@ -100,6 +104,8 @@ export default function RoleCommentPanel({
       const text = String(reply == null ? '' : reply).trim();
       if (!text) throw new Error(t('forge.screen.error.emptyAiReply'));
 
+      // 打点触发成功后清掉，避免同一次触发重复生成（宿主已按 crossed 去重，这里兜底）。
+      if (typeof onTriggerConsumed === 'function') onTriggerConsumed();
       const base = {
         id: `c-${Date.now()}`,
         characterId: String(character.id || ''),

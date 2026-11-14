@@ -122,6 +122,10 @@ const bridge = {
       return () => { notifyClickSubscribers.delete(handler); };
     },
   },
+  books: {
+    // DOCX 正文提取：传 base64 字节，主进程解 zip 取 word/document.xml。
+    docxText: base64 => invoke('books:docxText', { base64 }),
+  },
   capture: {
     // 应用内截图（看屏幕 v1）：主进程 webContents.capturePage，零权限、只截本窗口。
     appScreen: () => invoke('capture:appScreen'),

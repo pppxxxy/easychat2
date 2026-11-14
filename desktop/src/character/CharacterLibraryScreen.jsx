@@ -3,12 +3,14 @@
 // 数据与动作全部来自 AppContext 与 backup/services.js（与 Android 角色库同一套存储），
 // 本文件只决定「桌面版怎么摆」。列表派生（搜索/置顶排序/摘要）在 libraryView.js（可直测）。
 // 删除沿用共享层的顺序纪律：先删角色（可重试），成功后才清会话；默认角色不可删。
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
 import { mediaUrl } from '../platform/mediaUrl.js';
 import { characterSummary, filterCharacters, sortCharacters } from './libraryView.js';
+// 多选判据与「是否删光整库」都用共享实现（手机 CharacterLibraryScreen 同源）。
+import { selectableCharacterIds, shouldDeleteEverything } from '../../../src/character/characterLibraryDelete.js';
 import { exportCharacterCard } from '../backup/services.js';
 import CharacterShareDialog from './CharacterShareDialog.jsx';
 
@@ -60,6 +62,9 @@ export default function CharacterLibraryScreen({
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
+  // 多选态：与手机同一套判据（可删 id、全选、删光整库升级重确认）。
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
   const visible = useMemo(
     () => sortCharacters(filterCharacters(characters, query)),
     [characters, query]
@@ -73,6 +78,93 @@ export default function CharacterLibraryScreen({
     padding: '4px 9px',
     cursor: busy ? 'default' : 'pointer',
     fontSize: fonts.scaled(11),
+  };
+
+  // 只允许勾选「筛选后可见且可删」的角色：默认角色不可删，筛选外的不该被全选带走。
+  const selectableIds = useMemo(() => selectableCharacterIds(visible), [visible]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.includes(id));
+  useEffect(() => {
+    // 筛选变化后把已不可见的勾选去掉，避免「看着选了 3 个实际删了 5 个」。
+    setSelectedIds(current => current.filter(id => selectableIds.includes(id)));
+  }, [selectableIds]);
+
+  const toggleSelect = id => {
+    setSelectedIds(current => (
+      current.includes(id) ? current.filter(item => item !== id) : [...current, id]
+    ));
+  };
+
+  // 批量删除：确认门与手机一致——只有真要删光整库才升级成「删除全部」重确认。
+  const deleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    const ids = selectedIds.slice();
+    if (shouldDeleteEverything(ids, characters)) {
+      Alert.alert(
+        t('character.library.deleteAll.title'),
+        t('character.library.deleteAll.body'),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          {
+            text: t('character.library.deleteAll.confirm'),
+            style: 'destructive',
+            onPress: () => confirmBatch(ids),
+          },
+        ]
+      );
+      return;
+    }
+    Alert.alert(
+      t('character.library.delete.title'),
+      t('character.library.delete.introBatch', { count: ids.length }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('character.library.delete.continue'),
+          style: 'destructive',
+          onPress: () => confirmBatch(ids),
+        },
+      ]
+    );
+  };
+
+  // 第二批确认：有关联数据时给出「只删角色 / 连记忆一起删」（与单个删除同一口径）。
+  const confirmBatch = async ids => {
+    let impact = null;
+    try {
+      impact = await onCollectDeleteImpact(ids);
+    } catch (error) {
+      Alert.alert(t('common.error.deleteFailed'), t('common.error.storageOrPermission'));
+      return;
+    }
+    const details = [];
+    if (impact && impact.sessionIds.length > 0) {
+      details.push(t('character.library.delete.detail.memories', { count: impact.sessionIds.length }));
+    }
+    if (impact && impact.linkedMoments > 0) {
+      details.push(t('character.library.delete.detail.moments', { count: impact.linkedMoments }));
+    }
+    const run = deleteMemories => {
+      // 逐个走同一条删除编排（onDelete 内部已含 fail-closed 的连带清理）。
+      ids.forEach(id => onDelete(id, { deleteMemories }));
+      setSelectedIds([]);
+      setSelecting(false);
+    };
+    if (details.length === 0) {
+      run(false);
+      return;
+    }
+    Alert.alert(
+      t('character.library.delete.title'),
+      t('character.library.delete.withLinked', {
+        intro: t('character.library.delete.introBatch', { count: ids.length }),
+        details: details.join(t('character.library.delete.detail.join')),
+      }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('character.library.delete.onlyCharacter'), onPress: () => run(false) },
+        { text: t('common.delete'), style: 'destructive', onPress: () => run(true) },
+      ]
+    );
   };
 
   // 删除角色：先统计关联数据（会话/动态），有就给出「只删角色 / 连记忆一起删」两选。
@@ -185,6 +277,19 @@ export default function CharacterLibraryScreen({
             }}
           />
         </div>
+        <button
+          type="button"
+          style={ghost}
+          disabled={!!busy}
+          onClick={() => {
+            setSelecting(current => {
+              if (current) setSelectedIds([]);
+              return !current;
+            });
+          }}
+        >
+          {selecting ? t('common.cancel') : t('character.library.select')}
+        </button>
         <button type="button" style={ghost} disabled={!!busy} onClick={onImport}>
           {t('backup.card.import')}
         </button>
@@ -209,6 +314,41 @@ export default function CharacterLibraryScreen({
       <div style={{ color: palette.textMuted, fontSize: fonts.scaled(11), marginBottom: 14 }}>
         {t('character.library.pageHint')}
       </div>
+      {selecting ? (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+          padding: '8px 0',
+          borderBottom: `1px solid ${palette.divider}`,
+          marginBottom: 10,
+        }}
+        >
+          <button type="button" style={ghost} onClick={() => setSelectedIds(allSelected ? [] : selectableIds.slice())}>
+            {allSelected ? t('settings.security.bulk.clearAll') : t('settings.security.bulk.selectAll')}
+          </button>
+          <span style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>
+            {t('character.library.selectedCount', { count: selectedIds.length })}
+          </span>
+          <button
+            type="button"
+            onClick={deleteSelected}
+            disabled={selectedIds.length === 0}
+            style={{
+              background: selectedIds.length === 0 ? 'transparent' : (palette.danger || '#ff5a5f'),
+              color: selectedIds.length === 0 ? palette.textFaint : '#fff',
+              border: `1px solid ${selectedIds.length === 0 ? palette.divider : (palette.danger || '#ff5a5f')}`,
+              borderRadius: 8,
+              padding: '4px 12px',
+              fontSize: fonts.scaled(11),
+              cursor: selectedIds.length === 0 ? 'default' : 'pointer',
+            }}
+          >
+            {t('common.delete')}
+          </button>
+        </div>
+      ) : null}
 
       {visible.length === 0 ? (
         <div style={{ color: palette.textMuted, fontSize: fonts.scaled(12), padding: '18px 0' }}>
@@ -237,6 +377,17 @@ export default function CharacterLibraryScreen({
                 }}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  {/* 多选态：勾选框在最左；默认角色不可删，所以不给勾选框（与共享
+                      selectableCharacterIds 的判据一致）。 */}
+                  {selecting && selectableIds.includes(character.id) ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(character.id)}
+                      onChange={() => toggleSelect(character.id)}
+                      aria-label={character.name || t('character.detail.unnamed')}
+                      style={{ marginTop: 6, flex: 'none' }}
+                    />
+                  ) : null}
                   <Avatar uri={character.avatarUri} name={character.name} palette={palette} fonts={fonts} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

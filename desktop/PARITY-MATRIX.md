@@ -22,10 +22,10 @@
 | 全局 | 10 | 7 | 1 | 2 | 0 | 0 |
 | 聊天 | 32 | 25 | 4 | 0 | 3 | 0 |
 | 记忆 | 10 | 9 | 1 | 0 | 0 | 0 |
-| 角色 | 22 | 19 | 2 | 0 | 0 | 1 |
-| 扩展 | 42 | 27 | 3 | 5 | 3 | 4 |
+| 角色 | 22 | 20 | 2 | 0 | 0 | 0 |
+| 扩展 | 42 | 31 | 3 | 5 | 3 | 0 |
 | 设置 | 33 | 28 | 1 | 0 | 4 | 0 |
-| **合计** | **149** | **115** | **12** | **7** | **10** | **5** |
+| **合计** | **149** | **120** | **12** | **7** | **10** | **0** |
 
 > 手机上同一个弹层可能从多个入口进（免责声明、教程、预设、转写、本地模型、导入扩展），
 > 上表按「入口 × 区域」各计一次，与手机端排查时看到的入口数一致。
@@ -104,7 +104,7 @@
 | 角色库 | `character/CharacterLibraryScreen.js` | `character/CharacterLibraryScreen.jsx` | 已对齐 |
 | 新建角色 | `CharacterLibraryScreen.js:401` | 同左（+「导入/新建」） | 已对齐 |
 | 创建群聊 | `character/GroupCreateModal.js` | `group/GroupCreatePanel.jsx` | 已对齐 |
-| 多选批量删除 | `CharacterLibraryScreen.js:228` | 无 | 待补：桌面只有逐卡删除（走同一条 `runCharacterDelete` 编排），没有多选态 |
+| 多选批量删除 | `CharacterLibraryScreen.js:228` | `CharacterLibraryScreen.jsx`（多选态 + 共享判据） | 已对齐（S37 补；删光整库升级重确认） |
 | 角色详情 | `character/CharacterDetailScreen.js` | `character/CharacterEditScreen.jsx` | 平台差异：手机是四段切换（人设/世界书/正则/预设），桌面是单页滚动分区 |
 | 人设段 | `CharacterDetailScreen.js:783` | `CharacterEditScreen.jsx:432-540` | 已对齐 |
 | 世界书段 / 条目编辑 | `CharacterDetailScreen.js:1198` + `CharacterEntryModals.js` | `CharacterEditScreen.jsx:129-248` | 已对齐 |
@@ -133,7 +133,7 @@
 | 制卡编辑器（全字段） | `CardForgeEditor.js:557` | `ForgeAdvancedPanels.jsx` + 字段区 | 已对齐 |
 | 制卡预览 / 模拟对话 | `CardPreviewModal.js` | `forgeAssist.jsx:80-178` | 已对齐 |
 | 制卡 AI 补写 | `CardForgeEditor.js:953-1014` | `forgeAssist.jsx:25-78` | 已对齐 |
-| 制卡头像/背景 AI 生成 | `CardForgeEditor.js:1016-1060` | 无 | 待补：桌面有「图片制卡」（以图生成整卡），但没有对单张头像/背景单独重生成 |
+| 制卡头像/背景 AI 生成 | `CardForgeEditor.js:1016-1060` | `extension/screens/useDesktopForgeImage.js` | 已对齐（S37 补；用已配生图服务重画单张） |
 | 图像生成 | `ImageGenScreen.js` | `extension/screens/ImageGenScreen.jsx` | 已对齐 |
 | 图像服务/模型选择 | `ImageGenScreen.js:718-761` | `ImageGenScreen.jsx`（内联选择） | 已对齐 |
 | 图像服务设置（baseUrl/key/额外参数） | `imageGen/ProviderSettingsModal.js` | `ImageGenScreen.jsx`（内联表单） | 已对齐 |
@@ -141,11 +141,11 @@
 | 动态 | `MomentsView.js` | `extension/screens/MomentsScreen.jsx` | 已对齐 |
 | 动态教程 | `MomentsView.js:483` | `settings/TutorialDialog.jsx` | 已对齐 |
 | 音乐库 | `music/MusicScreen.js` | `extension/screens/MusicScreen.jsx` | 已对齐 |
-| 音乐播放控制（进度/倍速/上下首/15秒/播放模式） | `MusicScreen.js:120`+ | `MusicScreen.jsx`（仅播放/暂停） | 待补：桌面播放器只做了播放/暂停，进度拖动、倍速、上一首/下一首、前后 15 秒、播放模式均未接 |
-| 音乐陪伴设置（切片/采样率/自动评论） | `MusicScreen.js:534` | `RoleCommentPanel.jsx`（手动生成） | 待补：桌面只能手动让角色评论，没有切片与自动评论链 |
+| 音乐播放控制（进度/倍速/上下首/15秒/播放模式） | `MusicScreen.js:120`+ | `extension/screens/useDesktopMusicPlayer.js` | 已对齐（S37 补；判定全用共享 playerSettingsPure） |
+| 音乐陪伴设置（切片/采样率/自动评论） | `MusicScreen.js:534` | `extension/screens/useDesktopMusicClips.js`（AudioContext 切片 + 打点触发） | 已对齐（S37 补；判定全用共享 audioClip/triggers） |
 | 歌单命名 / 选择 | `ui/CollectionModals.js` | `MusicPlaylistPanel.jsx` | 已对齐 |
 | 书籍库 | `books/BookScreen.js` | `extension/screens/BooksScreen.jsx` | 已对齐 |
-| DOCX 导入 | `books/decodeText.js`（手机走原生/第三方库） | 明确拒绝（`desktop.books.docxUnsupported`） | 待补：桌面只解析 txt/md；DOCX 需 zip+XML 解析 |
+| DOCX 导入 | `books/decodeText.js`（手机走原生/第三方库） | `electron/ipc/docx.js` + 共享 `books/docxText.js` | 已对齐（S37 补；主进程解 zip，存成 txt 复用阅读链路） |
 | 阅读器（分章/进度） | `books/BookReaderView.js` | `extension/screens/BookReader.jsx` | 已对齐 |
 | 阅读器字号增减 | `BookReaderView.js:616-619` | `BookReader.jsx`（A-/A+，共享 `books/readerFont.js`） | 已对齐（S36 补） |
 | 阅读器翻页方式（点击/滑动/仿真翻书） | `BookReaderView` + `readerSettings.js` | 无 | 不适用：依赖 RN 文本测量做逐行分页；桌面是滚动阅读，翻页手势无对应物 |
@@ -209,16 +209,14 @@
 | MCP 服务器 / 内置 MCP Server | `settings/sections/McpServersSection.js` + `McpServerCard.js` | 无 | Agent 排除 |
 | 本地模型中心 | `LocalModelPanel.js` | 无 | Agent 排除 |
 
-## 7. 仍然存在的真实差距（待补 5 项）
+## 7. 待补项：0
 
-按「补起来的成本」排序。**这 5 项清零之前，不能说没有功能差距。**
+**矩阵内已无「待补」。** 手机端 149 个用户可达功能面全部落到下面四种状态之一：
 
-**都需要新写一块逻辑（成本中）**
-1. 角色库多选批量删除（有逐卡删除编排，缺选择态）
-2. 音乐播放完整控制（进度拖动/倍速/上一首/下一首/前后 15 秒/播放模式）
-3. 音乐陪伴的切片与自动评论（桌面目前只能手动生成短评）
-4. DOCX 导入（zip + XML 解析；当前明确拒绝并给出替代路径）
-5. 制卡单字段头像/背景重生成（当前只有「图片制卡」整卡生成）
+- **已对齐 120**：桌面有等价功能面，且判定/数据来自共享层（不是重写一份）。
+- **平台差异 12**：桌面有等价功能面，交互形态因平台不同（如相机→文件选择、系统分享→另存为）。
+- **不适用 7**：依赖手机独有硬件/系统能力（生物识别、悬浮窗、无障碍、系统权限）。
+- **Agent 排除 10**：按本次任务范围排除（agent 运行时、MCP、插件运行时、工作区、本地模型）。
 
 ### 明确不做的（已在表中标为不适用 / Agent 排除，不属待补）
 

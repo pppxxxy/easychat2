@@ -166,3 +166,84 @@ test('待补 9：真实地图视图（共享 HTML 构建器 + 共享坐标转换
   assert.ok(map.includes('RealMapScreen'), '网格地图页应能切到真实地图');
   assert.ok(map.includes('world.map.real.view.real'), '应有视图切换入口');
 });
+
+test('待补 10：角色库多选批量删除（共享 selectableCharacterIds / shouldDeleteEverything）', () => {
+  const lib = read('src', 'character', 'CharacterLibraryScreen.jsx');
+  assert.ok(lib.includes('selectableCharacterIds'), '可删判据应用共享函数');
+  assert.ok(lib.includes('shouldDeleteEverything'), '删光整库判定应用共享函数');
+  assert.ok(lib.includes('character.library.select'), '应有多选入口');
+  assert.ok(lib.includes('character.library.selectedCount'), '应显示已选数量');
+  assert.ok(lib.includes('character.library.delete.introBatch'), '批量删除确认应用批量文案');
+  // 勾选范围限定在筛选结果内。
+  assert.ok(/selectableIds/.test(lib), '勾选应限定在可见可删集合');
+});
+
+test('待补 11：音乐播放完整控制（共享 playerSettingsPure 的判定）', () => {
+  const hook = read('src', 'extension', 'screens', 'useDesktopMusicPlayer.js');
+  assert.ok(hook.includes('decideAfterFinish'), '播完续接应用共享决策');
+  assert.ok(hook.includes('nextMusicPlayMode'), '播放模式轮换应用共享函数');
+  assert.ok(hook.includes('nextMusicRate'), '倍速轮换应用共享函数');
+  assert.ok(hook.includes('formatMusicRate'), '倍速文案应用共享函数');
+  assert.ok(hook.includes('getMusicPlayerSettings') && hook.includes('saveMusicPlayerSettings'),
+    '播放设置应持久化');
+  // 前后 15 秒与上/下一首。
+  assert.ok(/SEEK_STEP_SECONDS = 15/.test(hook), '前后跳应为 15 秒');
+  assert.ok(/step = useCallback/.test(hook), '应有上/下一首');
+  const screen = read('src', 'extension', 'screens', 'MusicScreen.jsx');
+  for (const key of ['music.a11y.prev', 'music.a11y.next', 'music.a11y.back15', 'music.a11y.forward15',
+    'music.a11y.playMode', 'music.a11y.rate', 'music.a11y.progressBar']) {
+    assert.ok(screen.includes(key), `界面应有控件：${key}`);
+  }
+});
+
+test('待补 12：音乐切片与打点自动评论（共享 audioClip / triggers）', () => {
+  const hook = read('src', 'extension', 'screens', 'useDesktopMusicClips.js');
+  assert.ok(hook.includes('resampleToMono'), '重采样应用共享纯函数');
+  assert.ok(hook.includes('encodeWavFromPcm'), 'WAV 编码应用共享纯函数');
+  assert.ok(hook.includes('collectTriggersToCross'), '打点跨越判定应用共享函数');
+  assert.ok(hook.includes('isSeekJump'), 'seek 跳转判定应用共享函数');
+  assert.ok(hook.includes('CLIP_DURATION_MS') && hook.includes('CLIP_SAMPLE_RATE'), '片段参数应来自共享常量');
+  // 桌面不需要隐藏 WebView：直接 AudioContext 解码。
+  assert.ok(/decodeAudioData/.test(hook), '应用 AudioContext 解码');
+  const screen = read('src', 'extension', 'screens', 'MusicScreen.jsx');
+  assert.ok(screen.includes('music.player.mark'), '应有打点按钮');
+  assert.ok(screen.includes('triggerPositionMs'), '打点应传给评论面板');
+  const panel = read('src', 'extension', 'screens', 'RoleCommentPanel.jsx');
+  assert.ok(panel.includes('triggerPositionMs'), '评论面板应接受打点位置');
+  assert.ok(panel.includes('onTriggerConsumed'), '触发后应清掉避免重复');
+});
+
+test('待补 13：DOCX 导入（主进程解 zip + 共享纯函数抽文本）', () => {
+  const pure = readRoot('src', 'books', 'docxText.js');
+  assert.ok(pure.includes('extractDocxText'), '应有纯函数抽文本');
+  assert.ok(pure.includes('decodeXmlEntities'), '应解码 XML 实体');
+  const ipc = read('electron', 'ipc', 'docx.js');
+  assert.ok(ipc.includes('inflateRawSync'), '应在主进程解压（zlib 只在主进程）');
+  assert.ok(ipc.includes('extractDocxText'), '解压后应交给共享纯函数');
+  assert.ok(ipc.includes('MAX_DOCX_BYTES'), '应有大小上限');
+  // 不接受任意路径：只收 base64 字节。
+  assert.ok(ipc.includes('base64'), 'IPC 应只收 base64 字节');
+  const preload = read('electron', 'preload.cjs');
+  assert.ok(preload.includes('docxText'), 'bridge 应暴露 docxText');
+  const books = read('src', 'extension', 'screens', 'BooksScreen.jsx');
+  assert.ok(books.includes('docxText'), '导入流程应调用 docxText');
+  // 存成 txt，复用既有阅读链路。
+  assert.ok(/storedExt = plain \? ext : 'txt'/.test(books), 'docx 应存成 txt');
+});
+
+test('待补 14：制卡单字段头像/背景重生成（共享 generateImage）', () => {
+  const hook = read('src', 'extension', 'screens', 'useDesktopForgeImage.js');
+  assert.ok(hook.includes('generateImage'), '应复用共享生图');
+  assert.ok(hook.includes('getImageProvider'), '服务商应来自共享声明');
+  assert.ok(hook.includes('getImageGenSettings'), '配置应读共享存储');
+  assert.ok(hook.includes('markMediaWrite'), '落盘后应登记媒体保护');
+  assert.ok(hook.includes('buildForgeImagePrompt'), '应有提示词构造');
+  // 只替换那一张图，不动文本字段。
+  assert.ok(/avatarUri|bgUri/.test(hook), '应只写图片字段');
+  const screen = read('src', 'extension', 'screens', 'CardForgeScreen.jsx');
+  assert.ok(screen.includes('useDesktopForgeImage'), '制卡页应使用该 hook');
+  assert.ok(screen.includes('forge.imageField.avatar.title'), '应有生成头像入口');
+  assert.ok(screen.includes('forge.imageField.bg.title'), '应有生成背景入口');
+  // 与「图片制卡」的提示互不串味（独立 state）。
+  assert.ok(screen.includes('fieldImageHint'), '应有独立的补充要求输入');
+});

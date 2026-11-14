@@ -16,11 +16,22 @@ import { MUSIC_DIR_NAME, normalizeMusicItem } from '../../../../src/music/librar
 import { markMediaWrite } from '../../../../src/storage/mediaProtection.js';
 import { Alert } from '../../platform/alert.js';
 import { getBridge } from '../../platform/bridge.js';
+import useDesktopMusicPlayer from './useDesktopMusicPlayer.js';
+import useDesktopMusicClips from './useDesktopMusicClips.js';
+import { makeTriggerId } from '../../../../src/music/triggers.js';
+import { saveMusicTriggers } from '../../../../src/music/library.js';
 import { documentDirectory } from '../../platform/fileSystem.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Button, Card, Row } from '../../settings/ui.jsx';
 import MusicPlaylistPanel from './MusicPlaylistPanel.jsx';
 import RoleCommentPanel from './RoleCommentPanel.jsx';
+
+// 秒 → mm:ss（播放进度用；毫秒版是上面的 formatDuration）。
+function formatClock(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  return `${minutes}:${String(total % 60).padStart(2, '0')}`;
+}
 
 function formatDuration(ms) {
   const value = Number(ms);
@@ -36,10 +47,32 @@ export default function MusicScreen({ palette, fonts }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [playingId, setPlayingId] = useState('');
   // 歌单筛选后的可见曲目（空数组 = 未启用歌单，显示全部）。
   const [visibleItems, setVisibleItems] = useState([]);
-  const audioRef = useRef(null);
+  // 播放器：上/下一首、前后 15 秒、倍速、播放模式全部走共享纯函数
+  // （music/playerSettingsPure.js），桌面只把它作用到 <audio> 上。
+  const player = useDesktopMusicPlayer({
+    items,
+    onDurationKnown: durationMs => {
+      const id = playerRef.current ? playerRef.current.playingId : '';
+      if (!id) return;
+      saveMusicDuration(id, durationMs).catch(() => {});
+      setItems(current => current.map(item => (item.id === id ? { ...item, durationMs } : item)));
+    },
+  });
+  // 切片 + 自动评论：判定全在共享层（triggers.js / commentPrompts.js），
+  // 桌面只需把播放进度接上去（手机走隐藏 WebView，桌面直接 AudioContext）。
+  const clips = useDesktopMusicClips({
+    onTriggerFired: (crossed, positionMs) => {
+      // 打点被播到：把这一批打点交给当前曲目的评论面板去生成评论。
+      setFiredTriggers({ songId: playerRef.current ? playerRef.current.playingId : '', crossed, positionMs });
+    },
+  });
+  const [firedTriggers, setFiredTriggers] = useState(null);
+  const audioRef = player.audioRef;
+  const playingId = player.playingId;
+  const playerRef = useRef(null);
+  playerRef.current = player;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,10 +131,8 @@ export default function MusicScreen({ palette, fonts }) {
         onPress: async () => {
           setBusy(true);
           try {
-            if (playingId === item.id && audioRef.current) {
-              audioRef.current.pause();
-              setPlayingId('');
-            }
+            // 删掉正在播的那首：先停播，再删（否则 audio 会继续读已删文件）。
+            if (playingId === item.id) player.pause();
             await deleteMusicItems([item.id]);
             await load();
           } catch (error) {
@@ -115,33 +146,13 @@ export default function MusicScreen({ palette, fonts }) {
   };
 
   const play = item => {
-    const node = audioRef.current;
-    if (!node || !item) return;
+    if (!item) return;
     const src = mediaUrl(item.uri);
     if (!src) {
       Alert.alert(t('chat.bubble.mediaMissing'), t('chat.bubble.mediaMissingHint'));
       return;
     }
-    if (playingId === item.id) {
-      node.pause();
-      setPlayingId('');
-      return;
-    }
-    node.src = src;
-    node.play()
-      .then(() => setPlayingId(item.id))
-      .catch(() => Alert.alert(t('chat.bubble.mediaMissing'), t('chat.bubble.mediaMissingHint')));
-  };
-
-  // 首次播放成功后回填时长（共享层靠它算进度；未知时长记 0）。
-  const onLoadedMetadata = () => {
-    const node = audioRef.current;
-    if (!node || !playingId) return;
-    const duration = Math.round(Number(node.duration) * 1000);
-    if (Number.isFinite(duration) && duration > 0) {
-      saveMusicDuration(playingId, duration).catch(() => {});
-      setItems(current => current.map(item => (item.id === playingId ? { ...item, durationMs: duration } : item)));
-    }
+    player.toggle(item, src);
   };
 
   const total = useMemo(() => items.length, [items]);
@@ -185,9 +196,98 @@ export default function MusicScreen({ palette, fonts }) {
         />
         <audio
           ref={audioRef}
-          onLoadedMetadata={onLoadedMetadata}
-          onEnded={() => setPlayingId('')}
-          controls
+          onLoadedMetadata={player.handlers.onLoadedMetadata}
+          onEnded={player.handlers.onEnded}
+          onTimeUpdate={event => {
+            player.handlers.onTimeUpdate(event);
+            // 毫秒口径与共享 triggers 一致（手机同样用 ms）。
+            const node = event.currentTarget;
+            const positionMs = Math.round((Number(node.currentTime) || 0) * 1000);
+            // 打点来自当前正在播的那首（audio 元素在卡片外，拿不到 item 变量）。
+            const current = items.find(entry => entry.id === playingId);
+            const triggers = Array.isArray(current && current.triggers) ? current.triggers : [];
+            clips.onPositionChange(positionMs, triggers);
+          }}
+          style={{ display: 'none' }}
+        />
+        {/* 自绘控制条：手机有上/下一首、前后 15 秒、倍速、播放模式；<audio controls>
+            只有系统默认那几项，且样式随平台漂移，所以这里自己画。 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+          <Button label={t('music.a11y.prev')} onClick={() => player.step(-1)} palette={palette} fonts={fonts} />
+          <Button
+            label={t('music.a11y.back15')}
+            onClick={() => player.seekBy(-player.seekStepSeconds)}
+            palette={palette}
+            fonts={fonts}
+          />
+          <Button
+            label={playingId ? t('music.a11y.pause') : t('music.a11y.play')}
+            onClick={() => {
+              if (playingId) player.pause();
+              else if (shownItems[0]) play(shownItems[0]);
+            }}
+            palette={palette}
+            fonts={fonts}
+            primary
+          />
+          <Button
+            label={t('music.a11y.forward15')}
+            onClick={() => player.seekBy(player.seekStepSeconds)}
+            palette={palette}
+            fonts={fonts}
+          />
+          <Button label={t('music.a11y.next')} onClick={() => player.step(1)} palette={palette} fonts={fonts} />
+          <Button
+            label={`${t('music.a11y.playMode')} · ${player.playModeLabel}`}
+            onClick={player.cycleMode}
+            palette={palette}
+            fonts={fonts}
+          />
+          <Button
+            label={`${t('music.a11y.rate')} · ${player.rateLabel}`}
+            onClick={player.cycleRate}
+            palette={palette}
+            fonts={fonts}
+          />
+          {/* 打点：把当前播放位置记成一个触发点，播到那里时让角色评论。
+              判定与存储都在共享层（triggers.js 的 makeTriggerId / normalizeTriggers）。 */}
+          <Button
+            label={t('music.player.mark')}
+            onClick={() => {
+              const node = audioRef.current;
+              if (!node || !playingId) return;
+              const positionMs = Math.round((Number(node.currentTime) || 0) * 1000);
+              const target = items.find(entry => entry.id === playingId);
+              if (!target) return;
+              const next = [
+                ...(Array.isArray(target.triggers) ? target.triggers : []),
+                { id: makeTriggerId(), positionMs, note: '' },
+              ];
+              saveMusicTriggers(playingId, next)
+                .then(saved => {
+                  setItems(current => current.map(entry => (
+                    entry.id === playingId ? { ...entry, triggers: (saved && saved.triggers) || next } : entry
+                  )));
+                })
+                .catch(() => {});
+
+            }}
+            palette={palette}
+            fonts={fonts}
+            disabled={!playingId}
+          />
+          <span style={{ fontSize: fonts.scaled(10), color: palette.textFaint }}>
+            {formatClock(player.position)} / {formatClock(player.duration)}
+          </span>
+        </div>
+        {/* 进度条：拖动即跳转（与手机 progressBar 同一语义）。 */}
+        <input
+          type="range"
+          min="0"
+          max="1000"
+          value={player.duration > 0 ? Math.round((player.position / player.duration) * 1000) : 0}
+          onChange={event => player.seekTo(Number(event.target.value) / 1000)}
+          aria-label={t('music.a11y.progressBar')}
           style={{ width: '100%', marginTop: 4 }}
         />
       </Card>
@@ -225,7 +325,19 @@ export default function MusicScreen({ palette, fonts }) {
           </Row>
           {/* 和角色一起听：让选中的角色就这首歌说一句短评。 */}
           {playingId === item.id || items.length === 1 ? (
-            <RoleCommentPanel kind="music" target={item} palette={palette} fonts={fonts} />
+            <RoleCommentPanel
+              kind="music"
+              target={item}
+              palette={palette}
+              fonts={fonts}
+              // 打点被播到时把位置传进去，面板据此自动生成评论（与手机同一语义）。
+              triggerPositionMs={
+                firedTriggers && firedTriggers.songId === item.id && firedTriggers.crossed.length > 0
+                  ? firedTriggers.crossed[0].positionMs
+                  : null
+              }
+              onTriggerConsumed={() => setFiredTriggers(null)}
+            />
           ) : null}
         </Card>
       ))}

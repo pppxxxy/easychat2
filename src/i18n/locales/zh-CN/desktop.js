@@ -15,7 +15,7 @@ export const desktop = {
 'desktop.security.appLockUnsupported': '桌面版不提供「应用锁（生物识别）」：它依赖手机的系统锁屏/指纹入口。单角色锁基于你自己设的数字密码，与平台无关，桌面同样可用（密码用 Electron safeStorage 加密保存）。',
 'desktop.autoBackup.hint': '桌面这版只备份到应用私有目录（可在下面的按钮打开该目录取走备份包）。手机侧的「选择文件夹」依赖 Android 的 content:// 目录授权；桌面没有可长期持有的目录句柄，一旦路径失效每次自动备份都会静默失败，所以不提供。',
   'desktop.proactive.desktopOnlyHint': '桌面这版**窗口开着时会到点提醒**（每分钟检查一次，用系统通知弹出并把消息写进会话）；窗口关闭后不会触发——手机侧靠系统后台服务在进程退出后唤起，桌面没有等价载体。配置存在同一份数据里，手机端读取后同样生效。',
-'desktop.books.docxUnsupported': '桌面这版只解析纯文本与 Markdown。Word(.docx) 是压缩包内的 XML，需要额外解压与解析；请先在手机上导入，或另存为 txt / Markdown 后再导入桌面。',
+  'desktop.books.docxExtractFailed': 'Word 文件里没读到正文。请确认是 .docx（不是旧版 .doc），或在 Word 里另存为 txt 后导入。',
 'desktop.games.nativeHint': '「每日妻子」读角色库数据，按本地日期稳定抽取：同一天固定同一位、跨天自动换人。手机与桌面共用同一份抽取逻辑（games/dailyWife.js），同一天抽到的角色一致。',
   'desktop.theme.presets': '预设色板（点击复制色值）',
 'desktop.group.unavailable': '依赖手机系统的能力',

@@ -29,6 +29,33 @@ import RoleCommentPanel from './RoleCommentPanel.jsx';
 import BookReader from './BookReader.jsx';
 import BookshelfPanel from './BookshelfPanel.jsx';
 
+// 把文件读成 base64：走既有 fs handle 通道（openHandle → readBytes → closeHandle），
+// 避免为了 docx 再开一条「主进程读任意路径」的口子。
+async function readUriAsBase64(uri) {
+  const bridge = getBridge();
+  const handle = await bridge.fs.openHandle(uri);
+  const chunks = [];
+  try {
+    // readBytes 返回 Uint8Array；读到空块即结束（与共享层 fileSystem 的契约一致）。
+    for (;;) {
+      const chunk = await bridge.fs.readBytes(handle, 1024 * 1024);
+      const bytes = chunk && chunk.bytes ? chunk.bytes : chunk;
+      if (!bytes || bytes.length === 0) break;
+      chunks.push(bytes);
+      if (chunk && chunk.eof) break;
+    }
+  } finally {
+    await bridge.fs.closeHandle(handle).catch(() => {});
+  }
+  let binary = '';
+  for (const bytes of chunks) {
+    for (let index = 0; index < bytes.length; index += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
+    }
+  }
+  return btoa(binary);
+}
+
 export default function BooksScreen({ palette, fonts }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
@@ -90,14 +117,30 @@ export default function BooksScreen({ palette, fonts }) {
       const picked = result && !result.canceled && Array.isArray(result.items) ? result.items : [];
       for (const item of picked) {
         const ext = (String(item.uri || '').split('.').pop() || 'txt').toLowerCase();
-        // 桌面只解析纯文本类：docx 需要独立解压/XML 解析，这里如实拒绝而不是存进库读不出来。
-        if (!['txt', 'md', 'markdown', 'text'].includes(ext)) {
-          Alert.alert(t('books.import.unsupported.title'), t('desktop.books.docxUnsupported'));
+        // 支持的格式：纯文本类 + DOCX。
+        // DOCX 走主进程解 zip（node:zlib 只在主进程可用），取出正文后**存成 txt**——
+        // 这样阅读器、分章、进度全部沿用既有路径，不需要为 docx 另开一条读链。
+        const plain = ['txt', 'md', 'markdown', 'text'].includes(ext);
+        if (!plain && ext !== 'docx') {
+          Alert.alert(t('books.import.unsupported.title'), t('books.import.unsupported.body'));
           continue;
         }
         const id = `book-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const destination = `${documentDirectory}${BOOKS_DIR_NAME}/${id}.${ext}`;
-        await getBridge().fs.copy(item.uri, destination);
+        const storedExt = plain ? ext : 'txt';
+        const destination = `${documentDirectory}${BOOKS_DIR_NAME}/${id}.${storedExt}`;
+        if (plain) {
+          await getBridge().fs.copy(item.uri, destination);
+        } else {
+          // DOCX：经 fs handle 分块读字节（渲染层不传任意路径给主进程），
+          // 拼成 base64 交给 books:docxText 解包。
+          const base64 = await readUriAsBase64(item.uri);
+          const extracted = await getBridge().books.docxText(base64);
+          if (!extracted || extracted.ok !== true || !extracted.text) {
+            Alert.alert(t('books.import.unsupported.title'), t('desktop.books.docxExtractFailed'));
+            continue;
+          }
+          await getBridge().fs.write(destination, extracted.text, 'utf8');
+        }
         markMediaWrite(destination);
         // 用共享层的 readBookContent 统计字符数（与手机同一口径），保证进度/分章一致。
         let chars = 0;
@@ -112,7 +155,7 @@ export default function BooksScreen({ palette, fonts }) {
           size: Number(item.size) || 0,
           chars,
           addedAt: Date.now(),
-          format: ext === 'md' || ext === 'markdown' ? 'markdown' : 'txt',
+          format: storedExt === 'md' || storedExt === 'markdown' ? 'markdown' : 'txt',
         }));
         getBridge().fs.delete(item.uri, true).catch(() => {});
       }

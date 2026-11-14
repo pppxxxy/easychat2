@@ -22,6 +22,7 @@ import { registerBackupFileIpc } from './ipc/backupFiles.js';
 import { registerDialogIpc } from './ipc/dialog.js';
 import { registerNotifyIpc } from './ipc/notify.js';
 import { registerCaptureIpc } from './ipc/capture.js';
+import { registerDocxIpc } from './ipc/docx.js';
 import * as smokeFixtures from './smoke-fixtures.js';
 import { toFileUrl } from './paths.js';
 
@@ -527,6 +528,8 @@ app.whenReady().then(() => {
   });
 
   registerKvIpc(ipcMain, kvStore);
+  // DOCX 正文提取：zip 解压需要 node:zlib，只能在主进程做。
+  registerDocxIpc(ipcMain);
   registerFsIpc(ipcMain, fsService);
   registerSecretIpc(ipcMain, secretStore);
   registerHttpIpc(ipcMain, httpProxy);

@@ -18,6 +18,7 @@ import {
   parseCardPatch,
 } from '../../../../src/cardForge/forge.js';
 import { createForgeDraft, draftToCharacterPatch } from '../../../../src/cardForge/forge/draft.js';
+import useDesktopForgeImage from './useDesktopForgeImage.js';
 import { buildGeneratePrompt, buildImageCardPrompt } from '../../../../src/cardForge/forge/prompts.js';
 import { readImageDataUri } from '../../../../src/chat/attachments.js';
 import { capabilitiesForModel, getActiveModel } from '../../../../src/storage/apiConfigs.js';
@@ -53,6 +54,8 @@ export default function CardForgeScreen({ palette, fonts }) {
   // 按图片生成：参考图 + 补充要求（与手机同一条链路，只是选图走 media.pick）。
   const [referenceUri, setReferenceUri] = useState('');
   const [imageHint, setImageHint] = useState('');
+  // 单字段重生成用独立的输入与状态：与「图片制卡」的提示互不串味。
+  const [fieldImageHint, setFieldImageHint] = useState('');
   const abortRef = useRef(null);
 
   // 读回上次的草稿（含问答进度）。读失败时用全新状态，但**不**自动保存覆盖。
@@ -79,6 +82,17 @@ export default function CardForgeScreen({ palette, fonts }) {
     setState(next);
     persist(next);
   }, [persist]);
+
+  // 单字段重生成：生成完只替换那一张图，其余字段不动。
+  // 用 stateRef 读最新草稿，避免生成期间用户又改了别的字段被覆盖。
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const forgeImage = useDesktopForgeImage({
+    onApply: patch => {
+      const current = stateRef.current;
+      update({ ...current, draft: { ...(current.draft || {}), ...patch } });
+    },
+  });
 
   const question = currentQuestion(state);
   const draft = state.draft || createForgeDraft();
@@ -366,6 +380,42 @@ export default function CardForgeScreen({ palette, fonts }) {
       </Card>
 
       <Card title={t('forge.title')} hint={t('forge.hint')} palette={palette} fonts={fonts}>
+        {/* 单字段重生成：用已配的生图服务重画头像/背景，只替换那一张图，
+            不动草稿里的文本字段（与手机「AI 生成头像/背景」同一语义）。 */}
+        <Field label={t('forge.imageField.avatar.title')} hint={t('forge.imageField.hint')} palette={palette} fonts={fonts}>
+          <Row>
+            <Button
+              label={forgeImage.busy === 'avatar' ? t('forge.imageField.busy') : t('forge.imageField.generate')}
+              onClick={() => forgeImage.generate({ target: 'avatar', draft, hint: fieldImageHint })}
+              palette={palette}
+              fonts={fonts}
+              disabled={!!forgeImage.busy || busy}
+            />
+            <TextInput
+              value={fieldImageHint}
+              onChange={setFieldImageHint}
+              placeholder={t('forge.imageField.placeholder')}
+              palette={palette}
+              fonts={fonts}
+            />
+          </Row>
+          {forgeImage.error ? (
+            <div style={{ fontSize: fonts.scaled(10), color: palette.danger || '#ff5a5f' }}>
+              {t('forge.imageField.failed')}
+            </div>
+          ) : null}
+        </Field>
+        <Field label={t('forge.imageField.bg.title')} palette={palette} fonts={fonts}>
+          <Row>
+            <Button
+              label={forgeImage.busy === 'bg' ? t('forge.imageField.busy') : t('forge.imageField.generate')}
+              onClick={() => forgeImage.generate({ target: 'bg', draft, hint: fieldImageHint })}
+              palette={palette}
+              fonts={fonts}
+              disabled={!!forgeImage.busy || busy}
+            />
+          </Row>
+        </Field>
         {FORGE_FIELDS.map(key => (
           <Field key={key} label={fieldLabel(key)} palette={palette} fonts={fonts}>
             <TextInput
