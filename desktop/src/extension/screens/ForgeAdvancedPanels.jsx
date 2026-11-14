@@ -49,10 +49,14 @@ export default function ForgeAdvancedPanels({ draft, onChange, palette, fonts })
     })]);
   };
   const addPreset = () => {
+    // 字段名必须与手机/聊天注入一致：注入读 item.prompt、按 item.enabled 过滤。
+    // 写成 content 只有在经过 normalizeCharacterPreset 时才会被映射成 prompt——
+    // 而制卡草稿不经过 normalize（它直接被保存与发送），所以这里要写对原名。
     patchList('presets', list => [...list, {
       id: makeCharacterPresetId(list),
       name: t('forge.newEntry.preset', { n: list.length + 1 }),
-      content: '',
+      prompt: '',
+      enabled: true,
     }]);
   };
 
@@ -223,9 +227,17 @@ export default function ForgeAdvancedPanels({ draft, onChange, palette, fonts })
               <Button label={t('forge.delete')} onClick={() => removeEntry('presets', index)} palette={palette} fonts={fonts} />
             </Row>
             <TextInput
-              value={String(preset.content || '')}
-              onChange={value => updateEntry('presets', index, { content: value })}
+              value={String(preset.prompt || '')}
+              onChange={value => updateEntry('presets', index, { prompt: value })}
               placeholder={t('forge.preset.contentPlaceholder')}
+              palette={palette}
+              fonts={fonts}
+            />
+            {/* 启用开关：注入侧按 enabled !== false 过滤，关掉的预设不参与拼装。 */}
+            <Toggle
+              checked={preset.enabled !== false}
+              onChange={value => updateEntry('presets', index, { enabled: value })}
+              label={t('forge.enabledLabel')}
               palette={palette}
               fonts={fonts}
             />
