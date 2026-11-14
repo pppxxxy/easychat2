@@ -25,10 +25,11 @@ export const CAPABILITIES = Object.freeze({
   // 跨应用截屏与悬浮窗（手机 MediaProjection + SYSTEM_ALERT_WINDOW）仍不可移植，
   // 但那是「看屏幕」的一个子能力（见 unsupportedReasons.screenOverlay），不是全部。
   screenWatch: true,
-  // 悬浮窗子能力：在其他应用之上绘制自己的界面 + 跨应用截屏。桌面无等价物
-  //（desktopCapturer 只能拿用户经系统选择器授权的单窗口流，且不能置顶渲染自家 UI）。
-  // 与 screenWatch 分开记：一个是页面，一个是页面里的一个入口。
-  screenOverlay: false,
+  // 悬浮窗：在其他应用之上绘制自己的界面 + 跨应用截屏。S39 起**可用**：
+  //   · 置顶自绘界面 = BrowserWindow({ alwaysOnTop, transparent, frame:false })；
+  //   · 跨应用截屏   = desktopCapturer.getSources({ types:['screen'] })。
+  // 早先记成 false 的理由（「无法在别的应用之上渲染自己的 UI」）是错的。
+  screenOverlay: true,
   proactiveMessages: false,
   scheduledTasks: false,
   appLock: false,

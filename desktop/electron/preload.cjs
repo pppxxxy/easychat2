@@ -128,9 +128,17 @@ const bridge = {
     // 不含 src/，在这里 import 共享层会让打包版启动失败。
     docxXml: base64 => invoke('books:docxXml', { base64 }),
   },
+  overlay: {
+    // 悬浮窗（S39）：置顶透明窗口 + 整屏截图，对应手机的 SYSTEM_ALERT_WINDOW + MediaProjection。
+    start: () => invoke('overlay:start'),
+    stop: () => invoke('overlay:stop'),
+    state: () => invoke('overlay:state'),
+  },
   capture: {
     // 应用内截图（看屏幕 v1）：主进程 webContents.capturePage，零权限、只截本窗口。
     appScreen: () => invoke('capture:appScreen'),
+    // 整屏截图（悬浮窗用）：desktopCapturer.getSources({types:['screen']})。
+    screen: () => invoke('capture:screen'),
   },
   http: {
     start: payload => invoke('http:start', payload),

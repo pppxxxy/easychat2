@@ -72,10 +72,9 @@ test('「不可用」清单只含真正依赖系统能力的项', () => {
   // 这些是核对过依赖确实不可移植的：跨应用悬浮窗 / 插件运行时 / Headless 后台 /
   // llama.cpp 原生库 / 受限 shell。
   //
-  // 注意 `screenOverlay` 而不是 `screenWatch`：「看屏幕」页面本身**已可用**
-  //（截本应用画面走 webContents.capturePage，见 platform/viewShot.js），
-  // 只剩「在其他应用之上绘制 + 跨应用截屏」这一段没有桌面等价物。
-  const expected = ['screenOverlay', 'pluginRuntime', 'scheduledTasks', 'localModels', 'workspaceTools'];
+  // S39：悬浮窗也已实现（置顶透明窗口 + desktopCapturer 整屏截图），
+  // 所以它从清单里移除了。剩下四项仍是真正的不可移植。
+  const expected = ['pluginRuntime', 'scheduledTasks', 'localModels', 'workspaceTools'];
   for (const id of expected) {
     assert.ok(REASONS.includes(`${id}: '`), `不可用原因缺 ${id}`);
   }

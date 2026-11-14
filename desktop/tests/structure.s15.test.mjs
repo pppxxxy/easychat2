@@ -61,13 +61,14 @@ test('聊天面板前有解锁闸门（不是只有设置页）', () => {
   assert.ok(GATE.includes('isCharacterLocked'), '闸门未查上锁名单');
 });
 
-test('角色锁在「读坏」时选择放行而非锁死（桌面没有换设备的退路）', () => {
-  // 手机 SecurityGate 对「状态未知」是上锁处理（可换设备）；桌面如果照抄，
-  // 一旦安全存储读失败，用户就再也进不去自己的数据。这里钉住桌面刻意的反向选择。
-  assert.ok(
-    GATE.includes("isCharacterLocked(characterId).catch(() => false)"),
-    '读锁状态失败时应按「未上锁」放行（桌面无换设备退路）'
-  );
+test('角色锁在「读坏」时不再静默放行（S39 修正）', () => {
+  // 旧实现用 isCharacterLocked().catch(() => false)：数据损坏时静默当成「没上锁」，
+  // 锁形同虚设。现在改为状态感知：未知态**阻挡**，给「重新读取」与一次**显式**继续
+  // （桌面没有生物识别这把备用钥匙，所以保留显式继续，而不是纯 fail-closed）。
+  assert.ok(GATE.includes('getSecuritySettings'), '应读取带 status 的完整设置');
+  assert.ok(GATE.includes('SECURITY_STATUS'), '应区分 ok/missing/unknown');
+  assert.ok(GATE.includes('unknownAcknowledged'), '未知态应要求显式确认');
+  assert.ok(!/isCharacterLocked\(characterId\)\.catch/.test(GATE), '不应再静默 catch 成 false');
 });
 
 test('全局文本预设：开关复用共享存储，且真的会进提示词', () => {

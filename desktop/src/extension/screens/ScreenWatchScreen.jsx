@@ -22,8 +22,10 @@ import {
 } from '../../../../src/screenWatch/useScreenWatchComments.js';
 import { maskSecrets } from '../../../../src/storage/secrets.js';
 import { Alert } from '../../platform/alert.js';
+import { getBridge } from '../../platform/bridge.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Button, Card, Row, Select } from '../../settings/ui.jsx';
+import OverlayAvatarCard from './OverlayAvatarCard.jsx';
 
 export default function ScreenWatchScreen({ palette, fonts }) {
   const { t } = useTranslation();
@@ -94,6 +96,36 @@ export default function ScreenWatchScreen({ palette, fonts }) {
     label: item.name || t('common.unnamedCharacter'),
   }));
 
+  // 悬浮窗状态：主进程持有窗口，这里读它以便按钮文案正确（开启/关闭）。
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const read = () => {
+      const bridge = getBridge();
+      if (!bridge || !bridge.overlay) return;
+      bridge.overlay.state()
+        .then(result => { if (alive) setOverlayOpen(!!(result && result.open)); })
+        .catch(() => {});
+    };
+    read();
+    // 窗口是独立进程内的对象：靠轮询保持同步（2s 一次，代价可忽略）。
+    const timer = setInterval(read, 2000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+
+  const toggleOverlay = useCallback(async () => {
+    const bridge = getBridge();
+    if (!bridge || !bridge.overlay) return;
+    try {
+      const result = overlayOpen
+        ? await bridge.overlay.stop()
+        : await bridge.overlay.start();
+      setOverlayOpen(!!(result && result.ok && !overlayOpen));
+    } catch (error) {
+      Alert.alert(t('screenWatch.generate.failed.title'), String((error && error.message) || ''));
+    }
+  }, [overlayOpen, t]);
+
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: 16, minWidth: 0 }}>
       <Card
@@ -128,7 +160,21 @@ export default function ScreenWatchScreen({ palette, fonts }) {
               disabled={busy}
             />
           ) : null}
+          {/* 悬浮窗：手机靠 SYSTEM_ALERT_WINDOW + MediaProjection；桌面用置顶透明窗口 +
+              整屏截图（desktopCapturer）实现同一件事（electron/ipc/overlay.js）。 */}
+          <Button
+            label={overlayOpen ? t('desktop.overlay.stop') : t('desktop.overlay.start')}
+            onClick={toggleOverlay}
+            palette={palette}
+            fonts={fonts}
+            disabled={!characterId}
+          />
         </Row>
+        <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
+          {t('desktop.overlay.hintCard')}
+        </div>
+        {/* 悬浮球头像三档：与手机 AvatarCard 同一份共享存储。 */}
+        <OverlayAvatarCard palette={palette} fonts={fonts} />
 
         {/* 门控提示：当前模型不识图时先说明，而不是让用户点完再看失败。 */}
         {vision === false ? (

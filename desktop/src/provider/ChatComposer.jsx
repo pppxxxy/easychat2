@@ -2,8 +2,11 @@
 //
 // 从 provider/ChatPane.jsx 外提（那里撞到 800 行棘轮）。纯展示：所有状态与动作
 // 由宿主传入；发送/停止分别走 submit 与 chat.stop（与手机「生成中发送键变停止键」一致）。
+import { useState } from 'react';
+
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
+import CameraDialog from '../attachments/CameraDialog.jsx';
 
 import useDesktopAttachmentCaps from '../chat/useDesktopAttachmentCaps.js';
 
@@ -30,10 +33,13 @@ export default function ChatComposer({
   // 而不是让用户选完文件才在发送侧被拒。口径与 useChatSend 完全一致。
   // 放在本组件内部而不是宿主：这样 ChatPane 只传 chat/attach，不必再传能力位。
   const attachCaps = useDesktopAttachmentCaps({ characterId: chat && chat.character && chat.character.id });
+  // 相机对话框：'photo' | 'video' | ''（关闭）。
+  const [cameraMode, setCameraMode] = useState('');
   // 还没读出来时不禁用（避免闪一下灰）；读出来后按真实能力判断。
   const visionBlocked = attachCaps.ready === true && attachCaps.vision !== true;
   const videoBlocked = attachCaps.ready === true && attachCaps.video !== true;
   return (
+    <>
       <div style={{ borderTop: `1px solid ${palette.divider}`, padding: 12, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
         <button
           type="button"
@@ -63,6 +69,26 @@ export default function ChatComposer({
           style={{ ...iconButton, opacity: videoBlocked ? 0.4 : 1 }}
         >
           🎬
+        </button>
+        {/* 拍照 / 拍摄视频：手机用相机，桌面用 getUserMedia（见 attachments/CameraDialog.jsx）。
+            与「选图/选视频」写进同一目录、走同一套校验与媒体保护。 */}
+        <button
+          type="button"
+          title={visionBlocked ? t('chat.attach.visionRequired') : t('chat.attach.camera.title')}
+          onClick={() => setCameraMode('photo')}
+          disabled={composerDisabled || visionBlocked}
+          style={{ ...iconButton, opacity: visionBlocked ? 0.4 : 1 }}
+        >
+          📷
+        </button>
+        <button
+          type="button"
+          title={videoBlocked ? t('chat.attach.videoRequired') : t('chat.attach.videoCamera.title')}
+          onClick={() => setCameraMode('video')}
+          disabled={composerDisabled || videoBlocked}
+          style={{ ...iconButton, opacity: videoBlocked ? 0.4 : 1 }}
+        >
+          🎥
         </button>
         <button
           type="button"
@@ -157,5 +183,14 @@ export default function ChatComposer({
           {isSending ? t('chat.composer.a11y.stop') : t('chat.send.action')}
         </button>
       </div>
+      <CameraDialog
+        open={!!cameraMode}
+        mode={cameraMode === 'video' ? 'video' : 'photo'}
+        onClose={() => setCameraMode('')}
+        onCaptured={item => attach.addCaptured(item)}
+        palette={palette}
+        fonts={fonts}
+      />
+    </>
   );
 }

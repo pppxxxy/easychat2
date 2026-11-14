@@ -10,11 +10,6 @@ import { tActive } from '../../../src/i18n/index.js';
 
 // key → i18n 词条名（原因文案）。词条在 locales/*/desktop.js 里。
 export const UNAVAILABLE_REASONS = Object.freeze({
-  // 只剩「悬浮窗」这一子能力不可移植：在其他应用之上绘制自己的界面 + 跨应用截屏，
-  // Android 靠 SYSTEM_ALERT_WINDOW + MediaProjection。桌面没有等价物。
-  // 注意「看屏幕」页面本身**已可用**（截本应用画面，见 platform/viewShot.js），
-  // 所以这个 id 不再出现在扩展页的不可用清单里——只作为该页的一段能力说明。
-  screenOverlay: 'desktop.unsupported.screenOverlay',
   // 只剩「插件运行时」：从外部加载第三方 JS 并在原生侧注入界面。
   // 内置插件（联网搜索）的配置**已可用**（纯 HTTP，见 extension/screens/PluginScreen.jsx），
   // 所以这个 id 不再出现在扩展页的不可用清单里——只作为插件页的一段能力说明。

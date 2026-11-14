@@ -46,7 +46,14 @@ export default function BookReader({
   // 正文字号：与手机阅读器同一套边界与步进（共享 books/readerFont.js）。
   // 手机那层还有「分页/翻页手势」，那是 RN 文本测量专属；字号是纯数值，两端应一致。
   const [fontSize, setFontSize] = useState(FONT_DEFAULT);
+  // 阅读方式：滚动 / 翻页。手机有四种翻页手势（点击/滑动/仿真/淡入），
+  // 桌面用 CSS 多列把同一章切成整页，左右点击或方向键翻页——语义等价，
+  // 手势形态按平台（触摸 → 鼠标点击/键盘）。
+  const [pageMode, setPageMode] = useState('scroll');
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageCount, setPageCount] = useState(1);
   const scrollRef = useRef(null);
+  const pagedRef = useRef(null);
 
   // 切章：markdown 书按 ATX 标题优先（与手机同一开关）。
   const markdown = String(book && book.sourceFormat || '').includes('md')
@@ -100,14 +107,49 @@ export default function BookReader({
   const scrollTop = () => {
     const node = scrollRef.current;
     if (node) node.scrollTop = 0;
+    const paged = pagedRef.current;
+    if (paged) paged.scrollLeft = 0;
+    setPageIndex(0);
   };
+
+  // 翻页模式下量一次页数：CSS 多列把内容排成横向多页，scrollWidth/clientWidth 即页数。
+  const measurePages = useCallback(() => {
+    const node = pagedRef.current;
+    if (!node) return;
+    const width = node.clientWidth || 1;
+    const count = Math.max(1, Math.round(node.scrollWidth / width));
+    setPageCount(count);
+    setPageIndex(Math.min(count - 1, Math.round(node.scrollLeft / width)));
+  }, []);
+
+  useEffect(() => {
+    if (pageMode !== 'paged') return undefined;
+    // 字号/章节变化都会改变分页：等一帧让浏览器完成布局再量。
+    const timer = setTimeout(measurePages, 50);
+    return () => clearTimeout(timer);
+  }, [pageMode, fontSize, bodyText, measurePages]);
+
+  const turnPage = useCallback(delta => {
+    const node = pagedRef.current;
+    if (!node) return;
+    const width = node.clientWidth || 1;
+    const next = Math.min(Math.max(0, pageIndex + delta), Math.max(0, pageCount - 1));
+    node.scrollTo({ left: next * width, behavior: 'auto' });
+    setPageIndex(next);
+  }, [pageCount, pageIndex]);
 
   // 记录本章进度：滚到底记 100%。百分比口径与手机同一函数。
   const saveProgress = useCallback(async () => {
     if (!hasChapters || !current || !book || !book.id) return;
     const node = scrollRef.current;
-    const total = node ? node.scrollHeight - node.clientHeight : 0;
-    const ratio = total > 0 ? Math.min(1, Math.max(0, node.scrollTop / total)) : 0;
+    let ratio = 0;
+    if (pageMode === 'paged') {
+      // 翻页模式：按「已读页 / 总页数」记（与手机按页记进度同口径）。
+      ratio = pageCount > 0 ? Math.min(1, pageIndex / pageCount) : 0;
+    } else {
+      const total = node ? node.scrollHeight - node.clientHeight : 0;
+      ratio = total > 0 ? Math.min(1, Math.max(0, node.scrollTop / total)) : 0;
+    }
     // chapterEntries 是**章节数组**（computeChapterPercent 遍历它的 blockIndex），
     // 不是块数量——传数字会让它直接返回 null，进度就永远不落盘。
     const percent = computeChapterPercent({
@@ -126,7 +168,7 @@ export default function BookReader({
     } catch (error) {
       // 进度是锦上添花：写失败不打断阅读，下次滚动再试。
     }
-  }, [blocks.length, book, current, hasChapters, onProgressSaved]);
+  }, [blocks.length, book, current, hasChapters, onProgressSaved, pageCount, pageIndex, pageMode]);
 
   const chapterOptions = hasChapters
     ? chapters.map((item, index) => ({
@@ -172,6 +214,18 @@ export default function BookReader({
             {t('books.list.chars', { count: (book && book.chars) || 0 })}
           </span>
         )}
+        {/* 阅读方式：滚动 / 翻页（手机是按页翻，桌面两种都提供）。 */}
+        <Button
+          label={pageMode === 'paged'
+            ? t('desktop.reader.mode.scroll')
+            : t('desktop.reader.mode.paged')}
+          onClick={() => {
+            setPageMode(current => (current === 'paged' ? 'scroll' : 'paged'));
+            setPageIndex(0);
+          }}
+          palette={palette}
+          fonts={fonts}
+        />
         {/* 字号增减：手机阅读器工具栏有 A- / A+，桌面此前固定 14px。 */}
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flex: 'none' }}>
           <Button
@@ -191,23 +245,75 @@ export default function BookReader({
         </div>
       </div>
 
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: '16px 24px',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          // 字号走共享档位（13–26，默认 17），与手机阅读器同一套数值。
-          fontSize: fonts.scaled(fontSize),
-          lineHeight: 1.9,
-          color: palette.text,
-        }}
-      >
-        {bodyText || t('ext.home.books.desc')}
-      </div>
+      {pageMode === 'paged' ? (
+        // 翻页模式：CSS 多列把本章排成横向多页，容器只显示一页宽；
+        // 左右 1/3 点击与方向键翻页（手机是点击/滑动，语义一致）。
+        <div
+          ref={pagedRef}
+          onScroll={() => {
+            const node = pagedRef.current;
+            if (!node) return;
+            const width = node.clientWidth || 1;
+            setPageIndex(Math.round(node.scrollLeft / width));
+          }}
+          onClick={event => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const ratio = (event.clientX - rect.left) / Math.max(1, rect.width);
+            if (ratio < 1 / 3) turnPage(-1);
+            else if (ratio > 2 / 3) turnPage(1);
+          }}
+          onKeyDown={event => {
+            if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turnPage(-1); }
+            if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') { event.preventDefault(); turnPage(1); }
+          }}
+          tabIndex={0}
+          role="group"
+          aria-label={t('desktop.reader.mode.paged')}
+          style={{
+            flex: 1,
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            columnWidth: '100%',
+            columnGap: 0,
+            columnFill: 'auto',
+            padding: '16px 24px',
+            boxSizing: 'border-box',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontSize: fonts.scaled(fontSize),
+            lineHeight: 1.9,
+            color: palette.text,
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          {bodyText || t('ext.home.books.desc')}
+        </div>
+      ) : (
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: '16px 24px',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            // 字号走共享档位（13–26，默认 17），与手机阅读器同一套数值。
+            fontSize: fonts.scaled(fontSize),
+            lineHeight: 1.9,
+            color: palette.text,
+          }}
+        >
+          {bodyText || t('ext.home.books.desc')}
+        </div>
+      )}
+
+      {pageMode === 'paged' ? (
+        <div style={{ padding: '0 16px 8px', fontSize: fonts.scaled(10), color: palette.textFaint, flex: 'none' }}>
+          {t('desktop.reader.page', { index: pageIndex + 1, total: pageCount })}
+        </div>
+      ) : null}
 
       {hasChapters ? (
         <Row>

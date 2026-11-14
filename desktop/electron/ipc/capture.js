@@ -10,10 +10,11 @@
 //   · 只服务当次评论请求与重试，目录按「保留最新 N 张」滚动清扫；
 //   · 失败不留半成品（先写临时文件再 rename）。
 //
-// 跨应用截屏（手机悬浮窗 + MediaProjection）在桌面确实没有等价物：
-// 那需要系统级屏幕录制授权与置顶窗口，Electron 的 desktopCapturer 只能拿到
-// 用户经系统选择器授权的单个窗口/屏幕流，且无法在「别的应用之上」渲染自己的 UI。
-// 这条差异记在 desktop/src/extension/unsupportedReasons.js 里（只针对悬浮窗）。
+// 跨应用截屏：S39 起**已实现**。之前的注释说「Electron 无法在别的应用之上渲染
+// 自己的 UI」——那句话是错的：alwaysOnTop + transparent + frame:false 就是置顶
+// 自绘窗口；整屏截图用 desktopCapturer.getSources({types:['screen']}) 取一帧，
+// 不需要 getDisplayMedia 的系统选择器。两条加起来就是手机悬浮窗的等价物。
+// （macOS 首次使用需在系统设置里授予「屏幕录制」权限；Windows 无需额外授权。）
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -104,7 +105,33 @@ export function createCaptureService({ documentsRoot } = {}) {
   return { dir, saveFrame, sweep };
 }
 
-export function registerCaptureIpc(ipcMain, { getWindow, documentsRoot } = {}) {
+/**
+ * 截整屏（跨应用）：desktopCapturer 取主屏一帧缩略图。
+ *
+ * thumbnailSize 用 1600x900：够视觉模型读清界面文字，又不会让 PNG 过大
+ * （整屏 4K 原图 base64 后接近 10MB，识别接口通常有上限）。
+ * 返回 null 表示拿不到（无桌面会话 / 系统拒绝授权）。
+ */
+export async function capturePrimaryScreen(desktopCapturer, { width = 1600, height = 900 } = {}) {
+  if (!desktopCapturer || typeof desktopCapturer.getSources !== 'function') return null;
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width, height },
+    });
+    const list = Array.isArray(sources) ? sources : [];
+    if (list.length === 0) return null;
+    // 优先主屏（display_id === '0' 或第一个）。
+    const primary = list.find(source => String(source.display_id || '') === '0') || list[0];
+    const image = primary && primary.thumbnail;
+    if (!image || (typeof image.isEmpty === 'function' && image.isEmpty())) return null;
+    return image.toPNG();
+  } catch (error) {
+    return null;
+  }
+}
+
+export function registerCaptureIpc(ipcMain, { getWindow, documentsRoot, desktopCapturer } = {}) {
   const service = createCaptureService({ documentsRoot });
   ipcMain.handle('capture:appScreen', async () => {
     const win = typeof getWindow === 'function' ? getWindow() : null;
@@ -116,6 +143,18 @@ export function registerCaptureIpc(ipcMain, { getWindow, documentsRoot } = {}) {
       const filePath = service.saveFrame(image.toPNG());
       // 返回 file:// URI：渲染层的 expo-file-system 适配层按 URI 消费（与手机一致）。
       return { ok: true, uri: `file://${filePath.replace(/\\/g, '/')}`, path: filePath };
+    } catch (error) {
+      return { ok: false, reason: String((error && error.message) || error) };
+    }
+  });
+  // 整屏截图（悬浮窗用）：没有窗口上限——截的是整个桌面，与手机 MediaProjection 同语义。
+  ipcMain.handle('capture:screen', async () => {
+    try {
+      const buffer = await capturePrimaryScreen(desktopCapturer);
+      if (!buffer) return { ok: false, reason: 'unavailable' };
+      const filePath = service.saveFrame(buffer);
+      const uri = `file://${filePath.split(path.sep).join('/')}`;
+      return { ok: true, uri, path: filePath };
     } catch (error) {
       return { ok: false, reason: String((error && error.message) || error) };
     }

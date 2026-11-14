@@ -6,7 +6,7 @@
 //
 // 依赖形状刻意保持「服务工厂 + register*」两段式：ipc/*.js 全部零 Electron 依赖，
 // 适配层行为测试在 Node 里直接实例化同一份服务（见 desktop/tests/）。
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, ipcMain, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -23,6 +23,7 @@ import { registerDialogIpc } from './ipc/dialog.js';
 import { registerNotifyIpc } from './ipc/notify.js';
 import { registerCaptureIpc } from './ipc/capture.js';
 import { registerDocxIpc } from './ipc/docx.js';
+import { registerOverlayIpc } from './ipc/overlay.js';
 import * as smokeFixtures from './smoke-fixtures.js';
 import { toFileUrl } from './paths.js';
 
@@ -71,6 +72,8 @@ if (SMOKE) {
 let mainWindow = null;
 let fsService = null;
 let httpProxy = null;
+// 悬浮窗控制器（S39）：置顶窗口的生命周期。
+let overlayCtl = null;
 
 function userPaths() {
   const userData = app.getPath('userData');
@@ -479,6 +482,19 @@ function createWindow() {
   else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 
+function applyPermissions() {
+  // 摄像头/麦克风（拍照、录像）：只授予本应用自己的页面，其他一律拒绝。
+  // getUserMedia 在 Electron 里必须显式放行，否则 renderer 会拿到 NotAllowedError
+  // ——那会被「相机打不开」的提示兜住，看起来像设备问题，实际是权限没开。
+  const allowed = new Set(['media', 'mediaKeySystem', 'display-capture', 'fullscreen', 'clipboard-sanitized-write']);
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(allowed.has(String(permission)));
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => (
+    allowed.has(String(permission))
+  ));
+}
+
 function applyCsp() {
   // 生产环境收口：只允许自身资源、媒体协议与内联样式（富 HTML 走 sandbox iframe，另设 CSP）。
   // dev 环境不加：Vite HMR 需要 ws: 与内联脚本。
@@ -542,7 +558,19 @@ app.whenReady().then(() => {
   registerMediaPickIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
   // 应用内截图（看屏幕 v1）：webContents.capturePage 截本窗口，与手机
   // react-native-view-shot 截自己 App 同一语义（都是零权限、只截自己）。
-  registerCaptureIpc(ipcMain, { getWindow: () => mainWindow, documentsRoot: paths.documentsRoot });
+  registerCaptureIpc(ipcMain, {
+    getWindow: () => mainWindow,
+    documentsRoot: paths.documentsRoot,
+    // 桌面端整屏截图（悬浮窗）：与手机 MediaProjection 同语义，但不需要逐次授权。
+    desktopCapturer,
+  });
+  // 悬浮窗：置顶透明窗口 + 整屏截图 = 手机 SYSTEM_ALERT_WINDOW + MediaProjection 的等价物。
+  overlayCtl = registerOverlayIpc(ipcMain, {
+    BrowserWindow,
+    // 这里不能引用 createWindow 里的局部变量（作用域不同），直接读环境变量。
+    getDevServerUrl: () => process.env.VITE_DEV_SERVER_URL || '',
+    getDocumentsRoot: () => paths.documentsRoot,
+  });
   registerBackupFileIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
 
   // 同步路径（preload 需要在模块加载期拿到，documentDirectory 是同步读取的）。
@@ -594,6 +622,7 @@ app.whenReady().then(() => {
 
   protocol.handle(MEDIA_SCHEME, createMediaHandler({ documentsRoot: paths.documentsRoot }).handler);
   applyCsp();
+  applyPermissions();
   createWindow();
 
   app.on('activate', () => {
@@ -613,4 +642,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   if (httpProxy) httpProxy.closeAll();
   if (fsService) fsService.closeAll();
+  // 悬浮窗是独立窗口：主窗关掉后它会让 window-all-closed 不触发，必须显式销毁。
+  if (overlayCtl) overlayCtl.close();
 });

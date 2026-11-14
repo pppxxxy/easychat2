@@ -72,7 +72,9 @@ test('看屏幕已从「不可用清单」移入可用分组；只剩悬浮窗�
     '看屏幕仍在「不可用」清单里');
   assert.ok(EXT_SCREEN.includes('ext.home.screen'), '应复用手机词条');
   assert.ok(ROUTES.includes('screenWatch: ScreenWatchScreen'), '路由表缺看屏幕');
-  // 不可用清单里必须是 screenOverlay（子能力），不是整项 screenWatch。
-  assert.ok(REASONS.includes("screenOverlay: 'desktop.unsupported.screenOverlay'"), '缺悬浮窗的原因条目');
+  // S39：悬浮窗（置顶窗口 + 整屏截图）已实现，不再出现在不可用清单里。
+  // 判据改为「它不在清单，且能力位为 true」——避免把「已可用」写成「不可用」。
+  assert.ok(!REASONS.includes('screenOverlay'), '悬浮窗已可用，不应再列为不可用');
+  assert.ok(/screenOverlay: true/.test(read('src', 'platform', 'capabilities.js')), '能力位应为 true');
   assert.ok(!/^\s*screenWatch: '/m.test(REASONS), 'screenWatch 不应再整体列为不可用');
 });

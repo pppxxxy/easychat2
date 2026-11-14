@@ -317,9 +317,22 @@ export default function useDesktopAttachments({
     commit(current.filter(item => item && item.id !== id));
   }, [attachmentsRef, commit, isSending]);
 
+  // 相机/录屏产出的文件已经在 documents 下：直接走既有的校验与追加路径，
+  // 与「原生对话框选文件」完全同一条链路（尺寸、上限、媒体保护都不重写）。
+  const addCaptured = useCallback(async ({ uri, kind, name, size }) => {
+    if (isSending || !ready || lockRef.current) return false;
+    const guard = captureSessionGuard();
+    if (!isSessionGuardCurrent(guard)) return false;
+    const item = { uri, name, size: Number(size) || 0 };
+    return kind === 'video'
+      ? addVideoFromUri(item, guard)
+      : addImageFromUri(item, guard);
+  }, [addImageFromUri, addVideoFromUri, captureSessionGuard, isSending, isSessionGuardCurrent, ready]);
+
   return {
     // attachments 以 hook 入参为准，调用方直接渲染同一份状态。
     attachments,
+    addCaptured,
     loading,
     pickImages: () => pick('image'),
     pickVideos: () => pick('video'),

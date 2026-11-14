@@ -239,6 +239,51 @@ async function runS36Probe({ waitFor }) {
       }
     }
 
+    // ---- 5) S39 复核后补齐的入口 ----
+    // 附件：拍照 / 拍视频两个按钮（相机对话框本身的打开需要真实摄像头，探针只验入口）
+    const chatTab3 = tabButton('聊天') || tabButton('Chat');
+    if (chatTab3) {
+      chatTab3.click();
+      await waitFor(() => !!(document.querySelector('textarea, input[type="text"]')), 5000);
+      out.checks.cameraEntries = !!(await waitFor(() => {
+        const titles = Array.from(document.querySelectorAll('button'))
+          .map(button => String(button.title || ''));
+        const hasPhoto = titles.some(text => text.includes('拍照') || text.includes('Take photo'));
+        const hasVideo = titles.some(text => text.includes('拍摄视频') || text.includes('Record video'));
+        return hasPhoto && hasVideo;
+      }, 5000));
+    }
+    // 看屏幕：悬浮窗开关 + 悬浮球头像三档
+    if (extTab) {
+      extTab.click();
+      await waitFor(() => has('游戏中心') || has('Games'), 5000);
+      clickButtonContaining('屏幕注视') || clickButtonContaining('Screen watch');
+      out.checks.overlayControls = !!(await waitFor(() => {
+        const text = document.body.innerText || '';
+        return (text.includes('开启悬浮窗') || text.includes('Open floating window'))
+          && (text.includes('悬浮球头像') || text.includes('Floating avatar'));
+      }, 5000));
+      // 悬浮窗真实启停：主进程会建第二个窗口，成功后按钮文案变成「关闭悬浮窗」。
+      const startBtn = Array.from(document.querySelectorAll('button'))
+        .find(button => /开启悬浮窗|Open floating window/.test(String(button.textContent || '').trim()));
+      if (startBtn) {
+        startBtn.click();
+        out.checks.overlayStarted = !!(await waitFor(() => {
+          const text = document.body.innerText || '';
+          return text.includes('关闭悬浮窗') || text.includes('Close floating window');
+        }, 6000));
+        // 收尾：关掉悬浮窗，别让它留在桌面上。
+        const stopBtn = Array.from(document.querySelectorAll('button'))
+          .find(button => /关闭悬浮窗|Close floating window/.test(String(button.textContent || '').trim()));
+        if (stopBtn) {
+          stopBtn.click();
+          await new Promise(resolve => setTimeout(resolve, 600));
+        }
+      } else {
+        out.checks.overlayStarted = false;
+      }
+    }
+
     out.ok = Object.values(out.checks).every(Boolean) && out.errors.length === 0;
   } catch (error) {
     out.errors.push(String((error && error.message) || error).slice(0, 200));

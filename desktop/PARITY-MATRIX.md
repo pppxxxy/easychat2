@@ -19,13 +19,13 @@
 
 | 区域 | 手机功能面 | 已对齐 | 平台差异 | 不适用 | Agent 排除 | 待补 |
 |---|---|---|---|---|---|
-| 全局 | 10 | 7 | 1 | 2 | 0 | 0 |
-| 聊天 | 32 | 27 | 2 | 0 | 3 | 0 |
+| 全局 | 10 | 8 | 0 | 2 | 0 | 0 |
+| 聊天 | 32 | 28 | 1 | 0 | 3 | 0 |
 | 记忆 | 10 | 10 | 0 | 0 | 0 | 0 |
 | 角色 | 22 | 20 | 2 | 0 | 0 | 0 |
-| 扩展 | 42 | 33 | 1 | 5 | 3 | 0 |
+| 扩展 | 42 | 35 | 2 | 2 | 3 | 0 |
 | 设置 | 33 | 28 | 1 | 0 | 4 | 0 |
-| **合计** | **149** | **125** | **7** | **7** | **10** | **0** |
+| **合计** | **149** | **129** | **6** | **4** | **10** | **0** |
 
 > 手机上同一个弹层可能从多个入口进（免责声明、教程、预设、转写、本地模型、导入扩展），
 > 上表按「入口 × 区域」各计一次，与手机端排查时看到的入口数一致。
@@ -40,9 +40,9 @@
 | 崩溃兜底页 | `App.js:89-138` | `provider/DesktopApp.jsx` 启动错误态 | 已对齐 |
 | 应用锁（生物识别） | `security/SecurityGate.js` + `biometrics.js` | 无 | 不适用：手机唯一解锁路径是指纹/面容（`expo-local-authentication`）；桌面无等价物，强行提供会锁死用户 |
 | 单角色锁 PIN | `security/SecurityGate.js:375` + `PinModal.js` | `settings/RoleLockGate.jsx` + `CharacterLockCard.jsx` | 已对齐 |
-| 安全状态未知拦截层 | `security/SecurityGate.js:314` | `RoleLockGate`（读坏时**放行**，与手机相反） | 平台差异：桌面无生物识别这一把「备用钥匙」，fail-closed 会把用户永久挡在外面；这是刻意反着做并在代码里注明 |
+| 安全状态未知拦截层 | `security/SecurityGate.js:314` | `RoleLockGate`（未知态阻挡 + 重试 + 显式继续） | 已对齐（S39 修正：原先 `isCharacterLocked().catch(()=>false)` 把「读不出来」静默当成「没上锁」；现改为状态感知，未知态要求显式确认） |
 | 主动消息通知跳转桥 | `App.js:384` ProactiveMessageBridge | `electron/ipc/notify.js`（`notify:click` 回传）+ `DesktopApp` 导航 | 已对齐（S37 补；切角色→切会话→定位消息） |
-| 悬浮窗 deep link 跳转 | `App.js:483-506` | 无 | 不适用：`easychat2://screen-watch` 依赖手机悬浮窗 |
+| 悬浮窗 deep link 跳转 | `App.js:483-506` | 无 | 不适用：该链接的唯一生产者是手机悬浮球（点击回到 App 的屏幕注视页）；桌面悬浮窗是独立窗口、点一下直接截图评论，不需要回跳机制 |
 | 角色编辑未保存离页确认 | `App.js:632-663` + `character/characterEditGuard.js` | `provider/DesktopApp.jsx`（`shouldConfirmTabLeave`） | 已对齐（S37 补；三动作齐全，保存失败不离开） |
 
 ## 2. 聊天（32）
@@ -58,7 +58,7 @@
 | 聊天内搜索条 | `chat/ChatSearchBar.js` | `chat/ChatSearchBar.jsx` | 已对齐 |
 | 表情包面板 | `chat/StickerPanelModal.js` | `stickers/StickerPanel.jsx` | 已对齐 |
 | 表情包命名 | `chat/StickerNamePromptModal.js` | `stickers/StickerNameDialog.jsx` | 已对齐 |
-| 附件菜单 | `chat/AttachmentMenuModal.js` | `attachments/useDesktopAttachments.js` + `ChatComposer` | 平台差异：拍照/相册 → 原生文件对话框；其余（文本/图片/视频）同能力 |
+| 附件菜单 | `chat/AttachmentMenuModal.js` | `ChatComposer` 五个入口 + `attachments/CameraDialog.jsx` | 已对齐（S39 补拍照/拍视频：getUserMedia + canvas + MediaRecorder；与选文件走同一校验链路） |
 | 全屏输入 | `chat/FullScreenInputModal.js` | `chat/FullScreenInput.jsx` | 已对齐 |
 | 提及成员 | `chat/MentionPickerModal.js` | `group/MentionPicker.jsx` | 已对齐 |
 | 选择文本 | `chat/SelectionTextModal.js` | `MessageActionsMenu`（选择文本复制原文） | 已对齐 |
@@ -148,15 +148,15 @@
 | DOCX 导入 | `books/decodeText.js`（手机走原生/第三方库） | `electron/ipc/docx.js` + 共享 `books/docxText.js` | 已对齐（S37 补；主进程解 zip，存成 txt 复用阅读链路） |
 | 阅读器（分章/进度） | `books/BookReaderView.js` | `extension/screens/BookReader.jsx` | 已对齐 |
 | 阅读器字号增减 | `BookReaderView.js:616-619` | `BookReader.jsx`（A-/A+，共享 `books/readerFont.js`） | 已对齐（S36 补） |
-| 阅读器翻页方式（点击/滑动/仿真翻书） | `BookReaderView` + `readerSettings.js` | 无 | 不适用：依赖 RN 文本测量做逐行分页；桌面是滚动阅读，翻页手势无对应物 |
+| 阅读器翻页方式（点击/滑动/仿真翻书） | `BookReaderView` + `readerSettings.js` | `extension/screens/BookReader.jsx`（滚动/翻页双模式） | 平台差异：翻页能力已对齐（CSS 多列分页 + 左右点击/方向键），但手势形态按平台（触摸滑动 → 鼠标/键盘）；不提供仿真翻书动画 |
 | 章节目录 | `BookChaptersModal.js` | `BookReader.jsx`（章节下拉） | 已对齐 |
 | 陪读评论 | `BookCommentsModal.js` | `RoleCommentPanel.jsx`（kind=books，读当前章） | 已对齐（S38 修正：原先 `chapterTitle`/`anchor` 写死为空，评论不锚定到读者所在章；现由 BookReader 上报当前章） |
 | 书架命名 / 选择 | `ui/CollectionModals.js` | `BookshelfPanel.jsx` | 已对齐 |
 | 屏幕注视 | `screenWatch/ScreenWatchScreen.js` | `extension/screens/ScreenWatchScreen.jsx` | 已对齐（截本应用画面） |
-| 悬浮窗控制 | `screenWatch/ScreenWatchScreen.js:442-478` | 无 | 不适用：SYSTEM_ALERT_WINDOW + MediaProjection |
+| 悬浮窗控制 | `screenWatch/ScreenWatchScreen.js:442-478` | `electron/ipc/overlay.js` + `src/overlay/OverlayApp.jsx` | 已对齐（S39 补：置顶透明窗口 + `desktopCapturer` 整屏截图；原判「桌面无等价物」是错的） |
 | 无障碍服务卡 | `screenWatch/AccessibilityCard.js` | 无 | 不适用：Android 无障碍服务 |
 | 画面识别来源卡（主模型直看 / OCR 先转文字） | `screenWatch/FrameRecognitionCard.js` | `settings/ImageRecognitionCard.jsx`（`screenWatchSource` 选择器） | 已对齐（S38 补：共享 hook 一直支持两种来源，但桌面缺切换入口 → 永远走默认 main） |
-| 悬浮球头像卡 | `screenWatch/AvatarCard.js` | 无 | 不适用：悬浮窗子功能 |
+| 悬浮球头像卡 | `screenWatch/AvatarCard.js` | `extension/screens/OverlayAvatarCard.jsx` + `OverlayApp` | 已对齐（S39 补：默认/跟随角色/自定义三档，同一份共享存储） |
 | 主动消息 | `ProactivePanel.js:148` | `extension/screens/ProactiveScreen.jsx` | 平台差异：桌面只在窗口开着时到点触发（无后台服务） |
 | 主动消息风格/时段编辑 | `proactive/ProactiveStyleEditor.js` | `ProactiveScreen.jsx`（风格权重表） | 已对齐 |
 | 主动消息权限区（通知/精确闹钟/电池/自启动） | `ProactivePanel.js:702-770` | 无 | 不适用：Android 系统权限 |
@@ -213,9 +213,9 @@
 
 **矩阵内已无「待补」。** 手机端 149 个用户可达功能面全部落到下面四种状态之一：
 
-- **已对齐 125**：桌面有等价功能面，且判定/数据来自共享层（不是重写一份）。
-- **平台差异 7**：桌面有等价功能面，交互形态因平台不同（如相机→文件选择、系统分享→另存为）。
-- **不适用 7**：依赖手机独有硬件/系统能力（生物识别、悬浮窗、无障碍、系统权限）。
+- **已对齐 129**：桌面有等价功能面，且判定/数据来自共享层（不是重写一份）。
+- **平台差异 6**：桌面有等价功能面，交互形态因平台不同（如相机→文件选择、系统分享→另存为）。
+- **不适用 4**：依赖手机独有硬件/系统能力（生物识别、悬浮窗、无障碍、系统权限）。
 - **Agent 排除 10**：按本次任务范围排除（agent 运行时、MCP、插件运行时、工作区、本地模型）。
 
 ### 明确不做的（已在表中标为不适用 / Agent 排除，不属待补）

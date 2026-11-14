@@ -55,13 +55,17 @@ test('三处面的每个控件都有明确归属（denied 只允许是「无摄�
   for (const item of denied) assert.equal(item.reason, 'no-camera');
 });
 
-test('附件：三入口（文本/图片/视频）都在，拍照两入口确实缺席', () => {
-  for (const key of ['chat.attach.text.title', 'chat.attach.image.title', 'chat.attach.video.title']) {
+test('附件：五个入口齐全（文本/图片/视频/拍照/拍视频）', () => {
+  for (const key of ['chat.attach.text.title', 'chat.attach.image.title', 'chat.attach.video.title',
+    'chat.attach.camera.title', 'chat.attach.videoCamera.title']) {
     assert.ok(COMPOSER.includes(key), `附件缺 ${key}`);
   }
-  // 拍照/拍视频依赖摄像头：桌面不提供，也不该假装有按钮。
-  assert.ok(!/chat\.attach\.camera\.title/.test(COMPOSER), '不应出现拍照入口');
-  assert.ok(!/chat\.attach\.videoCamera\.title/.test(COMPOSER), '不应出现拍视频入口');
+  // S39：拍照/拍视频用 getUserMedia + canvas + MediaRecorder 实现（不需要原生依赖），
+  // 产出的文件与「对话框选的」走同一套校验与媒体保护。
+  const cam = read('src', 'attachments', 'CameraDialog.jsx');
+  assert.ok(cam.includes('getUserMedia'), '应使用 getUserMedia');
+  assert.ok(cam.includes('MediaRecorder'), '录像应使用 MediaRecorder');
+  assert.ok(cam.includes('markMediaWrite'), '落盘后应登记媒体保护');
 });
 
 test('附件：按当前模型能力置灰，口径与 useChatSend 完全一致', () => {
