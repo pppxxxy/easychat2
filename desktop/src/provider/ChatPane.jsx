@@ -23,6 +23,7 @@ import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import AttachmentChips from '../attachments/AttachmentChips.jsx';
 import useDesktopAttachments from '../attachments/useDesktopAttachments.js';
 import { buildBranchNav } from '../chat/branchNav.js';
+import useDesktopMessageWindow from '../chat/useDesktopMessageWindow.js';
 import ChatMoreMenu from '../chat/ChatMoreMenu.jsx';
 import ChatSearchBar from '../chat/ChatSearchBar.jsx';
 import ConversationExportPanel from '../chat/ConversationExportPanel.jsx';
@@ -81,16 +82,16 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
   const usage = useDesktopContextUsage({ messages, characterId });
   const [usageDismissed, setUsageDismissed] = useState(false);
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
+  const messageWindow = useDesktopMessageWindow(activeSessionId); // 长会话窗口化，见 hook 注释
   const [mentionOpen, setMentionOpen] = useState(false);
-  const memberNames = groupCharacters.map(character => String(character.name || '').trim()).filter(Boolean);
+  const memberNames = groupCharacters.map(c => String(c.name || '').trim()).filter(Boolean);
   const groupName = isGroup
     ? groupDisplayName(activeSession, memberNames, t('common.groupChat'), t('character.library.group.nameJoin'))
     : '';
   const compact = useDesktopCompaction({ setMessages, messagesRef: chat.messagesRef, characterId, usage });
   // 对话内搜索：命中与推进口径复用共享层 chatSearchMath，桌面只补滚动与高亮。
   const search = useDesktopChatSearch({ messages, scrollRef });
-  // 记忆总结：共享层 useChatSend 的 maybeAutoSummarize 在桌面是 no-op，
-  // 手动入口此前也没有 —— 整套记忆系统在桌面上空转。这里补上显式入口与自动触发。
+  // 记忆总结：共享层 maybeAutoSummarize 在桌面是 no-op，这里补显式入口与自动触发。
   // 模型与思考：只做在线部分（桌面无本地模型）。
   const modelThinking = useDesktopModelThinking({
     isSending,
@@ -457,6 +458,8 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
       >
         <MessageList
           messages={messages}
+          windowSize={messageWindow.windowSize}
+          onExpandWindow={messageWindow.expand}
           palette={palette}
           fonts={fonts}
           tokens={tokens}

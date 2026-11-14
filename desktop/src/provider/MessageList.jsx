@@ -28,6 +28,9 @@ export default function MessageList({
   onCommand,
   onMenu,
   onGenerateImage = null,
+  // 窗口化（与手机同一语义）：只渲染尾部 windowSize 条，更早的用「加载更早消息」放开。
+  windowSize = 0,
+  onExpandWindow = null,
   // 分支
   branchNav,
   forkBranches,
@@ -35,13 +38,41 @@ export default function MessageList({
   onDeleteBranch,
   branchDisabled,
 }) {
-  useTranslation(); // 保持与其余面板一致的翻译订阅（本文件暂无自有文案）
+  const { t } = useTranslation();
   const selectedSet = new Set(selectedIds || []);
   const quoteId = String(focusedId || '');
+  // 窗口化是**数据层**裁剪（不是虚拟化）：手机端 80/200 起步，桌面同口径。
+  // 上千条会话若全量挂载，每次打字/滚动都会重算全部气泡的 markdown —— 那才是卡顿源。
+  // windowSize 为 0（默认）时保持旧行为，供不关心长会话的调用方使用。
+  const total = messages.length;
+  const visible = windowSize > 0 && total > windowSize
+    ? messages.slice(total - windowSize)
+    : messages;
+  const hiddenCount = total - visible.length;
 
   return (
     <>
-      {messages.map(message => {
+      {hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => (typeof onExpandWindow === 'function' ? onExpandWindow() : undefined)}
+          style={{
+            display: 'block',
+            width: '100%',
+            margin: '4px 0 10px',
+            padding: '6px 10px',
+            background: 'transparent',
+            color: palette.textMuted,
+            border: `1px dashed ${palette.divider}`,
+            borderRadius: 8,
+            cursor: 'pointer',
+            fontSize: fonts.scaled(11),
+          }}
+        >
+          {t('chat.list.loadEarlier', { count: hiddenCount })}
+        </button>
+      ) : null}
+      {visible.map(message => {
         const id = String(message.id || '');
         const selected = selecting && id && selectedSet.has(id);
         return (
