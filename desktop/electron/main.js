@@ -37,6 +37,10 @@ const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8')
 const SMOKE_PROBE_GROUP = readFileSync(path.join(__dirname, 'smoke-probe-group.js'), 'utf8');
 const SMOKE_PROBE_SURFACE = readFileSync(path.join(__dirname, 'smoke-probe-surface.js'), 'utf8');
 const SMOKE_PROBE_SCREENS = readFileSync(path.join(__dirname, 'smoke-probe-screens.js'), 'utf8');
+// 压力探针（EASYCHAT2_DESKTOP_STRESS=1）：在**同一个打包版**里造真实量级数据，
+// 量测写入/读回/渲染耗时与挂载气泡数。与冒烟分开：冒烟验功能，这里验数据量。
+const STRESS = process.env.EASYCHAT2_DESKTOP_STRESS === '1';
+const STRESS_PROBE = readFileSync(path.join(__dirname, 'stress-probe.js'), 'utf8');
 // 冒烟夹具（模型回复正文）单独放文件：它们是测试数据，不是界面文案，且被 i18n 规则豁免。
 const {
   SMOKE_REPLY,
@@ -291,6 +295,34 @@ function createWindow() {
   });
 
   mainWindow.webContents.once('did-finish-load', async () => {
+    // 压力模式：与冒烟互斥（冒烟依赖 mock 模型，压力只关心数据量与耗时）。
+    if (STRESS) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await mainWindow.webContents.executeJavaScript(STRESS_PROBE, true);
+        // 第一阶段：造数据（直接写存储）。写完后必须**重载**，否则应用不会重读，
+        // 渲染层还是旧数据——第一版探针就是这里量到 bubblesMounted=0。
+        const seeded = await mainWindow.webContents.executeJavaScript(
+          'globalThis.__easychat2RunStressProbe({ bridge: window.easychat2, phase: "seed" })',
+          true
+        );
+        await new Promise(resolve => {
+          const done = () => setTimeout(resolve, 1200);
+          mainWindow.webContents.once('did-finish-load', done);
+          mainWindow.webContents.reload();
+        });
+        await mainWindow.webContents.executeJavaScript(STRESS_PROBE, true);
+        const measured = await mainWindow.webContents.executeJavaScript(
+          'globalThis.__easychat2RunStressProbe({ bridge: window.easychat2, phase: "measure" })',
+          true
+        );
+        const stress = { ...seeded, render: measured, ok: !!(seeded && seeded.ok) && !!(measured && measured.ok) };
+        console.log(`STRESS_RESULT ${JSON.stringify(stress)}`);
+      } catch (error) {
+        console.log(`STRESS_RESULT ${JSON.stringify({ ok: false, error: String((error && error.message) || error) })}`);
+      }
+      return;
+    }
     if (!SMOKE) return;
     try {
       // 群聊探针模块先注入（定义函数并挂到 globalThis），主探针随后调用。

@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "dist": "vite build && electron-builder --win nsis zip --publish never",
+    "dist": "node scripts/dist-desktop.mjs",
     "test": "node --test \"tests/**/*.test.mjs\"",
     "smoke": "vite build && node scripts/smoke.mjs",
     "smoke:kilo": "vite build && node scripts/smoke-kilo.mjs",

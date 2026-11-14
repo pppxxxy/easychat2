@@ -60,16 +60,22 @@ async function runScreensProbe({ waitFor }) {
   // 不再是「暂不支持」清单。判据换成「分组标题 + 可点入口」。
   const extensionOk = await openTab('扩展', 'Extensions', '日常陪伴', 6000)
     || await openTab('扩展', 'Extensions', 'Companion', 6000);
-  // 展开一条「依赖手机系统能力」的说明，确认原因文案可见（这部分仍是真不可移植）。
+  // 展开一条「依赖手机系统能力」的说明，确认原因文案可见。
+  //
+  // 判据更新（S18 之后）：看屏幕**不再是不可用项**（已可截本应用画面），所以原来
+  // 找「看屏幕」按钮再等「屏幕捕获」文案的做法必然失败——这条断言在 S18 之后一直是
+  // 红的，只是当时我用 `grep '"ok":true'` 校验冒烟，匹配到的是嵌套字段
+  // chat.sendResult.ok，把顶层 ok:false 掩盖了。现在改成点「本地模型」并等
+  // 「llama.rn」（ASCII，不受编码影响）。
   const entry = Array.from(document.querySelectorAll('button'))
-    .find(button => String(button.textContent || '').includes('看屏幕')
-      || String(button.textContent || '').includes('Screen watch'));
+    .find(button => String(button.textContent || '').includes('本地模型')
+      || String(button.textContent || '').includes('Local models'));
   let reasonSeen = false;
   if (entry) {
     entry.click();
     reasonSeen = !!(await waitFor(() => {
       const text = document.body.innerText || '';
-      return text.includes('屏幕捕获') || text.includes('screen capture');
+      return text.includes('llama.rn');
     }, 4000));
   }
   const groupHeaders = ['创作', '日常陪伴', '内容库', '小游戏']
