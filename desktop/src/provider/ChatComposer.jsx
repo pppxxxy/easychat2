@@ -5,6 +5,8 @@
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { Alert } from '../platform/alert.js';
 
+import useDesktopAttachmentCaps from '../chat/useDesktopAttachmentCaps.js';
+
 export default function ChatComposer({
   input,
   onInputChange,
@@ -24,6 +26,13 @@ export default function ChatComposer({
   fonts,
 }) {
   const { t } = useTranslation();
+  // 附件能力位（当前模型）：把「识图/看视频」不可用的入口置灰并说明原因，
+  // 而不是让用户选完文件才在发送侧被拒。口径与 useChatSend 完全一致。
+  // 放在本组件内部而不是宿主：这样 ChatPane 只传 chat/attach，不必再传能力位。
+  const attachCaps = useDesktopAttachmentCaps({ characterId: chat && chat.character && chat.character.id });
+  // 还没读出来时不禁用（避免闪一下灰）；读出来后按真实能力判断。
+  const visionBlocked = attachCaps.ready === true && attachCaps.vision !== true;
+  const videoBlocked = attachCaps.ready === true && attachCaps.video !== true;
   return (
       <div style={{ borderTop: `1px solid ${palette.divider}`, padding: 12, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
         <button
@@ -35,21 +44,23 @@ export default function ChatComposer({
         >
           🔍
         </button>
+        {/* 图片/视频按当前模型能力置灰（手机 AttachmentMenuModal 同款）：
+            title 直接说明原因，用户不必选完文件才在发送侧被拒。 */}
         <button
           type="button"
-          title={t('chat.attach.image.title')}
+          title={visionBlocked ? t('chat.attach.visionRequired') : t('chat.attach.image.title')}
           onClick={attach.pickImages}
-          disabled={composerDisabled}
-          style={iconButton}
+          disabled={composerDisabled || visionBlocked}
+          style={{ ...iconButton, opacity: visionBlocked ? 0.4 : 1 }}
         >
           🖼
         </button>
         <button
           type="button"
-          title={t('chat.attach.video.title')}
+          title={videoBlocked ? t('chat.attach.videoRequired') : t('chat.attach.video.title')}
           onClick={attach.pickVideos}
-          disabled={composerDisabled}
-          style={iconButton}
+          disabled={composerDisabled || videoBlocked}
+          style={{ ...iconButton, opacity: videoBlocked ? 0.4 : 1 }}
         >
           🎬
         </button>
