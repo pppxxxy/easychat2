@@ -18,6 +18,7 @@ import { buildAssistantReplyParts } from '../../../src/chat/assistantReply.js';
 import { getInput, setInput, useInput } from '../../../src/chat/inputStore.js';
 import useChatSend from '../../../src/chat/useChatSend.js';
 import useChatTts from '../../../src/chat/useChatTts.js';
+import useDesktopInlineImage from '../chat/useDesktopInlineImage.js';
 import useSessionGuard from '../../../src/chat/useSessionGuard.js';
 import useSessionMessages from '../../../src/chat/useSessionMessages.js';
 import { getChatOptions } from '../../../src/storage/settings.js';
@@ -109,6 +110,8 @@ export default function useDesktopChat() {
   const atBottomRef = useRef(true);
   const userNameRef = useRef('');
   const [userAvatar, setUserAvatar] = useState('');
+  // 自动配图：开关与生成入口都由共享 useChatSend 的这两个 ref 驱动
+  //（useChatSend 在回复 settle 时读 enabledRef，命中就调 generateRef）。
   const inlineImageEnabledRef = useRef(false);
   const generateInlineImageRef = useRef(null);
   const recordTurnRef = useRef(null);
@@ -229,6 +232,22 @@ export default function useDesktopChat() {
     onProfileLoaded,
   });
 
+  // ---- 自动配图（共享层判定 + 桌面落盘）----
+  // setInlineImage 只按 id 打补丁：生成是异步的，期间用户可能已切走会话，
+  // 而 setMessages 是函数式更新、天然只作用于当前列表——id 匹配不上就无害跳过。
+  const inlineImage = useDesktopInlineImage({
+    messagesRef,
+    setInlineImage: (messageId, patch) => {
+      setMessages(current => current.map(item => (
+        item && item.id === messageId ? { ...item, inlineImage: patch } : item
+      )));
+    },
+  });
+  useEffect(() => {
+    inlineImageEnabledRef.current = inlineImage.settings.enabled === true;
+    generateInlineImageRef.current = inlineImage.generateFor;
+  }, [inlineImage.settings.enabled, inlineImage.generateFor]);
+
   // ---- 发送编排（共享层）----
   const send = useChatSend({
     beginSendOperation,
@@ -315,6 +334,11 @@ export default function useDesktopChat() {
     userNameRef,
     autoSummarizeRef,
     // 播报设置（自动播报开关、手动播报）供聊天页与 VoiceSettings 使用。
+    // 自动配图（桌面）：设置、读回与「手动重试生成」入口。
+    inlineImageSettings: inlineImage.settings,
+    reloadInlineImageSettings: inlineImage.reload,
+    saveInlineImageSettings: inlineImage.persist,
+    generateInlineImage: inlineImage.generateFor,
     ttsSettings: tts.ttsSettings,
     setTtsSettings: tts.setTtsSettings,
     toggleBroadcast: tts.toggleBroadcast,

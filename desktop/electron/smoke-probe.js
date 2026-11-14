@@ -365,7 +365,35 @@
         }, 4000);
         if (ok) visited += 1;
       }
-      settings = { attempted: true, loaded: !!loaded, sectionsVisited: visited, sectionsTotal: sections.length };
+      // 内联配图 + 表情包档位（S21）：此前整节漏掉，开关恒 false、气泡不渲染。
+      // 这里只验「入口与三档控件真的在页面上」——写入语义由单测覆盖。
+      const experienceNav = Array.from(document.querySelectorAll('nav button'))
+        .find(item => item.textContent === '全局配置' || item.textContent === 'Global settings');
+      let inlineImageCardSeen = false;
+      let stickerControlsSeen = false;
+      if (experienceNav) {
+        experienceNav.click();
+        inlineImageCardSeen = !!(await waitFor(() => {
+          const text = document.body.innerText || '';
+          // 文案取自 i18n：settings.inlineImage.title =「对话配图」/「Chat Illustrations」。
+          return text.includes('对话配图') || text.includes('Chat Illustrations');
+        }, 5000));
+        stickerControlsSeen = !!(await waitFor(() => {
+          const text = document.body.innerText || '';
+          // 概率档位与位置是 select，文案来自 settings.sticker.*
+          return (text.includes('表情包') || text.includes('Stickers'))
+            && (text.includes('概率') || text.includes('Chance'))
+            && (text.includes('相对文字') || text.includes('Relative to text'));
+        }, 5000));
+      }
+      settings = {
+        attempted: true,
+        loaded: !!loaded,
+        sectionsVisited: visited,
+        sectionsTotal: sections.length,
+        inlineImageCardSeen,
+        stickerControlsSeen,
+      };
       // 回到聊天页，避免影响后续截图。
       const chatTab = Array.from(document.querySelectorAll('button'))
         .find(button => button.textContent === '聊天' || button.textContent === 'Chat');

@@ -137,6 +137,7 @@ export const chat = {
   'chat.inlineImage.noProvider.title': 'Image Service Not Configured',
   'chat.inlineImage.noProvider.pick': 'Go to Settings → Chat Images to pick an image service and enter its key.',
   'chat.inlineImage.noProvider.config': 'Go to Settings → Chat Images to enter the endpoint and key.',
+  'chat.inlineImage.sceneSystemPrompt': 'You turn a passage of role-play dialogue into one visual scene description. Output only the description itself.',
   'chat.inlineImage.noPrompt': 'No image prompt available',
   'chat.inlineImage.noImage': 'No image received',
   'chat.inlineImage.fail': 'Image generation failed',

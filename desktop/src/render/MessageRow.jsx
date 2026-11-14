@@ -5,6 +5,7 @@ import { maskSecrets } from '../../../src/storage/secrets.js';
 import { resolveBubbleStyle } from '../../../src/chat/bubbleStyle.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { getBridge } from '../platform/bridge.js';
+import { mediaUrl } from '../platform/mediaUrl.js';
 import MediaMessage from './MediaMessage.jsx';
 import RichHtmlFrame from './RichHtmlFrame.jsx';
 import { renderMarkdownHtml } from './markdown.js';
@@ -160,6 +161,7 @@ export default function MessageRow({
   onRegenerate,
   onCommand,
   onMenu,
+  onGenerateImage = null,
   speakerName = '',
 }) {
   const { t } = useTranslation();
@@ -254,6 +256,69 @@ export default function MessageRow({
           ) : null}
           {message.pending && !isMedia && kind !== RENDER_KIND.PENDING ? (
             <span style={{ opacity: 0.65 }}> …</span>
+          ) : null}
+          {/* 自动配图：与手机同一套三态（loading / error+重试 / 图）。只在助手消息上出现。 */}
+          {!isUser && message.inlineImage ? (
+            <div style={{ marginTop: 8 }} data-inline-image-state={message.inlineImage.status}>
+              {message.inlineImage.status === 'loading' ? (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: palette.surfaceAlt,
+                  color: palette.textMuted,
+                  fontSize: fonts.scaled(11),
+                }}
+                >
+                  {t('chat.bubble.inlineLoading')}
+                </div>
+              ) : message.inlineImage.status === 'error' ? (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: palette.surfaceAlt,
+                  color: palette.danger || '#ff5a5f',
+                  fontSize: fonts.scaled(11),
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {message.inlineImage.message || t('chat.bubble.inlineError')}
+                  </span>
+                  {onGenerateImage ? (
+                    <button
+                      type="button"
+                      onClick={() => onGenerateImage(message.id, message.text)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: palette.primaryMuted || palette.primary,
+                        cursor: 'pointer',
+                        fontSize: fonts.scaled(11),
+                        padding: 0,
+                      }}
+                    >
+                      {t('common.retry')}
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <img
+                  src={mediaUrl(message.inlineImage.uri || message.inlineImage.url)
+                    || (message.inlineImage.base64
+                      ? `data:image/png;base64,${message.inlineImage.base64}`
+                      : '')}
+                  alt=""
+                  style={{
+                    maxWidth: '100%',
+                    borderRadius: 8,
+                    border: `1px solid ${palette.divider}`,
+                    display: 'block',
+                  }}
+                />
+              )}
+            </div>
           ) : null}
           {!isUser && !message.pending ? (
             <>

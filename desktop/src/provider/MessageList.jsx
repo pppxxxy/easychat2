@@ -27,6 +27,7 @@ export default function MessageList({
   onRegenerate,
   onCommand,
   onMenu,
+  onGenerateImage = null,
   // 分支
   branchNav,
   forkBranches,
@@ -97,6 +98,7 @@ export default function MessageList({
               onRegenerate={onRegenerate}
               onCommand={onCommand}
               onMenu={onMenu}
+              onGenerateImage={onGenerateImage}
               speakerName={isGroup && !message.isUser && message.role !== 'user' && speakerNameOf
                 ? speakerNameOf(message, memberNames, groupName)
                 : ''}

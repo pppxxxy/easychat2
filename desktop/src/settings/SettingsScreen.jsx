@@ -18,6 +18,7 @@ import LocationCard from './LocationCard.jsx';
 import ImageRecognitionCard from './ImageRecognitionCard.jsx';
 import AppearanceCard from './AppearanceCard.jsx';
 import ChatOptionsCard from './ChatOptionsCard.jsx';
+import InlineImageCard from './InlineImageCard.jsx';
 import MemorySettingsCard from './MemorySettingsCard.jsx';
 import MemoryProvenancePanel from '../memory/MemoryProvenancePanel.jsx';
 import MemoryConflictPanel from '../memory/MemoryConflictPanel.jsx';
@@ -128,7 +129,14 @@ export default function SettingsScreen({
         {section === 'sampling' ? <SamplingCard palette={palette} fonts={fonts} /> : null}
         {section === 'persona' ? <PersonaCard palette={palette} fonts={fonts} /> : null}
         {section === 'appearance' ? <AppearanceCard palette={palette} fonts={fonts} /> : null}
-        {section === 'experience' ? <ChatOptionsCard palette={palette} fonts={fonts} /> : null}
+        {section === 'experience' ? (
+          <>
+            <ChatOptionsCard palette={palette} fonts={fonts} />
+            {/* 自动配图 + 表情包：手机在 extensions 节，桌面并进「对话体验」——
+                两者都是「回复长什么样」的设置，放在一起比单开一节更易找。 */}
+            <InlineImageCard palette={palette} fonts={fonts} />
+          </>
+        ) : null}
         {section === 'presets' ? (
           <GlobalPresetCard palette={palette} fonts={fonts} />
         ) : null}

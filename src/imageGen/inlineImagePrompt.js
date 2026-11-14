@@ -85,3 +85,78 @@ export function normalizeScenePrompt(text, maxChars = SCENE_PROMPT_MAX) {
   if (value.length > limit) value = `${value.slice(0, Math.max(1, limit - 1)).trim()}…`;
   return value;
 }
+
+// ---------------------------------------------------------------------------
+// 场景转写编排（从 ChatScreen 抽出，两端复用）
+//
+// 为什么抽出来：这段逻辑原本是 ChatScreen 里的一个 useCallback，靠页面内的 refs
+// 取「角色名 / 用户名 / 消息列表」。桌面要实现自动配图就必须抄一遍——那正是本仓
+// 反复避免的「重写判定」。改成参数注入后，两端调同一个函数。
+//
+// 纯编排：不读存储、不碰 React。模型调用由调用方注入（sendScene 缺省返回空 ⇒ 直接
+// 用原文兜底），所以本函数在任何环境都可直接单测。
+// 系统提示词走 i18n key 而不是硬编码字符串（仓库规则：模块级导出常量不得硬编码中文）。
+// 语义上它不是界面文案，而是发给模型的指令；用同一个 i18n 层只是为了让两端拿到
+// **同一句话**，避免手机与桌面各自改一个字导致画面风格漂移。
+export const INLINE_SCENE_PROMPT_KEY = 'chat.inlineImage.sceneSystemPrompt';
+
+export function findPreviousUserText(messages, messageId = '') {
+  const list = Array.isArray(messages) ? messages : [];
+  const target = String(messageId || '');
+  const index = list.findIndex(item => String((item && item.id) || '') === target);
+  const before = index >= 0 ? list.slice(0, index) : list;
+  for (let cursor = before.length - 1; cursor >= 0; cursor -= 1) {
+    const item = before[cursor];
+    if (item && item.role === 'user' && clean(item.text)) return clean(item.text);
+  }
+  return '';
+}
+
+/**
+ * 决定这张配图要画什么。
+ *
+ * @param {object} input
+ * @param {string} input.replyText        角色这一轮的完整回复
+ * @param {object} input.settings         inlineImage 设置（imagePosition / enhance / enhanceConfigId）
+ * @param {Array}  [input.messages]       用于找「上一条用户消息」作为上下文
+ * @param {string} [input.messageId]      本条助手消息 id（定位上下文切片）
+ * @param {string} [input.charName]       角色名（提示词里用）
+ * @param {string} [input.userName]       用户名
+ * @param {Function} [input.sendScene]    async ({systemPrompt, prompt, signal}) => 模型原文
+ * @param {object} [input.signal]         AbortSignal
+ * @param {string} [input.emptyReplyText] 「空回复」占位文本（命中则退回原文）
+ * @returns {Promise<string>} 画面描述；任何失败都退回「回复段落原文」
+ */
+export async function resolveInlineImageSceneText({
+  replyText = '',
+  settings = {},
+  messages = [],
+  messageId = '',
+  charName = '',
+  userName = '',
+  sendScene = null,
+  signal = null,
+  emptyReplyText = '',
+} = {}) {
+  const segment = selectReplySegment(replyText, settings.imagePosition);
+  // 智能增强关闭：不做模型转写，直接用回复段落原文（保持原样）。
+  if (!segment || settings.enhance !== true) return segment;
+  if (typeof sendScene !== 'function') return segment;
+  try {
+    const prompt = buildScenePrompt({
+      segment,
+      userText: findPreviousUserText(messages, messageId),
+      charName: charName || '角色',
+      userName: userName || '用户',
+    });
+    const raw = await sendScene({ prompt, signal });
+    if (signal && signal.aborted) return segment;
+    // 空响应返回的是占位文本，不是画面：直接用原文兜底。
+    if (!raw || clean(raw) === clean(emptyReplyText)) return segment;
+    const scene = normalizeScenePrompt(raw);
+    return scene || segment;
+  } catch (error) {
+    // 场景转写是增值步骤：失败就用原文兜底，不打断配图。
+    return segment;
+  }
+}

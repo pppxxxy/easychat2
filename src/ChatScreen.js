@@ -1490,7 +1490,7 @@ export default function ChatScreen() {
         || configs[0];
       if (!config) return segment;
       const raw = await sendChatMessage([
-        { role: 'system', content: '你负责把一段角色对话转写成一句画面描述，只输出描述本身。' },
+        { role: 'system', content: t('chat.inlineImage.sceneSystemPrompt') },
         { role: 'user', content: buildScenePrompt({ segment, userText, charName, userName }) },
       ], {
         stream: false,

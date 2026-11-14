@@ -137,6 +137,7 @@ export const chat = {
   'chat.inlineImage.noProvider.title': '未配置生图服务',
   'chat.inlineImage.noProvider.pick': '请到「设置 → 对话配图」选择生图服务并填写密钥。',
   'chat.inlineImage.noProvider.config': '请到「设置 → 对话配图」填写服务地址与密钥。',
+  'chat.inlineImage.sceneSystemPrompt': '你负责把一段角色对话转写成一句画面描述，只输出描述本身。',
   'chat.inlineImage.noPrompt': '没有可用的配图提示词',
   'chat.inlineImage.noImage': '未获取到图片',
   'chat.inlineImage.fail': '配图生成失败',

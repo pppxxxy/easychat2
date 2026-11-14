@@ -468,6 +468,10 @@ export default function ChatPane({ palette, fonts, tokens }) {
           onRegenerate={regenerateMessage}
           onCommand={command => onInputChange(command)}
           onMenu={(target, anchor) => setMenu({ message: target, anchor })}
+          onGenerateImage={(messageId, replyText) => {
+            // 手动生成/重试：与手机一致，不受「自动配图」开关限制。
+            chat.generateInlineImage(messageId, replyText).catch(() => {});
+          }}
           branchNav={branchNav}
           // 分叉点的全部分支（按 forkMessageId 分组，共享层 branchTree 的结果）。
           forkBranches={branchesApi.branchesByFork}
