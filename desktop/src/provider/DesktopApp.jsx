@@ -36,6 +36,7 @@ import RoleLockGate from '../settings/RoleLockGate.jsx';
 import MemoryListScreen from '../memory/MemoryListScreen.jsx';
 import GroupCreatePanel from '../group/GroupCreatePanel.jsx';
 import useDesktopBackgroundTasks from './useDesktopBackgroundTasks.js';
+import useDesktopCharacterDelete from '../character/useDesktopCharacterDelete.js';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
@@ -145,6 +146,7 @@ function Shell() {
     switchCharacter,
     addCharacter,
     deleteCharacter,
+    deleteCharacters,
     ensureCharacterSession,
     switchSession,
     refreshSessions,
@@ -204,6 +206,14 @@ function Shell() {
     ready: loaded && firstRunStage === 'done',
     charactersRef,
     appVersion,
+  });
+
+  // 角色删除：必须连带处理它的会话/动态/向量记忆（手机 runCharacterDelete 同一编排）。
+  // 此前桌面只删角色表那一行，留下的会话与动态成了孤儿数据。
+  const characterDelete = useDesktopCharacterDelete({
+    deleteCharacter,
+    deleteCharacters,
+    refreshSessions,
   });
 
   // 每个角色第一次成为当前角色时补一个开场白会话。
@@ -402,7 +412,7 @@ function Shell() {
                 disabled={!!busy}
                 onClick={event => {
                   event.stopPropagation();
-                  run('delete', () => deleteCharacter(character.id));
+                  run('delete', () => characterDelete.runDelete([character.id], { deleteMemories: false }));
                 }}
               >
                 ×
@@ -525,7 +535,11 @@ function Shell() {
                 if (id !== activeId) switchCharacter(id);
                 setCharacterScreen('edit');
               }}
-              onDelete={id => run('delete', () => deleteCharacter(id))}
+              onCollectDeleteImpact={ids => characterDelete.collectDeleteImpact(ids)}
+              onDelete={(id, options = {}) => run(
+                'delete',
+                () => characterDelete.runDelete([id], { deleteMemories: options.deleteMemories === true })
+              )}
               onPin={(id, pinned) => run('pin', () => pinCharacter(id, pinned))}
               onImport={importCard}
               onImportShareCode={async text => {

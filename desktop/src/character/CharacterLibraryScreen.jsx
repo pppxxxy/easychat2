@@ -53,6 +53,7 @@ export default function CharacterLibraryScreen({
   onCreate,
   onEdit,
   onDelete,
+  onCollectDeleteImpact = null,
   onPin,
   onImport,
   onImportShareCode,
@@ -74,14 +75,57 @@ export default function CharacterLibraryScreen({
     fontSize: fonts.scaled(11),
   };
 
-  const confirmDelete = character => {
+  // 删除角色：先统计关联数据（会话/动态），有就给出「只删角色 / 连记忆一起删」两选。
+  // 手机 CharacterLibraryScreen.showDeleteChoice 同一口径——否则用户以为删干净了，
+  // 记忆页里还躺着一堆指向已删角色的对话。
+  const confirmDelete = async character => {
     if (character.id === 'default') return;
+    let impact = null;
+    try {
+      impact = await onCollectDeleteImpact([character.id]);
+    } catch (error) {
+      Alert.alert(t('common.error.deleteFailed'), t('common.error.storageOrPermission'));
+      return;
+    }
+    if (!impact || (impact.sessionIds.length === 0 && impact.linkedMoments === 0)) {
+      Alert.alert(
+        t('character.library.delete.title'),
+        t('character.library.delete.introSingle', { name: character.name || character.id }),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          {
+            text: t('common.delete'),
+            style: 'destructive',
+            onPress: () => onDelete(character.id, { deleteMemories: false }),
+          },
+        ]
+      );
+      return;
+    }
+    const details = [];
+    if (impact.sessionIds.length > 0) {
+      details.push(t('character.library.delete.detail.memories', { count: impact.sessionIds.length }));
+    }
+    if (impact.linkedMoments > 0) {
+      details.push(t('character.library.delete.detail.moments', { count: impact.linkedMoments }));
+    }
     Alert.alert(
       t('character.library.delete.title'),
-      t('character.library.delete.introSingle', { name: character.name || character.id }),
+      t('character.library.delete.withLinked', {
+        intro: t('character.library.delete.introSingle', { name: character.name || character.id }),
+        details: details.join(t('character.library.delete.detail.join')),
+      }),
       [
         { text: t('common.cancel'), style: 'cancel' },
-        { text: t('common.delete'), style: 'destructive', onPress: () => onDelete(character.id) },
+        {
+          text: t('character.library.delete.onlyCharacter'),
+          onPress: () => onDelete(character.id, { deleteMemories: false }),
+        },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => onDelete(character.id, { deleteMemories: true }),
+        },
       ]
     );
   };

@@ -25,6 +25,7 @@ import { Alert } from '../platform/alert.js';
 import GlobalSearchPanel from './GlobalSearchPanel.jsx';
 import MemoryCheckupPanel from './MemoryCheckupPanel.jsx';
 import OrphanRecoveryPanel from './OrphanRecoveryPanel.jsx';
+import ScreenWatchThreadsPanel from './ScreenWatchThreadsPanel.jsx';
 import {
   buildMemoryRows,
   flattenMemoryGroups,
@@ -533,6 +534,9 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
           </button>
         </div>
       ) : null}
+
+      {/* 屏幕对话：独立面板（不该绑在孤儿回收的开关下）。 */}
+      <ScreenWatchThreadsPanel palette={palette} fonts={fonts} />
 
       {recoverOpen ? (
         <OrphanRecoveryPanel palette={palette} fonts={fonts} />
