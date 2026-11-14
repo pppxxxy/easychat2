@@ -12,7 +12,10 @@ import {
   characterWithFormState,
 } from '../../../src/character/cardHelpers.js';
 import { createWorldEntry, WORLD_POSITION_LABELS } from '../../../src/character/cardParser/worldInfo.js';
+import { splitKeywords } from '../../../src/character/cardHelpers.js';
+import { getUnsafeWorldEntryKeys } from '../../../src/prompt/lorebook.js';
 import { createRegexScript } from '../../../src/character/cardParser/regexScripts.js';
+import { isUnsafeRegexPattern } from '../../../src/prompt/regexEngine.js';
 import { characterFormSignature } from '../../../src/character/cardHelpers.js';
 import { makeCharacterPresetId } from '../../../src/character/characterPresets.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
@@ -126,44 +129,83 @@ function TagsEditor({ tags, onChange, palette, fonts }) {
 function WorldEntryEditor({ entry, palette, fonts, onChange, onRemove }) {
   const { t } = useTranslation();
   const patch = next => onChange({ ...entry, ...next });
+  // 危险关键词（空串 / 通配 / 纯符号）会让条目在每轮都被触发或永不触发：与手机同一判据。
+  const unsafeKeys = getUnsafeWorldEntryKeys(entry);
+  const position = Number(entry.position) || 0;
   return (
     <div style={{ border: `1px solid ${palette.divider}`, borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <TextInput value={entry.comment} onChange={value => patch({ comment: value })} palette={palette} fonts={fonts} />
-        </div>
-        <Toggle checked={entry.enabled} onChange={value => patch({ enabled: value })} label="enabled" palette={palette} fonts={fonts} />
-        <Button label="×" onClick={onRemove} palette={palette} fonts={fonts} />
-      </Row>
-      <Row>
-        <div style={{ flex: 1, minWidth: 140 }}>
           <TextInput
-            value={(entry.keys || []).join(', ')}
-            onChange={value => patch({ keys: value.split(/[,，\s]+/).filter(Boolean) })}
-            placeholder={t('character.detail.world.metaKeywords', { keys: '' }).replace('：', '')}
+            value={entry.comment}
+            onChange={value => patch({ comment: value })}
+            placeholder={t('character.editor.world.namePlaceholder')}
             palette={palette}
             fonts={fonts}
           />
         </div>
-        <Toggle checked={entry.constant === true} onChange={value => patch({ constant: value })} label="constant" palette={palette} fonts={fonts} />
+        <Button label={t('character.editor.delete')} onClick={onRemove} palette={palette} fonts={fonts} />
       </Row>
-      <MultiText
-        value={entry.content}
-        onChange={value => patch({ content: value })}
-        palette={palette}
-        fonts={fonts}
-      />
+      <Field label={t('character.editor.world.keysLabel')} palette={palette} fonts={fonts}>
+        <TextInput
+          value={(entry.keys || []).join(', ')}
+          onChange={value => patch({ keys: splitKeywords(value) })}
+          placeholder={t('character.editor.world.keysPlaceholder')}
+          palette={palette}
+          fonts={fonts}
+        />
+      </Field>
+      {unsafeKeys.length > 0 ? (
+        <div style={{ fontSize: fonts.scaled(10), color: palette.danger || '#ff5a5f', lineHeight: 1.6 }}>
+          {t('character.editor.world.unsafeKeys', { keys: unsafeKeys.join(', ') })}
+        </div>
+      ) : null}
+      {/* 次要关键词：SillyTavern 的 secondary_keys，留空即不启用。 */}
+      <Field label={t('character.editor.world.keysLabel')} hint={t('character.editor.world.keysPlaceholder')} palette={palette} fonts={fonts}>
+        <TextInput
+          value={(entry.secondaryKeys || []).join(', ')}
+          onChange={value => patch({ secondaryKeys: splitKeywords(value) })}
+          palette={palette}
+          fonts={fonts}
+        />
+      </Field>
+      <Field label={t('character.editor.world.contentLabel')} palette={palette} fonts={fonts}>
+        <MultiText
+          value={entry.content}
+          onChange={value => patch({ content: value })}
+          placeholder={t('character.editor.world.contentPlaceholder')}
+          palette={palette}
+          fonts={fonts}
+        />
+      </Field>
       <Row>
-        <Field label="position" palette={palette} fonts={fonts}>
+        <Toggle
+          checked={entry.constant === true}
+          onChange={value => patch({ constant: value })}
+          label={t('character.editor.world.constant')}
+          palette={palette}
+          fonts={fonts}
+        />
+        <Toggle
+          checked={entry.enabled === true}
+          onChange={value => patch({ enabled: value })}
+          label={t('character.editor.enabled')}
+          palette={palette}
+          fonts={fonts}
+        />
+      </Row>
+      <Row>
+        <Field label={t('character.editor.world.position')} palette={palette} fonts={fonts}>
           <Select
-            value={String(entry.position)}
+            value={String(position)}
             options={WORLD_POSITION_LABELS.map((label, index) => ({ value: String(index), label: `${index} · ${label}` }))}
-            onChange={value => patch({ position: Number(value), positionLabel: WORLD_POSITION_LABELS[Number(value)] })}
+            // 只改 position，不落 positionLabel：那是当时语言下的文案，写进卡片会随导出传播。
+            onChange={value => patch({ position: Number(value), positionLabel: '' })}
             palette={palette}
             fonts={fonts}
           />
         </Field>
-        <Field label="role" palette={palette} fonts={fonts}>
+        <Field label={t('character.editor.world.role')} palette={palette} fonts={fonts}>
           <Select
             value={entry.role}
             options={WORLD_ROLES.map(role => ({ value: role, label: role }))}
@@ -173,6 +215,34 @@ function WorldEntryEditor({ entry, palette, fonts, onChange, onRemove }) {
           />
         </Field>
       </Row>
+      <Row>
+        {/* 排序权重：同等命中时决定注入先后（手机 character.editor.order）。 */}
+        <Field label={t('character.editor.order')} palette={palette} fonts={fonts}>
+          <TextInput
+            value={String(entry.order === undefined ? 100 : entry.order)}
+            onChange={value => {
+              const num = Number(value);
+              patch({ order: Number.isFinite(num) ? num : 100 });
+            }}
+            palette={palette}
+            fonts={fonts}
+          />
+        </Field>
+        {/* depth 只在「按深度插入」位置（4）下有意义 —— 与手机同一可见性判据。 */}
+        {position === 4 ? (
+          <Field label={t('character.editor.depth')} palette={palette} fonts={fonts}>
+            <TextInput
+              value={String(entry.depth === undefined ? 4 : entry.depth)}
+              onChange={value => {
+                const num = Number(value);
+                patch({ depth: Number.isFinite(num) ? num : 4 });
+              }}
+              palette={palette}
+              fonts={fonts}
+            />
+          </Field>
+        ) : null}
+      </Row>
     </div>
   );
 }
@@ -180,34 +250,106 @@ function WorldEntryEditor({ entry, palette, fonts, onChange, onRemove }) {
 function RegexEditor({ script, palette, fonts, onChange, onRemove }) {
   const { t } = useTranslation();
   const patch = next => onChange({ ...script, ...next });
+  // placement 是**数组**（一条正则可以同时作用于 AI 输出与用户输入）：
+  // 手机用 chip 多选，桌面此前写成单选 [Number(value)]，选第二项会把第一项丢掉。
+  const placement = Array.isArray(script.placement) ? script.placement : [1, 2];
+  const togglePlacement = value => {
+    const has = placement.includes(value);
+    const next = has
+      ? placement.filter(item => item !== value)
+      : [...placement, value].sort((a, b) => a - b);
+    // 只改 placement，不落 placementLabel：那是**当时语言下的文案**，写进卡片会随
+    // 导出/分享传播（英文界面显示中文）。渲染侧按当前语言现算。
+    patch({ placement: next, placementLabel: '' });
+  };
   return (
     <div style={{ border: `1px solid ${palette.divider}`, borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <TextInput value={script.name} onChange={value => patch({ name: value })} palette={palette} fonts={fonts} />
-        </div>
-        <Toggle checked={script.enabled} onChange={value => patch({ enabled: value })} label="enabled" palette={palette} fonts={fonts} />
-        <Button label="×" onClick={onRemove} palette={palette} fonts={fonts} />
-      </Row>
-      <Field label="find" palette={palette} fonts={fonts}>
-        <TextInput value={script.findRegex} onChange={value => patch({ findRegex: value })} palette={palette} fonts={fonts} />
-      </Field>
-      <Field label="replace" palette={palette} fonts={fonts}>
-        <TextInput value={script.replaceString} onChange={value => patch({ replaceString: value })} palette={palette} fonts={fonts} />
-      </Field>
-      <Row>
-        <Field label="flags" palette={palette} fonts={fonts}>
-          <TextInput value={script.flags} onChange={value => patch({ flags: value })} palette={palette} fonts={fonts} />
-        </Field>
-        <Field label="placement" palette={palette} fonts={fonts}>
-          <Select
-            value={String(script.placement[0] || 2)}
-            options={REGEX_PLACEMENT_OPTIONS.map(option => ({ value: String(option.value), label: t(option.labelKey) }))}
-            onChange={value => patch({ placement: [Number(value)] })}
+          <TextInput
+            value={script.name}
+            onChange={value => patch({ name: value })}
+            placeholder={t('character.editor.regex.namePlaceholder')}
             palette={palette}
             fonts={fonts}
           />
-        </Field>
+        </div>
+        <Button label={t('character.editor.delete')} onClick={onRemove} palette={palette} fonts={fonts} />
+      </Row>
+      <Field label={t('character.editor.regex.findLabel')} palette={palette} fonts={fonts}>
+        <TextInput
+          value={script.findRegex}
+          onChange={value => patch({ findRegex: value })}
+          placeholder={t('character.editor.regex.findPlaceholder')}
+          palette={palette}
+          fonts={fonts}
+        />
+      </Field>
+      {/* 灾难性回溯的正则会让整条渲染卡死：与手机同一判据，输入时就提示。 */}
+      {isUnsafeRegexPattern(script.findRegex) ? (
+        <div style={{ fontSize: fonts.scaled(10), color: palette.danger || '#ff5a5f', lineHeight: 1.6 }}>
+          {t('character.editor.regex.unsafeHint')}
+        </div>
+      ) : null}
+      <Field label={t('character.editor.regex.replaceLabel')} palette={palette} fonts={fonts}>
+        <TextInput
+          value={script.replaceString}
+          onChange={value => patch({ replaceString: value })}
+          placeholder={t('character.editor.regex.replacePlaceholder')}
+          palette={palette}
+          fonts={fonts}
+        />
+      </Field>
+      <Field label="flags" hint={t('character.editor.regex.flagsHint')} palette={palette} fonts={fonts}>
+        <TextInput value={script.flags} onChange={value => patch({ flags: value })} palette={palette} fonts={fonts} />
+      </Field>
+      <Field label={t('character.editor.regex.scopeLabel')} hint={t('character.editor.regex.scopeHint')} palette={palette} fonts={fonts}>
+        <Row>
+          {REGEX_PLACEMENT_OPTIONS.map(option => {
+            const active = placement.includes(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => togglePlacement(option.value)}
+                style={{
+                  border: `1px solid ${active ? (palette.primaryMuted || palette.primary) : palette.divider}`,
+                  background: active ? palette.surfaceAlt : 'transparent',
+                  color: palette.text,
+                  borderRadius: 999,
+                  padding: '3px 10px',
+                  cursor: 'pointer',
+                  fontSize: fonts.scaled(11),
+                }}
+              >
+                {t(option.labelKey)}
+              </button>
+            );
+          })}
+        </Row>
+      </Field>
+      <Row>
+        <Toggle
+          checked={script.enabled === true}
+          onChange={value => patch({ enabled: value })}
+          label={t('character.editor.enabled')}
+          palette={palette}
+          fonts={fonts}
+        />
+        <Toggle
+          checked={script.markdownOnly === true}
+          onChange={value => patch({ markdownOnly: value })}
+          label={t('character.editor.regex.markdownOnly')}
+          palette={palette}
+          fonts={fonts}
+        />
+        <Toggle
+          checked={script.promptOnly === true}
+          onChange={value => patch({ promptOnly: value })}
+          label={t('character.editor.regex.promptOnly')}
+          palette={palette}
+          fonts={fonts}
+        />
       </Row>
     </div>
   );
