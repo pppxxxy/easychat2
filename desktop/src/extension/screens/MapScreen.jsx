@@ -27,6 +27,7 @@ import {
 import { getWorldMap, updateWorldMap } from '../../../../src/storage/worldMap.js';
 import { Alert } from '../../platform/alert.js';
 import { Button, Card, Field, Row, Select, TextInput } from '../../settings/ui.jsx';
+import RealMapScreen from './RealMapScreen.jsx';
 
 // 网格显示尺寸：40×40 在 1:1 像素下是 40px/格 = 1600px，桌面窗口放不下，
 // 因此每格 16px（共 640px）；点选坐标按 CELL_SIZE 整除得到。
@@ -40,6 +41,9 @@ export default function MapScreen({ palette, fonts }) {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(null);
   const [draft, setDraft] = useState({ name: '', ownerId: '', residentId: '' });
+  // 视图：网格（原有）/ 真实地图（S37 补）。真实地图是一整块独立界面，
+  // 与网格共用同一份 location 数据（storage/location.js），互不覆盖。
+  const [mapView, setMapView] = useState('grid');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -193,9 +197,41 @@ export default function MapScreen({ palette, fonts }) {
     })),
   ];
 
+  // 视图切换条：两个视图都是「世界地图」，只是呈现方式不同。
+  const viewSwitch = (
+    <Row>
+      <Button
+        label={t('world.map.real.view.grid')}
+        onClick={() => setMapView('grid')}
+        palette={palette}
+        fonts={fonts}
+        disabled={mapView === 'grid'}
+      />
+      <Button
+        label={t('world.map.real.view.real')}
+        onClick={() => setMapView('real')}
+        palette={palette}
+        fonts={fonts}
+        disabled={mapView === 'real'}
+      />
+    </Row>
+  );
+
+  if (mapView === 'real') {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${palette.divider}`, flex: 'none' }}>
+          {viewSwitch}
+        </div>
+        <RealMapScreen palette={palette} fonts={fonts} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: 16, minWidth: 0 }}>
       <Card title={t('ext.home.map')} hint={t('ext.home.map.desc')} palette={palette} fonts={fonts}>
+        {viewSwitch}
         <Row>
           <Button
             label={loading ? t('backup.progress.ratio') : t('ext.home.map.summary', { count: houses.length })}

@@ -81,6 +81,13 @@ export default function useProactiveForeground({ enabled, charactersRef }) {
           const shown = await getBridge().notify.show({
             title: String(character.name || '') || undefined,
             body: text.slice(0, 200),
+            // 点击通知要跳到这条消息所在的会话（与手机 ProactiveMessageBridge 同一语义）。
+            // 主进程不解释这些字段，只原样回传给渲染层。
+            target: {
+              characterId: String(character.id || ''),
+              sessionId: String(slot.sessionTargetId || ''),
+              messageId: buildProactiveMessageId(slot.slotId, now),
+            },
           });
           if ((!shown || shown.ok !== true) && typeof console !== 'undefined' && console.warn) {
             console.warn('[proactive] system notification unavailable:', shown && shown.reason);

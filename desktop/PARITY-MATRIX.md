@@ -19,13 +19,13 @@
 
 | 区域 | 手机功能面 | 已对齐 | 平台差异 | 不适用 | Agent 排除 | 待补 |
 |---|---|---|---|---|---|
-| 全局 | 10 | 5 | 1 | 2 | 0 | 2 |
-| 聊天 | 32 | 24 | 4 | 0 | 3 | 1 |
+| 全局 | 10 | 7 | 1 | 2 | 0 | 0 |
+| 聊天 | 32 | 25 | 4 | 0 | 3 | 0 |
 | 记忆 | 10 | 9 | 1 | 0 | 0 | 0 |
-| 角色 | 22 | 15 | 2 | 0 | 0 | 5 |
-| 扩展 | 42 | 26 | 3 | 5 | 3 | 5 |
-| 设置 | 33 | 27 | 1 | 0 | 4 | 1 |
-| **合计** | **149** | **106** | **12** | **7** | **10** | **14** |
+| 角色 | 22 | 19 | 2 | 0 | 0 | 1 |
+| 扩展 | 42 | 27 | 3 | 5 | 3 | 4 |
+| 设置 | 33 | 28 | 1 | 0 | 4 | 0 |
+| **合计** | **149** | **115** | **12** | **7** | **10** | **5** |
 
 > 手机上同一个弹层可能从多个入口进（免责声明、教程、预设、转写、本地模型、导入扩展），
 > 上表按「入口 × 区域」各计一次，与手机端排查时看到的入口数一致。
@@ -41,9 +41,9 @@
 | 应用锁（生物识别） | `security/SecurityGate.js` + `biometrics.js` | 无 | 不适用：手机唯一解锁路径是指纹/面容（`expo-local-authentication`）；桌面无等价物，强行提供会锁死用户 |
 | 单角色锁 PIN | `security/SecurityGate.js:375` + `PinModal.js` | `settings/RoleLockGate.jsx` + `CharacterLockCard.jsx` | 已对齐 |
 | 安全状态未知拦截层 | `security/SecurityGate.js:314` | `RoleLockGate`（读坏时**放行**，与手机相反） | 平台差异：桌面无生物识别这一把「备用钥匙」，fail-closed 会把用户永久挡在外面；这是刻意反着做并在代码里注明 |
-| 主动消息通知跳转桥 | `App.js:384` ProactiveMessageBridge | `provider/useDesktopBackgroundTasks.js` + `notify:show` | 待补：点通知**跳到对应会话**这一环未接（当前只把消息写进会话） |
+| 主动消息通知跳转桥 | `App.js:384` ProactiveMessageBridge | `electron/ipc/notify.js`（`notify:click` 回传）+ `DesktopApp` 导航 | 已对齐（S37 补；切角色→切会话→定位消息） |
 | 悬浮窗 deep link 跳转 | `App.js:483-506` | 无 | 不适用：`easychat2://screen-watch` 依赖手机悬浮窗 |
-| 角色编辑未保存离页确认 | `App.js:632-663` + `character/characterEditGuard.js` | 无 | 待补：桌面有脏标记与保存冲突检测，但切换 tab 时不拦截（会静默丢草稿） |
+| 角色编辑未保存离页确认 | `App.js:632-663` + `character/characterEditGuard.js` | `provider/DesktopApp.jsx`（`shouldConfirmTabLeave`） | 已对齐（S37 补；三动作齐全，保存失败不离开） |
 
 ## 2. 聊天（32）
 
@@ -67,7 +67,7 @@
 | 导出对话 | `chat/ConversationExportModal.js` | `chat/ConversationExportPanel.jsx` + `shareCardImage.js` | 平台差异：系统分享 → 「另存为」写盘 |
 | 从对话生成角色卡 | `chat/ConversationCardModal.js` | `chat/ConversationCardPanel.jsx` | 已对齐 |
 | 聊天设置（压缩/占用） | `chat/ChatSettingsModal.js` + `CompactFocusModal.js` | `chat/ContextUsageBar.jsx` + `CompactFocusDialog.jsx` | 已对齐 |
-| 语音设置（播报/模式/转写入口） | `chat/VoiceSettingsModal.js` | 无独立面板 | 待补：桌面的「自动播报」开关在更多菜单里，但语音模式三选与转写入口没有对应面板 |
+| 语音设置（播报/模式/转写入口） | `chat/VoiceSettingsModal.js` | `chat/VoiceSettingsPanel.jsx`（更多→语音设置） | 已对齐（S37 补；播报/全语音模式/转写入口三合一） |
 | 语音转写配置 | `TranscriptionPanel.js` | `settings/TranscriptionCard.jsx` | 已对齐（S36 补；入口在设置→全局配置） |
 | 角色编辑（聊天内） | `CharacterEditForm.js` | `character/CharacterEditScreen.jsx` | 已对齐 |
 | 群聊编辑（聊天内） | `GroupEditForm.js` | `group/GroupSettingsPanel.jsx` | 已对齐 |
@@ -116,10 +116,10 @@
 | 开场白导入选择 | `GreetingPickerModal.js` | `chat/GreetingPicker.jsx` | 已对齐 |
 | 角色卡分享（二维码/分享码） | `character/CardShareModal.js` + `share/cardShare.js` | `character/CharacterShareDialog.jsx` + `CardSharePanel.jsx` | 已对齐 |
 | 角色卡导出 | `character/cardExporter.js` | `backup/services.js`（exportCharacterCard） | 已对齐 |
-| 转入制卡工坊 | `CharacterDetailScreen.js:608-637` | 无 | 待补：桌面制卡页支持「导入角色库」，但没有从角色详情反向载入草稿 |
-| 角色覆盖设置（聊天/OCR/TTS/转写） | `CharacterOverridesSection.js` | `character/CharacterOverrideCard.jsx` | 待补：桌面只做了聊天 API/模型 + OCR 两项，TTS 与转写覆盖未接 |
-| 草稿恢复提示 | `CharacterDetailScreen.js:372-380` | 无 | 待补：桌面有脏标记，但不落草稿、重进不提示恢复 |
-| 导入进度遮罩 | `CharacterEntryModals.js:37-50` | 无 | 待补：桌面导入在完成前无阶段提示（大卡解析期间界面无反馈） |
+| 转入制卡工坊 | `CharacterDetailScreen.js:608-637` | `CharacterEditScreen.jsx`（导入到制卡按钮 → `draftFromCharacter`） | 已对齐（S37 补；导航到扩展→制卡） |
+| 角色覆盖设置（聊天/OCR/TTS/转写） | `CharacterOverridesSection.js` | `character/CharacterOverrideCard.jsx`（四项齐全） | 已对齐（S37 补；TTS provider/音色 + 转写配置） |
+| 草稿恢复提示 | `CharacterDetailScreen.js:372-380` | `character/useDesktopCharacterDraft.js` | 已对齐（S37 补；800ms 防抖 + 读即取走） |
+| 导入进度遮罩 | `CharacterEntryModals.js:37-50` | `character/ImportOverlay.jsx` | 已对齐（S37 补；读取/保存两阶段，大卡另带体积） |
 | 角色卡教程 | `CharacterDetailScreen.js:928` | `settings/TutorialDialog.jsx` | 已对齐 |
 | 语音显示模式 | `CharacterDetailScreen` | `CharacterEditScreen.jsx`（语音模式三选） | 已对齐 |
 | 原始卡只读资料 / AIGC 标识 | `CharacterDetailScreen` | `CharacterEditScreen.jsx`（原始卡资料区） | 已对齐 |
@@ -166,7 +166,7 @@
 | 导入扩展（GitHub/npm/粘贴） | `extension/ExtensionImportSheet.js` | 无 | Agent 排除（同上） |
 | 日记 | `DiaryPanel.js:34` | `extension/screens/DiaryScreen.jsx` | 已对齐 |
 | 世界地图（40×40 网格/房屋） | `MapPanel.js:47` | `extension/screens/MapScreen.jsx` | 已对齐 |
-| 真实地图视图（手写坐标/位置列表/对外分享） | `worldMap/RealMapView.js` | 无 | 待补：桌面只有网格地图；真实地图与位置编辑未做（`storage/location.js` 已存在，只差界面） |
+| 真实地图视图（手写坐标/位置列表/对外分享） | `worldMap/RealMapView.js` | `extension/screens/RealMapScreen.jsx`（共享 `buildRealMapHtml`） | 已对齐（S37 补；网格/真实两视图切换） |
 | 游戏中心 | `extension/GamesView.js` | `extension/screens/GamesScreen.jsx` | 已对齐 |
 | 网页游戏详情 | `GamesView.js:84-124` | `GamesScreen.jsx`（iframe srcDoc + sandbox） | 已对齐 |
 | 今日老婆/老公 | `games/DailyWifeView.js` | `extension/screens/DailyWifeScreen.jsx` | 已对齐（S36 补，原先标成「需要角色库面板」是误判） |
@@ -192,7 +192,7 @@
 | 向量记忆（含记忆总结设置） | `settings/sections/VectorSection.js` | `settings/MemorySettingsCard.jsx:69-372` | 已对齐 |
 | 记忆溯源 / 冲突处置 | `memory/MemoryProvenanceModal.js` | `memory/MemoryProvenancePanel.jsx` + `MemoryConflictPanel.jsx` | 已对齐 |
 | 隐私与安全（单角色锁） | `settings/sections/SecuritySection.js` | `settings/CharacterLockCard.jsx` | 已对齐 |
-| 批量上锁选人 | `settings/sections/BulkLockPickerModal.js` | 无 | 待补：桌面只能逐个上锁 |
+| 批量上锁选人 | `settings/sections/BulkLockPickerModal.js` | `settings/CharacterLockCard.jsx`（多选态 + `setCharacterLocks`） | 已对齐（S37 补；手机两步弹层，桌面密码在卡内所以合并为「勾选→应用」） |
 | 设置/验证密码 | `security/PinModal.js` | `CharacterLockCard.jsx`（内置 PIN 设置） | 已对齐 |
 | 自动备份 | `settings/sections/AutoBackupSection.js` | `settings/AutoBackupCard.jsx` | 平台差异：目标固定为应用私有目录（无长期目录句柄） |
 | 界面语言 | `SettingsScreen.js:1897-1933` | `settings/AppearanceCard.jsx` | 已对齐 |
@@ -209,27 +209,16 @@
 | MCP 服务器 / 内置 MCP Server | `settings/sections/McpServersSection.js` + `McpServerCard.js` | 无 | Agent 排除 |
 | 本地模型中心 | `LocalModelPanel.js` | 无 | Agent 排除 |
 
-## 7. 仍然存在的真实差距（待补 14 项）
+## 7. 仍然存在的真实差距（待补 5 项）
 
-按「补起来的成本」排序。**这 14 项清零之前，不能说没有功能差距。**
+按「补起来的成本」排序。**这 5 项清零之前，不能说没有功能差距。**
 
-**数据层已就绪，只差界面/接线（成本低）**
-1. 设置 → 批量上锁（`CharacterLockCard` 的逐角色写入已存在，缺多选态）
-2. 角色详情 → 载入制卡工坊（`storage/cardForge.js` 已存在，缺反向载入）
-3. 角色草稿恢复（脏标记已存在，缺落草稿 + 重进提示）
-4. 角色编辑未保存离页确认（`character/characterEditGuard.js` 是共享判定，缺 tab 切换拦截）
-5. 主动消息通知点击跳会话（消息已落库，缺「点通知切会话」）
-6. 角色导入进度遮罩（导入链路已有，缺阶段态）
-7. 聊天语音设置面板（语音模式三选 + 转写入口；转写卡片已在设置里）
-8. 角色覆盖的 TTS / 转写两项（`storage/characterOverrides.js` 结构已支持）
-9. 真实地图视图（`storage/location.js` + `worldMap/realMapHtml.js` 已存在，缺界面）
-
-**需要新写一块逻辑（成本中）**
-10. 角色库多选批量删除（有逐卡删除编排，缺选择态）
-11. 音乐播放完整控制（进度拖动/倍速/上一首/下一首/前后 15 秒/播放模式）
-12. 音乐陪伴的切片与自动评论（桌面目前只能手动生成短评）
-13. DOCX 导入（zip + XML 解析；当前明确拒绝并给出替代路径）
-14. 制卡单字段头像/背景重生成（当前只有「图片制卡」整卡生成）
+**都需要新写一块逻辑（成本中）**
+1. 角色库多选批量删除（有逐卡删除编排，缺选择态）
+2. 音乐播放完整控制（进度拖动/倍速/上一首/下一首/前后 15 秒/播放模式）
+3. 音乐陪伴的切片与自动评论（桌面目前只能手动生成短评）
+4. DOCX 导入（zip + XML 解析；当前明确拒绝并给出替代路径）
+5. 制卡单字段头像/背景重生成（当前只有「图片制卡」整卡生成）
 
 ### 明确不做的（已在表中标为不适用 / Agent 排除，不属待补）
 

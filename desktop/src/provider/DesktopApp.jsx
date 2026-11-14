@@ -9,7 +9,7 @@
 // 界面只做桌面首版所需：角色列表 / 会话列表 / 文本收发（流式）/ 重新生成 /
 // 语言与主题切换 / 应用内 Alert；正文渲染（Markdown/富 HTML/媒体）见 render/。
 // 附件与表情包发送在 S4b 接入。
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppProvider, useApp } from '../../../src/context/AppContext.js';
 import { I18nProvider, useTranslation } from '../../../src/i18n/I18nContext.js';
@@ -22,8 +22,6 @@ import { getBridge } from '../platform/bridge.js';
 import {
   acknowledgeDisclaimer,
   completeOnboarding,
-  isDisclaimerAcknowledged,
-  isOnboardingDone,
 } from '../../../src/storage/settings.js';
 import BackupPanel from '../backup/BackupPanel.jsx';
 import { applyCharacterCard, pickCharacterCard } from '../backup/services.js';
@@ -40,6 +38,11 @@ import useDesktopCharacterDelete from '../character/useDesktopCharacterDelete.js
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
 import AnnouncementDialog, { useCachedAnnouncement, useStartupAnnouncement } from '../settings/AnnouncementDialog.jsx';
+import { getCharacterEditGuard, shouldConfirmTabLeave } from '../../../src/character/characterEditGuard.js';
+import ImportOverlay from '../character/ImportOverlay.jsx';
+import useDesktopNotificationJump from './useDesktopNotificationJump.js';
+import useDesktopFirstRunGate from './useDesktopFirstRunGate.js';
+import { isOnboardingDone } from '../../../src/storage/settings/onboarding.js';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
 import ChatPane from './ChatPane.jsx';
 
@@ -154,8 +157,12 @@ function Shell() {
     updateCharacter,
     pinCharacter,
     refreshAppData,
+    setPendingTarget,
   } = useApp();
   const [busy, setBusy] = useState('');
+  // 导入进度遮罩：解析大卡期间界面必须有反馈，否则用户会以为点坏了再点一次。
+  // 阶段只有 reading → saving 两档（与手机 CharacterEntryModals 一致）。
+  const [importStatus, setImportStatus] = useState(null);
   const [showBackup, setShowBackup] = useState(false);
   const [view, setView] = useState('chat');
   // 角色库页（卡片网格）与角色编辑页分开：库页是「选谁」，编辑页是「改什么」。
@@ -166,38 +173,29 @@ function Shell() {
   const [extensionScreenId, setExtensionScreenId] = useState('');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
-  const [firstRunStage, setFirstRunStage] = useState('loading');
   const [appVersion, setAppVersion] = useState('');
-  // 应用内公告：启动静默拉一次（命中才弹）+ 设置页入口只读缓存。
-  // 手机侧同一份逻辑（announcements/useAnnouncement.js），这里复用共享 resolve。
-  // **必须声明在 appVersion 之后**：useStartupAnnouncement 要读它，提前引用会
-  // 触发 TDZ（打包后被压成 'Cannot access xe before initialization'，整页白屏）。
+  // 应用内公告：启动静默拉取（命中才弹）+ 设置页只读缓存。
+  // **必须声明在 appVersion 之后**：提前引用会 TDZ（打包后整页白屏，S36 踩过）。
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const cachedAnnouncement = useCachedAnnouncement();
   const startupAnnouncement = useStartupAnnouncement({ localVersion: appVersion });
   const announcementRelease = startupAnnouncement.release || cachedAnnouncement;
 
-  // 首启门禁：未同意免责条款先看免责声明，同意了但没看完教程再看教程（与 App.js
-  // StartupFlow 同一顺序），完成后才允许进入主界面。
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const acknowledged = await isDisclaimerAcknowledged();
-        if (cancelled) return;
-        if (!acknowledged) {
-          setFirstRunStage('disclaimer');
-          return;
-        }
-        const done = await isOnboardingDone();
-        if (cancelled) return;
-        setFirstRunStage(done ? 'done' : 'onboarding');
-      } catch (error) {
-        if (!cancelled) setFirstRunStage('disclaimer');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // 通知点击 → 跳会话（细节在 useDesktopNotificationJump）。
+  useDesktopNotificationJump({
+    enabled: loaded,
+    onJump: useCallback(target => {
+      setView('chat');
+      (async () => {
+        if (target.characterId) await switchCharacter(target.characterId).catch(() => {});
+        await switchSession(target.sessionId).catch(() => {});
+        if (target.messageId) setPendingTarget({ sessionId: target.sessionId, messageId: target.messageId });
+      })().catch(() => {});
+    }, [setPendingTarget, switchCharacter, switchSession]),
+  });
+
+  // 首启门禁（免责声明→教程→主界面）：判定在 useDesktopFirstRunGate。
+  const { stage: firstRunStage, setStage: setFirstRunStage } = useDesktopFirstRunGate();
 
   useEffect(() => {
     getBridge().app.info()
@@ -273,11 +271,15 @@ function Shell() {
         Alert.alert(t('character.detail.importEmpty.title'), t('character.detail.importEmpty.body'));
         return;
       }
+      // 大卡（> 1MB）另给一档文案与体积标签，与手机同一判据。
+      const sizeBytes = Number(picked.size || 0);
+      setImportStatus({ phase: 'saving', large: sizeBytes > 1024 * 1024 });
       const applied = await applyCharacterCard(picked, {
         addCharacter,
         ensureCharacterSession,
         updateCharacter,
       });
+      setImportStatus(null);
       Alert.alert(
         t('character.detail.importOk.title'),
         t('backup.card.importDone', {
@@ -473,6 +475,43 @@ function Shell() {
               type="button"
               style={{ ...ghost, background: view === tab.id && !showBackup ? palette.surfaceAlt : 'transparent' }}
               onClick={() => {
+                // 未保存编辑拦截：判定与手机 App.js 的 tabPress 共用
+                // shouldConfirmTabLeave（只在「角色编辑页 + 脏 + 目标不是角色页」时拦）。
+                const guard = getCharacterEditGuard();
+                if (shouldConfirmTabLeave({
+                  dirty: guard.dirty,
+                  currentName: '角色',
+                  targetName: tab.id === 'character' ? '角色' : tab.id,
+                })) {
+                  Alert.alert(
+                    t('app.tabLeave.title'),
+                    t('app.tabLeave.body'),
+                    [
+                      { text: t('app.tabLeave.stay'), style: 'cancel' },
+                      {
+                        text: t('app.tabLeave.leave'),
+                        onPress: () => {
+                          setView(tab.id);
+                          setShowBackup(false);
+                          setExtensionScreenId('');
+                        },
+                      },
+                      {
+                        text: t('app.tabLeave.saveAndLeave'),
+                        onPress: async () => {
+                          // 保存成功才离开；失败留在原页（与手机一致）。
+                          const saved = await guard.save();
+                          if (saved) {
+                            setView(tab.id);
+                            setShowBackup(false);
+                            setExtensionScreenId('');
+                          }
+                        },
+                      },
+                    ]
+                  );
+                  return;
+                }
                 setView(tab.id);
                 setShowBackup(false);
                 // 切走扩展页时回到扩展首页（手机上 Stack 也是这个行为）。
@@ -577,6 +616,12 @@ function Shell() {
               fonts={fonts}
               onBack={() => setCharacterScreen('library')}
               onSaved={next => updateCharacter(next)}
+              // 导入到制卡：切到扩展页并直接落到制卡工坊（与手机 navigate 到
+              // ext-forge 同一语义）。草稿已由编辑页写入共享存储，这里只负责导航。
+              onOpenForge={() => {
+                setView('extension');
+                setExtensionScreenId('forge');
+              }}
             />
           )
         ) : view === 'memory' ? (
@@ -725,6 +770,7 @@ function Shell() {
         palette={palette}
         fonts={fonts}
       />
+      <ImportOverlay status={importStatus} palette={palette} fonts={fonts} />
       {/* 应用内公告：启动命中（新版本且未忽略）时自动打开；设置页「更新说明」也复用同一个弹窗。 */}
       <AnnouncementDialog
         open={showAnnouncement || startupAnnouncement.visible}

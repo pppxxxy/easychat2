@@ -21,6 +21,7 @@ import {
   removeCharacterLock,
   setCharacterLock,
   setCharacterLockHint,
+  setCharacterLocks,
 } from '../../../src/storage/security.js';
 import { Alert } from '../platform/alert.js';
 import { Button, Card, Field, Row, TextInput } from './ui.jsx';
@@ -33,6 +34,12 @@ export default function CharacterLockCard({ palette, fonts }) {
   const [hint, setHint] = useState('');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState('');
+  // 批量上锁：手机是「多选 → 下一步统一设密码」两步；桌面把密码输入放在卡片顶部，
+  // 所以两步合并成「勾选 → 应用当前密码」。判定一律走共享 setCharacterLocks——
+  // 与单个上锁共用同一份存储布局与守卫（读坏时一个密码都不写）。
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const mountedRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -110,6 +117,51 @@ export default function CharacterLockCard({ palette, fonts }) {
   const list = (Array.isArray(characters) ? characters : [])
     .filter(character => !query || String(character.name || '').toLowerCase().includes(query.trim().toLowerCase()));
 
+  // 只允许勾选「筛选后可见」的角色：否则全选会静默锁住搜索框外的人。
+  const visibleIds = list.map(character => character.id).filter(Boolean);
+  const selectedVisible = selectedIds.filter(id => visibleIds.includes(id));
+  const allSelected = visibleIds.length > 0 && selectedVisible.length === visibleIds.length;
+
+  const toggleSelect = id => {
+    setSelectedIds(current => (
+      current.includes(id) ? current.filter(item => item !== id) : [...current, id]
+    ));
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? [] : visibleIds.slice());
+  };
+
+  const applyBulk = async () => {
+    if (bulkBusy || selectedVisible.length === 0) return;
+    const pin = String(passcode || '').replace(/\D/g, '');
+    if (pin.length < PIN_MIN_LENGTH || pin.length > PIN_MAX_LENGTH) {
+      Alert.alert(t('settings.security.title'), t('settings.security.pin.tooShort', { min: PIN_MIN_LENGTH }));
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      // hint 语义照共享层：undefined = 不动原有提示；有值 = 统一覆盖这批角色。
+      // 空串传 undefined 而不是 ''，避免把用户之前写的备忘清掉。
+      const count = await setCharacterLocks(
+        selectedVisible,
+        pin,
+        hint ? hint : undefined
+      );
+      if (!count) throw new Error('setCharacterLocks returned 0');
+      setSelectedIds([]);
+      setSelecting(false);
+      setPasscode('');
+      setHint('');
+      await load();
+      Alert.alert(t('settings.security.bulk.doneTitle'), t('settings.security.bulk.done', { count }));
+    } catch (error) {
+      Alert.alert(t('settings.security.title'), t('common.error.storageOrPermission'));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <Card
       title={t('settings.security.title')}
@@ -155,12 +207,67 @@ export default function CharacterLockCard({ palette, fonts }) {
         <div style={{ fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f' }}>{pinError}</div>
       ) : null}
 
+      {/* 批量上锁工具条：手机是「多选 → 下一步统一设密码」两步弹层；
+          桌面密码就在上面输入，所以合并为「勾选 → 应用到选中」。 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+        borderBottom: `1px solid ${palette.divider}`,
+        paddingBottom: 8,
+      }}
+      >
+        {selecting ? (
+          <>
+            <Button
+              label={allSelected
+                ? t('settings.security.bulk.clearAll')
+                : t('settings.security.bulk.selectAll')}
+              onClick={toggleSelectAll}
+              palette={palette}
+              fonts={fonts}
+            />
+            <span style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>
+              {t('settings.security.bulk.selected', { count: selectedVisible.length })}
+            </span>
+            <Button
+              label={t('settings.security.bulk.next')}
+              onClick={applyBulk}
+              palette={palette}
+              fonts={fonts}
+              disabled={bulkBusy || selectedVisible.length === 0 || !!pinError || !passcode}
+            />
+            <Button
+              label={t('common.cancel')}
+              onClick={() => {
+                setSelecting(false);
+                setSelectedIds([]);
+              }}
+              palette={palette}
+              fonts={fonts}
+            />
+          </>
+        ) : (
+          <Button
+            label={t('settings.security.bulk.title')}
+            onClick={() => {
+              setSelecting(true);
+              setSelectedIds([]);
+            }}
+            palette={palette}
+            fonts={fonts}
+          />
+        )}
+      </div>
+
       {list.length === 0 ? (
         <div style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>{t('settings.security.searchEmpty')}</div>
       ) : null}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {list.map(character => {
           const locked = !!(locks && locks[character.id]);
+          const checked = selectedIds.includes(character.id);
           return (
             <div
               key={character.id}
@@ -168,11 +275,19 @@ export default function CharacterLockCard({ palette, fonts }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                border: `1px solid ${palette.divider}`,
+                border: `1px solid ${checked ? palette.primaryMuted || palette.primary : palette.divider}`,
                 borderRadius: 8,
                 padding: '6px 10px',
               }}
             >
+              {selecting ? (
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleSelect(character.id)}
+                  aria-label={`${character.name || t('common.unnamedCharacter')} ${t('settings.security.bulk.title')}`}
+                />
+              ) : null}
               <span style={{ flex: 1, minWidth: 0, fontSize: fonts.scaled(12), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {character.name || t('common.unnamedCharacter')}
               </span>
@@ -193,7 +308,7 @@ export default function CharacterLockCard({ palette, fonts }) {
                   tone={palette.danger || '#ff5a5f'}
                   disabled={busyId === character.id}
                 />
-              ) : (
+              ) : selecting ? null : (
                 <Button
                   label={t('settings.security.appLockPrompt')}
                   onClick={() => apply(character.id)}

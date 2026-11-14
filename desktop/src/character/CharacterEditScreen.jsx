@@ -20,6 +20,11 @@ import { characterFormSignature } from '../../../src/character/cardHelpers.js';
 import { makeCharacterPresetId } from '../../../src/character/characterPresets.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { markMediaWrite } from '../../../src/storage/mediaProtection.js';
+// 导入到制卡：状态构造与草稿映射都用共享实现，桌面不重写。
+import { createForgeState, draftFromCharacter } from '../../../src/cardForge/forge.js';
+import { saveCardForge } from '../../../src/storage/cardForge.js';
+import useDesktopCharacterDraft from './useDesktopCharacterDraft.js';
+import { setCharacterEditGuard } from '../../../src/character/characterEditGuard.js';
 import { Alert } from '../platform/alert.js';
 import CharacterOverrideCard from './CharacterOverrideCard.jsx';
 import { getBridge } from '../platform/bridge.js';
@@ -355,7 +360,7 @@ function RegexEditor({ script, palette, fonts, onChange, onRemove }) {
   );
 }
 
-export default function CharacterEditScreen({ character, palette, fonts, onSaved, onBack }) {
+export default function CharacterEditScreen({ character, palette, fonts, onSaved, onBack, onOpenForge }) {
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
@@ -369,6 +374,18 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
     setForm(next);
     baselineRef.current = JSON.stringify(next);
   }, [character]);
+
+  // 草稿恢复与暂存抽到 useDesktopCharacterDraft（本文件已到 800 行棘轮）。
+  // 恢复时用 buildCharacterFormState 规范化：旧草稿可能缺字段，直接入表单会把
+  // undefined 塞进输入框。
+  const draft = useDesktopCharacterDraft({
+    characterId: character ? character.id : '',
+    form,
+    dirty,
+    baselineRef,
+    onRestore: draftFormState => setForm(buildCharacterFormState({ ...character, ...draftFormState })),
+    t,
+  });
 
   const patch = next => setForm(current => ({ ...current, ...next }));
 
@@ -409,6 +426,8 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
       guarded.id = character.id;
       await onSaved(guarded);
       baselineRef.current = JSON.stringify(form);
+      // 保存成功即无「未保存的编辑」：草稿必须清掉，否则下次进来会问「恢复吗」。
+      draft.clearDraft();
       Alert.alert(t('settings.api.saved.title'), t('settings.api.saved.body'));
     } catch (error) {
       if (error && error.code === 'CHARACTER_CONFLICT') {
@@ -420,6 +439,55 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
       setBusy(false);
     }
   };
+
+  // 导入到制卡工坊：把当前角色读进制卡草稿，去「扩展 → 制卡」用 AI 继续改。
+  // 与手机 CharacterDetailScreen.onImportToForge 同一套共享函数：
+  //   createForgeState / draftFromCharacter（cardForge/forge/state.js + draft.js）
+  // 差别只在导航方式：手机 push 到 ext-forge，桌面由宿主切到扩展页并指定二级路由。
+  const importToForge = () => {
+    if (!character) return;
+    const apply = async () => {
+      try {
+        const fresh = createForgeState();
+        await saveCardForge({
+          ...fresh,
+          draft: draftFromCharacter(characterWithFormState(character, form)),
+          // 保留首题方便载入后继续点选项；引导语换成「从角色载入」的说明。
+          transcript: [
+            {
+              id: `forge-${Date.now()}-from-character`,
+              role: 'note',
+              text: t('character.detail.forge.loadedNote', {
+                name: form.name || t('common.unnamedCharacter'),
+              }),
+              createdAt: Date.now(),
+            },
+            ...fresh.transcript.slice(1),
+          ],
+          updatedAt: Date.now(),
+        });
+        if (typeof onOpenForge === 'function') onOpenForge();
+      } catch (error) {
+        Alert.alert(t('character.detail.forge.loadFailTitle'), t('common.error.storageOrPermission'));
+      }
+    };
+    Alert.alert(
+      t('character.detail.forge.title'),
+      dirty ? t('character.detail.forge.bodyDirty') : t('character.detail.forge.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('character.detail.forge.continue'), onPress: apply },
+      ]
+    );
+  };
+
+  // 注册「未保存编辑」到共享信箱：宿主切换 tab 时读取它并拦截。
+  // 与手机 App.js 的 tabPress 拦截共用同一份判定（characterEditGuard.js），
+  // 桌面只是把「注册」放在编辑页挂载期、「读取」放在 tab 点击处。
+  useEffect(() => {
+    setCharacterEditGuard({ dirty, save: async () => { await save(); return true; } });
+    return () => setCharacterEditGuard({ dirty: false });
+  }, [dirty]);
 
   if (!character) {
     return (
@@ -435,6 +503,14 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
         {typeof onBack === 'function' ? (
           <Row>
             <Button label={t('character.detail.back')} onClick={onBack} palette={palette} fonts={fonts} />
+            {typeof onOpenForge === 'function' ? (
+              <Button
+                label={t('character.detail.forge.entry')}
+                onClick={importToForge}
+                palette={palette}
+                fonts={fonts}
+              />
+            ) : null}
           </Row>
         ) : null}
         <Row>

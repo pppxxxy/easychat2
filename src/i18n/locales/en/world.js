@@ -3,6 +3,8 @@ export const world = {
   'world.map.tab.grid': 'Grid map',
   'world.map.tab.real': 'Real map',
   'world.map.real.places.title': 'My places (one at a time)',
+  'world.map.real.view.grid': 'Grid map',
+  'world.map.real.view.real': 'Real map',
   'world.map.real.places.hint': 'Write any place — real or fictional (e.g. Qingdao, Washington D.C., Hogwarts). Tap a row to switch to it.',
   'world.map.real.place.empty': 'No places yet — tap "Add place" below to write one.',
   'world.map.real.place.add': 'Add place',

@@ -31,6 +31,19 @@ ipcRenderer.on('http:event', (event, payload) => {
   }
 });
 
+// 系统通知点击：主进程把 payload 回传（含 characterId/sessionId），渲染层据此跳会话。
+// 与 http:event 同一订阅范式，避免为一次性事件再造一套机制。
+const notifyClickSubscribers = new Set();
+ipcRenderer.on('notify:click', (event, payload) => {
+  for (const subscriber of [...notifyClickSubscribers]) {
+    try {
+      subscriber(payload);
+    } catch (error) {
+      // 订阅者异常不能打断其它订阅者。
+    }
+  }
+});
+
 const bridge = {
   app: {
     paths,
@@ -100,7 +113,14 @@ const bridge = {
   },
   notify: {
     // 系统通知：桌面没有后台服务，窗口开着时到点提醒（诚实版的部分实现）。
+    // payload 可带 target:{characterId,sessionId,messageId}，点击时回传给订阅方。
     show: payload => invoke('notify:show', payload),
+    // 订阅「通知被点击」：返回取消订阅函数（与 http.onEvent 同一形态）。
+    onClick: handler => {
+      if (typeof handler !== 'function') return () => {};
+      notifyClickSubscribers.add(handler);
+      return () => { notifyClickSubscribers.delete(handler); };
+    },
   },
   capture: {
     // 应用内截图（看屏幕 v1）：主进程 webContents.capturePage，零权限、只截本窗口。

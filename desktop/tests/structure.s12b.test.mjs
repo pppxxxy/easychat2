@@ -108,8 +108,12 @@ test('记忆总结：除手动入口外，自动链路也必须真的接到发�
 
 test('四项能力都有入口（否则功能等于不存在）', () => {
   assert.ok(PANE.includes('<ChatSearchBar'), '搜索条未渲染');
-  assert.ok(PANE.includes('<SessionStatsPanel'), '统计面板未渲染');
-  assert.ok(PANE.includes('<ConversationExportPanel'), '导出面板未渲染');
+  // S37：统计/导出/语音设置三块挂载已抽到 ChatInfoPanels（ChatPane 撞 800 行棘轮），
+  // 判据改为「ChatPane 挂了该集合 + 集合里确实渲染了这两个面板」。
+  const INFO = read('src', 'chat', 'ChatInfoPanels.jsx');
+  assert.ok(PANE.includes('<ChatInfoPanels'), '信息类面板集合未挂载');
+  assert.ok(INFO.includes('<SessionStatsPanel'), '统计面板未渲染');
+  assert.ok(INFO.includes('<ConversationExportPanel'), '导出面板未渲染');
   assert.ok(PANE.includes('<ChatMoreMenu'), '更多菜单未渲染');
   // 「更多」菜单里四项都列出来（搜索/总结/统计/导出）。
   for (const key of ['chat.menu.search', 'chat.menu.summary', 'chat.menu.sessionStats', 'chat.menu.export']) {

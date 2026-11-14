@@ -20,6 +20,7 @@ export default function ChatMoreMenu({
   summarizing,
   canSummarize,
   onOpenStats,
+  onOpenVoiceSettings,
   onOpenExport,
   canExport,
   onReselectGreeting,
@@ -131,6 +132,8 @@ export default function ChatMoreMenu({
       active: !!autoBroadcast,
       onClick: () => onToggleAutoBroadcast(!autoBroadcast),
     },
+    // 语音设置：手机在「更多 → 语音」，把自动播报 / 全语音模式 / 转写入口放一处。
+    { key: 'voice-settings', label: t('chat.voiceSettings.title'), onClick: onOpenVoiceSettings },
     {
       key: 'stats',
       label: t('chat.menu.sessionStats'),

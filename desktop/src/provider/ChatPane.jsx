@@ -26,7 +26,6 @@ import { buildBranchNav } from '../chat/branchNav.js';
 import useDesktopMessageWindow from '../chat/useDesktopMessageWindow.js';
 import ChatMoreMenu from '../chat/ChatMoreMenu.jsx';
 import ChatSearchBar from '../chat/ChatSearchBar.jsx';
-import ConversationExportPanel from '../chat/ConversationExportPanel.jsx';
 import FullScreenInput from '../chat/FullScreenInput.jsx';
 import MessageSelectionBar from '../chat/MessageSelectionBar.jsx';
 import MessageList from './MessageList.jsx';
@@ -37,7 +36,7 @@ import useDesktopModelThinking from '../chat/useDesktopModelThinking.js';
 import { ModelPanel, ThinkingPanel } from '../chat/ModelThinkingPanels.jsx';
 import ContextUsageBar from '../chat/ContextUsageBar.jsx';
 import GreetingPicker from '../chat/GreetingPicker.jsx';
-import SessionStatsPanel from '../chat/SessionStatsPanel.jsx';
+import ChatInfoPanels from '../chat/ChatInfoPanels.jsx';
 import { consumeGreetingPicker, subscribe as subscribeGreetingRequest } from '../chat/greetingRequest.js';
 import useDesktopBranches from '../chat/useDesktopBranches.js';
 import useDesktopCompaction from '../chat/useDesktopCompaction.js';
@@ -51,7 +50,7 @@ import useDesktopChat from './useDesktopChat.js';
 import useDesktopChatSearch from '../chat/useDesktopChatSearch.js';
 import useDesktopMemorySummary from '../chat/useDesktopMemorySummary.js';
 
-export default function ChatPane({ palette, fonts, tokens, onEditCharacter = null }) {
+export default function ChatPane({ palette, fonts, tokens, onEditCharacter = null, onOpenTranscription = null }) {
   const { t } = useTranslation();
   const chat = useDesktopChat();
   const {
@@ -155,6 +154,7 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
     export: false,
     fullScreen: false,
     summary: false,
+    voiceSettings: false,
   });
   const openOverlay = (key, value = true) => setOverlays(current => ({ ...current, [key]: value }));
   const closeOverlay = key => setOverlays(current => ({ ...current, [key]: false }));
@@ -336,6 +336,7 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
     summarizing: summary.summarizing,
     canSummarize: !!ready && !isSending,
     onOpenStats: () => openOverlay('stats'),
+    onOpenVoiceSettings: () => openOverlay('voiceSettings'),
     onOpenExport: () => openOverlay('export'),
     canExport: messages.length > 0,
     onReselectGreeting: () => greeting.open('reselect'),
@@ -356,11 +357,8 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
     onOpenModel: modelThinking.openModelPanel,
     onOpenThinking: modelThinking.openThinkingPanel,
     canSwitchModel: !!ready && !isSending,
-    // 语音播报：Web Speech API 已可用（platform/speech.js）。
     autoBroadcast: chat.ttsSettings && chat.ttsSettings.autoBroadcast === true,
-    // 共享层 useChatTts.toggleBroadcast 是**自取反、无参**的（手机上是开关按钮）。
-    // 菜单按目标值回调，这里先与当前值比对再决定是否取反——否则传入的 value
-    // 会被静默丢弃，表面「受控」实则不控，读代码的人会误判。
+    // 共享 toggleBroadcast 自取反无参：先比对当前值，否则「看着受控实则不控」。
     onToggleAutoBroadcast: value => {
       const current = chat.ttsSettings && chat.ttsSettings.autoBroadcast === true;
       if (!!value === current) return;
@@ -752,26 +750,16 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
         onConfirm={greeting.confirm}
       />
       <ChatMoreMenu {...moreMenuProps} />
-      <SessionStatsPanel
-        open={overlays.stats}
-        onClose={() => closeOverlay('stats')}
-        sessionId={activeSessionId || ''}
+      <ChatInfoPanels
+        overlays={overlays} onCloseOverlay={closeOverlay}
+        activeSessionId={activeSessionId}
         messageCount={messages.filter(item => item && !item.transient).length}
-        palette={palette}
-        fonts={fonts}
-      />
-      <ConversationExportPanel
-        open={overlays.export}
-        onClose={() => closeOverlay('export')}
-        messages={messages}
-        title={isGroup
-          ? groupName
-          : String((chat.character && chat.character.name) || '')}
+        messages={messages} isGroup={isGroup} chat={chat}
+        title={isGroup ? groupName : String((chat.character && chat.character.name) || '')}
         characterName={String((chat.character && chat.character.name) || '')}
         userName={String((chat.userNameRef && chat.userNameRef.current) || '')}
-        isGroup={isGroup}
-        palette={palette}
-        fonts={fonts}
+        onOpenTranscription={onOpenTranscription}
+        palette={palette} fonts={fonts}
       />
       {menu ? (
         <MessageActionsMenu

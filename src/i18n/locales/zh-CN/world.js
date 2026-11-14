@@ -3,6 +3,8 @@ export const world = {
   'world.map.tab.grid': '网格地图',
   'world.map.tab.real': '真实地图',
   'world.map.real.places.title': '我的位置（一次用一个）',
+  'world.map.real.view.grid': '网格地图',
+  'world.map.real.view.real': '真实地图',
   'world.map.real.places.hint': '自己写一个地方——真实的或虚构的都行（例：山东青岛、美国华盛顿、霍格沃茨魔法学院）。点一行就切换成它。',
   'world.map.real.place.empty': '还没有位置，点下面的「新增位置」写一个。',
   'world.map.real.place.add': '新增位置',

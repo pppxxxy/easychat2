@@ -19,12 +19,24 @@ export function registerNotifyIpc(ipcMain, { Notification, getWindow } = {}) {
     if (!title && !body) return { ok: false, reason: 'empty' };
     try {
       const notification = new Notification({ title: title || 'EasyChat2', body, silent: false });
+      // 跳转目标由渲染层给（主动消息会带 characterId/sessionId）。主进程不解释业务字段，
+      // 只做两件事：把窗口带到前台，再把 payload 原样回传给渲染层去导航。
+      const target = source.target && typeof source.target === 'object' ? {
+        characterId: String(source.target.characterId || ''),
+        sessionId: String(source.target.sessionId || ''),
+        messageId: String(source.target.messageId || ''),
+      } : null;
       notification.on('click', () => {
         const win = typeof getWindow === 'function' ? getWindow() : null;
-        if (!win) return;
-        if (win.isMinimized && win.isMinimized()) win.restore();
-        if (win.show) win.show();
-        if (win.focus) win.focus();
+        if (win) {
+          if (win.isMinimized && win.isMinimized()) win.restore();
+          if (win.show) win.show();
+          if (win.focus) win.focus();
+          // 回传给渲染层：让它切角色/会话。窗口不存在时也照发，渲染层会自己排队。
+          if (target && win.webContents && win.webContents.send) {
+            win.webContents.send('notify:click', target);
+          }
+        }
       });
       notification.show();
       return { ok: true };
