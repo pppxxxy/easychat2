@@ -26,6 +26,22 @@ const CHATPANE = read('src', 'provider', 'ChatPane.jsx');
 const SELECTION = read('src', 'chat', 'useMessageSelection.js');
 const MENU = read('src', 'render', 'MessageActionsMenu.jsx');
 
+test('DesktopApp 声明顺序：公告 hook 必须读得到 appVersion（否则整页白屏）', () => {
+  // 打包版实测踩到：useStartupAnnouncement({ localVersion: appVersion }) 写在
+  // appVersion 的 useState 之前 → TDZ，压缩后报 'Cannot access xe before
+  // initialization'，**整页白屏**。而 lint、单测、vite build 全部通过——这类错误
+  // 只有真的启动应用才看得见，所以必须在这里钉住。
+  const app = read('src', 'provider', 'DesktopApp.jsx');
+  const versionAt = app.indexOf("const [appVersion, setAppVersion] = useState('')");
+  const hookAt = app.indexOf('useStartupAnnouncement({ localVersion: appVersion })');
+  assert.ok(versionAt > 0, '应有 appVersion 状态声明');
+  assert.ok(hookAt > 0, '应有公告 hook');
+  assert.ok(hookAt > versionAt,
+    'useStartupAnnouncement 必须声明在 appVersion 之后（提前引用会 TDZ 白屏）');
+  // 同理：cachedAnnouncement / showAnnouncement 也应在同一区块。
+  assert.ok(app.indexOf('const cachedAnnouncement') > versionAt, 'cachedAnnouncement 应在之后');
+});
+
 test('测试自身的路径基准：read() 不得依赖「在 desktop/ 下运行」', () => {
   // 这一轮发现的第二个盲区：26 个 structure.s*.test.mjs 的 read() 用
   // path.join(...parts)（相对 cwd），而调用点传的是 'src/...'（相对 desktop/）。

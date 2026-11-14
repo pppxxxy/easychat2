@@ -157,12 +157,6 @@ function Shell() {
   } = useApp();
   const [busy, setBusy] = useState('');
   const [showBackup, setShowBackup] = useState(false);
-  // 应用内公告：启动静默拉一次（命中才弹）+ 设置页入口只读缓存。
-  // 手机侧同一份逻辑（announcements/useAnnouncement.js），这里复用共享 resolve。
-  const [showAnnouncement, setShowAnnouncement] = useState(false);
-  const cachedAnnouncement = useCachedAnnouncement();
-  const startupAnnouncement = useStartupAnnouncement({ localVersion: appVersion });
-  const announcementRelease = startupAnnouncement.release || cachedAnnouncement;
   const [view, setView] = useState('chat');
   // 角色库页（卡片网格）与角色编辑页分开：库页是「选谁」，编辑页是「改什么」。
   const [characterScreen, setCharacterScreen] = useState('library');
@@ -174,6 +168,14 @@ function Shell() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [firstRunStage, setFirstRunStage] = useState('loading');
   const [appVersion, setAppVersion] = useState('');
+  // 应用内公告：启动静默拉一次（命中才弹）+ 设置页入口只读缓存。
+  // 手机侧同一份逻辑（announcements/useAnnouncement.js），这里复用共享 resolve。
+  // **必须声明在 appVersion 之后**：useStartupAnnouncement 要读它，提前引用会
+  // 触发 TDZ（打包后被压成 'Cannot access xe before initialization'，整页白屏）。
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+  const cachedAnnouncement = useCachedAnnouncement();
+  const startupAnnouncement = useStartupAnnouncement({ localVersion: appVersion });
+  const announcementRelease = startupAnnouncement.release || cachedAnnouncement;
 
   // 首启门禁：未同意免责条款先看免责声明，同意了但没看完教程再看教程（与 App.js
   // StartupFlow 同一顺序），完成后才允许进入主界面。

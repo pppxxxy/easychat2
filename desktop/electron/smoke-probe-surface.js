@@ -143,7 +143,8 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     { label: ['音乐', 'Music'], title: ['音乐', 'Music'] },
     { label: ['书籍', 'Books'], title: ['书籍', 'Books'] },
     { label: ['世界地图', 'World map'], title: ['世界地图', 'World map'] },
-    { label: ['小游戏', 'Mini games'], title: ['小游戏', 'Mini games'] },
+    // 入口名是「游戏中心」（ext.home.games），此前写成「小游戏」→ 永远找不到。
+    { label: ['游戏中心', 'Games'], title: ['游戏中心', 'Games'] },
     // 入口文案（ext.home.screen）与页内标题（screenWatch.title）不同：两处都要认。
     { label: ['屏幕注视', 'Screen watch'], title: ['一起看屏幕', 'Screen peek'] },
     // 入口「插件」与页内标题（plugin.title = 联网搜索 / Web Search）不同。
@@ -159,9 +160,11 @@ async function runSurfaceProbe({ waitFor, bridge }) {
   if (extensionTab) {
     for (const item of extensionEntries) {
       extensionTab.click();
-      await new Promise(resolve => setTimeout(resolve, 250));
-      const label = Array.from(document.querySelectorAll('button'))
-        .find(button => item.label.some(text => String(button.textContent || '').includes(text)));
+      // 固定 250ms 不够：从「世界地图」这类重页面返回扩展首页时，重新渲染会超过
+      // 这个窗口，于是后面几项连续被记成「入口不存在」（实测 9/12，缺的正是
+      // 世界地图之后的 3 项）。改为等按钮真的出现。
+      const label = await waitFor(() => Array.from(document.querySelectorAll('button'))
+        .find(button => item.label.some(text => String(button.textContent || '').includes(text))), 4000);
       if (!label) {
         extensionMissing.push(item.label[0]);
         continue;

@@ -37,6 +37,8 @@ const SMOKE_PROBE = readFileSync(path.join(__dirname, 'smoke-probe.js'), 'utf8')
 const SMOKE_PROBE_GROUP = readFileSync(path.join(__dirname, 'smoke-probe-group.js'), 'utf8');
 const SMOKE_PROBE_SURFACE = readFileSync(path.join(__dirname, 'smoke-probe-surface.js'), 'utf8');
 const SMOKE_PROBE_SCREENS = readFileSync(path.join(__dirname, 'smoke-probe-screens.js'), 'utf8');
+// S36 探针：这一轮清单对照补齐的 7 个入口（设置搜索/自定义配色/播报/转写/更新说明/今日老婆）。
+const SMOKE_PROBE_S36 = readFileSync(path.join(__dirname, 'smoke-probe-s36.js'), 'utf8');
 // 压力探针（EASYCHAT2_DESKTOP_STRESS=1）：在**同一个打包版**里造真实量级数据，
 // 量测写入/读回/渲染耗时与挂载气泡数。与冒烟分开：冒烟验功能，这里验数据量。
 const STRESS = process.env.EASYCHAT2_DESKTOP_STRESS === '1';
@@ -329,6 +331,7 @@ function createWindow() {
       await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_GROUP, true);
       await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_SURFACE, true);
       await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_SCREENS, true);
+      await mainWindow.webContents.executeJavaScript(SMOKE_PROBE_S36, true);
       // 把模式标记先写进渲染层：探针据此决定是否跳过依赖本地 mock 的段落。
       await mainWindow.webContents.executeJavaScript(
         `globalThis.__easychat2KiloLive = ${KILO_LIVE ? 'true' : 'false'};`,
@@ -404,6 +407,10 @@ function createWindow() {
         && probe.screens.extensionOk
         && probe.screens.groupsSeen
         && probe.screens.reasonSeen
+        // S36：清单对照补齐的 7 个入口在打包版上真的能打开。
+        && probe.s36
+        && probe.s36.attempted
+        && probe.s36.ok
         && probe.library
         && probe.library.attempted
         && probe.library.gridOk

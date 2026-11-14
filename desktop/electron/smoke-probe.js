@@ -102,6 +102,7 @@
   let newSession = { attempted: false };
   let groupChat = { attempted: false };
   let surface = { attempted: false };
+  let s36 = { attempted: false };
 
   if (MOCK_MODE) {
     // ---- S3：真实界面发一条消息 ----
@@ -416,6 +417,7 @@
       ? await globalThis.__easychat2RunScreensProbe({ waitFor })
       : { attempted: false, skipped: true };
 
+
     // ---- S9：上下文占用条（真实消息 → token 估算 → 百分比）----
     try {
       // 回聊天页后需等占用条重算（消息条数变化触发）。
@@ -665,6 +667,13 @@
     kilo = { attempted: true, error: String((error && error.message) || error) };
   }
 
+  // ---- S36：清单对照补齐的 7 个入口 ----
+  // 放在**全部聊天相关段落之后**：本段会离开聊天页去设置页与扩展页，而
+  // usage/branch 探针假设当前在聊天页。S36 自己会切回聊天页收尾。
+  s36 = globalThis.__easychat2RunS36Probe
+    ? await globalThis.__easychat2RunS36Probe({ waitFor })
+    : { attempted: false, skipped: true };
+
   return {
     bridge: true,
     firstRun,
@@ -688,6 +697,7 @@
     backup: MOCK_MODE ? backup : { attempted: false, skipped: true },
     settings: MOCK_MODE ? settings : { attempted: false, skipped: true },
     screens: MOCK_MODE ? screens : { attempted: false, skipped: true },
+    s36: MOCK_MODE ? s36 : { attempted: false, skipped: true },
     // S13 起 library 段并入 screens 探针（见 smoke-probe-screens.js）；
     // main.js 的判据改为读 screens.library。
     library: MOCK_MODE && screens.library ? screens.library : { attempted: false, skipped: true },
