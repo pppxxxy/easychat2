@@ -43,6 +43,7 @@ export function TextInput({
   fonts,
   type = 'text',
   disabled = false,
+  maxLength = undefined,
 }) {
   return (
     <input
@@ -50,6 +51,9 @@ export function TextInput({
       value={value}
       placeholder={placeholder}
       disabled={disabled}
+      // 名称类字段在存储层有上限（如 SHELF_NAME_MAX=40）：输入框先拦住，
+      // 否则超长名一路走到保存才被拒，用户得重新想名字。
+      maxLength={maxLength}
       onChange={event => onChange(event.target.value)}
       spellCheck={false}
       autoComplete="off"

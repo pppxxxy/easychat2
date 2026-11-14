@@ -16,6 +16,7 @@ import {
   renameBookShelf,
   setBookInShelf,
   SHELF_ERROR,
+  SHELF_NAME_MAX,
 } from '../../../../src/books/shelves.js';
 import { Alert } from '../../platform/alert.js';
 import { Button, Card, Field, Row, Select, TextInput } from '../../settings/ui.jsx';
@@ -154,6 +155,7 @@ export default function BookshelfPanel({ books, palette, fonts, onFilterChange }
             placeholder={t('books.shelves.namePlaceholder')}
             palette={palette}
             fonts={fonts}
+            maxLength={SHELF_NAME_MAX}
           />
         </div>
         <Button
