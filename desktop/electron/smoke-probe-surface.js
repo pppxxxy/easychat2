@@ -45,6 +45,9 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     .slice(0, 30);
   let autoBroadcastMenuSeen = false;
   let autoBroadcastToggled = false;
+  // 「编辑角色/群聊」（S22）：手机把它提为菜单一等公民，桌面本轮补上。
+  // 文案取自 i18n：zh-CN「编辑角色」/「编辑群聊」，en「Edit character」/「Edit group」。
+  const editRoleMenuSeen = !!findButton(/^(编辑角色|编辑群聊|Edit character|Edit group)$/);
   const broadcastItem = findButton(BROADCAST_LABEL);
   if (broadcastItem) {
     autoBroadcastMenuSeen = true;
@@ -148,6 +151,8 @@ async function runSurfaceProbe({ waitFor, bridge }) {
   ];
   const extensionOpened = [];
   const extensionMissing = [];
+  let musicPlaylistSeen = false;
+  let diaryScreenSeen = false;
   const extensionTab = findButtonByTitleOrLabel(['扩展', 'Extensions'])
     || Array.from(document.querySelectorAll('header button'))
       .find(button => button.textContent === '扩展' || button.textContent === 'Extensions');
@@ -169,7 +174,21 @@ async function runSurfaceProbe({ waitFor, bridge }) {
           .some(button => button.textContent === '返回' || button.textContent === 'Back');
         return hasBack && item.title.some(title => text.includes(title)) ? true : null;
       }, 5000));
-      if (opened) extensionOpened.push(item.label[0]);
+      if (opened) {
+        extensionOpened.push(item.label[0]);
+        // 页内控件抽查（S22）：只在这两个功能最密的页面上做，避免探针膨胀。
+        // 判据是「本轮补的那块真的渲染了」——不是再走一遍算法。
+        if (item.label[0] === '音乐' || item.label[0] === 'Music') {
+          musicPlaylistSeen = bodyText().includes('我的歌单')
+            || bodyText().includes('My playlists')
+            || bodyText().includes('Playlists');
+        }
+        if (item.label[0] === '日记' || item.label[0] === 'Diary') {
+          // 来源链接只有「当天/最近一篇有来源」时才有；这里只验设置区渲染正常，
+          // 具体来源文案由结构守卫（s22）覆盖。
+          diaryScreenSeen = bodyText().includes('日记') || bodyText().includes('Diary');
+        }
+      }
       else extensionMissing.push(item.label[0]);
       const back = Array.from(document.querySelectorAll('button'))
         .find(button => button.textContent === '返回' || button.textContent === 'Back');
@@ -378,6 +397,9 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     voiceCount,
     autoBroadcastMenuSeen,
     autoBroadcastToggled,
+    editRoleMenuSeen,
+    musicPlaylistSeen,
+    diaryScreenSeen,
     broadcastMenuLabels,
     captureOk,
     captureBytes,

@@ -285,7 +285,14 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
               {String(form.name || '?').slice(0, 1)}
             </span>
           )}
-          <Button label={t('character.fields.image.change')} onClick={() => pickImage('avatarUri')} palette={palette} fonts={fonts} />
+          {/* 无图时说「选择图片」，有图时说「更换」——与手机 ImagePickerRow 同一判据。
+              否则空头像的角色上写着「更换」，用户会以为已经有一张看不见的图。 */}
+          <Button
+            label={form.avatarUri ? t('character.fields.image.change') : t('character.fields.image.pick')}
+            onClick={() => pickImage('avatarUri')}
+            palette={palette}
+            fonts={fonts}
+          />
           {form.avatarUri ? (
             <Button label={t('character.fields.image.clear')} onClick={() => patch({ avatarUri: '' })} palette={palette} fonts={fonts} />
           ) : null}

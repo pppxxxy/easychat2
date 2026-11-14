@@ -25,9 +25,9 @@ import {
 } from '../../../../src/diary/diary.js';
 import { Button, Card, Field, Row, Select, Toggle } from '../../settings/ui.jsx';
 
-export default function DiaryScreen({ palette, fonts }) {
+export default function DiaryScreen({ palette, fonts, onOpenChat = null }) {
   const { t } = useTranslation();
-  const { characters } = useApp();
+  const { characters, sessions, switchCharacter, switchSession, activeSessionId } = useApp();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(null);
   const [configs, setConfigs] = useState([]);
@@ -85,6 +85,53 @@ export default function DiaryScreen({ palette, fonts }) {
   const roleSetting = settings ? getRoleDiarySetting(settings, roleId) : { enabled: false, apiConfigId: '', model: '' };
   const activeDiary = roleDiaries[activeDiaryIndex] || null;
   const activeEntry = activeDiary ? normalizeDiaryEntry(activeDiary) : null;
+
+  // 日记的来源会话（手机 DiaryPanel 的 diarySource 同一判据）：
+  // sourceSessionIds 优先，旧条目只有 sessionId。找不到会话就不显示链接。
+  const sessionMap = new Map(
+    (Array.isArray(sessions) ? sessions : []).map(item => [String(item.id), item])
+  );
+  const diarySource = (() => {
+    if (!activeEntry) return null;
+    const ids = Array.isArray(activeEntry.sourceSessionIds) && activeEntry.sourceSessionIds.length
+      ? activeEntry.sourceSessionIds
+      : (activeEntry.sessionId ? [activeEntry.sessionId] : []);
+    if (ids.length === 0) return null;
+    const primaryId = String(activeEntry.sessionId || '').trim() || ids[0];
+    const primary = sessionMap.get(primaryId);
+    if (!primary) return { id: primaryId, label: t('diary.source.deleted'), openable: false };
+    const name = String(primary.name || '').trim()
+      || (primary.type === 'group'
+        ? t('diary.source.groupFallback')
+        : (activeEntry.characterName || t('diary.roleFallback')));
+    return {
+      id: primaryId,
+      label: ids.length > 1
+        ? t('diary.source.multi', { name, count: ids.length })
+        : t('diary.source.single', { name }),
+      openable: true,
+    };
+  })();
+
+  // 跳到来源会话：失败回滚到原会话（与记忆页打开会话的既有模式一致）。
+  const openDiarySource = async () => {
+    if (!diarySource || !diarySource.openable) return;
+    const target = sessionMap.get(diarySource.id);
+    if (!target) return;
+    const previousSessionId = activeSessionId;
+    try {
+      if (target.type !== 'group' && target.characterId) {
+        await switchCharacter(target.characterId);
+      }
+      await switchSession(target.id);
+      if (typeof onOpenChat === 'function') onOpenChat(target.id);
+    } catch (error) {
+      try {
+        if (previousSessionId) await switchSession(previousSessionId);
+      } catch (rollbackError) {}
+      setNotice(t('diary.source.jumpFailed'));
+    }
+  };
 
   // 改了就落盘：纯函数算出新设置，再串行写盘。失败保留旧状态并告知。
   const commit = useCallback(async updater => {
@@ -263,6 +310,43 @@ export default function DiaryScreen({ palette, fonts }) {
             </div>
           </div>
         )}
+
+        {/* 来源会话：可点进那一段对话（手机 DiaryPanel 的「来自对话」）。 */}
+        {diarySource ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={openDiarySource}
+              disabled={!diarySource.openable}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                color: diarySource.openable
+                  ? (palette.primaryMuted || palette.primary)
+                  : palette.textFaint,
+                cursor: diarySource.openable ? 'pointer' : 'default',
+                fontSize: fonts.scaled(11),
+                textDecoration: diarySource.openable ? 'underline' : 'none',
+              }}
+            >
+              {diarySource.label}
+            </button>
+          </div>
+        ) : null}
+
+        {/* 上次运行统计：可观测性入口（手机 diary.lastRun）。失败/跳过数为 0 时仍显示，
+            方便一眼确认「今天到底跑没跑」。 */}
+        {settings && settings.lastRun ? (
+          <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.6 }}>
+            {t('diary.lastRun', {
+              date: settings.lastRun.date || '',
+              written: Number(settings.lastRun.written) || 0,
+              skipped: Number(settings.lastRun.skipped) || 0,
+              failed: Number(settings.lastRun.failed) || 0,
+            })}
+          </div>
+        ) : null}
         <Row>
           <Button
             label={t('diary.prevDay')}

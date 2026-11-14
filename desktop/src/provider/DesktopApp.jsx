@@ -605,7 +605,16 @@ function Shell() {
                       {t(`ext.home.${extensionScreenId === 'image' ? 'image' : extensionScreenId}`)}
                     </strong>
                   </div>
-                  <RouteScreen palette={palette} fonts={fonts} />
+                  <RouteScreen
+                    palette={palette}
+                    fonts={fonts}
+                    onOpenChat={() => {
+                      // 子页面里要「跳到某条对话」时用（如日记的来源会话）：
+                      // 关掉二级路由并切回聊天视图——手机侧是 navigate(ROUTE_NAMES.chat)。
+                      setExtensionScreenId('');
+                      setView('chat');
+                    }}
+                  />
                 </div>
               );
             })()
@@ -621,7 +630,17 @@ function Shell() {
             palette={palette}
             fonts={fonts}
           >
-            <ChatPane palette={palette} fonts={fonts} tokens={tokens} />
+            <ChatPane
+              palette={palette}
+              fonts={fonts}
+              tokens={tokens}
+              onEditCharacter={() => {
+                // 「编辑角色」提为聊天页菜单的一等公民（手机 chat.menu 同款）：
+                // 从聊天直接进编辑页，不必先绕到角色库再点编辑。
+                setCharacterScreen('edit');
+                setView('character');
+              }}
+            />
           </RoleLockGate>
         ) : (
           <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: palette.textMuted }}>

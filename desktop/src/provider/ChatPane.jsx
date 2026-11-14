@@ -50,7 +50,7 @@ import useDesktopChat from './useDesktopChat.js';
 import useDesktopChatSearch from '../chat/useDesktopChatSearch.js';
 import useDesktopMemorySummary from '../chat/useDesktopMemorySummary.js';
 
-export default function ChatPane({ palette, fonts, tokens }) {
+export default function ChatPane({ palette, fonts, tokens, onEditCharacter = null }) {
   const { t } = useTranslation();
   const chat = useDesktopChat();
   const {
@@ -342,6 +342,10 @@ export default function ChatPane({ palette, fonts, tokens }) {
     onOpenSwitcher: () => openOverlay('switcher'),
     onOpenConversationCard: () => openOverlay('conversationCard'),
     canConversationCard: !!ready && messages.length > 0,
+    // 编辑角色/群聊（手机 chat.menu 的 roleModel 分组）：群里开群设置，单聊跳编辑页。
+    onEditRole: isGroup
+      ? () => setGroupSettingsOpen(true)
+      : (typeof onEditCharacter === 'function' ? onEditCharacter : null),
     onOpenModel: modelThinking.openModelPanel,
     onOpenThinking: modelThinking.openThinkingPanel,
     canSwitchModel: !!ready && !isSending,

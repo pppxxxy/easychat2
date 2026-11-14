@@ -84,6 +84,20 @@ export default function ProactiveScreen({ palette, fonts }) {
   const characterOptions = useMemo(() => (Array.isArray(characters) ? characters : [])
     .map(item => ({ value: item.id, label: item.name || t('common.unnamedCharacter') })), [characters, t]);
 
+  // 当前选中配置可用的模型（手机 ProactivePanel 的 proactive.modelLabel 同一取法）。
+  // 空串表示「用该配置的默认模型」，所以清单首位是「默认」。
+  const modelOptions = useMemo(() => {
+    const current = (Array.isArray(configs) ? configs : [])
+      .find(item => item && String(item.id) === String(settings && settings.apiConfigId ? settings.apiConfigId : ''));
+    const models = (current && Array.isArray(current.models) ? current.models : [])
+      .map(model => String(model || '').trim())
+      .filter(Boolean);
+    return [
+      { value: '', label: t('proactive.model.empty') },
+      ...models.map(model => ({ value: model, label: model })),
+    ];
+  }, [configs, settings, t]);
+
   const configOptions = useMemo(() => [
     { value: '', label: t('diary.apiDefaultShort') },
     ...configs.map(item => ({ value: item.id, label: item.name || t('settings.api.unnamed') })),
@@ -166,6 +180,16 @@ export default function ProactiveScreen({ palette, fonts }) {
                 value={settings.apiConfigId || ''}
                 options={configOptions}
                 onChange={value => setSettings(current => ({ ...current, apiConfigId: value }))}
+                palette={palette}
+                fonts={fonts}
+              />
+            </Field>
+            {/* 指定模型（手机 proactive.modelLabel）：留空走该配置的默认模型。 */}
+            <Field label={t('proactive.modelLabel')} palette={palette} fonts={fonts}>
+              <Select
+                value={settings.model || ''}
+                options={modelOptions}
+                onChange={value => setSettings(current => ({ ...current, model: value }))}
                 palette={palette}
                 fonts={fonts}
               />

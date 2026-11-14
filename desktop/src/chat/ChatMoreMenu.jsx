@@ -30,6 +30,7 @@ export default function ChatMoreMenu({
   canScrubber,
   onOpenSelection,
   canSelect,
+  onEditRole,
   onOpenModel,
   onOpenThinking,
   canSwitchModel,
@@ -105,6 +106,12 @@ export default function ChatMoreMenu({
       disabled: !canConversationCard,
       onClick: onOpenConversationCard,
     },
+    // 编辑角色/群聊：手机把这项提为一等公民（原来藏在二级弹层里）。
+    onEditRole ? {
+      key: 'edit-role',
+      label: isGroup ? t('chat.editGroup') : t('chat.editCharacter'),
+      onClick: onEditRole,
+    } : null,
     {
       key: 'model',
       label: t('chat.menu.model'),

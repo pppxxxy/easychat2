@@ -19,6 +19,7 @@ import { getBridge } from '../../platform/bridge.js';
 import { documentDirectory } from '../../platform/fileSystem.js';
 import { mediaUrl } from '../../platform/mediaUrl.js';
 import { Button, Card, Row } from '../../settings/ui.jsx';
+import MusicPlaylistPanel from './MusicPlaylistPanel.jsx';
 import RoleCommentPanel from './RoleCommentPanel.jsx';
 
 function formatDuration(ms) {
@@ -36,6 +37,8 @@ export default function MusicScreen({ palette, fonts }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [playingId, setPlayingId] = useState('');
+  // 歌单筛选后的可见曲目（空数组 = 未启用歌单，显示全部）。
+  const [visibleItems, setVisibleItems] = useState([]);
   const audioRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -142,6 +145,11 @@ export default function MusicScreen({ palette, fonts }) {
   };
 
   const total = useMemo(() => items.length, [items]);
+  // 歌单筛选生效时只显示选中歌单里的歌；未选歌单（visibleItems 为空）显示全部。
+  const shownItems = useMemo(
+    () => (Array.isArray(visibleItems) && visibleItems.length > 0 ? visibleItems : items),
+    [visibleItems, items]
+  );
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: 16, minWidth: 0 }}>
@@ -168,6 +176,13 @@ export default function MusicScreen({ palette, fonts }) {
             disabled={loading}
           />
         </Row>
+        {/* 歌单（复用共享 useMusicPlaylists）：筛选回给本页控制列表显示。 */}
+        <MusicPlaylistPanel
+          items={items}
+          palette={palette}
+          fonts={fonts}
+          onFilteredChange={setVisibleItems}
+        />
         <audio
           ref={audioRef}
           onLoadedMetadata={onLoadedMetadata}
@@ -177,7 +192,7 @@ export default function MusicScreen({ palette, fonts }) {
         />
       </Card>
 
-      {items.length === 0 && !loading ? (
+      {shownItems.length === 0 && !loading ? (
         <Card palette={palette} fonts={fonts} title={t('music.empty.title')}>
           <div style={{ fontSize: fonts.scaled(12), color: palette.textMuted, lineHeight: 1.7 }}>
             {t('music.empty.body')}
@@ -185,7 +200,7 @@ export default function MusicScreen({ palette, fonts }) {
         </Card>
       ) : null}
 
-      {items.map(item => (
+      {shownItems.map(item => (
         <Card key={item.id} palette={palette} fonts={fonts} title={item.name || t('common.unnamedCharacter')}>
           <Row>
             <Button
