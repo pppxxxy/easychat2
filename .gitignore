@@ -46,4 +46,5 @@ __pycache__/
 # 桌面打包产物（安装包/解包目录）与本地构建缓存
 desktop/release/
 desktop/release2/
+desktop/release-*/
 desktop/.vite/
