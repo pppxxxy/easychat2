@@ -12,6 +12,13 @@ import { mediaUrl } from './mediaUrl.js';
 export { Alert } from './alert.js';
 export { Platform } from './platform.js';
 
+// NativeModules：桌面没有 RN 原生模块注册表，这里给一个**空对象**而不省略导出。
+// 共享层取用形态都是 `NativeModules.ScreenOverlay` + 「模块缺失即按不支持降级」
+//（见 screenWatch/overlay.js、overlayThreadLog.js），空对象正好让那条既有分支生效。
+// 不导出会让整条 import 在构建期失败，连带把「看屏幕」里**可移植**的部分
+//（截本应用画面）也拖死。
+export const NativeModules = Object.freeze({});
+
 export const PixelRatio = Object.freeze({
   get: () => (typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1),
   getFontScale: () => 1,

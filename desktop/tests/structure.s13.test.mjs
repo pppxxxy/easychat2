@@ -69,14 +69,18 @@ test('扩展页不再把可移植功能标成「暂不支持」', () => {
 });
 
 test('「不可用」清单只含真正依赖系统能力的项', () => {
-  // 这些是核对过依赖确实不可移植的：截屏授权 / 插件运行时 / Headless 后台 /
+  // 这些是核对过依赖确实不可移植的：跨应用悬浮窗 / 插件运行时 / Headless 后台 /
   // llama.cpp 原生库 / 受限 shell。
-  const expected = ['screenWatch', 'plugins', 'scheduledTasks', 'localModels', 'workspaceTools'];
+  //
+  // 注意 `screenOverlay` 而不是 `screenWatch`：「看屏幕」页面本身**已可用**
+  //（截本应用画面走 webContents.capturePage，见 platform/viewShot.js），
+  // 只剩「在其他应用之上绘制 + 跨应用截屏」这一段没有桌面等价物。
+  const expected = ['screenOverlay', 'plugins', 'scheduledTasks', 'localModels', 'workspaceTools'];
   for (const id of expected) {
     assert.ok(REASONS.includes(`${id}: '`), `不可用原因缺 ${id}`);
   }
   // 已实现的功能绝不能出现在不可用清单里（写错了会自相矛盾）。
-  for (const id of ['schedule', 'diary', 'moments', 'music', 'books', 'map', 'games', 'forge', 'image', 'proactive']) {
+  for (const id of ['schedule', 'diary', 'moments', 'music', 'books', 'map', 'games', 'forge', 'image', 'proactive', 'screenWatch']) {
     assert.equal(
       new RegExp(`^\\s*${id}: '`, 'm').test(REASONS),
       false,

@@ -141,6 +141,8 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     { label: ['书籍', 'Books'], title: ['书籍', 'Books'] },
     { label: ['世界地图', 'World map'], title: ['世界地图', 'World map'] },
     { label: ['小游戏', 'Mini games'], title: ['小游戏', 'Mini games'] },
+    // 入口文案（ext.home.screen）与页内标题（screenWatch.title）不同：两处都要认。
+    { label: ['屏幕注视', 'Screen watch'], title: ['一起看屏幕', 'Screen peek'] },
   ];
   const extensionOpened = [];
   const extensionMissing = [];
@@ -333,6 +335,27 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     }
   }
 
+  // ---- S18：应用内截图（看屏幕 v1 的真实链路）----
+  // 单测用假 fs，证明不了打包后主进程真的能 capturePage 并落盘。
+  // 这里从渲染层走 bridge（与产品代码同一条路），断言返回 uri 且文件真的存在。
+  let captureOk = false;
+  let captureError = '';
+  let captureBytes = 0;
+  try {
+    const result = await (bridge.capture && typeof bridge.capture.appScreen === 'function'
+      ? bridge.capture.appScreen()
+      : { ok: false, reason: 'bridge-missing' });
+    if (result && result.ok === true && result.uri) {
+      const stat = await bridge.fs.stat(result.path);
+      captureBytes = Number(stat && stat.size) || 0;
+      captureOk = captureBytes > 0;
+    } else {
+      captureError = String((result && result.reason) || 'unknown');
+    }
+  } catch (error) {
+    captureError = String((error && error.message) || error).slice(0, 160);
+  }
+
   return {
     attempted: true,
     moreMenuSeen,
@@ -354,6 +377,9 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     autoBroadcastMenuSeen,
     autoBroadcastToggled,
     broadcastMenuLabels,
+    captureOk,
+    captureBytes,
+    captureError,
     autoBackupDisabled: autoBackupClickSeen,
     autoBackupDirListing,
     autoBackupHasPanel: /自动备份|Auto backup/.test(bodyText()),

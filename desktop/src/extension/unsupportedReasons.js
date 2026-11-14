@@ -10,8 +10,11 @@ import { tActive } from '../../../src/i18n/index.js';
 
 // key → i18n 词条名（原因文案）。词条在 locales/*/desktop.js 里。
 export const UNAVAILABLE_REASONS = Object.freeze({
-  // 需要持续截屏 + 悬浮窗服务；桌面没有等价的系统级截屏授权模型。
-  screenWatch: 'desktop.unsupported.screenWatch',
+  // 只剩「悬浮窗」这一子能力不可移植：在其他应用之上绘制自己的界面 + 跨应用截屏，
+  // Android 靠 SYSTEM_ALERT_WINDOW + MediaProjection。桌面没有等价物。
+  // 注意「看屏幕」页面本身**已可用**（截本应用画面，见 platform/viewShot.js），
+  // 所以这个 id 不再出现在扩展页的不可用清单里——只作为该页的一段能力说明。
+  screenOverlay: 'desktop.unsupported.screenOverlay',
   // 依赖 Android 侧的 WebView 插件运行时与动态加载的界面注入点。
   plugins: 'desktop.unsupported.plugins',
   // 依赖 Headless JS（App 被杀后由原生唤起执行），桌面进程退出后没有等价载体。

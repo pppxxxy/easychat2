@@ -59,6 +59,7 @@ export default defineConfig({
       { find: /^expo-clipboard$/, replacement: platform('clipboard.js') },
       { find: /^expo-audio$/, replacement: platform('audio.js') },
       { find: /^expo-speech$/, replacement: platform('speech.js') },
+      { find: /^react-native-view-shot$/, replacement: platform('viewShot.js') },
       { find: /^expo-document-picker$/, replacement: platform('documentPicker.js') },
       { find: /^expo-image-picker$/, replacement: platform('imagePicker.js') },
       { find: /^expo-sharing$/, replacement: platform('sharing.js') },

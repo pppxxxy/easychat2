@@ -102,6 +102,10 @@ const bridge = {
     // 系统通知：桌面没有后台服务，窗口开着时到点提醒（诚实版的部分实现）。
     show: payload => invoke('notify:show', payload),
   },
+  capture: {
+    // 应用内截图（看屏幕 v1）：主进程 webContents.capturePage，零权限、只截本窗口。
+    appScreen: () => invoke('capture:appScreen'),
+  },
   http: {
     start: payload => invoke('http:start', payload),
     abort: requestId => invoke('http:abort', requestId),

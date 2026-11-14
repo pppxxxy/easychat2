@@ -21,6 +21,7 @@ import { registerMediaPickIpc } from './ipc/mediaPick.js';
 import { registerBackupFileIpc } from './ipc/backupFiles.js';
 import { registerDialogIpc } from './ipc/dialog.js';
 import { registerNotifyIpc } from './ipc/notify.js';
+import { registerCaptureIpc } from './ipc/capture.js';
 import * as smokeFixtures from './smoke-fixtures.js';
 import { toFileUrl } from './paths.js';
 
@@ -478,6 +479,9 @@ app.whenReady().then(() => {
   }
   const secretStore = createSecretStore({ root: paths.secretsRoot, safeStorage });
   httpProxy = createHttpProxy({
+    // 语音转写要把本地音频作为文件字段上传：路径必须过白名单解析，
+    // 否则渲染层可以借这条通道读任意文件（见 ipc/http.js 的 multipart 分支）。
+    resolver: fsService.resolver,
     sendEvent: payload => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('http:event', payload);
     },
@@ -494,6 +498,9 @@ app.whenReady().then(() => {
     getWindow: () => mainWindow,
   });
   registerMediaPickIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
+  // 应用内截图（看屏幕 v1）：webContents.capturePage 截本窗口，与手机
+  // react-native-view-shot 截自己 App 同一语义（都是零权限、只截自己）。
+  registerCaptureIpc(ipcMain, { getWindow: () => mainWindow, documentsRoot: paths.documentsRoot });
   registerBackupFileIpc(ipcMain, { dialog, documentsRoot: paths.documentsRoot, cacheRoot: paths.cacheRoot });
 
   // 同步路径（preload 需要在模块加载期拿到，documentDirectory 是同步读取的）。

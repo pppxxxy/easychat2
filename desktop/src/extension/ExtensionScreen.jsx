@@ -39,6 +39,8 @@ const GROUPS = [
       { id: 'proactive', icon: '🔔', labelKey: 'ext.home.proactive', descKey: 'ext.home.proactive.desc' },
       { id: 'schedule', icon: '🕒', labelKey: 'ext.home.schedule', descKey: 'ext.home.schedule.desc' },
       { id: 'diary', icon: '📖', labelKey: 'ext.home.diary', descKey: 'ext.home.diary.desc' },
+      // 看屏幕：桌面只做「截本应用画面」（手机 v1 同一段）；跨应用悬浮窗另属不可用清单。
+      { id: 'screenWatch', icon: '👁', labelKey: 'ext.home.screen', descKey: 'ext.home.screen.desc' },
     ],
   },
   {
@@ -216,7 +218,6 @@ export default function ExtensionScreen({ palette, fonts, onOpen }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[
-            { id: 'screenWatch', icon: '👁', labelKey: 'desktop.entry.screenWatch' },
             { id: 'plugins', icon: '🧩', labelKey: 'desktop.entry.plugins' },
             { id: 'scheduledTasks', icon: '⏱', labelKey: 'desktop.entry.scheduled' },
             { id: 'localModels', icon: '🧠', labelKey: 'desktop.entry.localModels' },

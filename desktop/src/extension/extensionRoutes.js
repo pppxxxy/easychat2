@@ -16,6 +16,7 @@ import MomentsScreen from './screens/MomentsScreen.jsx';
 import MusicScreen from './screens/MusicScreen.jsx';
 import ProactiveScreen from './screens/ProactiveScreen.jsx';
 import ScheduleScreen from './screens/ScheduleScreen.jsx';
+import ScreenWatchScreen from './screens/ScreenWatchScreen.jsx';
 
 export const EXTENSION_ROUTES = Object.freeze({
   forge: CardForgeScreen,
@@ -28,6 +29,7 @@ export const EXTENSION_ROUTES = Object.freeze({
   books: BooksScreen,
   map: MapScreen,
   image: ImageGenScreen,
+  screenWatch: ScreenWatchScreen,
 });
 
 export const EXTENSION_ROUTE_IDS = Object.freeze(Object.keys(EXTENSION_ROUTES));

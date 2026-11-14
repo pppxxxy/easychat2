@@ -7,6 +7,7 @@ import { Buffer } from 'buffer';
 
 import { getBridge } from './platform/bridge.js';
 import { createXHRFactory } from './platform/xhr.js';
+import { createFetch } from './platform/fetch.js';
 import fileNext from './platform/fileNext.js';
 import fileSystem from './platform/fileSystem.js';
 import secureStore from './platform/secureStore.js';
@@ -20,6 +21,11 @@ globalThis.Buffer = globalThis.Buffer || Buffer;
 // 会直接走渲染进程网络栈——被 CSP connect-src 'self' 拦下，且受 CORS 限制。
 // 桌面端的唯一网络出口是主进程代理（design.md「Key Decisions / 网络」）。
 globalThis.XMLHttpRequest = createXHRFactory(getBridge());
+
+// fetch 同理：共享层少数几处直接用 fetch（语音转写、工作区下载）。原生 fetch 在渲染层
+// 既撞 CSP 'self'，又装不下 RN 形态的 `form.append('file', { uri })` 文件项。
+// 覆写成主进程代理后，文件仍由主进程读盘并过目录白名单（platform/fetch.js）。
+globalThis.fetch = createFetch(getBridge());
 
 // 共享层有几处**惰性** `require('expo-*')`（storage/secretStore 的 secure store、
 // chat/audioModules 的音频/文件模块、storage/io 的 sqlite 兜底）。ESM 渲染进程没有
