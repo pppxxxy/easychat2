@@ -48,3 +48,4 @@ desktop/release/
 desktop/release2/
 desktop/release-*/
 desktop/.vite/
+desktop/smoke*.png
