@@ -27,12 +27,20 @@ import { documentDirectory } from '../../platform/fileSystem.js';
 import { Button, Card, Row } from '../../settings/ui.jsx';
 import RoleCommentPanel from './RoleCommentPanel.jsx';
 import BookReader from './BookReader.jsx';
+import BookshelfPanel from './BookshelfPanel.jsx';
 
 export default function BooksScreen({ palette, fonts }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // 书架筛选结果（null = 未选书架，显示全部）。
+  const [shelfFilter, setShelfFilter] = useState(null);
+  // 未选书架（null）或书架为空集时显示全部——与手机「全部」chip 同语义。
+  const shownItems = useMemo(
+    () => (Array.isArray(shelfFilter) && shelfFilter.length > 0 ? shelfFilter : items),
+    [shelfFilter, items]
+  );
   const [activeId, setActiveId] = useState('');
   const [content, setContent] = useState(null);
   const [reading, setReading] = useState(false);
@@ -198,7 +206,15 @@ export default function BooksScreen({ palette, fonts }) {
         </Row>
       </Card>
 
-      {items.length === 0 && !loading ? (
+      {/* 书架分组（共享 books/shelves.js）：选中书架时只显示其中的书。 */}
+      <BookshelfPanel
+        books={items}
+        palette={palette}
+        fonts={fonts}
+        onFilterChange={setShelfFilter}
+      />
+
+      {shownItems.length === 0 && !loading ? (
         <Card palette={palette} fonts={fonts} title={t('books.empty.title')}>
           <div style={{ fontSize: fonts.scaled(12), color: palette.textMuted, lineHeight: 1.7 }}>
             {t('books.empty.body')}
@@ -206,7 +222,7 @@ export default function BooksScreen({ palette, fonts }) {
         </Card>
       ) : null}
 
-      {items.map(book => (
+      {shownItems.map(book => (
         <Card
           key={book.id}
           palette={palette}

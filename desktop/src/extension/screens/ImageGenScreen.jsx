@@ -30,6 +30,8 @@ export default function ImageGenScreen({ palette, fonts }) {
   const [loading, setLoading] = useState(true);
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState('');
+  // 随机种子：留空 = 由服务端随机（不可复现）；填数字则可复现同一张图（共享层已支持）。
+  const [seed, setSeed] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -117,6 +119,12 @@ export default function ImageGenScreen({ palette, fonts }) {
         imageUri: reference || undefined,
         model: config.model || undefined,
         size: size || undefined,
+        seed: (() => {
+          const value = String(seed || '').trim();
+          if (!value) return undefined;
+          const num = Number(value);
+          return Number.isFinite(num) ? num : undefined;
+        })(),
       });
       // generateImage 返回 { images: [{ base64 | url }], ... } 形状由共享层决定；
       // 这里只取第一张，落盘后统一走 mediaUrl 渲染。
@@ -230,6 +238,15 @@ export default function ImageGenScreen({ palette, fonts }) {
               value={size}
               onChange={setSize}
               placeholder={t('imageGen.sizeLabel')}
+              palette={palette}
+              fonts={fonts}
+            />
+          </div>
+          <div style={{ width: 130 }}>
+            <TextInput
+              value={seed}
+              onChange={setSeed}
+              placeholder={t('imageGen.seedPlaceholder')}
               palette={palette}
               fonts={fonts}
             />

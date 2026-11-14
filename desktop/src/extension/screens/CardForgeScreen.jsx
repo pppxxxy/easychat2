@@ -32,6 +32,7 @@ import {
   recordAnswer,
 } from '../../../../src/cardForge/forge/state.js';
 import { FORGE_FIELDS, FIELD_LABELS } from '../../../../src/cardForge/forge/shared.js';
+import ForgeAdvancedPanels from './ForgeAdvancedPanels.jsx';
 import { buildJsonRepairPrompt } from '../../../../src/cardForge/forge/prompts.js';
 import { mergeDraft } from '../../../../src/cardForge/forge/patch.js';
 import { EMPTY_REPLY_TEXT, getConfigFingerprint, sendChatMessage } from '../../../../src/network/api.js';
@@ -401,6 +402,14 @@ export default function CardForgeScreen({ palette, fonts }) {
             fonts={fonts}
           />
         </Field>
+        {/* systemPrompt / 世界书 / 正则 / 预设：此前整块缺失，生成或导入出来的
+            高级内容用户看不到也改不了。 */}
+        <ForgeAdvancedPanels
+          draft={draft}
+          onChange={next => update({ ...state, draft: next })}
+          palette={palette}
+          fonts={fonts}
+        />
       </Card>
       <ForgeSimulationPanel draft={draft} palette={palette} fonts={fonts} />
     </div>
