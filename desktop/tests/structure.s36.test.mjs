@@ -26,6 +26,30 @@ const CHATPANE = read('src', 'provider', 'ChatPane.jsx');
 const SELECTION = read('src', 'chat', 'useMessageSelection.js');
 const MENU = read('src', 'render', 'MessageActionsMenu.jsx');
 
+test('功能对齐矩阵：存在、可加总、且不把「待补」说成「已对齐」', () => {
+  // 这份矩阵是对「有没有功能差距」这个问题的**可核对底稿**。没有它，
+  // 「已逐项核对」就只是一句自述。判据只查结构与自洽，不查文案措辞。
+  const raw = readFileSync(path.join(DESKTOP, 'PARITY-MATRIX.md'), 'utf8');
+  for (const status of ['已对齐', '平台差异', '不适用', 'Agent 排除', '待补']) {
+    assert.ok(raw.includes(status), `矩阵应使用统一口径：${status}`);
+  }
+  const total = /\| \*\*合计\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\*/;
+  const m = raw.match(total);
+  assert.ok(m, '应有合计行');
+  const nums = m.slice(1).map(Number);
+  const [surfaces, aligned, platform, na, agent, pending] = nums;
+  assert.equal(aligned + platform + na + agent + pending, surfaces,
+    `五种状态之和应等于功能面数：${aligned}+${platform}+${na}+${agent}+${pending} != ${surfaces}`);
+  // 手机端 149 是逐入口排查得到的总数，不是拍的。
+  assert.equal(surfaces, 149, '手机端功能面总数应为 149');
+  // 待补项必须逐条列在最后一节，数量对得上。
+  const pendingSection = raw.slice(raw.indexOf('## 7.'));
+  const listed = (pendingSection.match(/^\d+\. /gm) || []).length;
+  assert.equal(listed, pending, `第 7 节应逐条列出 ${pending} 项待补（实际 ${listed}）`);
+  // 「待补」不许写成完成口吻：出现「已补齐」字样就是回归。
+  assert.ok(!/待补[^\n]*已补齐/.test(raw), '待补项不得标注为已补齐');
+});
+
 test('DesktopApp 声明顺序：公告 hook 必须读得到 appVersion（否则整页白屏）', () => {
   // 打包版实测踩到：useStartupAnnouncement({ localVersion: appVersion }) 写在
   // appVersion 的 useState 之前 → TDZ，压缩后报 'Cannot access xe before
