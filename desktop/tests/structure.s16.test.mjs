@@ -268,7 +268,12 @@ test('主动消息：窗口开着时真的会触发（不再是「只配置不�
   const screen = read(DESKTOP, 'src', 'extension', 'screens', 'ProactiveScreen.jsx');
   const hook = read(DESKTOP, 'src', 'proactive', 'useProactiveForeground.js');
   const timing = read(DESKTOP, 'src', 'proactive', 'slotTiming.js');
-  assert.ok(screen.includes('useProactiveForeground'), '未启用前台调度');
+  // 调度已上移到应用根（provider/useDesktopBackgroundTasks.js）：与手机一致，
+  // 「到点触发」不该取决于用户是否打开过这个页面。这里改成同时钉根上挂载与
+  // 「页面内不再自行调度」，比原来只看页面更严。
+  assert.ok(!screen.includes('useProactiveForeground'), '页面内不应再自行调度（已上移到根）');
+  assert.ok(read(DESKTOP, 'src', 'provider', 'useDesktopBackgroundTasks.js').includes('useProactiveForeground'),
+    '未在应用根启用前台调度');
   assert.ok(hook.includes('isSlotDue') && hook.includes('pickVariant'), '未复用槽位判定');
   assert.ok(hook.includes('buildProactiveVariants'), '未复用风格抽取（共享层）');
   assert.ok(hook.includes('appendProactiveMessage'), '未把消息写进会话');

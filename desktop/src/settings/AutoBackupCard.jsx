@@ -18,17 +18,12 @@ import {
   isAutoBackupDue,
   normalizeAutoBackupSettings,
 } from '../../../src/backup/autoBackupPolicy.js';
-import { createAutoBackupDeps, runAutoBackup } from '../../../src/backup/autoBackupRun.js';
-import {
-  getAutoBackupSettings,
-  patchAutoBackupSettings,
-  recordAutoBackupAt,
-} from '../../../src/storage/autoBackup.js';
-import { exportBackup } from '../../../src/storage/backup.js';
+import { runAutoBackup } from '../../../src/backup/autoBackupRun.js';
+import { getAutoBackupSettings, patchAutoBackupSettings } from '../../../src/storage/autoBackup.js';
 import { documentDirectory } from '../platform/fileSystem.js';
-import * as FileSystem from '../platform/fileSystem.js';
 import { Alert } from '../platform/alert.js';
 import { getBridge } from '../platform/bridge.js';
+import { createDesktopAutoBackupDeps } from './desktopAutoBackupDeps.js';
 import { Button, Card, Row, Toggle } from './ui.jsx';
 
 const POLL_MS = 15 * 60 * 1000;
@@ -69,19 +64,9 @@ export default function AutoBackupCard({ palette, fonts, appVersion = '' }) {
   }, []);
 
   // 共享层的依赖装配：只给 application-private 目录那一支需要的成员。
-  const deps = () => {
-    const legacyFs = FileSystem;
-    return createAutoBackupDeps({
-      exportBackup,
-      getSettings: getAutoBackupSettings,
-      recordLastBackupAt: recordAutoBackupAt,
-      fileSystem: legacyFs,
-      // 桌面没有 nextFs（FileHandle）与 SAF 适配器：autoBackupRun 在非 SAF 模式下
-      // 完全不碰它们，传 null 即可（它的各个分支都有 null 守卫）。
-      nextFs: null,
-      adapter: null,
-    });
-  };
+  // 装配共用一份（见 desktopAutoBackupDeps.js）：调度器的「到点备份」与这里的
+  // 「立即备份」必须跑在同一份依赖上，否则两条路径会各自漂移。
+  const deps = () => createDesktopAutoBackupDeps();
 
   const runNow = async (silent = false) => {
     if (busyRef.current) return;

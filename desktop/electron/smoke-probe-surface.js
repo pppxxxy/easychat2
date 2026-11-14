@@ -143,6 +143,8 @@ async function runSurfaceProbe({ waitFor, bridge }) {
     { label: ['小游戏', 'Mini games'], title: ['小游戏', 'Mini games'] },
     // 入口文案（ext.home.screen）与页内标题（screenWatch.title）不同：两处都要认。
     { label: ['屏幕注视', 'Screen watch'], title: ['一起看屏幕', 'Screen peek'] },
+    // 入口「插件」与页内标题（plugin.title = 联网搜索 / Web Search）不同。
+    { label: ['插件', 'Plugins'], title: ['联网搜索', 'Web Search'] },
   ];
   const extensionOpened = [];
   const extensionMissing = [];

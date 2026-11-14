@@ -16,6 +16,7 @@ import MomentsScreen from './screens/MomentsScreen.jsx';
 import MusicScreen from './screens/MusicScreen.jsx';
 import ProactiveScreen from './screens/ProactiveScreen.jsx';
 import ScheduleScreen from './screens/ScheduleScreen.jsx';
+import PluginScreen from './screens/PluginScreen.jsx';
 import ScreenWatchScreen from './screens/ScreenWatchScreen.jsx';
 
 export const EXTENSION_ROUTES = Object.freeze({
@@ -30,6 +31,7 @@ export const EXTENSION_ROUTES = Object.freeze({
   map: MapScreen,
   image: ImageGenScreen,
   screenWatch: ScreenWatchScreen,
+  plugins: PluginScreen,
 });
 
 export const EXTENSION_ROUTE_IDS = Object.freeze(Object.keys(EXTENSION_ROUTES));

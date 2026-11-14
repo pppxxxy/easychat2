@@ -37,7 +37,11 @@ test('自动备份复用共享执行器，不自己实现导出/淘汰/到期判
   assert.ok(AUTO_BACKUP.includes("from '../../../src/backup/autoBackupRun.js'"), '未复用共享执行器');
   assert.ok(AUTO_BACKUP.includes("from '../../../src/backup/autoBackupPolicy.js'"), '未复用共享策略');
   assert.ok(AUTO_BACKUP.includes('runAutoBackup('), '缺实际执行入口');
-  assert.ok(AUTO_BACKUP.includes('createAutoBackupDeps('), '未按共享层的依赖装配方式接线');
+  // 依赖装配已外提到 desktopAutoBackupDeps.js（卡片与调度器共用一份，避免漂移）：
+  // 判据改成「卡片经那份装配接线」，比直接找 createAutoBackupDeps( 更准。
+  assert.ok(AUTO_BACKUP.includes('createDesktopAutoBackupDeps'), '未按共享层的依赖装配方式接线');
+  assert.ok(read(DESKTOP, 'src', 'settings', 'desktopAutoBackupDeps.js').includes('createAutoBackupDeps('),
+    '装配模块未调用共享 createAutoBackupDeps');
   // 到期判定必须用 isAutoBackupDue（唯一口径），不能在界面里自己算时间差。
   assert.ok(AUTO_BACKUP.includes('isAutoBackupDue('), '缺共享层到期判定');
   assert.equal(

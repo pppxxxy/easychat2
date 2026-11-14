@@ -15,6 +15,15 @@ export const AUTO_BACKUP_INTERVAL_PRESET_HOURS = [1, 6, 12, 24, 72, 168];
 export const HOUR_MS = 60 * 60 * 1000;
 export const DAY_MS = 24 * HOUR_MS;
 export const DEFAULT_AUTO_BACKUP_INTERVAL_MS = DAY_MS;
+
+// 调度节奏（App 内调度壳用）。放在本文件而不是 autoBackupScheduler.js：
+// 后者 import 了 react-native 的 AppState，桌面侧只要读这两个常量就会被拖进
+// 整个 RN 运行时（Node 测试里直接 SyntaxError）。这两个值本身是纯数字，
+// 属于「策略」，天然该在这里。
+export const DEFAULT_AUTO_BACKUP_POLL_MS = 15 * 60 * 1000;
+// 启动/回到前台后延迟多久才检查到期：备份要生成完整备份包，从 App 一打开就抢
+// CPU/IO 的体感是「一打开就发烫、变卡」（手机端真机反馈 2026-10-19）。
+export const DEFAULT_AUTO_BACKUP_START_DELAY_MS = 30 * 1000;
 // 自定义间隔范围：1 小时 ~ 365 天。
 export const AUTO_BACKUP_MIN_INTERVAL_MS = HOUR_MS;
 export const AUTO_BACKUP_MAX_INTERVAL_MS = 365 * DAY_MS;

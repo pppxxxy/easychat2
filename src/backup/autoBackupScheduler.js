@@ -11,17 +11,19 @@
 
 import { AppState } from 'react-native';
 
+import {
+  DEFAULT_AUTO_BACKUP_POLL_MS,
+  DEFAULT_AUTO_BACKUP_START_DELAY_MS,
+} from './autoBackupPolicy.js';
+
 import { runAutoBackupIfDue, runAutoBackupOnExit } from './autoBackupRun.js';
 
-export const DEFAULT_AUTO_BACKUP_POLL_MS = 15 * 60 * 1000;
-
-// 启动/回到前台后延迟多久才检查到期。
-//
-// 为什么必须有这个延迟（真机反馈 2026-10-19）：此前是**挂载即 runDue()**，而一次自动
-// 备份要生成完整备份包（角色卡多的用户可达 115MB），从 App 一打开就抢 CPU/IO，
-// 用户体感是「一打开就发烫、变卡」。备份并不紧急——晚 30 秒做，启动体验好得多。
-// 回到前台（active）同样走这个延迟：每次切回来都不该立刻压一次重活。
-export const DEFAULT_AUTO_BACKUP_START_DELAY_MS = 30 * 1000;
+// 两个常量已迁到零依赖的 autoBackupPolicy.js（见那里的注释），这里 re-export
+// 保持既有导入点不变。
+export {
+  DEFAULT_AUTO_BACKUP_POLL_MS,
+  DEFAULT_AUTO_BACKUP_START_DELAY_MS,
+} from './autoBackupPolicy.js';
 
 export function startAutoBackupScheduler({
   onResult = null,

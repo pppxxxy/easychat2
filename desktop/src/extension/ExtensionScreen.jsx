@@ -41,6 +41,8 @@ const GROUPS = [
       { id: 'diary', icon: '📖', labelKey: 'ext.home.diary', descKey: 'ext.home.diary.desc' },
       // 看屏幕：桌面只做「截本应用画面」（手机 v1 同一段）；跨应用悬浮窗另属不可用清单。
       { id: 'screenWatch', icon: '👁', labelKey: 'ext.home.screen', descKey: 'ext.home.screen.desc' },
+      // 插件：桌面只做内置联网搜索的配置（纯 HTTP，链路早已可用）。
+      { id: 'plugins', icon: '🧩', labelKey: 'ext.home.plugins', descKey: 'ext.home.plugins.desc' },
     ],
   },
   {
@@ -218,7 +220,6 @@ export default function ExtensionScreen({ palette, fonts, onOpen }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[
-            { id: 'plugins', icon: '🧩', labelKey: 'desktop.entry.plugins' },
             { id: 'scheduledTasks', icon: '⏱', labelKey: 'desktop.entry.scheduled' },
             { id: 'localModels', icon: '🧠', labelKey: 'desktop.entry.localModels' },
             { id: 'workspaceTools', icon: '🛠', labelKey: 'desktop.entry.workspace' },

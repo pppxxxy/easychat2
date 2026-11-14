@@ -35,6 +35,7 @@ import { resolveExtensionRoute } from '../extension/extensionRoutes.js';
 import RoleLockGate from '../settings/RoleLockGate.jsx';
 import MemoryListScreen from '../memory/MemoryListScreen.jsx';
 import GroupCreatePanel from '../group/GroupCreatePanel.jsx';
+import useDesktopBackgroundTasks from './useDesktopBackgroundTasks.js';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
@@ -194,6 +195,16 @@ function Shell() {
   }, []);
 
   const activeCharacter = characters.find(character => character.id === activeId) || null;
+
+  // 应用级到点任务（主动消息 + 自动备份）：挂在根上，与手机一样「不看用户在哪一页」。
+  // 此前主动消息的调度写在扩展页里，关掉那个页面就不再触发——那是真实的功能差距。
+  const charactersRef = useRef(characters);
+  charactersRef.current = characters;
+  useDesktopBackgroundTasks({
+    ready: loaded && firstRunStage === 'done',
+    charactersRef,
+    appVersion,
+  });
 
   // 每个角色第一次成为当前角色时补一个开场白会话。
   // 注意不能只做一次（原 ensuredRef 是一次性锁）：新建角色或在库里切换到一个还没有会话的

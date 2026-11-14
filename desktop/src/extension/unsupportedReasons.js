@@ -15,8 +15,10 @@ export const UNAVAILABLE_REASONS = Object.freeze({
   // 注意「看屏幕」页面本身**已可用**（截本应用画面，见 platform/viewShot.js），
   // 所以这个 id 不再出现在扩展页的不可用清单里——只作为该页的一段能力说明。
   screenOverlay: 'desktop.unsupported.screenOverlay',
-  // 依赖 Android 侧的 WebView 插件运行时与动态加载的界面注入点。
-  plugins: 'desktop.unsupported.plugins',
+  // 只剩「插件运行时」：从外部加载第三方 JS 并在原生侧注入界面。
+  // 内置插件（联网搜索）的配置**已可用**（纯 HTTP，见 extension/screens/PluginScreen.jsx），
+  // 所以这个 id 不再出现在扩展页的不可用清单里——只作为插件页的一段能力说明。
+  pluginRuntime: 'desktop.unsupported.pluginRuntime',
   // 依赖 Headless JS（App 被杀后由原生唤起执行），桌面进程退出后没有等价载体。
   scheduledTasks: 'desktop.unsupported.scheduled',
   // 依赖 llama.cpp 原生绑定与 mmap 权重的移动端集成。
