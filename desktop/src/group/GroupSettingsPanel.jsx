@@ -3,7 +3,7 @@
 // 与手机的差异：手机把群设置并进了聊天顶栏的群编辑入口，桌面单独一个面板。
 // 存储只用共享的 updateSessionInfo —— 它**只对群聊生效**，并会 markMediaWrite
 // 保护刚写入的图片（备份导出后引用不会断）。
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { setGroupMembers, setGroupMode, updateSessionInfo } from '../../../src/storage/sessionList.js';
@@ -29,6 +29,9 @@ export default function GroupSettingsPanel({
   const { t } = useTranslation();
   const [nameDraft, setNameDraft] = useState(session && session.name ? session.name : '');
   const [saving, setSaving] = useState(false);
+  // 同步守卫：`saving` 是 state，同帧连点两次都会读到 false，第二次会用**旧快照**
+  // 的 selectedIds 重算 next，把第一次的增删覆盖掉。ref 在同一帧立即生效。
+  const savingRef = useRef(false);
 
   if (!open || !session) return null;
 
@@ -54,7 +57,8 @@ export default function GroupSettingsPanel({
   // 发言方式（合议 / 轮流）：改了就落盘并让宿主刷新——它会改变发送链路的分支
   // （useChatSend 里 `groupMode !== 'turn'` 决定走合议还是轮流）。
   const changeMode = async mode => {
-    if (saving || !session) return;
+    if (savingRef.current || !session) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const saved = await setGroupMode(session.id, mode);
@@ -63,6 +67,7 @@ export default function GroupSettingsPanel({
     } catch (error) {
       Alert.alert(t('group.alert.saveFailed.title'), t('group.alert.saveFailed.body'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -71,7 +76,7 @@ export default function GroupSettingsPanel({
   // 上限校验在共享层 setGroupMembers（与创建时同一份常量），界面提前拦一道只为给出提示。
   const selectedIds = (Array.isArray(session && session.members) ? session.members : []).map(String);
   const toggleMember = async id => {
-    if (saving) return;
+    if (savingRef.current) return;
     const target = String(id || '');
     if (!target) return;
     const next = selectedIds.includes(target)
@@ -85,6 +90,7 @@ export default function GroupSettingsPanel({
       Alert.alert(t('group.members.tooFew.title'), t('group.members.tooFew.body', { count: MIN_GROUP_MEMBERS }));
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       const saved = await setGroupMembers(session.id, next);
@@ -92,12 +98,14 @@ export default function GroupSettingsPanel({
     } catch (error) {
       Alert.alert(t('group.alert.saveFailed.title'), t('group.alert.saveFailed.body'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   const saveName = async () => {
-    if (saving) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const saved = await updateSessionInfo(session.id, { name: String(nameDraft || '').trim() });
@@ -106,6 +114,7 @@ export default function GroupSettingsPanel({
     } catch (error) {
       Alert.alert(t('app.save.failed.title'), t('app.save.failed.body'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
