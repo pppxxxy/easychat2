@@ -39,6 +39,7 @@ import useDesktopBackgroundTasks from './useDesktopBackgroundTasks.js';
 import useDesktopCharacterDelete from '../character/useDesktopCharacterDelete.js';
 import DisclaimerDialog from '../settings/DisclaimerDialog.jsx';
 import SettingsScreen from '../settings/SettingsScreen.jsx';
+import AnnouncementDialog, { useCachedAnnouncement, useStartupAnnouncement } from '../settings/AnnouncementDialog.jsx';
 import TutorialDialog from '../settings/TutorialDialog.jsx';
 import ChatPane from './ChatPane.jsx';
 
@@ -156,6 +157,12 @@ function Shell() {
   } = useApp();
   const [busy, setBusy] = useState('');
   const [showBackup, setShowBackup] = useState(false);
+  // 应用内公告：启动静默拉一次（命中才弹）+ 设置页入口只读缓存。
+  // 手机侧同一份逻辑（announcements/useAnnouncement.js），这里复用共享 resolve。
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+  const cachedAnnouncement = useCachedAnnouncement();
+  const startupAnnouncement = useStartupAnnouncement({ localVersion: appVersion });
+  const announcementRelease = startupAnnouncement.release || cachedAnnouncement;
   const [view, setView] = useState('chat');
   // 角色库页（卡片网格）与角色编辑页分开：库页是「选谁」，编辑页是「改什么」。
   const [characterScreen, setCharacterScreen] = useState('library');
@@ -516,6 +523,8 @@ function Shell() {
             onTutorial={() => setShowTutorial(true)}
             onDisclaimer={() => setShowDisclaimer(true)}
             onBackup={() => setShowBackup(true)}
+            onAnnouncement={() => setShowAnnouncement(true)}
+            hasAnnouncement={!!cachedAnnouncement}
           />
         ) : view === 'character' ? (
           characterScreen === 'library' ? (
@@ -710,6 +719,17 @@ function Shell() {
                 Alert.alert(t('app.save.failed.title'), t('app.save.failed.body'));
               });
           }
+        }}
+        palette={palette}
+        fonts={fonts}
+      />
+      {/* 应用内公告：启动命中（新版本且未忽略）时自动打开；设置页「更新说明」也复用同一个弹窗。 */}
+      <AnnouncementDialog
+        open={showAnnouncement || startupAnnouncement.visible}
+        release={announcementRelease}
+        onClose={() => {
+          setShowAnnouncement(false);
+          startupAnnouncement.close();
         }}
         palette={palette}
         fonts={fonts}

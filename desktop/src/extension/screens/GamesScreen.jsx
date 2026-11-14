@@ -7,13 +7,16 @@
 //     并保留 sandbox 属性——游戏页是第三方风格的 HTML，不该拿到父页面上下文
 //     （不能读 window.easychat2、不能动存储）。手机侧靠 WebView 的默认隔离达到同样效果。
 //
-// 「每日妻子」依赖角色库数据，走单独的原生面板（DailyWifeView）。桌面这版只做
-// 列表与 Web 游戏；每日妻子标记为需要角色库面板，点开给出一句说明而不是空白页。
+// 「每日妻子」依赖角色库数据，手机走原生面板 DailyWifeView。桌面**同样有角色库**
+// （共享 AppContext）且抽取是纯函数（games/dailyWife.js），所以这里直接渲染
+// DailyWifeScreen——此前标成「需要角色库面板」是误判：那属于「还没做」，
+// 不是「做不了」。
 import { useMemo, useState } from 'react';
 
 import { useTranslation } from '../../../../src/i18n/I18nContext.js';
 import { GAMES } from '../../../../src/games/games.js';
 import { Button, Card } from '../../settings/ui.jsx';
+import DailyWifeScreen from './DailyWifeScreen.jsx';
 
 export default function GamesScreen({ palette, fonts }) {
   const { t } = useTranslation();
@@ -85,6 +88,10 @@ export default function GamesScreen({ palette, fonts }) {
     </button>
   );
 
+  if (activeGame && activeGame.native === 'daily-wife') {
+    return <DailyWifeScreen palette={palette} fonts={fonts} onBack={() => setActiveGameId('')} />;
+  }
+
   if (activeGame) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -130,7 +137,7 @@ export default function GamesScreen({ palette, fonts }) {
           fonts={fonts}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {nativeGames.map(game => gameCard(game, true))}
+            {nativeGames.map(game => gameCard(game, false))}
           </div>
         </Card>
       ) : null}

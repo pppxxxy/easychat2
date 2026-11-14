@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP = path.resolve(HERE, '..');
 const ROOT = path.resolve(DESKTOP, '..');
-const read = (...parts) => readFileSync(path.join(...parts), 'utf8');
+const read = (...parts) => readFileSync(path.join(DESKTOP, ...parts), 'utf8');
 const readRoot = (...parts) => readFileSync(path.join(ROOT, ...parts), 'utf8');
 
 const BACKDROP = read('src', 'provider', 'useDesktopBackgroundTasks.js');

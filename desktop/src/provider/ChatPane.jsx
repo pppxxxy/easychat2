@@ -122,6 +122,12 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
     setQuoteTarget: chat.setQuoteTarget,
     errorRawRef: chat.errorRawRef,
   });
+  // 引用：复用共享 buildQuotePayload 的字段口径（name 取角色名或「我」）。
+  // 放在 JSX 外是为了让菜单 props 保持一行一项（ChatPane 已到 800 行上限）。
+  const handleQuote = target => chat.setQuoteTarget(buildQuotePayload(
+    target,
+    target.role === 'user' ? t('chat.bubble.me') : (chat.characterName || '')
+  ));
   const summary = useDesktopMemorySummary({
     charactersRef: chat.charactersRef,
     sessionsRef: chat.sessionsRef,
@@ -774,20 +780,14 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
           palette={palette}
           fonts={fonts}
           onClose={() => setMenu(null)}
-          onQuote={target => {
-            // 引用：复用共享 buildQuotePayload 的字段口径（name 取角色名或「我」）。
-            const quoted = buildQuotePayload(
-              target,
-              target.role === 'user' ? t('chat.bubble.me') : (chat.characterName || '')
-            );
-            chat.setQuoteTarget(quoted);
-          }}
+          onQuote={handleQuote}
           onRegenerate={regenerateMessage}
           onEditUserMessage={chat.editUserMessage}
+          // 删除图片消息：走与批量删除同一条编排（此前没传 → 菜单项是死的）。
+          onDeleteImageMessage={selection.removeOne}
           // 手动播报：走共享 useChatTts（会自己 resolve 角色/全局 TTS 配置）。
           onBroadcast={target => chat.broadcastMessage(String((target && target.text) || ''))}
-          // 存为表情包：复用桌面已有的图片处理链路（scale + JPEG，与手机同口径），
-          // 处理完进「命名」对话框（StickerNameDialog 已在下方挂载）。
+          // 存为表情包：复用桌面图片链路（scale + JPEG，与手机同口径），处理完进命名对话框。
           onSaveAsSticker={image => {
             if (!image || !image.uri) return;
             stickersApi.prepareFromUri({ uri: image.uri, mime: image.mime, name: 'sticker' }).catch(() => {});

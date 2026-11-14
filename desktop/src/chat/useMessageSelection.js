@@ -72,14 +72,89 @@ export default function useMessageSelection({
     setSelectedIds(current => (current.length === allIds.length ? [] : allIds));
   }, [allIds]);
 
+  // 删除执行体：确认之后按计划跑完五步。
+  // 抽成独立函数是因为**单条删除**（图片消息菜单）与批量删除必须走同一条编排——
+  // 手机侧 confirmDeleteImageMessage 也只是把 messageId 塞进同一条删除链路。
+  // 若给单条删除另写一份，记忆摘要边界、尾段归档、向量清理三处必然漏掉其中一处。
+  const executeDeletion = useCallback(async plan => {
+    const sessionId = String(activeSessionId || '');
+    const sessionVersionSnapshot = sessionId;
+    busyRef.current = true;
+    try {
+      // 守卫：确认弹窗期间用户可能切走了会话。
+      if (String(activeSessionId || '') !== sessionVersionSnapshot) return;
+      // ① 记忆摘要失效：按删除后的消息重算边界（失败就中止，不留下摘要与消息错位）。
+      if (activeSession) {
+        const ownerId = String(activeSession.characterId || '');
+        const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
+        const exists = latestCharacters.some(item => item.id === ownerId);
+        const latestCharacter = latestCharacters.find(item => item.id === ownerId) || null;
+        const scoped = isBuiltinAssistant(latestCharacter)
+          || !exists
+          || isSessionScopedMemory(sessionsRef.current, ownerId, undefined, activeSession.id);
+        try {
+          await invalidateHistorySummaries({
+            session: activeSession,
+            messages: plan.remaining,
+            removedIds: plan.ids,
+            scoped,
+            character: latestCharacter,
+            updateCharacter,
+          });
+        } catch (error) {
+          Alert.alert(
+            tRef.current('common.error.deleteFailed'),
+            tRef.current('chat.deleteMessages.syncFail.body')
+          );
+          return;
+        }
+      }
+      if (String(activeSessionId || '') !== sessionVersionSnapshot) return;
+      // ② 连续尾段先归档成分支（整段删除仍可回溯）。
+      if (plan.archive) {
+        await archiveBranch(sessionId, plan.archive.forkMessageId, plan.archive.messages)
+          .catch(() => {});
+      }
+      // ③ 删光 ≡ 旧「清空」：重置开场白选择（否则下次进会话卡在「未选开场白」）。
+      if (plan.clearsAll && activeSession && activeSession.type !== 'group') {
+        setGreetingReady(false);
+        setSessionGreetingSelected(sessionId, false)
+          .then(() => Promise.resolve(refreshSessions()).catch(() => {}))
+          .catch(() => {});
+      }
+      // ④ 向量索引：整段清 vs 按 id 清。
+      const ownerId = getVectorOwnerId(activeSession, characterId);
+      if (ownerId) {
+        if (plan.vector.mode === 'session') {
+          removeVectorIndexForSession(ownerId, sessionId).catch(() => {});
+        } else {
+          removeVectorIndexForMessages(ownerId, sessionId, plan.vector.ids).catch(() => {});
+        }
+      }
+      // ⑤ 替换时间线 + 清引用/错误缓存。
+      setMessages(plan.remaining);
+      if (plan.ids.length > 0 && errorRawRef && errorRawRef.current) {
+        plan.ids.forEach(id => { delete errorRawRef.current[id]; });
+      }
+      setQuoteTarget(current => (
+        current && plan.ids.includes(String(current.id || '')) ? null : current
+      ));
+      setSelectedIds([]);
+      setSelecting(false);
+    } finally {
+      busyRef.current = false;
+    }
+  }, [
+    activeSession, activeSessionId, characterId, charactersRef, errorRawRef,
+    refreshSessions, sessionsRef, setGreetingReady, setMessages, setQuoteTarget, updateCharacter,
+  ]);
+
   // 删除：按计划执行（记忆摘要失效 → 归档尾段 → 开场白复位 → 向量清理 → 替换消息）。
   const removeSelected = useCallback(() => {
     if (busyRef.current || isSending || !ready) return;
     const ids = selectedIds.slice();
     const plan = planMessageDeletion(messagesRef.current || [], ids);
     if (!plan) return;
-    const sessionId = String(activeSessionId || '');
-    const sessionVersionSnapshot = sessionId;
 
     Alert.alert(
       tRef.current('chat.deleteMessages.title'),
@@ -89,81 +164,35 @@ export default function useMessageSelection({
         {
           text: tRef.current('common.delete'),
           style: 'destructive',
-          onPress: async () => {
-            busyRef.current = true;
-            try {
-              // 守卫：确认弹窗期间用户可能切走了会话。
-              if (String(activeSessionId || '') !== sessionVersionSnapshot) return;
-              // ① 记忆摘要失效：按删除后的消息重算边界（失败就中止，不留下摘要与消息错位）。
-              if (activeSession) {
-                const ownerId = String(activeSession.characterId || '');
-                const latestCharacters = Array.isArray(charactersRef.current) ? charactersRef.current : [];
-                const exists = latestCharacters.some(item => item.id === ownerId);
-                const latestCharacter = latestCharacters.find(item => item.id === ownerId) || null;
-                const scoped = isBuiltinAssistant(latestCharacter)
-                  || !exists
-                  || isSessionScopedMemory(sessionsRef.current, ownerId, undefined, activeSession.id);
-                try {
-                  await invalidateHistorySummaries({
-                    session: activeSession,
-                    messages: plan.remaining,
-                    removedIds: plan.ids,
-                    scoped,
-                    character: latestCharacter,
-                    updateCharacter,
-                  });
-                } catch (error) {
-                  Alert.alert(
-                    tRef.current('common.error.deleteFailed'),
-                    tRef.current('chat.deleteMessages.syncFail.body')
-                  );
-                  return;
-                }
-              }
-              if (String(activeSessionId || '') !== sessionVersionSnapshot) return;
-              // ② 连续尾段先归档成分支（整段删除仍可回溯）。
-              if (plan.archive) {
-                await archiveBranch(sessionId, plan.archive.forkMessageId, plan.archive.messages)
-                  .catch(() => {});
-              }
-              // ③ 删光 ≡ 旧「清空」：重置开场白选择（否则下次进会话卡在「未选开场白」）。
-              if (plan.clearsAll && activeSession && activeSession.type !== 'group') {
-                setGreetingReady(false);
-                setSessionGreetingSelected(sessionId, false)
-                  .then(() => Promise.resolve(refreshSessions()).catch(() => {}))
-                  .catch(() => {});
-              }
-              // ④ 向量索引：整段清 vs 按 id 清。
-              const ownerId = getVectorOwnerId(activeSession, characterId);
-              if (ownerId) {
-                if (plan.vector.mode === 'session') {
-                  removeVectorIndexForSession(ownerId, sessionId).catch(() => {});
-                } else {
-                  removeVectorIndexForMessages(ownerId, sessionId, plan.vector.ids).catch(() => {});
-                }
-              }
-              // ⑤ 替换时间线 + 清引用/错误缓存。
-              setMessages(plan.remaining);
-              if (plan.ids.length > 0 && errorRawRef && errorRawRef.current) {
-                plan.ids.forEach(id => { delete errorRawRef.current[id]; });
-              }
-              setQuoteTarget(current => (
-                current && plan.ids.includes(String(current.id || '')) ? null : current
-              ));
-              setSelectedIds([]);
-              setSelecting(false);
-            } finally {
-              busyRef.current = false;
-            }
-          },
+          onPress: () => { executeDeletion(plan); },
         },
       ]
     );
-  }, [
-    activeSession, activeSessionId, characterId, charactersRef, errorRawRef, isSending,
-    messagesRef, ready, refreshSessions, selectedIds, sessionsRef, setGreetingReady,
-    setMessages, setQuoteTarget, updateCharacter,
-  ]);
+  }, [executeDeletion, isSending, messagesRef, ready, selectedIds]);
+
+  // 单条删除（图片消息菜单用）：与批量删除同一条编排。
+  // 手机侧 confirmDeleteImageMessage 也是只删这一条，不建分支、不复位开场白——
+  // planMessageDeletion 对「非连续尾段」本来就不 archive，对「未删光」本来就不 clearsAll，
+  // 所以这里不需要任何额外分支，直接用同一份计划即可。
+  const removeOne = useCallback(messageId => {
+    if (busyRef.current || isSending || !ready) return;
+    const id = String(messageId || '');
+    if (!id) return;
+    const plan = planMessageDeletion(messagesRef.current || [], [id]);
+    if (!plan) return;
+    Alert.alert(
+      tRef.current('chat.deleteImage.title'),
+      tRef.current('chat.deleteImage.body'),
+      [
+        { text: tRef.current('common.cancel'), style: 'cancel' },
+        {
+          text: tRef.current('common.delete'),
+          style: 'destructive',
+          onPress: () => { executeDeletion(plan); },
+        },
+      ]
+    );
+  }, [executeDeletion, isSending, messagesRef, ready]);
 
   return {
     selecting,
@@ -176,5 +205,6 @@ export default function useMessageSelection({
     toggle,
     toggleAll,
     removeSelected,
+    removeOne,
   };
 }

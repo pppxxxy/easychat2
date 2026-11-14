@@ -41,9 +41,9 @@ import { createBookMarkdownStyles, isMarkdownBook, markdownExcerpt } from './mar
 import { useBookComments } from './useBookComments.js';
 import createStyles from './bookReaderStyles.js';
 import { buildPageTextProps, LINE_HEIGHT_RATIO, MEASURE_READY, useBookReader } from './useBookReader.js';
+// 字号边界与步进抽到共享叶模块：桌面阅读器要用同一套边界，两份字面量会漂移。
+import { changeFontSize as changeFontSizeShared, FONT_DEFAULT } from './readerFont.js';
 
-const FONT_MIN = 13;
-const FONT_MAX = 26;
 const TAP_ZONE_RATIO = 0.3;
 
 // 翻页方式：点击（原行为）/ 卡片滑动 / 旋转翻页（3D 翻转）/ 淡入淡出。
@@ -73,7 +73,7 @@ function clampBlockIndex(value, size) {
 }
 
 function changeFontSize(current, delta) {
-  return Math.min(FONT_MAX, Math.max(FONT_MIN, (Math.floor(Number(current)) || 17) + delta));
+  return changeFontSizeShared(current, delta);
 }
 
 export default function BookReaderView({ item, content, onBack }) {
@@ -97,7 +97,7 @@ export default function BookReaderView({ item, content, onBack }) {
   const mdCapable = isMarkdownBook(item);
   const [renderMode, setRenderMode] = useState(mdCapable ? 'md' : 'text');
   const paged = renderMode === 'text';
-  const [fontSize, setFontSize] = useState(17);
+  const [fontSize, setFontSize] = useState(FONT_DEFAULT);
   const [showControls, setShowControls] = useState(true);
   const [showChapters, setShowChapters] = useState(false);
   // 目录搜索关键词（按章节名过滤，大小写不敏感）。

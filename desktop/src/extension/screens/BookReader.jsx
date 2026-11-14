@@ -19,6 +19,12 @@ import {
   normalizeChapterProgress,
 } from '../../../../src/books/chapterProgress.js';
 import { saveBookProgress } from '../../../../src/books/library.js';
+import {
+  canGrowFont,
+  canShrinkFont,
+  changeFontSize,
+  FONT_DEFAULT,
+} from '../../../../src/books/readerFont.js';
 import { Button, Row, Select } from '../../settings/ui.jsx';
 
 // 块上限：与手机 readerSettings 的默认一致（太大则「章」里塞进多章，太小则碎）。
@@ -34,6 +40,9 @@ export default function BookReader({
 }) {
   const { t } = useTranslation();
   const [chapterIndex, setChapterIndex] = useState(0);
+  // 正文字号：与手机阅读器同一套边界与步进（共享 books/readerFont.js）。
+  // 手机那层还有「分页/翻页手势」，那是 RN 文本测量专属；字号是纯数值，两端应一致。
+  const [fontSize, setFontSize] = useState(FONT_DEFAULT);
   const scrollRef = useRef(null);
 
   // 切章：markdown 书按 ATX 标题优先（与手机同一开关）。
@@ -152,6 +161,23 @@ export default function BookReader({
             {t('books.list.chars', { count: (book && book.chars) || 0 })}
           </span>
         )}
+        {/* 字号增减：手机阅读器工具栏有 A- / A+，桌面此前固定 14px。 */}
+        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flex: 'none' }}>
+          <Button
+            label="A-"
+            onClick={() => setFontSize(current => changeFontSize(current, -1))}
+            palette={palette}
+            fonts={fonts}
+            disabled={!canShrinkFont(fontSize)}
+          />
+          <Button
+            label="A+"
+            onClick={() => setFontSize(current => changeFontSize(current, 1))}
+            palette={palette}
+            fonts={fonts}
+            disabled={!canGrowFont(fontSize)}
+          />
+        </div>
       </div>
 
       <div
@@ -163,7 +189,8 @@ export default function BookReader({
           padding: '16px 24px',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          fontSize: fonts.scaled(14),
+          // 字号走共享档位（13–26，默认 17），与手机阅读器同一套数值。
+          fontSize: fonts.scaled(fontSize),
           lineHeight: 1.9,
           color: palette.text,
         }}

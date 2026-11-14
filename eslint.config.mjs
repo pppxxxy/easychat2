@@ -179,6 +179,11 @@ export default [
       // 复用卡片自己的 settings.<x>.* 键，分区名同理）。留在这里只剩 keywords——
       // 那些是「用户会输入什么」的匹配词，中英混排、不该翻译。
       'src/settings/searchIndex.js',
+      // 2026-11-14：桌面设置搜索索引。与上一行**完全同一类别**——keywords 是「用户会
+      // 输入什么」的匹配词（中文用户输中文、英文用户输英文），不该翻译；label 已全部
+      // 走 labelKey（复用各卡自己的 settings.<x>.* 键）。桌面独有条目只是因为这些分区
+      // （presets / location / ocr / diagnostics）在共享索引里没有对应项。
+      'desktop/src/settings/desktopSearchIndex.js',
       'src/workspace/assistant.js',
       'src/workspace/chat.js',
       'src/workspace/commands.js',
