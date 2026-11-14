@@ -21,6 +21,7 @@ export default function MessageActionsMenu({
   onEditUserMessage,
   onDeleteImageMessage,
   onBroadcast,
+  onSaveAsSticker = null,
   canRegenerate,
 }) {
   const { t } = useTranslation();
@@ -49,6 +50,15 @@ export default function MessageActionsMenu({
 
   const items = [];
   if (isMedia) {
+    // 存为表情包：与手机同判据——已经是表情包的图不再提供（避免重复收藏）。
+    // 处理（缩放/压缩/落盘）复用桌面已有的 stickerImage 链路，不在这里另实现一份。
+    if (onSaveAsSticker && !(message.image && message.image.stickerId)) {
+      items.push({
+        key: 'sticker',
+        label: t('chat.bubble.saveAsSticker'),
+        onPress: () => onSaveAsSticker(message.image),
+      });
+    }
     if (onQuote) items.push({ key: 'quote', label: t('chat.bubble.quote'), onPress: () => onQuote(message) });
     if (isUser && onEditUserMessage) items.push({ key: 'edit', label: t('chat.bubble.editResend'), onPress: () => onEditUserMessage(message.id) });
     if (onDeleteImageMessage) items.push({ key: 'delete', label: t('chat.bubble.deleteMessage'), onPress: () => onDeleteImageMessage(message.id) });

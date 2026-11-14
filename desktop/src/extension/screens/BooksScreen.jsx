@@ -26,6 +26,7 @@ import { getBridge } from '../../platform/bridge.js';
 import { documentDirectory } from '../../platform/fileSystem.js';
 import { Button, Card, Row } from '../../settings/ui.jsx';
 import RoleCommentPanel from './RoleCommentPanel.jsx';
+import BookReader from './BookReader.jsx';
 
 export default function BooksScreen({ palette, fonts }) {
   const { t } = useTranslation();
@@ -142,43 +143,31 @@ export default function BooksScreen({ palette, fonts }) {
   };
 
   if (activeBook) {
+    const readyText = content && content.bookId === activeBook.id ? content.text : '';
+    // 正文还没加载完时先显示进度提示（BookReader 需要 text 才能切章）。
+    if (!readyText) {
+      return (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${palette.divider}`, flex: 'none' }}>
+            <Button label={t('common.back')} onClick={() => { setActiveId(''); setContent(null); }} palette={palette} fonts={fonts} />
+            <strong style={{ fontSize: fonts.scaled(14) }}>{activeBook.name}</strong>
+          </div>
+          <div style={{ flex: 1, padding: 24, color: palette.textMuted, fontSize: fonts.scaled(12) }}>
+            {reading ? t('backup.progress.ratio') : t('ext.home.books.desc')}
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '10px 16px',
-          borderBottom: `1px solid ${palette.divider}`,
-          flex: 'none',
-        }}
-        >
-          <Button
-            label={t('common.back')}
-            onClick={() => { setActiveId(''); setContent(null); }}
-            palette={palette}
-            fonts={fonts}
-          />
-          <strong style={{ fontSize: fonts.scaled(14) }}>{activeBook.name}</strong>
-          <span style={{ fontSize: fonts.scaled(11), color: palette.textMuted }}>
-            {t('books.list.chars', { count: activeBook.chars || 0 })}
-          </span>
-        </div>
-        <div style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: '16px 24px',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          fontSize: fonts.scaled(14),
-          lineHeight: 1.9,
-          color: palette.text,
-        }}
-        >
-          {reading
-            ? t('backup.progress.ratio')
-            : (content && content.bookId === activeBook.id ? content.text : t('ext.home.books.desc'))}
-        </div>
+        {/* 分章阅读：切章/目录/进度都复用共享 blocks + chapterProgress（与手机同口径）。 */}
+        <BookReader
+          book={activeBook}
+          text={readyText}
+          palette={palette}
+          fonts={fonts}
+          onBack={() => { setActiveId(''); setContent(null); }}
+        />
         {/* 和角色一起读：让角色就当前的阅读内容说一句。 */}
         <div style={{ padding: '0 16px 16px', flex: 'none' }}>
           <RoleCommentPanel kind="books" target={activeBook} palette={palette} fonts={fonts} />

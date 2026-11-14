@@ -44,25 +44,26 @@ export default function useDesktopStickers({
     return () => { active = false; };
   }, []);
 
-  const importSticker = useCallback(async () => {
-    if (busyRef.current || isSending || !ready) return;
+  // 处理「已经拿到的一张图」：缩放/压缩/落盘/登记保护，交给待保存队列。
+  // 从文件选择器导入与「把消息里的图存为表情包」**共用这一段**——否则两条路径
+  // 各自实现缩放与压缩，尺寸口径必然漂移（手机端 createStickerImage 是同一份）。
+  const prepareFromUri = useCallback(async ({ uri: sourceUri, mime = 'image/jpeg', name = '', size = 0 } = {}) => {
+    const target = String(sourceUri || '');
+    if (!target) return false;
+    if (busyRef.current || isSending || !ready) return false;
     busyRef.current = true;
     setBusy(true);
-    let temporaryUri = '';
     try {
-      const result = await getBridge().media.pick('sticker-source');
-      if (!result || result.canceled || !Array.isArray(result.items) || !result.items[0]) return;
-      const item = result.items[0];
-      temporaryUri = item.uri;
-      validateImageSize({ size: item.size });
-      const base64 = await getBridge().fs.read(temporaryUri, 'base64');
-      const processed = await createStickerJpeg(base64, item.mime || 'image/jpeg');
+      if (size) validateImageSize({ size });
+      const base64 = await getBridge().fs.read(target, 'base64');
+      const processed = await createStickerJpeg(base64, mime || 'image/jpeg');
       validateImageSize({ width: processed.sourceWidth, height: processed.sourceHeight });
       const uri = `${documentDirectory}stickers/sticker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
       await getBridge().fs.write(uri, processed.base64, 'base64');
       markMediaWrite(uri);
       setPending({ uri, mime: 'image/jpeg', width: processed.width, height: processed.height });
-      setNameDraft(defaultStickerName(item.name));
+      setNameDraft(defaultStickerName(name));
+      return true;
     } catch (error) {
       const tooLarge = error && (
         error.code === 'ATTACH_IMAGE_TOO_LARGE'
@@ -72,12 +73,28 @@ export default function useDesktopStickers({
         tRef.current('chat.sticker.saveFail.title'),
         tooLarge ? tRef.current('chat.attach.readFail.tooLarge') : String((error && error.message) || tRef.current('common.error.retryLater'))
       );
+      return false;
     } finally {
-      if (temporaryUri) getBridge().fs.delete(temporaryUri, true).catch(() => {});
       busyRef.current = false;
       setBusy(false);
     }
   }, [isSending, ready]);
+
+  const importSticker = useCallback(async () => {
+    if (busyRef.current || isSending || !ready) return;
+    let temporaryUri = '';
+    try {
+      const result = await getBridge().media.pick('sticker-source');
+      if (!result || result.canceled || !Array.isArray(result.items) || !result.items[0]) return;
+      const item = result.items[0];
+      temporaryUri = item.uri;
+      // 错误提示与 busy 复位都在 prepareFromUri 里统一处理（两条路径只留一处）。
+      await prepareFromUri({ uri: item.uri, mime: item.mime, name: item.name, size: item.size });
+    } finally {
+      // 选择器给的是临时文件：无论成败都释放。
+      if (temporaryUri) getBridge().fs.delete(temporaryUri, true).catch(() => {});
+    }
+  }, [isSending, ready, prepareFromUri]);
 
   const cancelPending = useCallback(() => {
     if (pending && pending.uri) getBridge().fs.delete(pending.uri, true).catch(() => {});
@@ -155,6 +172,7 @@ export default function useDesktopStickers({
     nameDraft,
     setNameDraft,
     importSticker,
+    prepareFromUri,
     cancelPending,
     confirmSave,
     sendSticker,

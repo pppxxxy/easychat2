@@ -18,6 +18,8 @@ import {
   hasSessionUnread,
 } from '../../../src/memory/memoryBuckets.js';
 import { buildPreview } from '../../../src/context/sessionLibrary.js';
+import { countMomentsBySessionIds } from '../../../src/moments/moments.js';
+import { deleteMomentsBySessionIds, getMomentsStatus } from '../../../src/storage/moments.js';
 import { updateSessionInfo } from '../../../src/storage/sessionList.js';
 import { Alert } from '../platform/alert.js';
 import GlobalSearchPanel from './GlobalSearchPanel.jsx';
@@ -145,43 +147,104 @@ export default function MemoryListScreen({ palette, fonts, onOpenSession, onTuto
     ]);
   };
 
-  const confirmDeleteOne = (session) => {
-    Alert.alert(t('memory.deleteSession.title'), t('memory.deleteSession.body'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: () => {
-          Promise.resolve(deleteSession(session.id))
-            .then(() => refreshSessions().catch(() => {}))
-            .catch(() => Alert.alert(t('common.error.deleteFailed'), t('common.error.storageOrPermission')));
-        },
-      },
-    ]);
+  // 删除会话时先查「有没有动态锚定在这段对话上」（手机 MemoryScreen.onDelete 同款）：
+  // 直接删会话会留下指向不存在会话的孤儿动态，所以这里给第三选「连带删除」。
+  const confirmDeleteOne = session => {
+    const doDelete = async deleteMomentsToo => {
+      let momentsDeleted = false;
+      try {
+        if (deleteMomentsToo) {
+          await deleteMomentsBySessionIds([session.id]);
+          momentsDeleted = true;
+        }
+        await deleteSession(session.id);
+        refreshSessions().catch(() => {});
+      } catch (error) {
+        Alert.alert(
+          t('common.error.deleteFailed'),
+          momentsDeleted
+            ? t('memory.delete.momentsDeletedFail.body')
+            : t('common.error.storageOrPermission')
+        );
+      }
+    };
+    getMomentsStatus()
+      .then(({ status, moments }) => {
+        if (status === 'corrupt') throw new Error(t('memory.moments.readFail'));
+        return countMomentsBySessionIds(moments, [session.id]);
+      })
+      .then(count => {
+        if (count === 0) {
+          Alert.alert(t('memory.deleteSession.title'), t('memory.deleteSession.body'), [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.delete'), style: 'destructive', onPress: () => { doDelete(false); } },
+          ]);
+          return;
+        }
+        Alert.alert(
+          t('memory.deleteMemory.title'),
+          t('memory.deleteMemory.body', { count }),
+          [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('memory.deleteMemory.onlyMemory'), onPress: () => { doDelete(false); } },
+            { text: t('memory.deleteMemory.deleteAll'), style: 'destructive', onPress: () => { doDelete(true); } },
+          ]
+        );
+      })
+      .catch(() => {
+        Alert.alert(t('common.error.deleteFailed'), t('memory.delete.linkedReadFail.body'));
+      });
   };
 
   const confirmDeleteSelected = () => {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
-    Alert.alert(
-      t('memory.deleteSession.title'),
-      t('memory.deleteBatch.body', { count: ids.length }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: () => {
-            Promise.resolve(deleteSessions(ids))
-              .then(() => {
-                exitEdit();
-                refreshSessions().catch(() => {});
-              })
-              .catch(() => Alert.alert(t('common.error.deleteFailed'), t('common.error.storageOrPermission')));
-          },
-        },
-      ]
-    );
+    const doDelete = async deleteMomentsToo => {
+      let momentsDeleted = false;
+      try {
+        if (deleteMomentsToo) {
+          await deleteMomentsBySessionIds(ids);
+          momentsDeleted = true;
+        }
+        await deleteSessions(ids);
+        exitEdit();
+        refreshSessions().catch(() => {});
+      } catch (error) {
+        Alert.alert(
+          t('common.error.deleteFailed'),
+          momentsDeleted
+            ? t('memory.delete.momentsDeletedFailBatch.body')
+            : t('common.error.storageOrPermission')
+        );
+      }
+    };
+    // 批量同理：先统计关联动态数，有就给「连带删除」选项（手机 deleteBatch.bodyLinked 同款）。
+    getMomentsStatus()
+      .then(({ status, moments }) => {
+        if (status === 'corrupt') throw new Error(t('memory.moments.readFail'));
+        return countMomentsBySessionIds(moments, ids);
+      })
+      .then(linked => {
+        if (linked === 0) {
+          Alert.alert(t('memory.deleteSession.title'), t('memory.deleteBatch.body', { count: ids.length }), [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.delete'), style: 'destructive', onPress: () => { doDelete(false); } },
+          ]);
+          return;
+        }
+        Alert.alert(
+          t('memory.deleteMemory.title'),
+          t('memory.deleteBatch.bodyLinked', { count: ids.length, linked }),
+          [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('memory.deleteMemory.onlyMemory'), onPress: () => { doDelete(false); } },
+            { text: t('memory.deleteMemory.deleteAll'), style: 'destructive', onPress: () => { doDelete(true); } },
+          ]
+        );
+      })
+      .catch(() => {
+        Alert.alert(t('common.error.deleteFailed'), t('memory.delete.linkedReadFail.body'));
+      });
   };
 
   const rowMenu = (session) => {

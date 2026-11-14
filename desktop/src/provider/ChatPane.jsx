@@ -783,6 +783,12 @@ export default function ChatPane({ palette, fonts, tokens, onEditCharacter = nul
           onEditUserMessage={chat.editUserMessage}
           // 手动播报：走共享 useChatTts（会自己 resolve 角色/全局 TTS 配置）。
           onBroadcast={target => chat.broadcastMessage(String((target && target.text) || ''))}
+          // 存为表情包：复用桌面已有的图片处理链路（scale + JPEG，与手机同口径），
+          // 处理完进「命名」对话框（StickerNameDialog 已在下方挂载）。
+          onSaveAsSticker={image => {
+            if (!image || !image.uri) return;
+            stickersApi.prepareFromUri({ uri: image.uri, mime: image.mime, name: 'sticker' }).catch(() => {});
+          }}
           canRegenerate={!isSending}
         />
       ) : null}

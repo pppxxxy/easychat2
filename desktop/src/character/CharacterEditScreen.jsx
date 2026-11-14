@@ -13,6 +13,7 @@ import {
 } from '../../../src/character/cardHelpers.js';
 import { createWorldEntry, WORLD_POSITION_LABELS } from '../../../src/character/cardParser/worldInfo.js';
 import { createRegexScript } from '../../../src/character/cardParser/regexScripts.js';
+import { characterFormSignature } from '../../../src/character/cardHelpers.js';
 import { makeCharacterPresetId } from '../../../src/character/characterPresets.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { markMediaWrite } from '../../../src/storage/mediaProtection.js';
@@ -251,11 +252,28 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
     setBusy(true);
     try {
       const next = characterWithFormState(character, form);
-      await onSaved(next);
+      // 并发冲突检测（与手机 CharacterDetailScreen 同款）：打开编辑页时记下角色的
+      // 表单签名，保存时在**落库那一刻**再比一次。别处（另一个窗口/角色库快速操作）
+      // 改过就把这次保存拦下，而不是静默覆盖对方的修改。
+      const expected = characterFormSignature(character);
+      const guarded = current => {
+        if (characterFormSignature(current) !== expected) {
+          const conflict = new Error(t('character.detail.conflict.body'));
+          conflict.code = 'CHARACTER_CONFLICT';
+          throw conflict;
+        }
+        return next;
+      };
+      guarded.id = character.id;
+      await onSaved(guarded);
       baselineRef.current = JSON.stringify(form);
       Alert.alert(t('settings.api.saved.title'), t('settings.api.saved.body'));
     } catch (error) {
-      Alert.alert(t('character.edit.alert.saveFailed.title'), t('character.edit.alert.saveFailed.body'));
+      if (error && error.code === 'CHARACTER_CONFLICT') {
+        Alert.alert(t('character.detail.conflict.title'), t('character.detail.conflict.body'));
+      } else {
+        Alert.alert(t('character.edit.alert.saveFailed.title'), t('character.edit.alert.saveFailed.body'));
+      }
     } finally {
       setBusy(false);
     }
