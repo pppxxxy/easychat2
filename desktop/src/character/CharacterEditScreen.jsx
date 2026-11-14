@@ -367,7 +367,14 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
   const [form, setForm] = useState(() => buildCharacterFormState(character));
   const [busy, setBusy] = useState(false);
   const baselineRef = useRef(JSON.stringify(buildCharacterFormState(character)));
-  const dirty = useMemo(() => JSON.stringify(form) !== baselineRef.current, [form]);
+  // dirty 需要「保存成功后立刻变 false」，而 baselineRef 是 ref（不触发重算）。
+  // 用一个版本号参与 useMemo 依赖，保存后 bump 一次即可重算。
+  const [baselineVersion, setBaselineVersion] = useState(0);
+  const dirty = useMemo(
+    () => JSON.stringify(form) !== baselineRef.current,
+    // baselineVersion 是刻意的依赖：保存成功后 baseline 变了，需要重算 dirty。
+    [form, baselineVersion]
+  );
 
   useEffect(() => {
     const next = buildCharacterFormState(character);
@@ -426,6 +433,8 @@ export default function CharacterEditScreen({ character, palette, fonts, onSaved
       guarded.id = character.id;
       await onSaved(guarded);
       baselineRef.current = JSON.stringify(form);
+      // 让 dirty 立刻重算为 false（否则切 tab 仍会弹「未保存」）。
+      setBaselineVersion(current => current + 1);
       // 保存成功即无「未保存的编辑」：草稿必须清掉，否则下次进来会问「恢复吗」。
       draft.clearDraft();
       Alert.alert(t('settings.api.saved.title'), t('settings.api.saved.body'));

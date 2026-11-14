@@ -33,9 +33,21 @@ try {
       if (ok) ok.click();
     }
   }
-  // 进记忆页 -> 新建群聊
+  // 进记忆页 -> 新建群聊。
+  // 上面刚在角色编辑页改过名字：S37 起切 tab 会弹「未保存的修改」确认框，
+  // 必须点「直接离开」才会真的切过去（拦截时 setView 不会执行）。
   const memoryTab = tabButton('记忆') || tabButton('Memory');
   if (memoryTab) memoryTab.click();
+  // 弹框在点击之后才出现，所以这里等它。
+  const leave = await waitFor(() => Array.from(document.querySelectorAll('button'))
+    .find(button => String(button.textContent || '').trim() === '直接离开'), 2000);
+  if (leave) {
+    leave.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // 点「直接离开」后若没自动切页，再点一次目标 tab。
+    if (memoryTab) memoryTab.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
   const openGroup = await waitFor(() => Array.from(document.querySelectorAll('button'))
     .find(button => button.textContent === '创建群聊' || button.textContent === 'Create group'), 6000);
   let created = false;
@@ -85,7 +97,22 @@ try {
       }
     }
   }
-  return { attempted: true, opened: !!openGroup, created, sent, replySeen, speakerSeen };
+  return {
+    attempted: true,
+    opened: !!openGroup,
+    created,
+    sent,
+    replySeen,
+    speakerSeen,
+    // 诊断：找不到「创建群聊」时，看看当时在哪个页面、有哪些按钮。
+    diag: {
+      bodyHead: (document.body.innerText || '').slice(0, 160),
+      buttons: Array.from(document.querySelectorAll('button'))
+        .map(button => String(button.textContent || '').trim())
+        .filter(Boolean)
+        .slice(0, 24),
+    },
+  };
 } catch (error) {
   return { attempted: true, error: String((error && error.message) || error) };
 }

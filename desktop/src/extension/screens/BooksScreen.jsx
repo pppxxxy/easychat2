@@ -21,6 +21,8 @@ import {
   saveBookProgress,
 } from '../../../../src/books/library.js';
 import { markMediaWrite } from '../../../../src/storage/mediaProtection.js';
+// DOCX 正文抽取：共享纯函数（主进程只负责解 zip，见 electron/ipc/docx.js 的注释）。
+import { extractDocxText } from '../../../../src/books/docxText.js';
 import { Alert } from '../../platform/alert.js';
 import { getBridge } from '../../platform/bridge.js';
 import { documentDirectory } from '../../platform/fileSystem.js';
@@ -134,12 +136,16 @@ export default function BooksScreen({ palette, fonts }) {
           // DOCX：经 fs handle 分块读字节（渲染层不传任意路径给主进程），
           // 拼成 base64 交给 books:docxText 解包。
           const base64 = await readUriAsBase64(item.uri);
-          const extracted = await getBridge().books.docxText(base64);
-          if (!extracted || extracted.ok !== true || !extracted.text) {
+          // 主进程只解 zip 拿 XML；正文抽取用共享纯函数（两端同一份判定）。
+          const unpacked = await getBridge().books.docxXml(base64);
+          const text = unpacked && unpacked.ok === true
+            ? extractDocxText(unpacked.xml)
+            : '';
+          if (!text || !text.trim()) {
             Alert.alert(t('books.import.unsupported.title'), t('desktop.books.docxExtractFailed'));
             continue;
           }
-          await getBridge().fs.write(destination, extracted.text, 'utf8');
+          await getBridge().fs.write(destination, text, 'utf8');
         }
         markMediaWrite(destination);
         // 用共享层的 readBookContent 统计字符数（与手机同一口径），保证进度/分章一致。

@@ -123,8 +123,10 @@ const bridge = {
     },
   },
   books: {
-    // DOCX 正文提取：传 base64 字节，主进程解 zip 取 word/document.xml。
-    docxText: base64 => invoke('books:docxText', { base64 }),
+    // DOCX 解包：传 base64 字节，主进程用 node:zlib 取出 word/document.xml 的 XML 文本。
+    // 正文抽取在渲染层做（共享纯函数 src/books/docxText.js）——主进程的打包白名单
+    // 不含 src/，在这里 import 共享层会让打包版启动失败。
+    docxXml: base64 => invoke('books:docxXml', { base64 }),
   },
   capture: {
     // 应用内截图（看屏幕 v1）：主进程 webContents.capturePage，零权限、只截本窗口。

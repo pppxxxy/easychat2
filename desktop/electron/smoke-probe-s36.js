@@ -32,7 +32,41 @@ async function runS36Probe({ waitFor }) {
     return !!button;
   };
 
+  // 诊断：记录运行时的界面状态（顶部 tab 文案 + body 首行），失败时能直接看出卡在哪。
+  out.diag = {
+    tabs: Array.from(document.querySelectorAll('header button')).map(b => String(b.textContent || '').trim()).slice(0, 12),
+    bodyHead: (document.body.innerText || '').slice(0, 120),
+  };
+
   try {
+    // 先清掉可能存在的遮罩弹层（首启公告 / 免责声明 / 备份面板）。
+    // 本段跑到主探针末尾，此时界面上可能已经弹出这些；不关掉就点不到 tab。
+    for (const label of ['关闭', 'Close', '确定', 'OK', '取消', 'Cancel']) {
+      const closer = Array.from(document.querySelectorAll('button'))
+        .find(button => String(button.textContent || '').trim() === label);
+      if (closer) {
+        closer.click();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+
+    // 若停在角色编辑页，先「返回角色库」。
+    // 原因：S37 起切换 tab 会弹「未保存编辑」确认（共享 characterEditGuard），
+    // 探针留在编辑页就会被确认框挡住，后面所有点击都落不到目标上。
+    // 探针在编辑页改过字段 → 切换会弹「未保存的修改」。选「直接离开」。
+    const leaveBtn = Array.from(document.querySelectorAll('button'))
+      .find(button => String(button.textContent || '').trim() === '直接离开');
+    if (leaveBtn) {
+      leaveBtn.click();
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+    const backToLibrary = Array.from(document.querySelectorAll('button'))
+      .find(button => String(button.textContent || '').trim() === '返回角色库');
+    if (backToLibrary) {
+      backToLibrary.click();
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+
     // ---- 1) 设置：搜索 + 自定义配色 + 语音播报 + 语音转写 + 更新说明 ----
     const settingsTab = tabButton('设置') || tabButton('Settings');
     if (!settingsTab) {
@@ -110,6 +144,50 @@ async function runS36Probe({ waitFor }) {
     const chatTab = tabButton('聊天') || tabButton('Chat');
     if (chatTab) chatTab.click();
     await waitFor(() => !!(document.querySelector('textarea, input[type="text"]')), 4000);
+
+    // ---- 3) 角色库多选 + 扩展页新增入口 ----
+    const charTab = tabButton('角色') || tabButton('Characters');
+    if (charTab) {
+      charTab.click();
+      // 若还停在编辑页（上一段可能刚进来），先返回角色库。
+      const back = await waitFor(() => Array.from(document.querySelectorAll('button'))
+        .find(button => String(button.textContent || '').trim() === '返回角色库'), 2000);
+      if (back) {
+        back.click();
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      await waitFor(() => has('角色库'), 5000);
+      // 多选入口（character.library.select）
+      const selectBtn = Array.from(document.querySelectorAll('button'))
+        .find(button => String(button.textContent || '').trim() === '多选');
+      out.checks.characterMultiSelect = !!selectBtn;
+    }
+    if (extTab) {
+      extTab.click();
+      await waitFor(() => has('游戏中心') || has('Games'), 5000);
+      // 音乐：播放控制条（上一首/下一首/倍速/播放方式）
+      clickButtonContaining('音乐') || clickButtonContaining('Music');
+      out.checks.musicControls = !!(await waitFor(
+        () => has('播放方式') && has('播放倍速') && has('上一首'),
+        5000
+      ));
+      extTab.click();
+      await waitFor(() => has('世界地图') || has('World map'), 5000);
+      // 世界地图：真实地图视图切换
+      clickButtonContaining('世界地图') || clickButtonContaining('World map');
+      out.checks.realMapView = !!(await waitFor(
+        () => has('真实地图') && has('网格地图'),
+        5000
+      ));
+      extTab.click();
+      await waitFor(() => has('制卡工坊') || has('Card forge'), 5000);
+      // 制卡：生成头像/背景入口
+      clickButtonContaining('制卡工坊') || clickButtonContaining('Card forge');
+      out.checks.forgeImageFields = !!(await waitFor(
+        () => has('生成头像') && has('生成背景'),
+        5000
+      ));
+    }
 
     out.ok = Object.values(out.checks).every(Boolean) && out.errors.length === 0;
   } catch (error) {

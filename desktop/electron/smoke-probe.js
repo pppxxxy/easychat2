@@ -508,6 +508,18 @@
         ? await globalThis.__easychat2RunGroupChatProbe({ waitFor, sendButton })
         : { attempted: false, skipped: true };
 
+      // 进本段前先清掉可能残留的弹层（未保存确认 / 公告 / 面板）。
+      // S37 起角色编辑页有脏表单时会弹「未保存的修改」，探针刚从角色页回来，
+      // 不清掉后面点「+」会被遮住。
+      for (const label of ['直接离开', '留下编辑', '关闭', 'Close']) {
+        const closer = Array.from(document.querySelectorAll('button'))
+          .find(button => String(button.textContent || '').trim() === label);
+        if (closer && label !== '留下编辑') {
+          closer.click();
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+      }
+
       // ---- S12：顶栏「+」新建会话，且新会话**真的发得出消息** ----
       // 修复前的故障：不带开场白建会话 ⇒ greetingSelected=false ⇒ 共享层
       // useChatSend 的闸门 `if (!isGroup && !greetingReady) return false` 静默拦下

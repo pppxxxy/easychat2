@@ -138,8 +138,25 @@ async function runScreensProbe({ waitFor }) {
     library = { attempted: true, error: String((error && error.message) || error) };
   }
 
+  // 先退回角色库再切 tab：S37 起切换 tab 会弹「未保存编辑」确认
+  // （共享 characterEditGuard），留在编辑页会把后面的探针全挡在确认框后面。
+  // 探针在编辑页改过字段 → 切换会弹「未保存的修改」。选「直接离开」把状态清干净。
+  const leaveBtn = Array.from(document.querySelectorAll('button'))
+    .find(button => String(button.textContent || '').trim() === '直接离开');
+  if (leaveBtn) {
+    leaveBtn.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  const backToLibrary = Array.from(document.querySelectorAll('button'))
+    .find(button => String(button.textContent || '').trim() === '返回角色库');
+  if (backToLibrary) {
+    backToLibrary.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
   const chatTab = tabButton('聊天') || tabButton('Chat');
   if (chatTab) chatTab.click();
+  // 等聊天页渲染完（输入区出现）再返回，避免后面段落读到旧页面。
+  await waitFor(() => !!document.querySelector('textarea, input[type="text"]'), 4000);
 
   return {
     attempted: true,

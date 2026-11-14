@@ -219,14 +219,18 @@ test('待补 13：DOCX 导入（主进程解 zip + 共享纯函数抽文本）',
   assert.ok(pure.includes('decodeXmlEntities'), '应解码 XML 实体');
   const ipc = read('electron', 'ipc', 'docx.js');
   assert.ok(ipc.includes('inflateRawSync'), '应在主进程解压（zlib 只在主进程）');
-  assert.ok(ipc.includes('extractDocxText'), '解压后应交给共享纯函数');
   assert.ok(ipc.includes('MAX_DOCX_BYTES'), '应有大小上限');
   // 不接受任意路径：只收 base64 字节。
   assert.ok(ipc.includes('base64'), 'IPC 应只收 base64 字节');
+  // 关键分层：主进程**不得** import 共享层（打包白名单不含 src/，import 会让
+  // 打包版启动即失败——这是真实踩过的故障）。抽文本留给渲染层。
+  assert.ok(!/^import .*src\/books/m.test(ipc), '主进程不得 import 共享层');
+  assert.ok(ipc.includes('xml'), '主进程应返回 XML 交给渲染层');
   const preload = read('electron', 'preload.cjs');
-  assert.ok(preload.includes('docxText'), 'bridge 应暴露 docxText');
+  assert.ok(preload.includes('docxXml'), 'bridge 应暴露 docxXml');
   const books = read('src', 'extension', 'screens', 'BooksScreen.jsx');
-  assert.ok(books.includes('docxText'), '导入流程应调用 docxText');
+  assert.ok(books.includes('docxXml'), '导入流程应调用 docxXml');
+  assert.ok(books.includes('extractDocxText'), '正文抽取应在渲染层用共享纯函数');
   // 存成 txt，复用既有阅读链路。
   assert.ok(/storedExt = plain \? ext : 'txt'/.test(books), 'docx 应存成 txt');
 });
@@ -246,4 +250,20 @@ test('待补 14：制卡单字段头像/背景重生成（共享 generateImage�
   assert.ok(screen.includes('forge.imageField.bg.title'), '应有生成背景入口');
   // 与「图片制卡」的提示互不串味（独立 state）。
   assert.ok(screen.includes('fieldImageHint'), '应有独立的补充要求输入');
+});
+
+test('弹层层级：Alert 必须压在所有自绘弹层之上', () => {
+  // 打包版冒烟踩到：公告弹窗（zIndex 60）盖住 Alert 宿主（zIndex 50），
+  // 「新建会话」确认框点不到，表现为点了没反应。
+  const app = read('src', 'provider', 'DesktopApp.jsx');
+  const announcement = read('src', 'settings', 'AnnouncementDialog.jsx');
+  const importOverlay = read('src', 'character', 'ImportOverlay.jsx');
+  const zOf = source => {
+    const match = source.match(/zIndex:\s*(\d+)/);
+    return match ? Number(match[1]) : 0;
+  };
+  const alertZ = zOf(app);
+  assert.ok(alertZ > 0, 'Alert 宿主应有显式 zIndex');
+  assert.ok(alertZ > zOf(announcement), `Alert(${alertZ}) 必须高于公告(${zOf(announcement)})`);
+  assert.ok(alertZ > zOf(importOverlay), `Alert(${alertZ}) 必须高于导入遮罩(${zOf(importOverlay)})`);
 });

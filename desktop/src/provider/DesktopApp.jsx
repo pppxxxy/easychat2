@@ -98,7 +98,8 @@ function AlertHost({ palette, fonts }) {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 50,
+      // Alert 必须压在所有弹层之上（公告 60 / 导入遮罩 70 可能先打开）。
+      zIndex: 100,
     }}
     >
       <div style={{
