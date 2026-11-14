@@ -189,6 +189,56 @@ async function runS36Probe({ waitFor }) {
       ));
     }
 
+    // ---- 4) S38 补齐的入口 ----
+    if (settingsTab) {
+      settingsTab.click();
+      await waitFor(() => has('API') || has('接口'), 6000);
+      // 画面识别来源（main / ocr 切换）
+      // 分区名是「图片识别（OCR）模型」；来源选择器的标题是「看屏幕走哪个模型」。
+      clickButtonContaining('图片识别') || clickButtonContaining('Image recognition');
+      out.checks.screenWatchSource = !!(await waitFor(
+        () => has('看屏幕走哪个模型') || has('Which model screen watch uses'),
+        5000
+      ));
+    }
+    // 记忆页：展开/折叠全部
+    const memTab = tabButton('记忆') || tabButton('Memory');
+    if (memTab) {
+      memTab.click();
+      out.checks.memoryExpandAll = !!(await waitFor(
+        () => has('展开全部') || has('Expand all') || has('折叠全部') || has('Collapse all'),
+        5000
+      ));
+    }
+    // 聊天页更多菜单：公告入口
+    const chatTab2 = tabButton('聊天') || tabButton('Chat');
+    if (chatTab2) {
+      chatTab2.click();
+      await waitFor(() => !!(document.querySelector('textarea, input[type="text"]')), 5000);
+      const moreBtn = Array.from(document.querySelectorAll('button'))
+        .find(button => String(button.title || '') === '会话菜单' || String(button.title || '') === 'Conversation menu');
+      if (moreBtn) {
+        moreBtn.click();
+        out.checks.chatNoticeEntry = !!(await waitFor(
+          () => has('公告') || has('Notice'),
+          4000
+        ));
+        // 关掉菜单：点一下标题区域（菜单的 pointerdown 监听会收起）。
+        const header = document.querySelector('header');
+        if (header) {
+          const rect = header.getBoundingClientRect();
+          header.dispatchEvent(new globalThis.MouseEvent('pointerdown', {
+            bubbles: true,
+            clientX: rect.left + 4,
+            clientY: rect.top + 4,
+          }));
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      } else {
+        out.checks.chatNoticeEntry = false;
+      }
+    }
+
     out.ok = Object.values(out.checks).every(Boolean) && out.errors.length === 0;
   } catch (error) {
     out.errors.push(String((error && error.message) || error).slice(0, 200));
