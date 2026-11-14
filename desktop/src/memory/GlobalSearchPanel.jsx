@@ -8,15 +8,25 @@
 // · 只有 status==='ok' 的会话参与（损坏会话不参与，也不当成空会话）；
 // · 结果按 updatedAt 倒序。
 // 界面只负责输入、取消、渲染与点击跳转。
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
 import { searchMessages } from '../../../src/storage/sessions.js';
+import { useApp } from '../../../src/context/AppContext.js';
 import { Button, Card, Row, TextInput } from '../settings/ui.jsx';
 
 export default function GlobalSearchPanel({ open, onClose, palette, fonts, onOpenSession }) {
   const { t } = useTranslation();
   const [keyword, setKeyword] = useState('');
+  const { characters } = useApp();
+  // 搜索结果只带 characterId：角色名要在这里查（手机 SearchScreen 用 characterMap 同一做法）。
+  const characterMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(characters) ? characters : []).forEach(item => {
+      if (item && item.id) map.set(String(item.id), item);
+    });
+    return map;
+  }, [characters]);
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -93,7 +103,12 @@ export default function GlobalSearchPanel({ open, onClose, palette, fonts, onOpe
 
       {searched && results.length === 0 && !busy ? (
         <div style={{ fontSize: fonts.scaled(11), color: palette.textMuted, lineHeight: 1.7 }}>
-          {t('search.empty.notFound.description')}
+          {/* 标题 + 说明两层（手机 EmptyState 是同一对）：只有说明会让人不确定
+              到底是「没搜到」还是「还在搜」。 */}
+          <div style={{ fontWeight: 700, marginBottom: 2 }}>
+            {t('search.empty.notFound.title')}
+          </div>
+          <div>{t('search.empty.notFound.description')}</div>
         </div>
       ) : null}
 
@@ -124,7 +139,12 @@ export default function GlobalSearchPanel({ open, onClose, palette, fonts, onOpe
                 <span style={{ fontSize: fonts.scaled(10), color: palette.textFaint }}>
                   {result.sessionType === 'group' && result.sessionName
                     ? result.sessionName
-                    : (result.role === 'user' ? t('chat.bubble.me') : t('chat.displayName.defaultAssistant'))}
+                    : (result.role === 'user'
+                      ? t('chat.bubble.me')
+                      // 单聊的发言方是角色；角色已删时手机用「角色已删除」明确提示，
+                      // 而不是拿「默认助手」当兜底名（那会让人以为消息来自别人）。
+                      : (((characterMap.get(String(result.characterId || '')) || {}).name)
+                        || t('search.result.missingCharacter')))}
                 </span>
                 <span style={{
                   fontSize: fonts.scaled(12),

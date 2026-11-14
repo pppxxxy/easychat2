@@ -10,7 +10,7 @@
 //
 // 三态纪律（照抄手机）：读失败绝不能渲染成「没有记忆」，也不能把「源消息已被删」
 // 说成「找到了」——两者都会误导用户以为数据丢了或找错了。
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useApp } from '../../../src/context/AppContext.js';
 import { useTranslation } from '../../../src/i18n/I18nContext.js';
@@ -21,8 +21,12 @@ import {
   memorySources,
 } from '../../../src/memory/provenance.js';
 import { getMessagesBySessionStatus } from '../../../src/storage/sessions.js';
-import { getVectorIndexStatus } from '../../../src/storage/vector.js';
+import { getVectorIndexStatus, updateVectorIndex } from '../../../src/storage/vector.js';
+import { removeMemoryConflictsForMemories } from '../../../src/storage/memoryConflicts.js';
+import { maskEvidenceText, placementOfRole } from '../../../src/memory/evidenceText.js';
+import { getCharacterLibrary } from '../../../src/storage/characters.js';
 import { Button, Card } from '../settings/ui.jsx';
+import { Alert } from '../platform/alert.js';
 
 export default function MemoryProvenancePanel({ palette, fonts, character }) {
   const { t } = useTranslation();
@@ -31,6 +35,7 @@ export default function MemoryProvenancePanel({ palette, fonts, character }) {
   const [expanded, setExpanded] = useState('');
   // 证据链按需加载：一次读整段会话消息可能是几百条，点开哪条读哪条。
   const [evidence, setEvidence] = useState({});
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
     if (!character || !character.id) {
@@ -52,6 +57,60 @@ export default function MemoryProvenancePanel({ palette, fonts, character }) {
   }, [character]);
 
   useEffect(() => { load(); }, [load]);
+
+  // 删记忆：只动向量索引，**不碰原始消息**（消息还在会话里，删掉的只是「被记住」这件事）。
+  // 同时清掉引用它的冲突记录——否则会留下指向已删记忆的决议垃圾（手机同款清理）。
+  // 角色卡的正则脚本（display 口径脱敏的依据）。读不出来就标 failed，
+  // 让渲染处如实提示「正文是盘上原文」——而不是让「没过滤」看起来像「已过滤」。
+  const scriptsRef = useRef({ id: null, list: [], failed: false });
+  const resolveScripts = useCallback(async () => {
+    if (scriptsRef.current.id === character?.id) return scriptsRef.current;
+    try {
+      const library = await getCharacterLibrary();
+      const owner = (Array.isArray(library) ? library : [])
+        .find(item => item && String(item.id || '') === String(character?.id || ''));
+      scriptsRef.current = { id: character?.id, list: (owner && owner.regexScripts) || [], failed: false };
+    } catch (error) {
+      // 读失败：没有可用的脱敏依据 → 后续正文就是原文，必须让用户知道。
+      scriptsRef.current = { id: character?.id, list: [], failed: true };
+    }
+    return scriptsRef.current;
+  }, [character]);
+
+  const dropMemory = useCallback(async memory => {
+    if (!memory || !character || !character.id) return false;
+    const key = memoryKey(memory);
+    try {
+      await updateVectorIndex(character.id, current => {
+        const next = current.filter(item => memoryKey(item) !== key);
+        // 引用契约：一个都没删掉就原样返回（无条件造新数组会白写整索引）。
+        return next.length === current.length ? current : next;
+      });
+      await removeMemoryConflictsForMemories(character.id, [key]);
+      setEvidence(current => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      await load();
+      return true;
+    } catch (error) {
+      setNotice((error && error.message) || t('memory.provenance.actionFail'));
+      return false;
+    }
+  }, [character, load, t]);
+
+  const confirmDropMemory = useCallback(memory => {
+    if (!memory) return;
+    Alert.alert(
+      t('memory.provenance.evidence.deleteConfirm.title'),
+      t('memory.provenance.evidence.deleteConfirm.body'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => { dropMemory(memory); } },
+      ]
+    );
+  }, [dropMemory, t]);
 
   const sessionNameOf = useMemo(() => {
     const map = new Map();
@@ -87,9 +146,21 @@ export default function MemoryProvenancePanel({ palette, fonts, character }) {
         setEvidence(current => ({ ...current, [key]: { status: 'corrupt' } }));
         return;
       }
+      // 先脱敏再建链（手机同一纪律）：聊天页渲染走 display 正则，派生视图若直接渲染
+      // 原始 message.text，就把「聊天页看不到的文字」在这里全文复现了。
+      const scripts = await resolveScripts();
+      const masked = (result.messages || []).map(item => ({
+        ...item,
+        text: maskEvidenceText(item, scripts.list, placementOfRole(item.role)),
+      }));
       setEvidence(current => ({
         ...current,
-        [key]: { status: 'ok', chain: buildEvidenceChain({ memory, messages: result.messages }) },
+        [key]: {
+          status: 'ok',
+          // 正则读不出来 ⇒ 正文就是盘上原文：如实标记，渲染处显示「未脱敏」提示。
+          scriptsFailed: scripts.failed === true,
+          chain: buildEvidenceChain({ memory, messages: masked }),
+        },
       }));
     } catch (error) {
       setEvidence(current => ({ ...current, [key]: { status: 'corrupt' } }));
@@ -149,6 +220,13 @@ export default function MemoryProvenancePanel({ palette, fonts, character }) {
           {t('memory.provenance.bySession', { count: groups.length })}
         </span>
       </div>
+
+      {/* 操作失败（如删除没写成）：如实告诉用户，而不是静默回滚。 */}
+      {notice ? (
+        <div style={{ fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f', lineHeight: 1.7 }}>
+          {notice}
+        </div>
+      ) : null}
 
       {state.corrupt ? (
         <div style={{ fontSize: fonts.scaled(11), color: palette.danger || '#ff5a5f', lineHeight: 1.7 }}>
@@ -227,6 +305,11 @@ export default function MemoryProvenancePanel({ palette, fonts, character }) {
                     {record && record.status === 'ok' ? (
                       record.chain.found ? (
                         <>
+                          {record.scriptsFailed ? (
+                            <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.7 }}>
+                              {t('memory.provenance.evidence.rawTextWarning')}
+                            </div>
+                          ) : null}
                           {record.chain.before.map(item => bodyLine(item, record.chain, 'before'))}
                           {bodyLine(record.chain.source, record.chain, 'source')}
                           {record.chain.after.map(item => bodyLine(item, record.chain, 'after'))}
@@ -238,11 +321,27 @@ export default function MemoryProvenancePanel({ palette, fonts, character }) {
                         </div>
                       )
                     ) : null}
+                    {/* 合并来源：这条记忆由多段对话合成时，逐条列出出处（手机 evidence.mergedFrom）。 */}
                     {sources.length > 1 ? (
-                      <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint }}>
-                        {t('memory.provenance.badge.merged')} · {sources.length}
+                      <div style={{ fontSize: fonts.scaled(10), color: palette.textFaint, lineHeight: 1.7 }}>
+                        <div>{t('memory.provenance.evidence.mergedFrom')}</div>
+                        {sources.map(source => (
+                          <div key={`${source.sessionId}:${source.messageId}:${source.at}`}>
+                            {`${sessionNameOf(source.sessionId) || t('memory.provenance.sessionUnknown')} · ${new Date(Number(source.at) || 0).toLocaleString()}`}
+                          </div>
+                        ))}
                       </div>
                     ) : null}
+                    {/* 删除该条记忆：只从索引里移除，原始消息留在会话里（手机同语义）。 */}
+                    <div style={{ marginTop: 6 }}>
+                      <Button
+                        label={t('memory.provenance.evidence.delete')}
+                        onClick={() => confirmDropMemory(memory)}
+                        palette={palette}
+                        fonts={fonts}
+                        tone={palette.danger || '#ff5a5f'}
+                      />
+                    </div>
                   </div>
                 ) : null}
               </div>

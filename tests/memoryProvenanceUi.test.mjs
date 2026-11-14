@@ -271,9 +271,19 @@ test('P1-6a：没有脚本 / 文本为空时原样返回，不抛错', () => {
 });
 
 test('P1-6a：面板把证据链与合并来源的正文都接到脱敏函数上', () => {
-  assert.ok(MODAL.includes("import { applyRegexScripts, REGEX_PLACEMENT } from '../prompt/regexEngine.js';"));
-  assert.ok(MODAL.includes("import { getCachedDisplayText } from './displayTextCache.js';"));
-  assert.ok(MODAL.includes('const placementOfRole = role =>'), '角色→placement 判定与聊天页同源');
+  // 脱敏实现已抽到零依赖叶子 memory/evidenceText.js（桌面也要用同一份）：
+  // 判据改成「Modal 从叶子引入 + 叶子内部用同一套 regexEngine/缓存」，
+  // 比原来只看 Modal 里的字符串更能防「两端各写一份规则」。
+  assert.ok(MODAL.includes("from './evidenceText.js'"), 'Modal 应从共享叶子引入脱敏');
+  const leaf = readFileSync(
+    fileURLToPath(new URL('../src/memory/evidenceText.js', import.meta.url)),
+    'utf8'
+  );
+  assert.ok(leaf.includes("from '../prompt/regexEngine.js'"), '叶子应复用 regexEngine');
+  assert.ok(leaf.includes("from './displayTextCache.js'"), '叶子应复用 display 文本缓存');
+  assert.ok(leaf.includes('export function placementOfRole'), '角色→placement 判定应在叶子里');
+  assert.ok(leaf.includes("mode: 'display'") && leaf.includes('depth: 0'),
+    '脱敏口径必须是 display/depth 0（与聊天页同源）');
   assert.ok(
     MODAL.includes('maskEvidenceText(item, scripts.list, placementOfRole(item.role))'),
     '证据链正文（源消息 + 前后文）必须逐条过脱敏'

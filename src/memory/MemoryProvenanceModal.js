@@ -32,7 +32,7 @@ import { getMessagesBySessionStatus } from '../storage/sessions.js';
 import { getVectorIndexStatus, getVectorMemoryConfig, updateVectorIndex } from '../storage/vector.js';
 import { getCharacterLibrary } from '../storage/characters.js';
 import { applyRegexScripts, REGEX_PLACEMENT } from '../prompt/regexEngine.js';
-import { getCachedDisplayText } from './displayTextCache.js';
+import { maskEvidenceText, placementOfRole } from './evidenceText.js';
 import {
   getMemoryConflictsStatus,
   removeMemoryConflictsForMemories,
@@ -62,18 +62,9 @@ import {
   RESOLUTION_IGNORED,
 } from './conflict.js';
 
-// 角色消息按 AI 输出、用户消息按用户输入应用展示正则——与 ChatScreen.js:583-616 同一判定。
-const placementOfRole = role => (role === 'assistant' ? REGEX_PLACEMENT.AI_OUTPUT : REGEX_PLACEMENT.USER_INPUT);
-
-// 证据链 / 合并来源的正文必须与聊天页**同源脱敏**：聊天页渲染走 applyRegexScripts(..., { mode:'display' })
-//（ChatScreen.js:588-615），而角色卡正则最常见的用途恰恰是隐藏 / 改写内容——面板直接渲染
-// getMessagesBySessionStatus 读到的**原始** message.text，就是把「聊天页看不到的文字」在派生视图里全文复现
-//（同仓脱敏纪律：secretStore.js:15-17、cardForge/preview.js:60-68；depth 0 同 preview，缓存复用 displayTextCache）。
-export function maskEvidenceText(item, scripts, placement) {
-  return getCachedDisplayText(item, scripts, placement, 0, () => applyRegexScripts(
-    String((item && item.text) || ''), scripts, placement, { mode: 'display', depth: 0 }
-  ));
-}
+// 脱敏实现已抽到零依赖叶子 memory/evidenceText.js（桌面也要用同一份）：这里 re-export，
+// 既保持既有 import 点不变，也保证两端不会各写一套规则（脱敏规则复制 = 隐私风险）。
+export { maskEvidenceText, placementOfRole } from './evidenceText.js';
 
 function formatTime(at) {
   const value = Number(at) || 0;
